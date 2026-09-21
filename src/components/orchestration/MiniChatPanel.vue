@@ -26,6 +26,7 @@
         :model-value="currentModel"
         :working-directory="workingDirectory"
         :placeholder="inputPlaceholder"
+        :session-id="sessionId"
       />
     </div>
   </div>
