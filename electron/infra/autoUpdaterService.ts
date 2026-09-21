@@ -53,16 +53,14 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   autoUpdater.autoInstallOnAppQuit = false // 关闭时由我们自行调用 quitAndInstall 控制行为
   autoUpdater.disableDifferentialDownload = true // 差量下载无进度事件且易停滞，强制完整下载
 
-  // 私有仓库需要通过 token 认证访问 GitHub Releases
+  // 仓库已公开，无需 token 认证。
+  // 注意：不要传 token 给 setFeedURL — 如果传入 token（即使是过期的），
+  // electron-updater 会切换到 PrivateGitHubProvider 并在请求中携带该 token，
+  // 导致 GitHub API 返回 401 Bad credentials。
+  // app-update.yml（由 electron-builder 在打包时生成）已包含正确的公共仓库配置，
+  // 不调用 setFeedURL 时 electron-updater 会自动读取该文件。
   if (ghToken) {
-    autoUpdater.setFeedURL({
-      provider: 'github',
-      owner: 'hjdspace',
-      repo: 'SpaceCode',
-      token: ghToken,
-    })
-  } else {
-    warn('AutoUpdater', 'No GH_TOKEN found, update check may fail for private repo')
+    info('AutoUpdater', 'Public repo — ignoring GH_TOKEN from environment')
   }
 
   // 检查更新失败
