@@ -83,6 +83,16 @@ describe('initAutoUpdater', () => {
     expect(autoUpdaterMock.autoDownload).toBe(false)
     expect(autoUpdaterMock.autoInstallOnAppQuit).toBe(false)
   })
+
+  it('仓库已公开：不调用 setFeedURL，即使环境变量中存在 GH_TOKEN 也不传给 electron-updater', () => {
+    initAutoUpdater(createWindowMock(), 'some-expired-token')
+    expect(autoUpdaterMock.setFeedURL).not.toHaveBeenCalled()
+  })
+
+  it('无 token 时也不调用 setFeedURL，回退到 app-update.yml', () => {
+    initAutoUpdater(createWindowMock(), null)
+    expect(autoUpdaterMock.setFeedURL).not.toHaveBeenCalled()
+  })
 })
 
 describe('update:download handler', () => {
