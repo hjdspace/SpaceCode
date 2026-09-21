@@ -52,6 +52,10 @@
             @mouseenter="highlightedId = option.id"
           >
             <span class="option-label" :title="option.name || option.id">{{ option.name || option.id }}</span>
+            <span class="option-meta">
+              <span v-if="option.contextWindow" class="option-meta-tokens">{{ formatTokenCount(option.contextWindow) }}</span>
+              <Image v-if="option.supportsImages" :size="12" class="option-meta-image" />
+            </span>
             <Check v-if="modelValue === option.id" :size="14" class="check-icon" />
           </div>
           <div
@@ -74,13 +78,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search, ChevronDown, Check, X, Plus } from 'lucide-vue-next'
+import { Search, ChevronDown, Check, X, Plus, Image } from 'lucide-vue-next'
 import { debounce } from '@/utils/debounce'
+import { formatTokenCount } from '@/lib/modelCatalog'
 
 const { t } = useI18n()
 interface Option {
   id: string
   name?: string
+  contextWindow?: number
+  supportsImages?: boolean
 }
 
 const props = defineProps<{
@@ -401,6 +408,28 @@ watch(isOpen, (open) => {
   font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
+}
+
+.option-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.option-meta-tokens {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  line-height: 1.6;
+}
+
+.option-meta-image {
+  color: var(--accent-primary);
 }
 
 .check-icon {
