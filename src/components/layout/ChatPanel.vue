@@ -116,6 +116,7 @@
             :working-directory="paneWorkingDirectory"
             :placeholder="t('chat.askAnything')"
             :show-open-project-action="showNoProjectWelcome"
+            :session-id="paneSessionId || undefined"
           />
           <ToastNotification />
 
