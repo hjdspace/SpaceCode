@@ -8,4 +8,9 @@ export default {
   powerful: 'Powerful',
   selectModel: 'Select model...',
   useCustomModel: 'Use custom model',
+  supportsImages: 'Supports image input',
+  contextWindow: 'Context Window',
+  contextWindowPlaceholder: 'Enter token count',
+  enableImageSupport: 'Enable image input support',
+  advancedHint: 'Manually configure when API or catalog does not provide metadata.',
 }
