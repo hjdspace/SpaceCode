@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { type Locale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
-import type { ModelProfile, ProfilesFile } from '@/types/profile'
+import type { ModelProfile, ModelCapabilityOverride, ProfilesFile } from '@/types/profile'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
 
@@ -76,6 +76,8 @@ export interface AuthSettings {
   effortLevel?: 'low' | 'medium' | 'high' | 'max'
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
+  /** Per-model capability overrides (contextWindow / supportsImages). */
+  modelCapabilities?: Record<string, ModelCapabilityOverride>
   /** 是否启用 RTK (Rust Token Killer) token 优化 */
   rtkEnabled?: boolean
   /** 用户最近一次在输入框下拉中选择的模型（实际模型名，非别名）。
@@ -304,6 +306,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const installedCliPath = ref<string | null>(saved.installedCliPath || null)
   const lastViewedChangelogVersion = ref<string | null>(saved.lastViewedChangelogVersion || null)
   const modelContextWindows = ref<Record<string, number>>(saved.modelContextWindows || {})
+  const modelCapabilities = ref<Record<string, ModelCapabilityOverride>>(saved.modelCapabilities || {})
   const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
   const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
 
@@ -503,6 +506,7 @@ export const useSettingsStore = defineStore('settings', () => {
       installedCliPath: installedCliPath.value ?? undefined,
       lastViewedChangelogVersion: lastViewedChangelogVersion.value ?? undefined,
       modelContextWindows: { ...modelContextWindows.value },
+      modelCapabilities: { ...modelCapabilities.value },
       rtkEnabled: rtkEnabled.value,
       lastSelectedModel: lastSelectedModel.value || undefined
     }
@@ -590,6 +594,7 @@ export const useSettingsStore = defineStore('settings', () => {
     openaiConfig.value = { ...p.openaiConfig }
     geminiConfig.value = { ...p.geminiConfig }
     modelContextWindows.value = { ...p.modelContextWindows }
+    modelCapabilities.value = { ...p.modelCapabilities || {} }
   }
 
   async function applyProfile(id: string): Promise<void> {
@@ -624,6 +629,7 @@ export const useSettingsStore = defineStore('settings', () => {
       openaiConfig: { ...openaiConfig.value },
       geminiConfig: { ...geminiConfig.value },
       modelContextWindows: { ...modelContextWindows.value },
+      modelCapabilities: { ...modelCapabilities.value },
       createdAt: now, updatedAt: now,
     }
     profiles.value.push(p)
@@ -667,6 +673,7 @@ export const useSettingsStore = defineStore('settings', () => {
       openaiConfig: { ...src.openaiConfig },
       geminiConfig: { ...src.geminiConfig },
       modelContextWindows: { ...src.modelContextWindows },
+      modelCapabilities: { ...src.modelCapabilities || {} },
       createdAt: now, updatedAt: now,
     }
     profiles.value.push(copy)
@@ -686,6 +693,7 @@ export const useSettingsStore = defineStore('settings', () => {
       openaiConfig: { ...openaiConfig.value },
       geminiConfig: { ...geminiConfig.value },
       modelContextWindows: { ...modelContextWindows.value },
+      modelCapabilities: { ...modelCapabilities.value },
       createdAt: now, updatedAt: now,
     }
     profiles.value = [p]
@@ -724,6 +732,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
     if (settings.lastViewedChangelogVersion !== undefined) lastViewedChangelogVersion.value = settings.lastViewedChangelogVersion
     if (settings.modelContextWindows !== undefined) modelContextWindows.value = { ...settings.modelContextWindows }
+    if (settings.modelCapabilities !== undefined) modelCapabilities.value = { ...settings.modelCapabilities }
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
   }
 
@@ -860,6 +869,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setInstalledCliPath,
     lastViewedChangelogVersion,
     modelContextWindows,
+    modelCapabilities,
     getModelWith1mSuffix,
     rtkEnabled,
     lastSelectedModel,

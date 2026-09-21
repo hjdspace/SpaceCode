@@ -1,5 +1,11 @@
 import type { AuthMethod, ProviderConfig } from '@/stores/settings'
 
+/** 用户自定义模型能力覆盖（按 modelId 索引） */
+export interface ModelCapabilityOverride {
+  contextWindow?: number
+  supportsImages?: boolean
+}
+
 /**
  * 一套完整的模型配置快照。
  * 切换 Profile 时，这些字段整体替换当前生效配置。
@@ -16,6 +22,8 @@ export interface ModelProfile {
   geminiConfig: ProviderConfig
   /** 每个模型的上下文窗口大小（字节） */
   modelContextWindows: Record<string, number>
+  /** 每个模型的自定义能力覆盖（contextWindow / supportsImages） */
+  modelCapabilities?: Record<string, ModelCapabilityOverride>
   /** ISO 8601 创建时间 */
   createdAt: string
   /** ISO 8601 最后更新时间 */

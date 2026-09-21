@@ -136,6 +136,7 @@ type ModelSettingsValue = {
   openaiConfig: ProviderConfig
   geminiConfig: ProviderConfig
   oauthAccount: OAuthAccountInfo | null
+  modelCapabilities?: Record<string, import('@/types/profile').ModelCapabilityOverride>
 }
 
 const expandedProfile = computed<ModelProfile | null>(() => {
@@ -154,6 +155,7 @@ const expandedSettingsModel = computed<ModelSettingsValue | null>(() => {
     openaiConfig: p.openaiConfig,
     geminiConfig: p.geminiConfig,
     oauthAccount: store.oauthAccount,
+    modelCapabilities: p.modelCapabilities || {},
   }
 })
 
@@ -164,6 +166,7 @@ function onModelSettingsUpdate(val: ModelSettingsValue) {
     anthropicConfig: { ...val.anthropicConfig },
     openaiConfig: { ...val.openaiConfig },
     geminiConfig: { ...val.geminiConfig },
+    modelCapabilities: val.modelCapabilities ? { ...val.modelCapabilities } : undefined,
   })
 }
 

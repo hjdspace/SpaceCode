@@ -85,18 +85,41 @@
       </button>
     </div>
 
-    <div class="code-container" ref="codeContainer" v-if="appStore.currentFile">
-      <div class="code-with-lines">
-        <div class="line-numbers">
-          <div
-            v-for="lineNum in lineCount"
-            :key="lineNum"
-            class="line-number"
-            :class="{ 'current-line': isLineHighlighted(lineNum) }"
-            :ref="el => registerLineRef(lineNum, el as HTMLElement | null)"
-          >{{ lineNum }}</div>
+    <!-- Virtual scroll container -->
+    <div
+      class="code-container"
+      ref="codeContainer"
+      v-if="appStore.currentFile"
+      @scroll="onScroll"
+    >
+      <div class="code-with-lines" :style="{ height: totalHeight + 'px', position: 'relative' }">
+        <!-- Line numbers column -->
+        <div class="line-numbers" :style="{ position: 'absolute', top: 0, left: 0, bottom: 0, width: lineNumberWidth + 'px' }">
+          <div :style="{ transform: `translateY(${offsetY - LINE_PADDING}px)` }">
+            <div
+              v-for="lineNum in visibleLineNumbers"
+              :key="lineNum"
+              class="line-number"
+              :class="{ 'current-line': isLineHighlighted(lineNum) }"
+              :ref="el => registerLineRef(lineNum, el as HTMLElement | null)"
+            >{{ lineNum }}</div>
+          </div>
         </div>
-        <pre class="code-content"><code ref="codeElRef" :class="`language-${appStore.currentFile.language}`" v-html="highlightedCode"></code></pre>
+        <!-- Code content area -->
+        <pre class="code-content" :style="{ marginLeft: lineNumberWidth + 'px', position: 'absolute', top: 0, left: 0, right: 0 }">
+          <code ref="codeElRef" :class="`language-${appStore.currentFile.language}`">
+            <!-- Top spacer to push visible lines to correct scroll position -->
+            <div :style="{ height: offsetY + 'px' }"></div>
+            <div
+              v-for="item in visibleRenderItems"
+              :key="item.key"
+              class="code-line"
+              v-html="item.html"
+            ></div>
+            <!-- Bottom spacer -->
+            <div :style="{ height: bottomSpacerHeight + 'px' }"></div>
+          </code>
+        </pre>
       </div>
     </div>
     <div class="empty-state" v-else>
@@ -113,23 +136,189 @@ import { useI18n } from 'vue-i18n'
 import { FileCode, Eye, FileText, Search, ChevronUp, ChevronDown, X } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 
+// ── 常量 ──────────────────────────────────────────────────────────
+const LINE_HEIGHT = 21.6 // px, matches CSS line-height: 1.6 * 13px font
+const LINE_PADDING = 16 // px, top padding of code/line-number area
+const OVERSCAN = 5 // extra lines rendered above/below viewport
+const BASE_LINE_NUMBER_WIDTH = 60 // px, minimum width of line numbers column
+
+/** 超过此字符数的行被视为"超长行"，需要水平虚拟滚动 */
+const MAX_LINE_RENDER_CHARS = 2000
+
+/** 文件内容总字符数超过此值时跳过语法高亮，纯文本渲染（防主线程阻塞） */
+const MAX_HIGHLIGHT_CHARS = 200_000
+
 const appStore = useAppStore()
 const { t } = useI18n()
 const codeContainer = ref<HTMLElement | null>(null)
 const codeElRef = ref<HTMLElement | null>(null)
 const lineRefs = new Map<number, HTMLElement>()
 
-// ── 搜索状态 ──────────────────────────────────────────────────────
-const showSearch = ref(false)
-const searchQuery = ref('')
-const searchCaseSensitive = ref(false)
-const searchInputRef = ref<HTMLInputElement | null>(null)
-/** 所有匹配的 <mark> DOM 元素 */
-let matchElements: HTMLElement[] = []
-/** 当前选中的匹配索引 */
-const currentMatchIndex = ref(0)
-/** 匹配总数（响应式，用于模板显示） */
-const matchCount = ref(0)
+// ── 虚拟滚动状态 ────────────────────────────────────────────────────
+const scrollTop = ref(0)
+const scrollLeft = ref(0)
+const viewportHeight = ref(600)
+const viewportWidth = ref(800)
+
+// ── 文件行数据 ──────────────────────────────────────────────────────
+/** 文件所有行的原始文本（不含换行符） */
+const allLines = computed<string[]>(() => {
+  if (!appStore.currentFile) return []
+  return appStore.currentFile.content.split('\n')
+})
+
+const totalLines = computed(() => allLines.value.length)
+const totalHeight = computed(() => totalLines.value * LINE_HEIGHT + LINE_PADDING * 2)
+
+const lineNumberWidth = computed(() => {
+  const maxDigits = String(totalLines.value).length
+  return Math.max(BASE_LINE_NUMBER_WIDTH, maxDigits * 8 + 24)
+})
+
+/** 是否跳过语法高亮（大文件降级） */
+const skipHighlight = computed(() => {
+  if (!appStore.currentFile) return true
+  return appStore.currentFile.content.length > MAX_HIGHLIGHT_CHARS
+})
+
+/** 可见区域的起始行索引（0-based） */
+const startIndex = computed(() => {
+  const top = Math.max(0, scrollTop.value - LINE_PADDING - OVERSCAN * LINE_HEIGHT)
+  return Math.floor(top / LINE_HEIGHT)
+})
+
+/** 可见区域的结束行索引（0-based, exclusive） */
+const endIndex = computed(() => {
+  const visibleCount = Math.ceil(viewportHeight.value / LINE_HEIGHT) + OVERSCAN * 2
+  return Math.min(totalLines.value, startIndex.value + visibleCount)
+})
+
+/** 可见的行号列表（1-based） */
+const visibleLineNumbers = computed(() => {
+  const lines: number[] = []
+  for (let i = startIndex.value; i < endIndex.value; i++) {
+    lines.push(i + 1)
+  }
+  return lines
+})
+
+/** 上方占位高度 */
+const offsetY = computed(() => startIndex.value * LINE_HEIGHT)
+/** 下方占位高度 */
+const bottomSpacerHeight = computed(() => {
+  const rendered = endIndex.value - startIndex.value
+  return Math.max(0, (totalLines.value - startIndex.value - rendered) * LINE_HEIGHT)
+})
+
+// ── 行渲染项 ──────────────────────────────────────────────────────
+interface RenderItem {
+  key: string
+  html: string
+}
+
+/**
+ * 可见行的渲染数据。对超长行做水平截断——只渲染从 scrollLeft 开始的
+ * MAX_LINE_RENDER_CHARS 个字符，避免一次性把 772KB 内容塞入 DOM。
+ */
+const visibleRenderItems = computed<RenderItem[]>((): RenderItem[] => {
+  if (!appStore.currentFile) return []
+  const lang = appStore.currentFile.language
+  const lines = allLines.value
+  const result: RenderItem[] = []
+  // 水平偏移（字符级），按字符等宽估算
+  const charWidth = 7.8 // px per char for 13px monospace
+  const charOffset = Math.max(0, Math.floor(scrollLeft.value / charWidth))
+  const maxChars = Math.ceil(viewportWidth.value / charWidth) + MAX_LINE_RENDER_CHARS
+
+  for (let i = startIndex.value; i < endIndex.value && i < lines.length; i++) {
+    const raw = lines[i]
+    // 超长行截断：只取可见区域附近的字符
+    const truncated = raw.length > maxChars
+      ? raw.slice(charOffset, charOffset + maxChars)
+      : raw
+    result.push({
+      key: `${i}-${charOffset}`,
+      html: highlightLine(truncated, lang, i, charOffset, raw.length)
+    })
+  }
+  return result
+})
+
+// ── 逐行高亮缓存 ────────────────────────────────────────────────────
+const lineHighlightCache = new Map<string, string>()
+
+function highlightLine(
+  line: string,
+  language: string,
+  lineIndex: number,
+  charOffset: number,
+  fullLength: number
+): string {
+  const cacheKey = `${lineIndex}:${charOffset}:${line.length}`
+  const cached = lineHighlightCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  let html: string
+  // 大文件降级：跳过 hljs，直接转义
+  if (skipHighlight.value) {
+    html = escapeHtml(line)
+  } else {
+    try {
+      if (line.length > MAX_LINE_RENDER_CHARS) {
+        // 单行也超长就跳过高亮
+        html = escapeHtml(line)
+      } else if (language && hljs.getLanguage(language)) {
+        html = hljs.highlight(line, { language }).value
+      } else {
+        html = escapeHtml(line)
+      }
+    } catch {
+      html = escapeHtml(line)
+    }
+  }
+
+  // 如果行被截断，加上省略标记
+  if (fullLength > line.length) {
+    const prefix = charOffset > 0 ? '…' : ''
+    const suffix = (charOffset + line.length) < fullLength ? ' …' : ''
+    html = prefix + html + suffix
+  }
+
+  // Cache with a size limit
+  if (lineHighlightCache.size > 5000) {
+    const firstKey = lineHighlightCache.keys().next().value
+    if (firstKey !== undefined) lineHighlightCache.delete(firstKey)
+  }
+  lineHighlightCache.set(cacheKey, html)
+  return html
+}
+
+function clearLineCache() {
+  lineHighlightCache.clear()
+}
+
+// ── 滚动处理 ────────────────────────────────────────────────────────
+let scrollRaf = 0
+function onScroll() {
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+  scrollRaf = requestAnimationFrame(() => {
+    const container = codeContainer.value
+    if (!container) return
+    scrollTop.value = container.scrollTop
+    scrollLeft.value = container.scrollLeft
+    viewportHeight.value = container.clientHeight
+    viewportWidth.value = container.clientWidth - lineNumberWidth.value
+  })
+}
+
+function updateViewport() {
+  const container = codeContainer.value
+  if (!container) return
+  viewportHeight.value = container.clientHeight
+  viewportWidth.value = Math.max(200, container.clientWidth - lineNumberWidth.value)
+  scrollTop.value = container.scrollTop
+  scrollLeft.value = container.scrollLeft
+}
 
 function registerLineRef(lineNum: number, el: HTMLElement | null) {
   if (el) lineRefs.set(lineNum, el)
@@ -143,26 +332,14 @@ function isLineHighlighted(lineNum: number): boolean {
   return lineNum >= start && lineNum <= end
 }
 
-const isMarkdownFile = computed(() => {
-  return appStore.currentFile?.language === 'markdown'
-})
+// ── 文件属性 ──────────────────────────────────────────────────────
+const isMarkdownFile = computed(() => appStore.currentFile?.language === 'markdown')
+const isHtmlFile = computed(() => appStore.currentFile?.language === 'html')
 
-const isHtmlFile = computed(() => {
-  return appStore.currentFile?.language === 'html'
-})
-
-/** 在右侧 webview 面板中以渲染后的 HTML 预览文件（复用 openFileInWebview） */
 function previewHtml() {
   const filePath = appStore.currentFile?.path
-  if (filePath) {
-    appStore.openFileInWebview(filePath)
-  }
+  if (filePath) appStore.openFileInWebview(filePath)
 }
-
-const lineCount = computed(() => {
-  if (!appStore.currentFile) return 0
-  return appStore.currentFile.content.split('\n').length
-})
 
 function switchToPreview() {
   const file = appStore.currentFile
@@ -178,22 +355,6 @@ function switchToPreview() {
   }
 }
 
-const highlightedCode = computed(() => {
-  const file = appStore.currentFile
-  if (!file) return ''
-
-  try {
-    const language = file.language
-    if (language && hljs.getLanguage(language)) {
-      return hljs.highlight(file.content, { language }).value
-    }
-    return hljs.highlightAuto(file.content).value
-  } catch (error) {
-    console.error('Highlight error:', error)
-    return escapeHtml(file.content)
-  }
-})
-
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -203,39 +364,22 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
+// ── 行滚动与闪烁 ──────────────────────────────────────────────────
 function scrollToLine(lineNumber: number) {
-  if (!lineNumber) return
-
   nextTick(() => {
     const container = codeContainer.value
     if (!container) return
-
-    // Use the real DOM offset of the line element so zoom / font changes
-    // don't desync the scroll. Fall back to an estimate if the ref is missing.
-    const lineEl = lineRefs.get(lineNumber)
-    let targetTop: number
-    if (lineEl) {
-      targetTop = lineEl.offsetTop - container.clientHeight / 3
-    } else {
-      const estimated = 21.6
-      targetTop = (lineNumber - 1) * estimated - container.clientHeight / 3
-    }
+    const targetTop = (lineNumber - 1) * LINE_HEIGHT - container.clientHeight / 3
     container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+    setTimeout(() => onScroll(), 100)
   })
 }
-
-// ── 目标行定位与闪烁 ──────────────────────────────────────────────
 
 const LINE_FLASH_MS = 1600
 let flashTimer: ReturnType<typeof setTimeout> | null = null
 
-/**
- * 目标行(区间)短暂闪烁, 给"定位到此"一个明确的视觉落点。
- * 经 nextTick 等 lineRefs 注册完成(首开面板时 watch 在挂载前触发)。
- */
 function flashLines(start: number, end: number) {
   nextTick(() => {
-    // 清除上一轮闪烁, 文件切换/连续点击时不残留
     if (flashTimer) clearTimeout(flashTimer)
     lineRefs.forEach(el => el.classList.remove('line-flash'))
     const flashed: HTMLElement[] = []
@@ -264,18 +408,22 @@ watch(
       flashLines(start, end)
     }
   },
-  // immediate: 点击链接首开面板时 currentLine 在挂载前已设置,
-  // 不加 immediate 则 watch 永不触发 → 首开不滚动不定位。
   { immediate: true }
 )
 
 // ── 代码搜索逻辑 ──────────────────────────────────────────────────
+const showSearch = ref(false)
+const searchQuery = ref('')
+const searchCaseSensitive = ref(false)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+let matchElements: HTMLElement[] = []
+const currentMatchIndex = ref(0)
+const matchCount = ref(0)
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** 清除所有搜索高亮 */
 function clearHighlights() {
   const codeEl = codeElRef.value
   if (!codeEl) return
@@ -283,10 +431,8 @@ function clearHighlights() {
   marks.forEach(mark => {
     const parent = mark.parentElement
     if (!parent) return
-    // 将 mark 的文本内容还原为普通文本节点
     const text = document.createTextNode(mark.textContent || '')
     parent.replaceChild(text, mark)
-    // 合并相邻的文本节点
     parent.normalize()
   })
   matchElements = []
@@ -294,7 +440,6 @@ function clearHighlights() {
   currentMatchIndex.value = 0
 }
 
-/** 执行搜索并高亮匹配项 */
 function performSearch() {
   clearHighlights()
   const query = searchQuery.value.trim()
@@ -304,16 +449,13 @@ function performSearch() {
   const flags = searchCaseSensitive.value ? 'g' : 'gi'
   const regex = new RegExp(escaped, flags)
 
-  // 使用 TreeWalker 遍历所有文本节点（跳过已有的 mark 元素）
   const walker = document.createTreeWalker(codeElRef.value, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
       const parent = node.parentElement
       if (!parent) return NodeFilter.FILTER_REJECT
-      // 跳过 mark 元素内的文本
       if (parent.tagName === 'MARK' && parent.classList.contains('search-match')) {
         return NodeFilter.FILTER_REJECT
       }
-      // 跳过空文本节点
       if (!node.textContent) return NodeFilter.FILTER_REJECT
       return NodeFilter.FILTER_ACCEPT
     },
@@ -335,27 +477,22 @@ function performSearch() {
 
     while ((match = regex.exec(text)) !== null) {
       hasMatch = true
-      // 匹配前的普通文本
       if (match.index > lastIndex) {
         fragments.push(document.createTextNode(text.slice(lastIndex, match.index)))
       }
-      // 匹配的文本 → mark 元素
       const mark = document.createElement('mark')
       mark.className = 'search-match'
       mark.textContent = match[0]
       fragments.push(mark)
       matchElements.push(mark)
       lastIndex = match.index + match[0].length
-      // 防止零宽匹配导致死循环
       if (match[0].length === 0) regex.lastIndex++
     }
 
     if (hasMatch) {
-      // 匹配后的剩余文本
       if (lastIndex < text.length) {
         fragments.push(document.createTextNode(text.slice(lastIndex)))
       }
-      // 用片段替换原文本节点
       const parent = textNode.parentElement
       if (parent) {
         const frag = document.createDocumentFragment()
@@ -372,7 +509,6 @@ function performSearch() {
   }
 }
 
-/** 高亮当前选中项并滚动到视口 */
 function highlightCurrentMatch() {
   matchElements.forEach((el, i) => {
     el.classList.toggle('current', i === currentMatchIndex.value)
@@ -380,6 +516,7 @@ function highlightCurrentMatch() {
   const current = matchElements[currentMatchIndex.value]
   if (current && codeContainer.value) {
     current.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    setTimeout(() => onScroll(), 100)
   }
 }
 
@@ -396,11 +533,8 @@ function prevMatch() {
 }
 
 function onSearchEnter(e: KeyboardEvent) {
-  if (e.shiftKey) {
-    prevMatch()
-  } else {
-    nextMatch()
-  }
+  if (e.shiftKey) prevMatch()
+  else nextMatch()
 }
 
 function toggleSearch() {
@@ -424,11 +558,9 @@ function closeSearch() {
 
 function toggleCaseSensitive() {
   searchCaseSensitive.value = !searchCaseSensitive.value
-  // 重新搜索
   nextTick(() => performSearch())
 }
 
-// 搜索输入变化时重新搜索（防抖）
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
 watch(searchQuery, () => {
   if (searchDebounce) clearTimeout(searchDebounce)
@@ -437,34 +569,59 @@ watch(searchQuery, () => {
   }, 200)
 })
 
-// 代码内容变化时重新搜索（v-html 重渲染后 DOM 重建）
-watch(highlightedCode, () => {
-  if (showSearch.value && searchQuery.value) {
-    nextTick(() => performSearch())
-  } else if (showSearch.value) {
-    // 文件切换时清空搜索
-    clearHighlights()
+let searchOnScrollDebounce: ReturnType<typeof setTimeout> | null = null
+watch(scrollTop, () => {
+  if (!showSearch.value || !searchQuery.value) return
+  if (searchOnScrollDebounce) clearTimeout(searchOnScrollDebounce)
+  searchOnScrollDebounce = setTimeout(() => {
+    if (showSearch.value && searchQuery.value) performSearch()
+  }, 300)
+})
+
+// 文件切换时关闭搜索 + 清理缓存 + 重置滚动
+watch(() => appStore.currentFile?.path, () => {
+  if (showSearch.value) closeSearch()
+  clearLineCache()
+  scrollTop.value = 0
+  scrollLeft.value = 0
+  nextTick(() => {
+    updateViewport()
+    onScroll()
+  })
+})
+
+// ── ResizeObserver ─────────────────────────────────────────────────
+let resizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  document.addEventListener('keydown', onGlobalKeydown, true)
+  if (codeContainer.value) {
+    viewportHeight.value = codeContainer.value.clientHeight
+    viewportWidth.value = Math.max(200, codeContainer.value.clientWidth - lineNumberWidth.value)
+    // ResizeObserver may not exist in test (jsdom) environments
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => updateViewport())
+      resizeObserver.observe(codeContainer.value)
+    }
   }
 })
 
-// 文件切换时关闭搜索
-watch(() => appStore.currentFile?.path, () => {
-  if (showSearch.value) {
-    closeSearch()
-  }
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onGlobalKeydown, true)
+  if (searchDebounce) clearTimeout(searchDebounce)
+  if (flashTimer) clearTimeout(flashTimer)
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+  if (searchOnScrollDebounce) clearTimeout(searchOnScrollDebounce)
+  resizeObserver?.disconnect()
 })
 
 // ── 键盘快捷键 ────────────────────────────────────────────────────
-
 function onGlobalKeydown(e: KeyboardEvent) {
-  // Ctrl+F / Cmd+F → 打开搜索
   if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !e.shiftKey && !e.altKey) {
-    // 如果焦点已在搜索输入框中，不重复拦截
     if (document.activeElement === searchInputRef.value) {
       e.preventDefault()
       return
     }
-    // 仅在 CodeViewer 可见时拦截
     if (appStore.currentFile) {
       e.preventDefault()
       e.stopPropagation()
@@ -480,23 +637,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
       }
     }
   }
-  // F3 / Shift+F3 → 上一个/下一个
   if (e.key === 'F3' && showSearch.value) {
     e.preventDefault()
     if (e.shiftKey) prevMatch()
     else nextMatch()
   }
 }
-
-onMounted(() => {
-  document.addEventListener('keydown', onGlobalKeydown, true)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', onGlobalKeydown, true)
-  if (searchDebounce) clearTimeout(searchDebounce)
-  if (flashTimer) clearTimeout(flashTimer)
-})
 </script>
 
 <style lang="scss" scoped>
@@ -577,7 +723,6 @@ onBeforeUnmount(() => {
   }
 }
 
-// ── 搜索栏样式 ────────────────────────────────────────────────────
 .search-bar {
   display: flex;
   align-items: center;
@@ -696,10 +841,11 @@ onBeforeUnmount(() => {
   overflow: auto;
   @include scrollbar;
   background: var(--bg-primary);
+  position: relative;
 }
 
 .code-with-lines {
-  display: flex;
+  display: block;
   min-height: 100%;
 }
 
@@ -712,6 +858,7 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--border-default);
   user-select: none;
   text-align: right;
+  overflow: hidden;
 
   .line-number {
     font-family: var(--font-mono);
@@ -728,7 +875,6 @@ onBeforeUnmount(() => {
       padding: 0 12px;
     }
 
-    // 点击链接定位到行时的短暂闪烁(动画期间覆盖 current-line 的静态背景)
     &.line-flash {
       animation: line-flash-kf 1.5s ease-out;
       margin: 0 -12px;
@@ -750,7 +896,6 @@ onBeforeUnmount(() => {
 }
 
 .code-content {
-  flex: 1;
   margin: 0;
   padding: 16px;
   overflow-x: auto;
@@ -761,6 +906,13 @@ onBeforeUnmount(() => {
     line-height: 1.6;
     white-space: pre;
     color: var(--text-primary);
+    display: block;
+  }
+
+  .code-line {
+    height: 21.6px;
+    white-space: pre;
+    overflow: visible;
   }
 }
 
@@ -852,7 +1004,7 @@ onBeforeUnmount(() => {
   font-weight: bold;
 }
 
-/* ── 搜索高亮样式（全局，需作用于 v-html 注入的 mark 元素） ── */
+/* ── 搜索高亮样式 ── */
 mark.search-match {
   background: rgba(255, 213, 79, 0.35);
   color: inherit;

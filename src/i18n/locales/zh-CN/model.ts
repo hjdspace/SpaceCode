@@ -8,4 +8,9 @@ export default {
   powerful: '强力',
   selectModel: '选择模型...',
   useCustomModel: '使用自定义模型',
+  supportsImages: '支持图片输入',
+  contextWindow: '上下文窗口',
+  contextWindowPlaceholder: '输入 token 数量',
+  enableImageSupport: '启用图片输入支持',
+  advancedHint: '当 API 或目录未提供元数据时，可在此手动配置。',
 }

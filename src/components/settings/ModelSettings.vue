@@ -176,40 +176,75 @@
         </header>
 
         <div class="ms-card-body ms-models-body">
-          <div class="ms-model-row">
+          <div class="ms-model-row" v-for="slot in modelSlots" :key="slot.key">
             <div class="ms-model-row-head">
-              <span class="ms-tag ms-tag-fast">{{ $t('model.fast') }}</span>
-              <span class="ms-model-role">{{ $t('model.haikuModel') }}</span>
+              <span class="ms-tag" :class="slot.tagClass">{{ $t(slot.tagKey) }}</span>
+              <span class="ms-model-role">{{ $t(slot.roleKey) }}</span>
+              <div class="ms-model-row-tail">
+                <span v-if="slotMeta(slot.model.value)" class="ms-model-meta">
+                  <span v-if="slotMeta(slot.model.value)!.contextWindow" class="ms-meta-chip">{{ formatTokenCount(slotMeta(slot.model.value)!.contextWindow!) }}</span>
+                  <span v-if="slotMeta(slot.model.value)!.supportsImages" class="ms-meta-chip ms-meta-image" :title="$t('model.supportsImages')"><ImageIcon :size="11" /></span>
+                </span>
+                <button
+                  v-if="slot.model.value"
+                  class="ms-adv-toggle"
+                  type="button"
+                  @click="toggleSlotExpand(slot.key)"
+                  :aria-expanded="expandedSlots.has(slot.key)"
+                >
+                  <Settings2 :size="12" />
+                  <ChevronRight :size="12" class="ms-adv-chevron" :class="{ open: expandedSlots.has(slot.key) }" />
+                </button>
+              </div>
             </div>
             <SearchableSelect
-              v-model="haikuModel"
+              :modelValue="slot.model.value"
               :options="availableModels"
               :placeholder="$t('model.selectModel')"
+              @update:modelValue="slot.model.set"
             />
-          </div>
-
-          <div class="ms-model-row">
-            <div class="ms-model-row-head">
-              <span class="ms-tag ms-tag-recommended">{{ $t('model.balanced') }}</span>
-              <span class="ms-model-role">{{ $t('model.sonnetModel') }}</span>
-            </div>
-            <SearchableSelect
-              v-model="sonnetModel"
-              :options="availableModels"
-              :placeholder="$t('model.selectModel')"
-            />
-          </div>
-
-          <div class="ms-model-row">
-            <div class="ms-model-row-head">
-              <span class="ms-tag ms-tag-powerful">{{ $t('model.powerful') }}</span>
-              <span class="ms-model-role">{{ $t('model.opusModel') }}</span>
-            </div>
-            <SearchableSelect
-              v-model="opusModel"
-              :options="availableModels"
-              :placeholder="$t('model.selectModel')"
-            />
+            <!-- 高级配置：自定义上下文大小和识图能力 -->
+            <Transition name="adv-panel">
+              <div v-if="expandedSlots.has(slot.key) && slot.model.value" class="ms-adv-panel">
+                <div class="ms-adv-row">
+                  <label class="ms-adv-label">{{ $t('model.contextWindow') }}</label>
+                  <div class="ms-adv-presets">
+                    <button
+                      v-for="preset in CONTEXT_WINDOW_PRESET_VALUES"
+                      :key="preset"
+                      class="ms-adv-preset"
+                      :class="{ active: (modelCapabilities[slot.model.value]?.contextWindow ?? slotMeta(slot.model.value)?.contextWindow) === preset }"
+                      type="button"
+                      @click="updateModelCapability(slot.model.value, { contextWindow: preset })"
+                    >{{ formatTokenCount(preset) }}</button>
+                  </div>
+                  <input
+                    type="number"
+                    class="ms-adv-input"
+                    :value="modelCapabilities[slot.model.value]?.contextWindow ?? slotMeta(slot.model.value)?.contextWindow ?? ''"
+                    :placeholder="$t('model.contextWindowPlaceholder')"
+                    min="1000"
+                    step="1000"
+                    @change="(e) => {
+                      const val = Number((e.target as HTMLInputElement).value)
+                      updateModelCapability(slot.model.value, { contextWindow: val > 0 ? val : undefined })
+                    }"
+                  />
+                </div>
+                <div class="ms-adv-row">
+                  <label class="ms-adv-label">{{ $t('model.supportsImages') }}</label>
+                  <label class="ms-adv-checkbox">
+                    <input
+                      type="checkbox"
+                      :checked="modelCapabilities[slot.model.value]?.supportsImages ?? slotMeta(slot.model.value)?.supportsImages ?? false"
+                      @change="(e) => updateModelCapability(slot.model.value, { supportsImages: (e.target as HTMLInputElement).checked })"
+                    />
+                    <span>{{ $t('model.enableImageSupport') }}</span>
+                  </label>
+                </div>
+                <p class="ms-adv-hint">{{ $t('model.advancedHint') }}</p>
+              </div>
+            </Transition>
           </div>
 
           <p class="ms-hint">
@@ -226,38 +261,12 @@
             <div class="ms-card-icon"><BarChart3 :size="15" /></div>
             <h2>{{ $t('contextUsage.modelContextTitle') }}</h2>
           </div>
-          <button class="ms-link-btn" type="button" @click="resetContextWindows">
-            <RotateCcw :size="11" />
-            {{ $t('settings.resetDefault') }}
-          </button>
         </header>
 
         <div class="ms-card-body">
           <p class="ms-context-desc">{{ $t('contextUsage.modelContextDesc') }}</p>
 
-          <!-- 上半：3 列模型上下文选择 -->
-          <div class="ms-context-grid">
-            <div v-for="m in contextWindowModels" :key="m.key" class="ms-context-item">
-              <div class="ms-model-row-head">
-                <span class="ms-tag" :class="`ms-tag-${m.tagClass}`">{{ m.tag }}</span>
-                <span class="ms-model-role">{{ m.role }}</span>
-              </div>
-              <div class="ms-context-model-name" :title="m.modelId || m.placeholder">{{ m.modelId || m.placeholder }}</div>
-              <select
-                class="ms-context-select"
-                :value="getContextWindow(m.modelId)"
-                :disabled="!m.modelId"
-                @change="setContextWindow(m.modelId, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">{{ $t('contextUsage.contextWindowDefault') }}</option>
-                <option v-for="preset in contextWindowPresets" :key="preset.value" :value="preset.value">
-                  {{ preset.label }}
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <!-- 下半：上下文预览 -->
+          <!-- 上下文预览 -->
           <div class="ms-context-preview">
             <ContextUsagePreview :model-id="previewModelId" />
           </div>
@@ -269,21 +278,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import {
   Server, Bot, Crown, Key, LogIn, CheckCircle,
   Eye, EyeOff, RefreshCw, Plug, Loader2, Download,
-  XCircle, AlertCircle, BarChart3, ChevronDown, Globe, Info, RotateCcw
+  XCircle, AlertCircle, BarChart3, ChevronDown, Globe, Info, Image as ImageIcon,
+  Settings2, ChevronRight
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
-import { useSettingsStore, CONTEXT_WINDOW_PRESETS } from '@/stores/settings'
+import { useSettingsStore } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo, ProviderConfig } from '@/stores/settings'
 import SearchableSelect from './SearchableSelect.vue'
 import ContextUsagePreview from './ContextUsagePreview.vue'
 import BaseUrlPresets from './BaseUrlPresets.vue'
 import { PROVIDER_PRESETS } from '@/lib/providerPresets'
 import type { ProviderPreset } from '@/lib/providerPresets'
+import { enrichModels, formatTokenCount } from '@/lib/modelCatalog'
+import type { EnrichedModel, RawModel } from '@/lib/modelCatalog'
+import type { ModelCapabilityOverride } from '@/types/profile'
+import { loadModelCatalog } from '@/lib/modelCatalogStore'
 
 const props = defineProps<{
   modelValue: {
@@ -292,6 +306,7 @@ const props = defineProps<{
     openaiConfig: ProviderConfig
     geminiConfig: ProviderConfig
     oauthAccount: OAuthAccountInfo | null
+    modelCapabilities?: Record<string, ModelCapabilityOverride>
   }
 }>()
 
@@ -436,55 +451,80 @@ function selectProvider(target: 'anthropic' | 'openai' | 'gemini', provider: Pro
   }
 }
 
-const availableModels = ref<{ id: string; name?: string }[]>([])
+const availableModels = ref<EnrichedModel[]>([])
+
+// ── 用户自定义模型能力覆盖（来自 Profile）──
+const modelCapabilities = computed<Record<string, ModelCapabilityOverride>>(
+  () => props.modelValue.modelCapabilities || {},
+)
+
+/** 将用户自定义覆盖应用到单个 EnrichedModel */
+function applyCapabilityOverride(m: EnrichedModel): EnrichedModel {
+  const override = modelCapabilities.value[m.id]
+  if (!override) return m
+  return {
+    ...m,
+    ...(override.contextWindow !== undefined ? { contextWindow: override.contextWindow } : {}),
+    ...(override.supportsImages !== undefined ? { supportsImages: override.supportsImages } : {}),
+  }
+}
+
+/** 对整个列表应用用户覆盖 */
+function applyAllOverrides(models: EnrichedModel[]): EnrichedModel[] {
+  return models.map(applyCapabilityOverride)
+}
+
+/** 更新单个模型的能力覆盖并同步到 Profile */
+function updateModelCapability(modelId: string, patch: Partial<ModelCapabilityOverride>) {
+  const current = modelCapabilities.value
+  const existing = current[modelId] || {}
+  const updated = { ...existing, ...patch }
+  // 清理 undefined 值
+  const clean: ModelCapabilityOverride = {}
+  if (updated.contextWindow !== undefined) clean.contextWindow = updated.contextWindow
+  if (updated.supportsImages !== undefined) clean.supportsImages = updated.supportsImages
+  const next = { ...current }
+  if (Object.keys(clean).length > 0) {
+    next[modelId] = clean
+  } else {
+    delete next[modelId]
+  }
+  // 同步到父组件
+  emit('update:modelValue', { ...config.value, modelCapabilities: next })
+  emit('change')
+  // 同时更新 settingsStore
+  settingsStore.modelCapabilities = next
+}
+
+// ── 高级配置展开状态 ──
+const expandedSlots = ref<Set<string>>(new Set())
+function toggleSlotExpand(slot: string) {
+  if (expandedSlots.value.has(slot)) {
+    expandedSlots.value.delete(slot)
+  } else {
+    expandedSlots.value.add(slot)
+  }
+}
+
+const CONTEXT_WINDOW_PRESET_VALUES = [32_000, 64_000, 128_000, 200_000, 256_000, 400_000, 1_000_000]
+
+// ── 模型槽位配置（用于 v-for 渲染三排）──
+const modelSlots = computed(() => [
+  { key: 'haiku', tagClass: 'ms-tag-fast', tagKey: 'model.fast', roleKey: 'model.haikuModel', model: { get: () => haikuModel.value, set: (v: string) => { haikuModel.value = v }, value: haikuModel.value } },
+  { key: 'sonnet', tagClass: 'ms-tag-recommended', tagKey: 'model.balanced', roleKey: 'model.sonnetModel', model: { get: () => sonnetModel.value, set: (v: string) => { sonnetModel.value = v }, value: sonnetModel.value } },
+  { key: 'opus', tagClass: 'ms-tag-powerful', tagKey: 'model.powerful', roleKey: 'model.opusModel', model: { get: () => opusModel.value, set: (v: string) => { opusModel.value = v }, value: opusModel.value } },
+])
 
 const previewModelId = computed(
   () => settingsStore.config.model || sonnetModel.value || 'claude-sonnet-4-6',
 )
 
-const contextWindowPresets = CONTEXT_WINDOW_PRESETS
-
-const contextWindowModels = computed(() => [
-  { key: 'haiku', modelId: haikuModel.value, placeholder: t('model.haikuModel'), tag: t('model.fast'), tagClass: 'fast', role: 'Haiku' },
-  { key: 'sonnet', modelId: sonnetModel.value, placeholder: t('model.sonnetModel'), tag: t('model.balanced'), tagClass: 'recommended', role: 'Sonnet' },
-  { key: 'opus', modelId: opusModel.value, placeholder: t('model.opusModel'), tag: t('model.powerful'), tagClass: 'powerful', role: 'Opus' },
-])
-
-function getContextWindow(modelId: string): string {
-  if (!modelId) return ''
-  const val = settingsStore.modelContextWindows[modelId]
-  return val ? String(val) : ''
-}
-
-function setContextWindow(modelId: string, value: string) {
-  if (!modelId) return
-  const updated = { ...settingsStore.modelContextWindows }
-  if (value) {
-    updated[modelId] = parseInt(value, 10)
-  } else {
-    delete updated[modelId]
-  }
-  settingsStore.modelContextWindows = updated
-  settingsStore.saveSettings()
-  // Sync to the active profile so the setting persists across profile switches
-  const activeId = settingsStore.activeProfileId
-  if (activeId) {
-    settingsStore.updateProfile(activeId, { modelContextWindows: updated })
-  }
-}
-
-function resetContextWindows() {
-  const updated = { ...settingsStore.modelContextWindows }
-  for (const m of [haikuModel.value, sonnetModel.value, opusModel.value]) {
-    if (m && updated[m]) delete updated[m]
-  }
-  settingsStore.modelContextWindows = updated
-  settingsStore.saveSettings()
-  // Sync to the active profile so the reset persists across profile switches
-  const activeId = settingsStore.activeProfileId
-  if (activeId) {
-    settingsStore.updateProfile(activeId, { modelContextWindows: updated })
-  }
+/** 当前槽位选中模型的元数据（用于行内徽标），合并用户自定义覆盖 */
+function slotMeta(modelId: string): EnrichedModel | null {
+  if (!modelId) return null
+  const base = availableModels.value.find((m) => m.id === modelId) ?? null
+  if (!base) return null
+  return applyCapabilityOverride(base)
 }
 
 function normalizeApiUrl(baseUrl: string, provider: string): string {
@@ -501,6 +541,8 @@ function normalizeApiUrl(baseUrl: string, provider: string): string {
 
 const defaultModels = computed(() => {
   const models: { id: string; name?: string }[] = []
+  const baseUrl = activeConfig.value.baseUrl || activePlaceholder.value
+  const catalog = catalogData.value ?? {}
 
   switch (authMethod.value) {
     case 'anthropic_compatible':
@@ -533,18 +575,26 @@ const defaultModels = computed(() => {
       break
   }
 
-  return models
+  return enrichModels(models, baseUrl, catalog)
+})
+
+// 默认模型列表的目录数据（异步加载，加载完成后 computed 自动重算补全元数据）
+const catalogData = ref<Awaited<ReturnType<typeof loadModelCatalog>> | null>(null)
+onMounted(() => {
+  void loadModelCatalog().then((c) => {
+    catalogData.value = c
+  })
 })
 
 onMounted(() => {
-  availableModels.value = [...defaultModels.value]
+  availableModels.value = applyAllOverrides([...defaultModels.value])
   // Auto-fetch models from API if API key is configured
   autoFetchModels()
 })
 
 function selectAuthMethod(method: AuthMethod) {
   authMethod.value = method
-  availableModels.value = [...defaultModels.value]
+  availableModels.value = applyAllOverrides([...defaultModels.value])
   // Re-fetch models for the new provider
   autoFetchModels()
 }
@@ -581,9 +631,30 @@ async function autoFetchModels() {
 
 function onConfigFieldChange() {
   // Emit the current config so parent saves changes to profile
-  emit('update:modelValue', { ...config.value })
+  emit('update:modelValue', { ...config.value, modelCapabilities: modelCapabilities.value })
   emit('change')
 }
+
+// ── 问题1修复：监听 props 中 authMethod / baseUrl / apiKey 变化，自动刷新模型列表 ──
+// 当用户在 ProfileCards 中切换 Profile 时，props.modelValue 整体替换，
+// 此 watch 触发 autoFetchModels() 从新 provider 获取模型列表。
+watch(
+  () => {
+    // 只跟踪影响模型列表的字段，避免不必要的刷新
+    const cfg = activeConfig.value
+    return `${authMethod.value}|${cfg.baseUrl}|${cfg.apiKey}`
+  },
+  () => {
+    // 切换 provider 后重置列表为默认模型并重新获取
+    availableModels.value = applyAllOverrides([...defaultModels.value])
+    autoFetchModels()
+  },
+)
+
+// 当用户自定义能力覆盖变化时，重新应用覆盖到已有模型列表
+watch(modelCapabilities, () => {
+  availableModels.value = applyAllOverrides(availableModels.value)
+}, { deep: true })
 
 async function testConnection() {
   testing.value = true
@@ -703,10 +774,23 @@ async function fetchModels() {
       }
 
       if (models.length > 0) {
-        availableModels.value = models.map((m: any) => ({
+        const rawModels: RawModel[] = models.map((m: any) => ({
           id: m.id || m.name || String(m),
-          name: m.name || m.id || String(m)
+          name: m.name || m.id || String(m),
+          context_length: m.context_length,
+          max_context_length: m.max_context_length,
+          context_window: m.context_window,
+          max_model_len: m.max_model_len,
+          max_context_tokens: m.max_context_tokens,
+          max_completion_tokens: m.max_completion_tokens,
+          max_output_tokens: m.max_output_tokens,
+          max_tokens: m.max_tokens,
+          modalities: m.modalities,
+          input_modalities: m.input_modalities,
         }))
+        const catalog = await loadModelCatalog()
+        const rawById = new Map(rawModels.map((m) => [m.id, m]))
+        availableModels.value = applyAllOverrides(enrichModels(rawModels, baseUrl, catalog, rawById))
         connectionStatus.value = { type: 'success', message: t('auth.fetchedModels', { count: models.length }) }
       } else {
         connectionStatus.value = { type: 'warning', message: t('auth.noModelsFound') }
@@ -1134,16 +1218,11 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   }
 }
 
-/* ═══ 模型选择卡片 ═══ */
+/* ═══ 模型选择卡片（三排布局） ═══ */
 .ms-models-body {
   gap: 10px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-@media (max-width: 720px) {
-  .ms-models-body { grid-template-columns: 1fr; }
+  display: flex;
+  flex-direction: column;
 }
 
 .ms-model-row {
@@ -1161,10 +1240,42 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   }
 }
 
+.ms-model-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ms-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.ms-meta-image {
+  color: var(--accent-primary);
+  border-color: transparent;
+  background: var(--accent-primary-glow);
+}
+
 .ms-model-row-head {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.ms-model-row-tail {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .ms-tag {
@@ -1243,57 +1354,8 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   color: var(--text-muted);
 }
 
-.ms-context-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: 1px dashed var(--border-default);
-}
-
-.ms-context-item {
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  transition: border-color var(--transition-fast);
-  &:hover { border-color: var(--border-default); }
-}
-
-.ms-context-model-name {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ms-context-select {
-  width: 100%;
-  padding: 5px 8px;
-  font-size: 11px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-family: inherit;
-  outline: none;
-  &:focus { border-color: var(--accent-primary); }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
 .ms-context-preview {
   padding-top: 4px;
-}
-
-@media (max-width: 600px) {
-  .ms-context-grid { grid-template-columns: 1fr; }
 }
 
 /* ═══ 通用 ═══ */
@@ -1310,5 +1372,139 @@ async function startOAuthLogin(_isClaudeAi: boolean) {
   padding: 0 10px;
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* ═══ 高级配置展开区域 ═══ */
+.ms-adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  &:hover {
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+    background: var(--accent-primary-glow);
+  }
+  .ms-adv-chevron {
+    transition: transform var(--transition-fast);
+    &.open { transform: rotate(90deg); }
+  }
+}
+
+.ms-adv-panel {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ms-adv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ms-adv-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  min-width: 80px;
+}
+
+.ms-adv-presets {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ms-adv-preset {
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  &:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+  &.active {
+    background: var(--accent-primary-glow);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+    font-weight: 600;
+  }
+}
+
+.ms-adv-input {
+  width: 100px;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition-fast);
+  &:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--accent-primary-glow);
+  }
+}
+
+.ms-adv-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  input { cursor: pointer; }
+}
+
+.ms-adv-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* 高级面板展开/收起动画 */
+.adv-panel-enter-active,
+.adv-panel-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.adv-panel-enter-from,
+.adv-panel-leave-to {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.adv-panel-enter-to,
+.adv-panel-leave-from {
+  opacity: 1;
+  max-height: 300px;
 }
 </style>
