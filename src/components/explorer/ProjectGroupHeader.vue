@@ -12,14 +12,14 @@
   >
     <!-- Expand/Collapse Chevron -->
     <span class="chevron">
-      <ChevronRight v-if="isCollapsed" :size="14" />
-      <ChevronDown v-else :size="14" />
+      <ChevronRight v-if="isCollapsed" :size="12" />
+      <ChevronDown v-else :size="12" />
     </span>
 
     <!-- Folder Icon -->
     <span class="folder-icon">
-      <Folder v-if="isCollapsed" :size="16" />
-      <FolderOpen v-else :size="16" />
+      <Folder v-if="isCollapsed" :size="14" />
+      <FolderOpen v-else :size="14" />
     </span>
 
     <!-- Project Name -->
@@ -35,7 +35,7 @@
         :aria-label="t('explorer.newSessionAria')"
         @click.stop="$emit('create-session', $event)"
       >
-        <Plus :size="14" />
+        <Plus :size="12" />
       </button>
 
       <!-- Three-dot Menu -->
@@ -46,7 +46,7 @@
           :aria-label="t('explorer.projectMenuAria')"
           @click.stop="toggleMenu"
         >
-          <MoreVertical :size="14" />
+          <MoreVertical :size="12" />
         </button>
 
         <!-- Dropdown Menu -->
@@ -231,15 +231,20 @@ if (typeof window !== 'undefined') {
 
 .folder-icon {
   flex-shrink: 0;
-  color: var(--accent-primary);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: color var(--transition-fast);
+}
+
+.project-group-header.current .folder-icon {
+  color: var(--accent-primary);
 }
 
 .folder-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
@@ -263,8 +268,8 @@ if (typeof window !== 'undefined') {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);

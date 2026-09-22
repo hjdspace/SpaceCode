@@ -65,7 +65,7 @@
           :aria-label="t('explorer.sessionMenu')"
           @click.stop="toggleMenu"
         >
-          <MoreVertical :size="16" />
+          <MoreVertical :size="14" />
         </button>
       </div>
     </Transition>
@@ -338,7 +338,7 @@ onUnmounted(() => {
 .session-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 6px 8px;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -533,9 +533,10 @@ onUnmounted(() => {
 }
 
 .time-display {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
-  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
   transition: opacity var(--transition-fast);
   overflow: hidden;
   text-overflow: ellipsis;

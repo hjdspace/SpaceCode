@@ -2,7 +2,7 @@
   <div class="session-list">
     <!-- Empty State -->
     <div v-if="projectGroups.length === 0" class="empty-state">
-      <span>{{ t('explorer.noSessions') }}</span>
+      <span>{{ searchActive ? t('explorer.noMatchSearch', { query: searchQuery }) : t('explorer.noSessions') }}</span>
     </div>
 
     <!-- Project Groups -->
@@ -37,7 +37,7 @@
           @after-enter="onAfterEnter"
           @leave="onLeave"
         >
-          <div v-show="!collapsedProjects.has(group.workingDirectory)" class="sessions-container">
+          <div v-show="searchActive || !collapsedProjects.has(group.workingDirectory)" class="sessions-container">
             <div class="sessions-list">
               <SessionListItem
                 v-for="session in getVisibleSessions(group)"
@@ -105,6 +105,8 @@ interface Props {
   currentProject?: string
   showRemoveButton?: boolean
   loadingSessionId?: string | null
+  searchActive?: boolean
+  searchQuery?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -114,7 +116,9 @@ const props = withDefaults(defineProps<Props>(), {
   projects: () => [],
   currentProject: '',
   showRemoveButton: false,
-  loadingSessionId: null
+  loadingSessionId: null,
+  searchActive: false,
+  searchQuery: ''
 })
 
 const emit = defineEmits<{
@@ -226,6 +230,8 @@ function toggleProject(workingDirectory: string) {
 }
 
 function shouldTruncate(group: { sessions: Session[]; workingDirectory: string }): boolean {
+  // 搜索时展示全部匹配结果，不截断
+  if (props.searchActive) return false
   return group.sessions.length > SESSION_TRUNCATE_LIMIT
 }
 
@@ -369,7 +375,7 @@ function onLeave(el: Element, done: () => void) {
 .sessions-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   padding-left: 8px;
   margin-top: 2px;
 }
@@ -377,7 +383,7 @@ function onLeave(el: Element, done: () => void) {
 .show-more-btn {
   width: 100%;
   padding: 6px 8px;
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
   opacity: 0.6;
   background: transparent;
