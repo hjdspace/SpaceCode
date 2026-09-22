@@ -462,12 +462,44 @@ async function handleRevert() {
   flex-direction: column;
   flex: 1; /* 关键：填充剩余空间 */
   min-height: 0; /* 关键：允许收缩 */
+
+  /* DiffView 内部各层高度默认由内容决定，横向滚动条挂在表格容器
+     (.diff-table-scroll-container) 的底边。逐层撑满高度后，内容不足
+     一屏时横向滚动条才能贴住面板底部，而不是悬浮在内容末尾。 */
+  :deep(.diff-tailwindcss-wrapper),
+  :deep(.diff-style-root) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* unified 视图：纵向滚动由 .git-diff-container 承担，此层撑满视口高度 */
+  :deep(.unified-diff-view) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* split 视图：左右两栏各自横向滚动，取消 stretch 防止超高表格被
+     overflow-y: hidden 裁掉导致纵向无法滚动 */
+  :deep(.split-diff-view) {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: flex-start;
+  }
+
+  /* 表格容器至少撑满一屏，横向滚动条贴底 */
+  :deep(.diff-table-scroll-container) {
+    min-height: 100%;
+  }
 }
 
 .git-diff-container {
   flex: 1;
   overflow-y: auto;
   min-height: 0; /* 关键：确保高度正确传递给 DiffView */
+  display: flex;
+  flex-direction: column;
 
   /* 覆盖默认样式以匹配当前主题 */
   --gdc-bg-color: var(--gdc-bg-color, #0d1117);
