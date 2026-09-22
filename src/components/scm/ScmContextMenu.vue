@@ -52,8 +52,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Copy, FileText, GitCompare, Plus, Trash2, Undo2 } from 'lucide-vue-next'
-import { api } from '@/services/electronAPI'
 import { useScmActions } from '@/composables/useScmActions'
+import { useAppStore } from '@/stores/app'
 import type { ScmFile } from '@/stores/scm'
 
 const props = defineProps<{
@@ -68,6 +68,7 @@ const emit = defineEmits<{ close: [] }>()
 
 const { t } = useI18n()
 const actions = useScmActions()
+const appStore = useAppStore()
 
 const menuRef = ref<HTMLElement>()
 const MENU_WIDTH = 180
@@ -83,7 +84,8 @@ function close(): void {
 }
 
 function handleOpenFile(): void {
-  if (props.file) api.openInEditor('vscode', props.file.path)
+  // ScmFile.path 是 git 返回的相对路径, openFile 内部会解析为绝对路径并在右侧面板打开
+  if (props.file) appStore.openFile(props.file.path)
   close()
 }
 
