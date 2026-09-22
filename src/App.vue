@@ -75,6 +75,7 @@
     <WorkspaceOnboarding v-if="appStore.showWorkOnboarding" />
     <FileQuickOpen v-if="appStore.showFileQuickOpen" />
     <DialogProvider />
+    <SelectionActionBar />
   </div>
 </template>
 
@@ -90,6 +91,7 @@ import TitleBar from './components/layout/TitleBar.vue'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplitContainer from './components/layout/SplitContainer.vue'
 import DialogProvider from './components/common/DialogProvider.vue'
+import SelectionActionBar from './components/common/SelectionActionBar.vue'
 import AsyncLoadingState from './components/common/AsyncLoadingState.vue'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
