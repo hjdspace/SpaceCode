@@ -62,6 +62,13 @@ export function serializeCommandChip(name: string, kind: string, source: string)
   return `/cmd:"${cmdName}":${kind}:${source} `
 }
 
+/** Serialize quote attachments to blockquote text (sent to the model) */
+export function serializeQuoteAttachments(quotes: { text: string }[]): string {
+  return quotes
+    .map(q => q.text.split('\n').map(line => `> ${line}`).join('\n'))
+    .join('\n\n')
+}
+
 /** Check if content has meaningful text */
 export function hasMeaningfulContent(text: string): boolean {
   return text.trim().length > 0
