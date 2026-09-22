@@ -33,7 +33,7 @@
       </div>
     </div>
 
-    <div class="viewer-body">
+    <div class="viewer-body" ref="viewerBodyRef">
       <div v-if="mode === 'preview'" class="preview-pane">
         <MarkdownRenderer :content="content" :file-path="filePath" />
       </div>
@@ -46,11 +46,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Eye, Code2, FileText } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import { registerSelectionHost } from '@/composables/useSelectionActions'
 
 type ViewMode = 'preview' | 'source'
 
@@ -93,6 +94,53 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
+
+// ── 选中文字浮动操作条 ────────────────────────────────────────────
+const viewerBodyRef = ref<HTMLElement | null>(null)
+
+/** source 模式: 将 DOM 选区映射到 props.content 的绝对偏移; preview 模式: 仅返回文本(absStart=-1 交由字符串回退) */
+function getSelectionInfo(): { absStart: number; absEnd: number; text: string; startLine: number; endLine: number } | null {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null
+  const range = sel.getRangeAt(0)
+  const text = sel.toString()
+  if (!text.trim()) return null
+
+  if (mode.value === 'source') {
+    const codeEl = viewerBodyRef.value?.querySelector('.source-code code')
+    if (!codeEl || !codeEl.contains(range.commonAncestorContainer)) return null
+    const walker = document.createTreeWalker(codeEl, NodeFilter.SHOW_TEXT)
+    let start = -1
+    let end = -1
+    let count = 0
+    let n: Node | null
+    while ((n = walker.nextNode())) {
+      const len = (n.textContent || '').length
+      if (n === range.startContainer) start = count + range.startOffset
+      if (n === range.endContainer) end = count + range.endOffset
+      count += len
+    }
+    if (start < 0 || end < 0 || end <= start) return null
+    return { absStart: start, absEnd: end, text, startLine: 0, endLine: 0 }
+  }
+
+  // preview 模式: 渲染 DOM 文本与 markdown 源码不一一对应, 交给字符串回退定位
+  return { absStart: -1, absEnd: -1, text, startLine: 0, endLine: 0 }
+}
+
+let unregisterSelectionHost: (() => void) | undefined
+onMounted(() => {
+  if (viewerBodyRef.value) {
+    unregisterSelectionHost = registerSelectionHost(viewerBodyRef.value, {
+      context: 'file',
+      getSelectionInfo,
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  unregisterSelectionHost?.()
+})
 </script>
 
 <style lang="scss" scoped>
