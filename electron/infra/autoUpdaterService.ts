@@ -15,15 +15,29 @@ let mainWindow: BrowserWindow | null = null
 let checkInterval: ReturnType<typeof setInterval> | null = null
 
 // ── 下载链路（自动静默下载与手动下载共用） ──
-// 差量下载走 blockmap 多 range 请求时不产生 download-progress 事件，
-// 且对 GitHub CDN 的大量小 range 请求 RTT-bound、国内网络下极易停滞，
-// 表现为"转圈无进度"，因此强制完整下载（参考 cc-haha 的 updater 实现）。
+// 差量优先：electron-updater 6.8.9 的差量下载会发出 download-progress 事件，
+// 小版本更新只下载 blockmap 增量块，速度远快于全量。差量尝试失败（停滞/报错）
+// 后置 disableDifferentialDownload = true，本次链路的剩余尝试回退全量下载；
+// 下一次新的下载链路会重新尝试差量。
+// 超时按"停滞窗口"计算：每次 download-progress 重置计时，窗口内无任何进度
+// 视作链路停滞（大量小 range 请求 RTT-bound 挂起）→ 取消请求进入重试。
+// 因此"慢但在动"的下载不会被截断，只有真正停滞才会重试。
 const MAX_DOWNLOAD_ATTEMPTS = 3
 const RETRY_DELAY_MS = 30_000 // 重试间隔 30 秒
-const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 单次尝试 5 分钟超时
+const DOWNLOAD_STALL_TIMEOUT_MS = 5 * 60 * 1000 // 全量下载停滞窗口 5 分钟
+// 差量应远快于全量，窗口取 60 秒，与渲染端"60 秒无进度提示网络问题"对齐
+const DIFFERENTIAL_STALL_TIMEOUT_MS = 60_000
+
+// ── 检查更新 ──
+// Chromium 对 GitHub 的挂起连接约 60s 才超时，竞速超时只约束我们的等待，
+// electron-updater 仍可能在稍后完成并发出事件（fire-and-forget 语义）。
+const AUTO_CHECK_TIMEOUT_MS = 8_000 // 自动检查失败保持静默
+const MANUAL_CHECK_TIMEOUT_MS = 15_000 // 手动检查超时向渲染端报错
 
 // 进行中的下载链路；自动与手动下载共享同一条链，失败向调用方传播
 let downloadChain: Promise<void> | null = null
+// 当前停滞窗口的活动钩子：download-progress 事件到达时重置计时
+let notifyDownloadActivity: (() => void) | null = null
 
 // ── 安装状态 ──
 let updateDownloaded = false
@@ -51,7 +65,13 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   // 配置 electron-updater
   autoUpdater.autoDownload = false        // 不由 electron-updater 自动下载，我们自行管理重试逻辑
   autoUpdater.autoInstallOnAppQuit = false // 关闭时由我们自行调用 quitAndInstall 控制行为
-  autoUpdater.disableDifferentialDownload = true // 差量下载无进度事件且易停滞，强制完整下载
+  // 差量优先：小版本更新只下载 blockmap 增量块；下载链路在差量尝试失败时
+  // 自动置回 true 回退全量（见 runDownloadChain）
+  autoUpdater.disableDifferentialDownload = false
+  // 显式固定跟踪 GitHub latest 稳定版：electron-updater 构造时若发现当前版本
+  // 含 prerelease 组件（如 0.8.1-rc.1）会把 allowPrerelease 置 true 并钉死在
+  // rc channel，导致永远收不到更新的稳定版
+  autoUpdater.allowPrerelease = false
 
   // 仓库已公开，无需 token 认证。
   // 注意：不要传 token 给 setFeedURL — 如果传入 token（即使是过期的），
@@ -90,6 +110,8 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
 
   // 下载进度
   autoUpdater.on('download-progress', (progress) => {
+    // 重置当前下载尝试的停滞窗口
+    notifyDownloadActivity?.()
     info('AutoUpdater', `Download progress: ${progress.percent.toFixed(1)}% (${progress.transferred}/${progress.total} bytes, ${progress.bytesPerSecond} B/s)`)
     sendToRenderer(UPDATE_EVENTS.onDownloadProgress, {
       bytesPerSecond: progress.bytesPerSecond,
@@ -119,6 +141,39 @@ export function initAutoUpdater(win: BrowserWindow, ghToken: string | null) {
   }, 6 * 60 * 60 * 1000)
 }
 
+/**
+ * 竞速超时：只约束我们的等待，不取消底层 promise。
+ * 超时后 electron-updater 的检查仍可能在稍后完成并发出
+ * update-available / update-not-available 事件。
+ */
+function raceWithTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    )
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
+
+/** 自动检查（启动延迟检查 + 定期检查）：失败/超时保持静默，不打扰用户 */
+async function checkForUpdates() {
+  try {
+    await raceWithTimeout(autoUpdater.checkForUpdates(), AUTO_CHECK_TIMEOUT_MS, 'update check')
+  } catch (err) {
+    warn('AutoUpdater', 'Periodic check failed or timed out (electron-updater may still complete later)', err)
+  }
+}
+
 export function destroyAutoUpdater() {
   if (checkInterval) {
     clearInterval(checkInterval)
@@ -140,14 +195,6 @@ export function installUpdateOnQuit() {
   }
 }
 
-async function checkForUpdates() {
-  try {
-    await autoUpdater.checkForUpdates()
-  } catch (err) {
-    warn('AutoUpdater', 'Periodic check failed', err)
-  }
-}
-
 /**
  * 启动（或复用进行中的）下载链路。
  *
@@ -159,6 +206,8 @@ async function checkForUpdates() {
  */
 function startDownloadChain(): Promise<void> {
   if (downloadChain) return downloadChain
+  // 每条新链路重新尝试差量（上一条链路可能已回退全量）
+  autoUpdater.disableDifferentialDownload = false
   downloadChain = runDownloadChain().finally(() => {
     downloadChain = null
   })
@@ -167,14 +216,28 @@ function startDownloadChain(): Promise<void> {
 
 async function runDownloadChain(): Promise<void> {
   for (let attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
+    const useDifferential = !autoUpdater.disableDifferentialDownload
     const token = new CancellationToken()
     try {
-      info('AutoUpdater', `Download attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS}`)
-      await withTimeout(autoUpdater.downloadUpdate(token), DOWNLOAD_TIMEOUT_MS, token)
+      info(
+        'AutoUpdater',
+        `Download attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS} (${useDifferential ? 'differential' : 'full'})`,
+      )
+      await withStallTimeout(
+        autoUpdater.downloadUpdate(token),
+        useDifferential ? DIFFERENTIAL_STALL_TIMEOUT_MS : DOWNLOAD_STALL_TIMEOUT_MS,
+        token,
+      )
       return // 下载成功 → update-downloaded 事件已触发
     } catch (err: any) {
       token.cancel() // 中断停滞的请求，让 electron-updater 释放内部 downloadPromise
-      error('AutoUpdater', `Download attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS} failed`, err)
+      if (useDifferential && attempt < MAX_DOWNLOAD_ATTEMPTS) {
+        // 差量尝试失败（停滞/报错）→ 剩余尝试回退全量下载
+        autoUpdater.disableDifferentialDownload = true
+        warn('AutoUpdater', 'Differential download failed, falling back to full download', err)
+      } else {
+        error('AutoUpdater', `Download attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS} failed`, err)
+      }
       if (attempt === MAX_DOWNLOAD_ATTEMPTS) {
         sendToRenderer(UPDATE_EVENTS.onError, `Download failed: ${err?.message || String(err)}`)
         throw err
@@ -184,19 +247,39 @@ async function runDownloadChain(): Promise<void> {
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, token: CancellationToken): Promise<T> {
+/**
+ * 停滞窗口超时：每次 download-progress 事件重置计时，窗口内无任何进度
+ * 视作链路停滞 → 取消请求（token.cancel）并拒绝，进入下一次尝试。
+ * "慢但在动"的下载不会被打断。
+ */
+function withStallTimeout<T>(promise: Promise<T>, ms: number, token: CancellationToken): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const onActivity = () => {
+      if (timer) {
+        clearTimeout(timer)
+        timer = setTimeout(onTimeout, ms)
+      }
+    }
+    function onTimeout() {
+      cleanup()
       token.cancel()
-      reject(new Error(`Download timeout after ${Math.round(ms / 1000)} seconds`))
-    }, ms)
+      reject(new Error(`Download stalled: no progress for ${Math.round(ms / 1000)} seconds`))
+    }
+    function cleanup() {
+      if (timer) clearTimeout(timer)
+      timer = null
+      notifyDownloadActivity = null
+    }
+    notifyDownloadActivity = onActivity
+    timer = setTimeout(onTimeout, ms)
     promise.then(
       (value) => {
-        clearTimeout(timer)
+        cleanup()
         resolve(value)
       },
       (err) => {
-        clearTimeout(timer)
+        cleanup()
         reject(err)
       },
     )
@@ -215,7 +298,9 @@ export function registerAutoUpdaterIPC() {
       return { success: false, error: 'Updates not available in development mode' }
     }
     try {
-      await autoUpdater.checkForUpdates()
+      // 竞速超时避免 GitHub 挂起连接（约 60s）卡住关于页的转圈；
+      // 超时后 electron-updater 仍可能在稍后完成并触发下载链路
+      await raceWithTimeout(autoUpdater.checkForUpdates(), MANUAL_CHECK_TIMEOUT_MS, 'update check')
       return { success: true }
     } catch (err: any) {
       error('AutoUpdater', 'Manual check failed', err)
