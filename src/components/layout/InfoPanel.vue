@@ -1,5 +1,5 @@
 <template>
-  <aside class="info-panel" :class="[mode]">
+  <aside class="info-panel" :class="[mode, { fullscreen: appStore.infoPanelFullscreen }]">
     <InfoPanelTabBar />
 
     <div class="panel-content">
@@ -462,6 +462,13 @@ watch(() => appStore.webviewUrl, () => {
   flex-direction: column;
   position: relative;
   animation: slideInRight var(--transition-normal) ease-out;
+
+  &.fullscreen {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    flex: 1;
+  }
 
   &::before {
     content: '';
