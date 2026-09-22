@@ -8,7 +8,7 @@
  */
 import { ref } from 'vue'
 import { useChatSessionStore } from '@/stores/chatSession'
-import type { Attachment, ImageAttachment } from '@/composables/types'
+import type { Attachment, ImageAttachment, TextQuoteAttachment } from '@/composables/types'
 
 // ── Pure logic (exported for testing) ──────────────────────────
 
@@ -16,6 +16,7 @@ export interface StashData {
   text: string
   attachments: Attachment[]
   images: ImageAttachment[]
+  quotes?: TextQuoteAttachment[]
   editorHtml: string
 }
 
@@ -37,12 +38,14 @@ export function createStashData(
   text: string,
   attachments: Attachment[],
   images: ImageAttachment[],
-  editorHtml: string
+  editorHtml: string,
+  quotes: TextQuoteAttachment[] = []
 ): StashData {
   return {
     text,
     attachments: attachments.map(f => ({ ...f })),
     images: images.map(img => ({ ...img })),
+    quotes: quotes.map(q => ({ ...q })),
     editorHtml,
   }
 }
@@ -141,7 +144,8 @@ export function usePromptStash() {
     attachedImages: ImageAttachment[],
     editorHtml: string,
     onClear: () => void,
-    onRestore: () => void
+    onRestore: () => void,
+    attachedQuotes: TextQuoteAttachment[] = []
   ) {
     const sid = sessionStore.currentSessionId
     if (!sid) return
@@ -159,7 +163,7 @@ export function usePromptStash() {
     }
 
     if (action === 'stash') {
-      const stash = createStashData(content, attachedFiles, attachedImages, editorHtml)
+      const stash = createStashData(content, attachedFiles, attachedImages, editorHtml, attachedQuotes)
       sessionStore.stashPrompt(sid, stash)
       onClear()
       showStashHint.value = true
@@ -172,7 +176,8 @@ export function usePromptStash() {
     onRestoreFiles: (files: Attachment[]) => void,
     onRestoreImages: (images: ImageAttachment[]) => void,
     onRestoreText: (text: string) => void,
-    onFocus: () => void
+    onFocus: () => void,
+    onRestoreQuotes?: (quotes: TextQuoteAttachment[]) => void
   ) {
     const sid = sessionStore.currentSessionId
     if (!sid) return
@@ -186,6 +191,7 @@ export function usePromptStash() {
 
     onRestoreFiles(stash.attachments.map(f => ({ ...f })))
     onRestoreImages(stash.images.map(img => ({ ...img })))
+    onRestoreQuotes?.(stash.quotes?.map(q => ({ ...q })) ?? [])
     onRestoreText(stash.text)
 
     sessionStore.clearStash(sid)
