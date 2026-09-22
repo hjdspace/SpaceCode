@@ -70,7 +70,8 @@
           v-for="quote in attachedQuotes"
           :key="quote.id"
           class="quote-chip"
-          :title="quote.text"
+          @mouseenter="showQuoteTooltip(quote, $event)"
+          @mouseleave="hideQuoteTooltip"
         >
           <Quote :size="13" class="quote-chip-icon" />
           <span class="quote-chip-text">{{ quote.text }}</span>
@@ -365,6 +366,18 @@
           </button>
           <div class="image-preview-name">{{ imagePreviewName }}</div>
         </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 引用文本附件悬停提示（主题化浮窗，替代原生 title） -->
+    <Teleport to="body">
+      <Transition name="quote-tooltip">
+        <div
+          v-if="quoteTooltip.visible"
+          ref="quoteTooltipRef"
+          class="quote-tooltip"
+          :style="quoteTooltip.style"
+        >{{ quoteTooltip.text }}</div>
       </Transition>
     </Teleport>
   </div>
@@ -666,6 +679,46 @@ function addQuoteAttachment(quote: { id: string; text: string }) {
 function removeQuoteAttachment(id: string) {
   const idx = attachedQuotes.value.findIndex(q => q.id === id)
   if (idx >= 0) attachedQuotes.value.splice(idx, 1)
+  hideQuoteTooltip()
+}
+
+// ── Quote chip 悬停提示（主题化浮窗） ─────────────────────────────
+const quoteTooltipRef = ref<HTMLElement | null>(null)
+const quoteTooltip = ref<{ visible: boolean; text: string; style: Record<string, string> }>({
+  visible: false,
+  text: '',
+  style: {},
+})
+
+function showQuoteTooltip(quote: { id: string; text: string }, e: MouseEvent) {
+  const chip = e.currentTarget as HTMLElement
+  // 先以 visibility: hidden 渲染以便测量尺寸（display: none 会测得 0, 导致定位遮挡 chip）
+  quoteTooltip.value = { visible: true, text: quote.text, style: { visibility: 'hidden' } }
+  nextTick(() => positionQuoteTooltip(chip))
+}
+
+function hideQuoteTooltip() {
+  quoteTooltip.value = { ...quoteTooltip.value, visible: false }
+}
+
+function positionQuoteTooltip(chip: HTMLElement) {
+  const el = quoteTooltipRef.value
+  if (!el) return
+  const rect = chip.getBoundingClientRect()
+  const gap = 6
+  const margin = 8
+  const width = el.offsetWidth
+  const height = el.offsetHeight
+  // 与 chip 左对齐，超出右边缘时右移钳位
+  const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin)
+  // 默认在 chip 上方，空间不足时翻到下方
+  let top = rect.top - height - gap
+  if (top < margin) top = rect.bottom + gap
+  quoteTooltip.value = {
+    visible: true,
+    text: quoteTooltip.value.text,
+    style: { position: 'fixed', top: `${top}px`, left: `${left}px`, visibility: 'visible' },
+  }
 }
 
 function clearQuotes() {
@@ -1542,6 +1595,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleModelKeydown)
   window.removeEventListener('session-created', focusEditor)
   window.removeEventListener('chip-image-preview', handleChipImagePreview as EventListener)
+  hideQuoteTooltip()
 })
 
 // Before the DOM is torn down (e.g. when navigating to settings), stash the
@@ -1922,6 +1976,38 @@ watch(pendingFile, (file) => {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+// 引用附件悬停提示（Teleport 到 body, 不受 scoped 限制需用 :global 或直接写在全局选择器下）
+.quote-tooltip {
+  position: fixed;
+  z-index: 9999;
+  max-width: 320px;
+  max-height: 180px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  pointer-events: none;
+  @include scrollbar;
+}
+
+.quote-tooltip-enter-active,
+.quote-tooltip-leave-active {
+  transition: opacity 0.12s ease-out, transform 0.12s ease-out;
+}
+
+.quote-tooltip-enter-from,
+.quote-tooltip-leave-to {
+  opacity: 0;
+  transform: translateY(2px);
 }
 
 .quote-chip {
