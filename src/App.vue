@@ -19,9 +19,9 @@
         class="resize-handle vertical"
         @mousedown="startLeftResize"
         :class="{ active: isLeftResizing }"
-        :style="{ display: appStore.sidebarCollapsed ? 'none' : 'block' }"
+        :style="{ display: appStore.sidebarCollapsed || appStore.infoPanelFullscreen ? 'none' : 'block' }"
       ></div>
-      <div class="center-panel">
+      <div class="center-panel" v-show="!appStore.infoPanelFullscreen">
         <div class="center-content">
           <KeepAlive v-if="appStore.showSettings">
             <SettingsPanel />
@@ -57,7 +57,7 @@
         </div>
       </div>
       <div
-        v-if="!appStore.showSkillsManager && !appStore.showOldSkills && appStore.infoPanelVisible"
+        v-if="!appStore.showSkillsManager && !appStore.showOldSkills && appStore.infoPanelVisible && !appStore.infoPanelFullscreen"
         class="resize-handle vertical"
         @mousedown="startRightResize"
         :class="{ active: isRightResizing }"
@@ -65,7 +65,8 @@
       <InfoPanel
         v-if="!appStore.showSkillsManager && !appStore.showOldSkills && (appStore.infoPanelVisible || appStore.infoPanelTabs.length > 0)"
         v-show="appStore.infoPanelVisible"
-        :style="{ width: rightWidth + 'px' }"
+        :class="{ 'info-panel-fullscreen': appStore.infoPanelFullscreen }"
+        :style="appStore.infoPanelFullscreen ? undefined : { width: rightWidth + 'px' }"
       />
     </div>
     <ConnectMobileDialog
@@ -262,6 +263,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
       e.stopPropagation()
       appStore.showFileQuickOpen = true
     }
+  }
+  // Esc 退出右侧面板全屏（面板处于全屏态时输入框/下拉等通常无 Esc 消费方）
+  if (e.key === 'Escape' && appStore.infoPanelFullscreen) {
+    e.preventDefault()
+    e.stopPropagation()
+    appStore.exitInfoPanelFullscreen()
   }
 }
 
@@ -630,6 +637,12 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+}
+
+.info-panel-fullscreen {
+  flex: 1 !important;
+  width: auto !important;
   min-width: 0;
 }
 
