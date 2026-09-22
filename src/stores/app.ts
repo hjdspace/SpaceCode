@@ -101,6 +101,10 @@ export const useAppStore = defineStore('app', () => {
   const theme = ref<ThemeId>('light')
   const sidebarCollapsed = ref(false)
   const infoPanelVisible = ref(false)
+  // 右侧面板全屏（覆盖中间区域）：仅影响 App.vue 的宽度绑定，不改动 splitLayout 与拖拽宽度
+  const infoPanelFullscreen = ref(false)
+  // CodeViewer 编辑态有未保存修改的文件路径（null = 无）。InfoPanelTabBar 关闭 tab/面板前据此弹确认
+  const fileEditDirtyPath = ref<string | null>(null)
   // 右侧面板「启动器」状态：为真时面板显示 4 个工具入口，而非具体标签内容
   const panelHome = ref(false)
   // 文件模糊搜索快速打开弹窗
@@ -244,6 +248,18 @@ export const useAppStore = defineStore('app', () => {
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
+  }
+
+  function toggleInfoPanelFullscreen() {
+    infoPanelFullscreen.value = !infoPanelFullscreen.value
+  }
+
+  function exitInfoPanelFullscreen() {
+    infoPanelFullscreen.value = false
+  }
+
+  function setFileEditDirtyPath(path: string | null) {
+    fileEditDirtyPath.value = path
   }
 
   function toggleShowHiddenFiles() {
@@ -962,6 +978,11 @@ export const useAppStore = defineStore('app', () => {
     theme,
     sidebarCollapsed,
     infoPanelVisible,
+    infoPanelFullscreen,
+    toggleInfoPanelFullscreen,
+    exitInfoPanelFullscreen,
+    fileEditDirtyPath,
+    setFileEditDirtyPath,
     panelHome,
     showFileQuickOpen,
     infoPanelMode,
