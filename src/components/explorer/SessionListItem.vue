@@ -1,8 +1,9 @@
 <template>
   <div
+    ref="wrapperRef"
     class="session-item-wrapper"
-    @mouseenter="$emit('mouseenter')"
-    @mouseleave="$emit('mouseleave')"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
   >
     <div
       class="session-item"
@@ -131,6 +132,15 @@
         </div>
       </Transition>
     </Teleport>
+
+    <!-- Session Thumbnail Tooltip (hover to preview) -->
+    <SessionThumbnailTooltip
+      :session="session"
+      :visible="showThumbnail"
+      :target-rect="thumbnailTargetRect"
+      @tooltip-enter="handleTooltipEnter"
+      @tooltip-leave="handleTooltipLeave"
+    />
   </div>
 </template>
 
@@ -146,6 +156,7 @@ import {
   MoreVertical,
   Columns
 } from 'lucide-vue-next'
+import SessionThumbnailTooltip from './SessionThumbnailTooltip.vue'
 
 const { t } = useI18n()
 interface Props {
@@ -171,6 +182,50 @@ const emit = defineEmits<{
   'copy-id': [sessionId: string]
   'split-screen': [sessionId: string]
 }>()
+
+// ── Thumbnail Tooltip ──
+const wrapperRef = ref<HTMLDivElement>()
+const showThumbnail = ref(false)
+const thumbnailTargetRect = ref<DOMRect | null>(null)
+let hoverTimer: ReturnType<typeof setTimeout> | null = null
+const HOVER_DELAY = 500
+const HOVER_LEAVE_DELAY = 200
+
+function handleMouseEnter() {
+  emit('mouseenter')
+  // 延迟显示 thumbnail tooltip
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    if (wrapperRef.value) {
+      thumbnailTargetRect.value = wrapperRef.value.getBoundingClientRect()
+    }
+    showThumbnail.value = true
+  }, HOVER_DELAY)
+}
+
+function handleMouseLeave() {
+  emit('mouseleave')
+  // 延迟隐藏，允许鼠标移到 tooltip 上
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    showThumbnail.value = false
+  }, HOVER_LEAVE_DELAY)
+}
+
+function handleTooltipEnter() {
+  if (hoverTimer) clearTimeout(hoverTimer)
+}
+
+function handleTooltipLeave() {
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    showThumbnail.value = false
+  }, HOVER_LEAVE_DELAY)
+}
+
+onUnmounted(() => {
+  if (hoverTimer) clearTimeout(hoverTimer)
+})
 
 const menuOpen = ref(false)
 const renameDialogOpen = ref(false)
