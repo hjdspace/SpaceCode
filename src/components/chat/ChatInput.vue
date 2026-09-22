@@ -64,6 +64,22 @@
       <!-- 悬浮任务/改动状态栏 -->
       <ComposerStatusBar />
 
+      <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
+      <div v-if="attachedQuotes.length > 0" class="quote-attachments">
+        <div
+          v-for="quote in attachedQuotes"
+          :key="quote.id"
+          class="quote-chip"
+          :title="quote.text"
+        >
+          <Quote :size="13" class="quote-chip-icon" />
+          <span class="quote-chip-text">{{ quote.text }}</span>
+          <button class="quote-chip-delete" :title="t('common.delete')" @click="removeQuoteAttachment(quote.id)">
+            <X :size="12" />
+          </button>
+        </div>
+      </div>
+
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
         <div
@@ -359,7 +375,7 @@ import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick
 import {
   ArrowUp, Plus, ChevronDown, Check, Square, X,
   Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Brain,
-  Sparkles, Image, ChevronRight, Archive, Clock, LayoutGrid, Settings
+  Sparkles, Image, ChevronRight, Archive, Clock, LayoutGrid, Settings, Quote
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import ChatContextToolbar from './ChatContextToolbar.vue'
@@ -380,14 +396,14 @@ import ComposerStatusBar from './ComposerStatusBar.vue'
 import { useModelSelector, type ModelOption } from '@/composables/useModelSelector'
 import { useSlashCommands, type SlashCommand } from '@/composables/useSlashCommands'
 import { useContextMenu, type ContextItem } from '@/composables/useContextMenu'
-import { useContentEditor, getMimeTypeFromFileName } from '@/composables/useContentEditor'
+import { useContentEditor, getMimeTypeFromFileName, serializeQuoteAttachments } from '@/composables/useContentEditor'
 import { usePromptStash, resolveDraftSave, resolveDraftLoad, isMirrorValid } from '@/composables/usePromptStash'
 import { useDragDrop } from '@/composables/useDragDrop'
 import { useImageHandler } from '@/composables/useImageHandler'
 import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
-import type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'
+import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
 import { vClickOutside } from '@/components/common/vClickOutside'
 
 // Re-export types for backward compatibility (other components import from ChatInput)
@@ -503,6 +519,7 @@ function buildDraftFromEditor() {
     text: getEditorPlainText().trim(),
     attachments: attachedFiles.value.map(f => ({ ...f })),
     images: attachedImages.value.map(img => ({ ...img })),
+    quotes: attachedQuotes.value.map(q => ({ ...q })),
     editorHtml: editorRef.value?.innerHTML || '',
   }
 }
@@ -510,7 +527,7 @@ function buildDraftFromEditor() {
 /** 把编辑器当前内容保存为 sid 的草稿；空内容时清掉对应草稿 */
 function saveDraftForSession(sid: string | null) {
   const draft = buildDraftFromEditor()
-  const hasDraft = draft.text.length > 0 || draft.attachments.length > 0 || draft.images.length > 0
+  const hasDraft = draft.text.length > 0 || draft.attachments.length > 0 || draft.images.length > 0 || draft.quotes.length > 0
   const existingMirror = sessionStore.getNewChatDraft()
   const messageCount = sid ? (sessionStore.getSession(sid)?.messages.length ?? null) : null
 
@@ -564,15 +581,17 @@ function loadDraftForSession(sid: string | null) {
   clearEditor()
   attachedFiles.value = []
   clearImages()
+  clearQuotes()
   inputText.value = ''
 }
 
-function restoreStashData(stash: { text: string; attachments: { name: string; path: string; isFolder: boolean }[]; images: any[]; editorHtml: string }) {
+function restoreStashData(stash: { text: string; attachments: { name: string; path: string; isFolder: boolean }[]; images: any[]; quotes?: { id: string; text: string }[]; editorHtml: string }) {
   if (editorRef.value && stash.editorHtml) {
     editorRef.value.innerHTML = stash.editorHtml
   }
   attachedFiles.value = stash.attachments.map(f => ({ ...f }))
   attachedImages.value = stash.images.map(img => ({ ...img }))
+  attachedQuotes.value = (stash.quotes ?? []).map(q => ({ ...q }))
   inputText.value = stash.text
   nextTick(() => {
     autoResize()
@@ -635,6 +654,24 @@ function handleBrowseFiles() {
 const promptOptimizer = usePromptOptimizer()
 const { isOptimizing, optimizePrompt: runOptimizePrompt } = promptOptimizer
 
+// ── Quote attachments (selection bar "add to conversation") ─────
+const attachedQuotes = ref<TextQuoteAttachment[]>([])
+
+function addQuoteAttachment(quote: { id: string; text: string }) {
+  if (!attachedQuotes.value.some(q => q.id === quote.id)) {
+    attachedQuotes.value.push({ ...quote })
+  }
+}
+
+function removeQuoteAttachment(id: string) {
+  const idx = attachedQuotes.value.findIndex(q => q.id === id)
+  if (idx >= 0) attachedQuotes.value.splice(idx, 1)
+}
+
+function clearQuotes() {
+  attachedQuotes.value = []
+}
+
 // ── Local state (not extracted) ──────────────────────────────────
 const showSteerHint = ref(false)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
@@ -650,7 +687,7 @@ function closeImagePreview() {
 }
 
 // ── Computed ─────────────────────────────────────────────────────
-const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value))
+const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value) || attachedQuotes.value.length > 0)
 const canSend = computed(() => hasContent.value && !props.isSending)
 
 const currentPendingMessages = computed(() => {
@@ -737,6 +774,9 @@ function injectFromWorkbench(payload: InputInjectPayload) {
     attachedImages.value.push(img)
     editorRef.value?.focus()
     insertImageChip(img)
+  }
+  if (payload.quote) {
+    addQuoteAttachment(payload.quote)
   }
   if (payload.text) {
     const editorEl = editorRef.value
@@ -1246,32 +1286,36 @@ function handleSend(steerMode = false) {
   if (props.isSending) {
     const content = getEditorPlainText().trim()
     const allAttachments = collectAllAttachments(attachedFiles.value, attachedImages.value)
+    const quoteBlock = serializeQuoteAttachments(attachedQuotes.value)
+    const sendContent = quoteBlock ? (content ? `${quoteBlock}\n\n${content}` : quoteBlock) : content
 
-    if (!content && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
+    if (!sendContent && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
 
     const sid = sessionStore.currentSessionId
     if (!sid) return
 
     if (steerMode) {
-      emit('send', content, allAttachments)
+      emit('send', sendContent, allAttachments)
       clearEditor()
       attachedFiles.value = []
       clearImages()
+      clearQuotes()
       showSteerHint.value = true
       setTimeout(() => { showSteerHint.value = false }, 2000)
     } else {
       turnStore.addPendingMessage(sid, {
         id: crypto.randomUUID(),
-        content,
+        content: sendContent,
         attachments: allAttachments.files.map(f => ({ ...f })),
         images: allAttachments.images.map(img => ({ ...img })),
-        displayLabel: content.slice(0, 80),
+        displayLabel: sendContent.slice(0, 80),
         priority: 'later',
         createdAt: Date.now(),
       })
       clearEditor()
       attachedFiles.value = []
       clearImages()
+      clearQuotes()
     }
     return
   }
@@ -1282,6 +1326,8 @@ function handleSend(steerMode = false) {
 
   const content = getEditorPlainText().trim()
   const allAttachments = collectAllAttachments(attachedFiles.value, attachedImages.value)
+  const quoteBlock = serializeQuoteAttachments(attachedQuotes.value)
+  const sendContent = quoteBlock ? (content ? `${quoteBlock}\n\n${content}` : quoteBlock) : content
 
   if (!hasContent.value) return
 
@@ -1289,6 +1335,7 @@ function handleSend(steerMode = false) {
     clearEditor()
     attachedFiles.value = []
     clearImages()
+    clearQuotes()
   }
 
   const editorEl = editorRef.value
@@ -1358,12 +1405,13 @@ function handleSend(steerMode = false) {
     })
     clearEditor()
   } else {
-    emit('send', content, allAttachments)
+    emit('send', sendContent, allAttachments)
   }
 
   clearEditor()
   attachedFiles.value = []
   clearImages()
+  clearQuotes()
 }
 
 // ── Prompt Stash (orchestration) ─────────────────────────────────
@@ -1373,8 +1421,9 @@ function handleStash() {
     attachedFiles.value,
     attachedImages.value,
     editorRef.value?.innerHTML || '',
-    () => { clearEditor(); attachedFiles.value = []; clearImages() },
-    () => restoreStashLocal()
+    () => { clearEditor(); attachedFiles.value = []; clearImages(); clearQuotes() },
+    () => restoreStashLocal(),
+    attachedQuotes.value
   )
 }
 
@@ -1384,7 +1433,8 @@ function restoreStashLocal() {
     (files) => { attachedFiles.value = files },
     (images) => { attachedImages.value = images },
     (text) => { inputText.value = text },
-    () => focusEditor()
+    () => focusEditor(),
+    (quotes) => { attachedQuotes.value = quotes }
   )
 }
 
@@ -1864,6 +1914,61 @@ watch(pendingFile, (file) => {
 .optimize-hint-leave-to {
   opacity: 0;
   transform: translateY(2px);
+}
+
+// 引用文本附件条
+.quote-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.quote-chip {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  cursor: default;
+  user-select: none;
+
+  .quote-chip-icon {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+  }
+
+  .quote-chip-text {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+  }
+
+  .quote-chip-delete {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 50%;
+
+    &:hover {
+      background: var(--surface-hover);
+      color: var(--text-primary);
+    }
+  }
 }
 
 // 文本输入区域
