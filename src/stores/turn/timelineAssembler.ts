@@ -13,6 +13,7 @@ export interface TimelineAssembler {
   updateTimelineEvent: (sessionId: string, ts: TurnState, eventId: string, updates: Partial<NonNullable<Message['timelineEvents']>[number]>) => void
   ensureTextTimelineEvent: (sessionId: string, ts: TurnState) => string
   completeCurrentTextEvent: (sessionId: string, ts: TurnState) => void
+  completeCurrentReasoningEvent: (sessionId: string, ts: TurnState) => void
   addToolTimelineEvent: (sessionId: string, ts: TurnState, toolCallId: string) => void
 }
 
@@ -61,8 +62,19 @@ export function createTimelineAssembler(sink: SessionSink): TimelineAssembler {
     ts.currentTextEventId = null
   }
 
+  // reasoning 占位事件收口。thinking 块结束后（流式协议只发 content_block_stop，
+  // 且后续可能没有任何 thinking 类事件）必须显式置为 completed，否则事件会以
+  // running 状态跨轮残留，导致工具结束后的"等待 LLM 下一轮"间隙被 UI 误判为
+  // 仍有活动进行，"正在回复"等待指示不显示。
+  const completeCurrentReasoningEvent = (sessionId: string, ts: TurnState) => {
+    if (!ts.currentReasoningEventId) return
+    updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, { status: 'completed' })
+    ts.currentReasoningEventId = null
+  }
+
   const addToolTimelineEvent = (sessionId: string, ts: TurnState, toolCallId: string) => {
     completeCurrentTextEvent(sessionId, ts)
+    completeCurrentReasoningEvent(sessionId, ts)
     addTimelineEvent(sessionId, ts, {
       id: `tool-${toolCallId}`,
       type: 'tool_call',
@@ -78,6 +90,7 @@ export function createTimelineAssembler(sink: SessionSink): TimelineAssembler {
     updateTimelineEvent,
     ensureTextTimelineEvent,
     completeCurrentTextEvent,
+    completeCurrentReasoningEvent,
     addToolTimelineEvent,
   }
 }
