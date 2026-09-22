@@ -242,6 +242,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     updateTimelineEvent,
     ensureTextTimelineEvent,
     completeCurrentTextEvent,
+    completeCurrentReasoningEvent,
     addToolTimelineEvent,
   } = timeline
 
@@ -376,6 +377,23 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const handleStreamEvent = (sessionId: string, ts: TurnState, streamEvent: any) => {
     const ev = streamEvent.event || streamEvent
 
+    // ── 内容块边界收口 ──
+    // 新内容块开始 / 一轮流式消息开始或结束时（message_start / message_delta /
+    // message_stop），上一个 text / reasoning 占位事件必然已经结束，统一置为
+    // completed。协议只对 tool_use 的 content_block_stop 有消费逻辑，thinking /
+    // text 块结束后若不在此收口，事件会以 running 状态跨轮残留 —— 工具结果返回
+    // 后等待 LLM 下一轮响应的间隙里，AgentTimeline.isWaitingForLlm 会因残留的
+    // running 事件误判为仍有活动进行，导致"正在回复"等待指示不显示。
+    if (
+      ev.type === 'message_start' ||
+      ev.type === 'message_delta' ||
+      ev.type === 'message_stop' ||
+      ev.type === 'content_block_start'
+    ) {
+      completeCurrentTextEvent(sessionId, ts)
+      completeCurrentReasoningEvent(sessionId, ts)
+    }
+
     if (ev.type === 'message_start' && typeof ev.message?.model === 'string' && ev.message.model.trim()) {
       ts.model = ev.message.model
     }
@@ -393,9 +411,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') {
       logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] stream_event: content_block_start(thinking)`)
-      if (ts.currentReasoningEventId) {
-        updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, { status: 'completed' })
-      }
+      // 上一段 reasoning 已在边界收口处完成并清空 currentReasoningEventId
       const s = sink.get(sessionId)
       if (s) {
         const msg = s.messages.find(m => m.id === ts.assistantMessageId)
