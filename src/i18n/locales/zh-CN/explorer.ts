@@ -27,4 +27,13 @@ export default {
   confirmDelete: '确定要删除 "{name}" 吗？\n\n此操作将把文件移至回收站。',
   deleteFailed: '删除失败：{error}',
   deleteFailedRetry: '删除失败，请重试。',
+  thumbnailLoading: '加载中...',
+  thumbnailNoMessages: '暂无对话内容',
+  thumbnailWorkspace: '工作区',
+  thumbnailBranch: '分支',
+  thumbnailProvider: 'Provider',
+  thumbnailModel: 'Model',
+  thumbnailRoleUser: '用户',
+  thumbnailRoleAssistant: '助手',
+  thumbnailRoleSystem: '系统',
 }

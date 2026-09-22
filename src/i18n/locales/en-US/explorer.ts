@@ -27,4 +27,13 @@ export default {
   confirmDelete: 'Are you sure you want to delete "{name}"?\n\nThis will move the file to the recycle bin.',
   deleteFailed: 'Delete failed: {error}',
   deleteFailedRetry: 'Delete failed. Please try again.',
+  thumbnailLoading: 'Loading...',
+  thumbnailNoMessages: 'No conversation content',
+  thumbnailWorkspace: 'Workspace',
+  thumbnailBranch: 'Branch',
+  thumbnailProvider: 'Provider',
+  thumbnailModel: 'Model',
+  thumbnailRoleUser: 'User',
+  thumbnailRoleAssistant: 'Assistant',
+  thumbnailRoleSystem: 'System',
 }
