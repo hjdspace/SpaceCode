@@ -35,9 +35,11 @@ import { computed, ref } from 'vue'
 import { useAppStore, type InfoPanelTab } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { X, LayoutGrid } from 'lucide-vue-next'
+import { useDialog } from '@/composables/useDialog'
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { showConfirm } = useDialog()
 const scrollContainer = ref<HTMLElement | null>(null)
 
 const tabs = computed<InfoPanelTab[]>(() => appStore.infoPanelTabs)
@@ -52,11 +54,34 @@ function handleGoHome() {
   appStore.goPanelHome()
 }
 
-function handleClose(tabId: string) {
+/** 关闭的 tab 若是有未保存修改的文件，先弹确认；取消则保留 tab */
+async function handleClose(tabId: string) {
+  const tab = appStore.infoPanelTabs.find(t => t.id === tabId)
+  const tabPath = (tab?.data as { path?: string } | null)?.path
+  if (appStore.fileEditDirtyPath && tabPath && tabPath === appStore.fileEditDirtyPath) {
+    const confirmed = await showConfirm(t('codeViewer.discardChangesConfirm'), {
+      title: t('codeViewer.unsavedChanges'),
+      confirmText: t('codeViewer.discardChanges'),
+      cancelText: t('common.cancel'),
+      variant: 'warning',
+    })
+    if (!confirmed) return
+    appStore.setFileEditDirtyPath(null)
+  }
   appStore.closeInfoTab(tabId)
 }
 
-function handleClosePanel() {
+async function handleClosePanel() {
+  if (appStore.fileEditDirtyPath) {
+    const confirmed = await showConfirm(t('codeViewer.discardChangesConfirm'), {
+      title: t('codeViewer.unsavedChanges'),
+      confirmText: t('codeViewer.discardChanges'),
+      cancelText: t('common.cancel'),
+      variant: 'warning',
+    })
+    if (!confirmed) return
+    appStore.setFileEditDirtyPath(null)
+  }
   appStore.closeAllInfoTabs()
 }
 </script>
