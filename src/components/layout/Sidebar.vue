@@ -137,16 +137,40 @@
               @click="handleNewChat"
               :title="t('sidebar.newConversation')"
             >
-              <Plus :size="14" />
-              <span>{{ t('sidebar.newConversation') }}</span>
+              <span class="new-chat-label">{{ t('sidebar.newConversation') }}</span>
+              <span class="new-chat-plus" aria-hidden="true">
+                <Plus :size="10" :stroke-width="2.5" />
+              </span>
             </button>
             <button
               class="search-btn"
+              :class="{ active: sessionSearchVisible }"
               :title="t('sidebar.searchConversations')"
               :aria-label="t('sidebar.searchSession')"
               @click="handleOpenSearch"
             >
-              <Search :size="14" />
+              <Search :size="13" />
+            </button>
+          </div>
+
+          <!-- Session Search Bar (inline filter) -->
+          <div v-if="sessionSearchVisible" class="session-search-bar">
+            <Search :size="13" />
+            <input
+              ref="searchInputRef"
+              v-model="sessionSearchQuery"
+              type="text"
+              class="session-search-input"
+              :placeholder="t('sidebar.searchConversations')"
+              @keyup.escape="closeSessionSearch"
+            />
+            <button
+              v-if="sessionSearchQuery"
+              class="session-search-clear"
+              :aria-label="t('common.cancel')"
+              @click="sessionSearchQuery = ''"
+            >
+              <X :size="11" />
             </button>
           </div>
 
@@ -157,7 +181,7 @@
               :class="{ active: appStore.showSkillsManager }"
               @click="handleOpenSkillsManager"
             >
-              <Zap :size="14" />
+              <Zap :size="13" />
               <span>{{ t('sidebar.skillsManager') }}</span>
             </button>
             <button
@@ -165,7 +189,7 @@
               :class="{ active: appStore.showOldSkills }"
               @click="handleOpenOldSkills"
             >
-              <Wrench :size="14" />
+              <Wrench :size="13" />
               <span>{{ t('sidebar.skills') }}</span>
             </button>
             <button
@@ -173,7 +197,7 @@
               :class="{ active: appStore.showAgentManager }"
               @click="handleOpenAgents"
             >
-              <Cpu :size="14" />
+              <Cpu :size="13" />
               <span>{{ t('sidebar.agents') }}</span>
             </button>
             <button
@@ -181,7 +205,7 @@
               :class="{ active: appStore.showMCPManager }"
               @click="handleOpenMcp"
             >
-              <Plug :size="14" />
+              <Plug :size="13" />
               <span>MCP</span>
             </button>
             <button
@@ -191,7 +215,7 @@
               @click="appStore.showWorkGallery = true"
               :title="t('work.galleryEntry')"
             >
-              <LayoutGrid :size="14" />
+              <LayoutGrid :size="13" />
               <span>{{ t('work.galleryEntry') }}</span>
             </button>
             <button
@@ -199,7 +223,7 @@
               :class="{ active: appStore.showCronManager }"
               @click="handleOpenCron"
             >
-              <Clock :size="14" />
+              <Clock :size="13" />
               <span>{{ t('sidebar.cron') }}</span>
             </button>
           </div>
@@ -231,6 +255,8 @@
               :current-project="sessionStore.currentProjectRoot"
               :show-remove-button="true"
               :loading-session-id="switchingSession"
+              :search-active="sessionSearchVisible"
+              :search-query="sessionSearchQuery"
               @select="handleSelectSession"
               @delete="handleDeleteSession"
               @rename="handleRenameSession"
@@ -360,7 +386,8 @@ import {
   Package,
   LayoutGrid,
   Workflow,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-vue-next'
 
 // Enhanced Components
@@ -400,10 +427,33 @@ const activeTab = ref<'explorer' | 'scm' | 'history' | 'terminal'>('history')
 const mountedTabs = ref({ explorer: false, scm: false })
 // const showMcpManager = ref(false) // 已迁移到 appStore.showMCPManager
 
-// 按当前 Work/Code 模式过滤会话列表（旧会话无 mode 字段时视为 'code'）
-const filteredSessions = computed(() =>
-  sessionStore.sessions.filter(s => (s.mode || 'code') === appStore.mode)
-)
+// 会话搜索（侧边栏内联过滤）
+const sessionSearchVisible = ref(false)
+const sessionSearchQuery = ref('')
+const searchInputRef = ref<HTMLInputElement | null>(null)
+
+function handleOpenSearch() {
+  if (sessionSearchVisible.value) {
+    closeSessionSearch()
+    return
+  }
+  sessionSearchVisible.value = true
+  nextTick(() => searchInputRef.value?.focus())
+}
+
+function closeSessionSearch() {
+  sessionSearchVisible.value = false
+  sessionSearchQuery.value = ''
+}
+
+// 按当前 Work/Code 模式过滤会话列表（旧会话无 mode 字段时视为 'code'），
+// 再按搜索关键字过滤会话标题
+const filteredSessions = computed(() => {
+  const byMode = sessionStore.sessions.filter(s => (s.mode || 'code') === appStore.mode)
+  const query = sessionSearchQuery.value.trim().toLowerCase()
+  if (!query) return byMode
+  return byMode.filter(s => s.title.toLowerCase().includes(query))
+})
 
 // Work 工作区目录显示名
 const workWorkspaceLabel = computed(() => {
@@ -808,11 +858,6 @@ async function handleOpenFolderPicker() {
   await openProjectFromPicker()
 }
 
-function handleOpenSearch() {
-  // Could implement global search dialog here
-  window.dispatchEvent(new CustomEvent('open-global-search'))
-}
-
 function handleSplitScreen(sessionId: string) {
   // TODO: Implement split screen functionality
   // For now, just show a toast notification
@@ -1201,24 +1246,50 @@ onUnmounted(() => {
   .new-chat-btn {
     @include reset-button;
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 12px;
-    font-size: 12px;
+    gap: 8px;
+    height: 30px;
+    padding: 0 6px 0 10px;
+    font-size: 12.5px;
     font-weight: 500;
-    color: var(--text-secondary);
-    background: transparent;
-    border: 1px solid var(--surface-border);
+    color: var(--accent-primary);
+    text-align: left;
     border-radius: var(--radius-md);
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), transform var(--transition-fast);
+
+    .new-chat-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .new-chat-plus {
+      display: flex;
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--accent-primary);
+      color: #fff;
+      transition: transform var(--transition-fast);
+    }
 
     &:hover:not(:disabled) {
-      background: var(--surface-glass-hover);
-      border-color: var(--accent-primary);
-      color: var(--accent-primary);
+      background: rgba(var(--accent-primary-rgb), 0.1);
+    }
+
+    &:active:not(:disabled) {
+      transform: scale(0.98);
+
+      .new-chat-plus {
+        transform: scale(0.85);
+      }
     }
 
     &:disabled {
@@ -1229,13 +1300,13 @@ onUnmounted(() => {
 
   .search-btn {
     @include reset-button;
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    background: transparent;
+    background: var(--surface-glass);
     border: 1px solid var(--surface-border);
     border-radius: var(--radius-md);
     transition: all var(--transition-fast);
@@ -1244,13 +1315,77 @@ onUnmounted(() => {
       background: var(--surface-glass-hover);
       color: var(--text-primary);
     }
+
+    &.active {
+      color: var(--accent-primary);
+      border-color: var(--accent-primary);
+      background: rgba(var(--accent-primary-rgb), 0.08);
+    }
+  }
+
+  // Inline session search bar
+  .session-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    margin: 0 12px 6px;
+    padding: 0 8px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    background: var(--surface-glass);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-md);
+    transition: border-color var(--transition-fast);
+
+    &:focus-within {
+      border-color: var(--accent-primary);
+    }
+
+    > svg {
+      flex-shrink: 0;
+    }
+  }
+
+  .session-search-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 12.5px;
+    font-family: inherit;
+
+    &::placeholder {
+      color: var(--text-muted);
+    }
+  }
+
+  .session-search-clear {
+    @include reset-button;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    color: var(--text-muted);
+    transition: all var(--transition-fast);
+
+    &:hover {
+      color: var(--text-primary);
+      background: var(--surface-glass-hover);
+    }
   }
 
   // Feature Navigation (CodePilot-style)
   .feature-nav {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
     padding: 0 12px 8px;
     flex-shrink: 0;
 
@@ -1259,15 +1394,34 @@ onUnmounted(() => {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 10px;
-      font-size: 12px;
-      color: var(--text-muted);
+      padding: 5px 8px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
       border-radius: var(--radius-md);
       transition: all var(--transition-fast);
+
+      svg {
+        flex-shrink: 0;
+        color: var(--text-muted);
+        transition: color var(--transition-fast);
+      }
 
       &:hover {
         background: var(--surface-glass-hover);
         color: var(--text-primary);
+
+        svg {
+          color: var(--text-primary);
+        }
+      }
+
+      &.active {
+        color: var(--text-primary);
+        font-weight: 500;
+
+        svg {
+          color: var(--accent-primary);
+        }
       }
     }
   }
@@ -1283,15 +1437,14 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 16px 6px;
+    padding: 8px 12px 6px;
     flex-shrink: 0;
 
     .section-title {
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 10.5px;
+      font-weight: 500;
       color: var(--text-muted);
-      opacity: 0.7;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
   }
@@ -1302,7 +1455,7 @@ onUnmounted(() => {
     align-items: center;
     gap: 4px;
     padding: 2px 6px;
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--text-muted);
     opacity: 0.7;
     border-radius: var(--radius-sm);
