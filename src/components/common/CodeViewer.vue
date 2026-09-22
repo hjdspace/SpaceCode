@@ -34,6 +34,43 @@
       >
         <Search :size="14" />
       </button>
+      <button
+        v-if="isEditableFile"
+        class="search-toggle-btn"
+        :class="{ 'edit-active': isEditing }"
+        @click="toggleEditing"
+        :title="isEditing ? t('codeViewer.exitEdit') : t('codeViewer.editFile')"
+      >
+        <Pencil :size="14" />
+      </button>
+      <button
+        v-if="isEditing"
+        class="search-toggle-btn save-btn"
+        :class="{ 'has-unsaved': hasUnsavedChanges }"
+        :disabled="!hasUnsavedChanges"
+        @click="saveFile"
+        :title="t('codeViewer.saveFile') + ' (Ctrl+S)'"
+      >
+        <Save :size="14" />
+      </button>
+      <span v-if="isEditing && hasUnsavedChanges" class="unsaved-dot" :title="t('codeViewer.unsavedChanges')">●</span>
+      <button
+        class="search-toggle-btn"
+        :disabled="!canCopy"
+        @click="copyContent"
+        :title="copyButtonTitle"
+      >
+        <Check v-if="copySucceeded" :size="14" class="copy-check" />
+        <Copy v-else :size="14" />
+      </button>
+      <button
+        class="search-toggle-btn"
+        @click="toggleFullscreen"
+        :title="isFullscreen ? t('codeViewer.exitFullscreen') : t('codeViewer.enterFullscreen')"
+      >
+        <Minimize2 v-if="isFullscreen" :size="14" />
+        <Maximize2 v-else :size="14" />
+      </button>
     </div>
 
     <!-- Search bar -->
@@ -89,7 +126,7 @@
     <div
       class="code-container"
       ref="codeContainer"
-      v-if="appStore.currentFile"
+      v-if="appStore.currentFile && !isEditing"
       @scroll="onScroll"
     >
       <div class="code-with-lines" :style="{ height: totalHeight + 'px', position: 'relative' }">
@@ -109,7 +146,23 @@
         <pre class="code-content" :style="{ marginLeft: lineNumberWidth + 'px', position: 'absolute', top: 0, left: 0, right: 0 }"><code ref="codeElRef" :class="`language-${appStore.currentFile.language}`"><div :style="{ height: offsetY + 'px' }"></div><div v-for="item in visibleRenderItems" :key="item.key" class="code-line" v-html="item.html"></div><div :style="{ height: bottomSpacerHeight + 'px' }"></div></code></pre>
       </div>
     </div>
-    <div class="empty-state" v-else>
+    <!-- Edit mode: transparent textarea layered over highlighted code -->
+    <div class="edit-container" v-else-if="appStore.currentFile && isEditing">
+      <pre class="edit-highlight" ref="editHighlightRef" aria-hidden="true"><code v-html="editHighlightedHtml"></code></pre>
+      <textarea
+        ref="editTextareaRef"
+        v-model="editDraft"
+        class="edit-textarea"
+        :spellcheck="false"
+        wrap="off"
+        @scroll="syncEditScroll"
+        @compositionstart="editComposing = true"
+        @compositionend="editComposing = false"
+        @input="onEditInput"
+        @keydown="onEditKeydown"
+      ></textarea>
+    </div>
+    <div class="empty-state" v-if="!appStore.currentFile">
       <FileCode :size="48" />
       <p>Select a file to view its content</p>
     </div>
@@ -120,9 +173,14 @@
 import { computed, ref, watch, nextTick, markRaw, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
-import { FileCode, Eye, FileText, Search, ChevronUp, ChevronDown, X } from 'lucide-vue-next'
+import { FileCode, Eye, FileText, Search, ChevronUp, ChevronDown, X, Pencil, Save, Copy, Check, Minimize2, Maximize2 } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 import { registerSelectionHost } from '@/composables/useSelectionActions'
+import { useDialog } from '@/composables/useDialog'
+import { errorHandler } from '@/services/errorHandler'
+import { ErrorCategory } from '@/types'
+import { api } from '@/services/electronAPI'
+import { isBinaryFilePath } from '@/utils/binaryFile'
 
 // ── 常量 ──────────────────────────────────────────────────────────
 const LINE_HEIGHT = 21.6 // px, matches CSS line-height: 1.6 * 13px font
@@ -138,9 +196,218 @@ const MAX_HIGHLIGHT_CHARS = 200_000
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { showConfirm } = useDialog()
 const codeContainer = ref<HTMLElement | null>(null)
 const codeElRef = ref<HTMLElement | null>(null)
 const lineRefs = new Map<number, HTMLElement>()
+
+// ── 全屏 / 复制 / 编辑状态 ──────────────────────────────────────────
+const isFullscreen = computed(() => appStore.infoPanelFullscreen)
+
+function toggleFullscreen() {
+  appStore.toggleInfoPanelFullscreen()
+}
+
+const isBinaryFile = computed(() => {
+  const path = appStore.currentFile?.path
+  return path ? isBinaryFilePath(path) : false
+})
+
+const canCopy = computed(() => !!appStore.currentFile && !isBinaryFile.value)
+
+const copyButtonTitle = computed(() => {
+  if (isBinaryFile.value) return t('codeViewer.copyDisabledBinary')
+  return t('codeViewer.copyContent')
+})
+
+const copySucceeded = ref(false)
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
+
+async function copyContent() {
+  const content = appStore.currentFile?.content
+  if (!content || isBinaryFile.value) return
+  try {
+    await navigator.clipboard.writeText(content)
+    copySucceeded.value = true
+    if (copyResetTimer) clearTimeout(copyResetTimer)
+    copyResetTimer = setTimeout(() => {
+      copySucceeded.value = false
+      copyResetTimer = null
+    }, 1500)
+  } catch (err) {
+    errorHandler.pushToast({
+      id: crypto.randomUUID(),
+      category: ErrorCategory.UNKNOWN,
+      title: t('codeViewer.copyFailedTitle'),
+      message: err instanceof Error ? err.message : String(err),
+      autoDismiss: true,
+      dismissAfter: 4000,
+      createdAt: Date.now(),
+    })
+  }
+}
+
+// ── 编辑模式 ────────────────────────────────────────────────────────
+const isEditing = ref(false)
+const editDraft = ref('')
+const editTextareaRef = ref<HTMLTextAreaElement | null>(null)
+const editHighlightRef = ref<HTMLElement | null>(null)
+const savedContent = ref('')
+
+/** 编辑态高亮：与查看态共用逐行高亮缓存（editDraft 为空时返回空串） */
+const editHighlightedHtml = computed<string>(() => {
+  if (!editDraft.value) return ''
+  const lang = appStore.currentFile?.language || ''
+  const lines = editDraft.value.split('\n')
+  return lines.map((line, i) => highlightLine(line, lang, i, 0, line.length)).join('\n')
+})
+
+function syncEditScroll() {
+  const ta = editTextareaRef.value
+  const pre = editHighlightRef.value
+  if (!ta || !pre) return
+  pre.scrollTop = ta.scrollTop
+  pre.scrollLeft = ta.scrollLeft
+}
+
+// IME 组合期间 v-model 不更新，直接把 textarea 当前值（含组合文本）渲染进高亮层，避免"隐形输入"
+const editComposing = ref(false)
+
+function onEditInput() {
+  if (!editComposing.value) return
+  const ta = editTextareaRef.value
+  const pre = editHighlightRef.value
+  if (!ta || !pre) return
+  const codeEl = pre.querySelector('code')
+  if (codeEl) codeEl.textContent = ta.value
+}
+
+const isEditableFile = computed(() => !!appStore.currentFile && !isBinaryFile.value)
+
+const hasUnsavedChanges = computed(() => isEditing.value && editDraft.value !== savedContent.value)
+
+// 脏状态同步到 store，供 InfoPanelTabBar 关闭 tab/面板时守卫
+watch(hasUnsavedChanges, (dirty) => {
+  if (dirty && appStore.currentFile) {
+    appStore.setFileEditDirtyPath(appStore.currentFile.path)
+  } else if (!dirty && appStore.fileEditDirtyPath) {
+    const currentPath = appStore.currentFile?.path
+    if (!currentPath || currentPath === appStore.fileEditDirtyPath) {
+      appStore.setFileEditDirtyPath(null)
+    }
+  }
+})
+
+function toggleEditing() {
+  if (isEditing.value) {
+    void exitEditing()
+  } else {
+    if (!appStore.currentFile) return
+    editDraft.value = appStore.currentFile.content
+    savedContent.value = appStore.currentFile.content
+    isEditing.value = true
+    if (showSearch.value) closeSearch()
+  }
+}
+
+async function exitEditing(): Promise<boolean> {
+  if (hasUnsavedChanges.value) {
+    const confirmed = await showConfirm(t('codeViewer.discardChangesConfirm'), {
+      title: t('codeViewer.unsavedChanges'),
+      confirmText: t('codeViewer.discardChanges'),
+      cancelText: t('common.cancel'),
+      variant: 'warning',
+    })
+    if (!confirmed) return false
+  }
+  isEditing.value = false
+  editDraft.value = ''
+  savedContent.value = ''
+  return true
+}
+
+async function saveFile(): Promise<boolean> {
+  const file = appStore.currentFile
+  if (!file || !isEditing.value) return false
+  if (!api.writeFile) {
+    errorHandler.pushToast({
+      id: crypto.randomUUID(),
+      category: ErrorCategory.UNKNOWN,
+      title: t('codeViewer.saveFailedTitle'),
+      message: t('codeViewer.saveNotAvailable'),
+      autoDismiss: true,
+      dismissAfter: 4000,
+      createdAt: Date.now(),
+    })
+    return false
+  }
+  try {
+    const result = await api.writeFile(file.path, editDraft.value)
+    if (!result.success) {
+      errorHandler.pushToast({
+        id: crypto.randomUUID(),
+        category: ErrorCategory.UNKNOWN,
+        title: t('codeViewer.saveFailedTitle'),
+        message: result.error || t('codeViewer.saveFailedMessage'),
+        autoDismiss: true,
+        dismissAfter: 5000,
+        createdAt: Date.now(),
+      })
+      return false
+    }
+    savedContent.value = editDraft.value
+    appStore.updateOpenFileContent(file.path, editDraft.value)
+    return true
+  } catch (err) {
+    errorHandler.pushToast({
+      id: crypto.randomUUID(),
+      category: ErrorCategory.UNKNOWN,
+      title: t('codeViewer.saveFailedTitle'),
+      message: err instanceof Error ? err.message : String(err),
+      autoDismiss: true,
+      dismissAfter: 5000,
+      createdAt: Date.now(),
+    })
+    return false
+  }
+}
+
+function onEditKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    e.stopPropagation()
+    void saveFile()
+  }
+}
+
+// 切换文件时退出编辑（有未保存修改则确认），重置编辑状态
+watch(() => appStore.currentFile?.path, async (newPath, oldPath) => {
+  if (newPath === oldPath) return
+  if (isEditing.value) {
+    if (hasUnsavedChanges.value) {
+      const confirmed = await showConfirm(t('codeViewer.discardChangesConfirm'), {
+        title: t('codeViewer.unsavedChanges'),
+        confirmText: t('codeViewer.discardChanges'),
+        cancelText: t('common.cancel'),
+        variant: 'warning',
+      })
+      if (!confirmed) {
+        // 恢复激活的 tab，避免静默丢弃修改
+        if (oldPath && appStore.currentFile?.path !== oldPath) {
+          const prevTab = appStore.infoPanelTabs.find(t =>
+            (t.type === 'file' || t.type === 'markdown') && (t.data as { path?: string })?.path === oldPath)
+          if (prevTab) appStore.activeInfoTabId = prevTab.id
+        }
+        return
+      }
+      // 修改已放弃，清除脏标记
+      appStore.setFileEditDirtyPath(null)
+    }
+    isEditing.value = false
+    editDraft.value = ''
+    savedContent.value = ''
+  }
+})
 
 // ── 虚拟滚动状态 ────────────────────────────────────────────────────
 const scrollTop = ref(0)
@@ -242,7 +509,7 @@ function highlightLine(
   charOffset: number,
   fullLength: number
 ): string {
-  const cacheKey = `${lineIndex}:${charOffset}:${line.length}`
+  const cacheKey = `${lineIndex}:${charOffset}:${line.length}:${line}`
   const cached = lineHighlightCache.get(cacheKey)
   if (cached !== undefined) return cached
 
@@ -770,6 +1037,91 @@ function onGlobalKeydown(e: KeyboardEvent) {
       background: var(--surface-glass-hover);
       color: var(--accent-primary);
     }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+
+      &:hover {
+        background: transparent;
+        color: var(--text-muted);
+      }
+    }
+
+    &.edit-active {
+      color: var(--accent-primary);
+      background: var(--surface-glass-hover);
+    }
+
+    &.save-btn.has-unsaved {
+      color: var(--accent-primary);
+    }
+
+    .copy-check {
+      color: var(--success, #22c55e);
+    }
+  }
+
+  .unsaved-dot {
+    color: var(--accent-primary);
+    font-size: 10px;
+    line-height: 1;
+    margin-left: -4px;
+  }
+}
+
+.edit-container {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  background: var(--bg-primary);
+}
+
+.edit-highlight,
+.edit-textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+  @include scrollbar;
+}
+
+.edit-highlight {
+  pointer-events: none;
+  z-index: 0;
+  /* 覆盖全局 pre 默认样式，保证与 textarea 像素对齐 */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  /* 滚动由 JS 同步自 textarea，自身不显示滚动条 */
+  overflow: hidden;
+
+  code {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    display: block;
+    color: var(--text-primary);
+  }
+}
+
+.edit-textarea {
+  z-index: 1;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text-primary);
+  overflow: auto;
+
+  &::selection {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
   }
 }
 
@@ -949,6 +1301,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   margin: 0;
   padding: 16px;
   overflow-x: auto;
+  bottom: 0;
 
   code {
     font-family: var(--font-mono);
