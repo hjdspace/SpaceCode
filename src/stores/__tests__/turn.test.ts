@@ -838,3 +838,74 @@ describe('Turn 长时间等待', () => {
     expect(sessions.sessions.find(s => s.id === sid)?.messages).toHaveLength(1)
   })
 })
+
+// ── 时间线占位事件边界收口（"正在回复"等待指示的前提）──
+// AgentTimeline.isWaitingForLlm 依据「turn 内无 running/pending 时间线事件」
+// 判定工具结束后的"等待 LLM 下一轮响应"间隙。thinking / text 占位事件若跨块、
+// 跨轮残留 running 状态，等待指示将永不显示（回归：thinkingEnabled 默认开启时，
+// 工具调用结束等待 LLM 回复期间界面无任何进行中提示）。
+describe('Turn 时间线占位事件边界收口', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  function getAssistantMessage(sessionStore: ReturnType<typeof useChatSessionStore>, sid: string, assistantMessageId: string) {
+    const session = sessionStore.sessions.find(s => s.id === sid)!
+    return session.messages.find(m => m.id === assistantMessageId)!
+  }
+
+  it('thinking 块在 tool_use 块开始时收口，工具结果返回后无残留 running 事件', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sid = 'sess-gap-thinking'
+    sessionStore.createSession('Test', undefined, sid)
+    const ts = turn.beginTurn(sid, { isAutonomous: false })
+
+    // 第一轮：thinking → tool_use（协议上 thinking 块结束只有 content_block_stop，
+    // 无任何 thinking 类事件跟随）
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'message_start', message: { model: 'test-model' } } })
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_start', content_block: { type: 'thinking' } } })
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '需要先查看文件' } } })
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_start', content_block: { type: 'tool_use', id: 'tool-1', name: 'Read' } } })
+
+    // 工具执行完成，返回结果 —— 此后进入"等待 LLM 下一轮响应"间隙
+    fake._handlers.onToolResult({ sessionId: sid, data: { tool_use_id: 'tool-1', output: 'file content' } })
+
+    const message = getAssistantMessage(sessionStore, sid, ts.assistantMessageId)
+    const runningEvents = (message.timelineEvents || []).filter(e => e.status === 'running' || e.status === 'pending')
+    expect(runningEvents).toHaveLength(0)
+    const reasoningEvent = (message.timelineEvents || []).find(e => e.type === 'reasoning')
+    expect(reasoningEvent?.status).toBe('completed')
+    expect(message.toolCalls?.find(tc => tc.id === 'tool-1')?.status).toBe('completed')
+    // turn 仍未结算（等待下一轮），loading 保持
+    expect(ts.settled).toBe(false)
+    expect(turn.getIsLoading(sid)).toBe(true)
+
+    turn.endTurn(sid, ts)
+  })
+
+  it('message_delta/message_stop 在轮次边界收口仍在 running 的 text 占位，且不结算 turn', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sid = 'sess-gap-text'
+    sessionStore.createSession('Test', undefined, sid)
+    const ts = turn.beginTurn(sid, { isAutonomous: false })
+
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_start', content_block: { type: 'text' } } })
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_delta', delta: { type: 'text_delta', text: '第一轮回答' } } })
+    // 一轮流式消息结束（stop_reason=tool_use 场景），turn 保持活跃等待工具执行
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'message_delta', delta: { stop_reason: 'tool_use' } } })
+    fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'message_stop' } })
+
+    const message = getAssistantMessage(sessionStore, sid, ts.assistantMessageId)
+    const runningEvents = (message.timelineEvents || []).filter(e => e.status === 'running' || e.status === 'pending')
+    expect(runningEvents).toHaveLength(0)
+    // 轮次边界收口不等于 turn 结算：loading 保持，等待引擎后续事件
+    expect(ts.settled).toBe(false)
+    expect(turn.getIsLoading(sid)).toBe(true)
+
+    turn.endTurn(sid, ts)
+  })
+})
