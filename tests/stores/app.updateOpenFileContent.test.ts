@@ -4,7 +4,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-vi.mock('@/services/electronAPI', () => ({ api: {} }))
+vi.mock('@/services/electronAPI', () => ({
+  api: {
+    // settings store 创建时会触发 loadFromGuiSettingsFile，缺失会导致 Unhandled Rejection
+    loadGuiSettings: vi.fn(() => Promise.resolve({ success: true, data: null })),
+  },
+}))
 
 import { useAppStore } from '@/stores/app'
 
