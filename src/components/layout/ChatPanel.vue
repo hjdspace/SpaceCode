@@ -276,6 +276,7 @@ import { useTurnStore } from '@/stores/turn'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useGoalStore, type GoalState } from '@/stores/goal'
 import { buildInitialGoalPrompt, MAX_GOAL_TURNS } from '@/lib/goalPrompts'
+import { serializeQuoteAttachments } from '@/composables/useContentEditor'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
@@ -1044,12 +1045,14 @@ watch(() => paneIsLoading.value, async (loading, prevLoading) => {
     if (sessionStore.hasStash(sid)) {
       const stash = sessionStore.getStash(sid)
       if (stash && (stash.text.trim() || stash.attachments.length > 0 || stash.images.length > 0)) {
+        const quoteBlock = serializeQuoteAttachments(stash.quotes ?? [])
+        const content = quoteBlock ? (stash.text ? `${quoteBlock}\n\n${stash.text}` : quoteBlock) : stash.text
         turnStore.addPendingMessage(sid, {
           id: crypto.randomUUID(),
-          content: stash.text,
+          content,
           attachments: stash.attachments.map(f => ({ ...f })),
           images: stash.images.map(img => ({ ...img })),
-          displayLabel: stash.text.slice(0, 80),
+          displayLabel: content.slice(0, 80),
           priority: 'later',
           createdAt: Date.now(),
         })
