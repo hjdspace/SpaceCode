@@ -17,6 +17,12 @@ export interface Attachment {
   isFolder: boolean
 }
 
+/** 引用文本附件（选中文本浮条"添加到对话"），发送时序列化为 blockquote */
+export interface TextQuoteAttachment {
+  id: string
+  text: string
+}
+
 export interface AllAttachments {
   files: Attachment[]
   images: ImageAttachment[]
