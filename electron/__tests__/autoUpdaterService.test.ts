@@ -7,6 +7,7 @@ const { autoUpdaterMock, CancellationTokenMock, ipcHandlers, sendToRendererMock 
     autoDownload: undefined as boolean | undefined,
     autoInstallOnAppQuit: undefined as boolean | undefined,
     disableDifferentialDownload: undefined as boolean | undefined,
+    allowPrerelease: undefined as boolean | undefined,
     setFeedURL: vi.fn(),
     checkForUpdates: vi.fn(),
     downloadUpdate: vi.fn(),
@@ -66,6 +67,15 @@ function fireUpdateAvailable(version = '0.8.2') {
   ;(call![1] as (info: unknown) => void)({ version })
 }
 
+/** 触发 download-progress 事件（重置当前下载尝试的停滞窗口） */
+function fireDownloadProgress() {
+  const handlers = autoUpdaterMock.on.mock.calls.filter(([event]) => event === 'download-progress')
+  expect(handlers.length).toBeGreaterThan(0)
+  for (const [, handler] of handlers) {
+    ;(handler as (progress: unknown) => void)({ percent: 10, transferred: 10, total: 100, bytesPerSecond: 1 })
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   ipcHandlers.clear()
@@ -77,11 +87,16 @@ afterEach(() => {
 })
 
 describe('initAutoUpdater', () => {
-  it('禁用差量下载：blockmap 多 range 请求不产生 download-progress 事件且 RTT-bound，会导致转圈无进度', () => {
+  it('差量优先：允许差量下载（小版本只传增量块），并由下载链路在失败时自行回退全量', () => {
     initAutoUpdater(createWindowMock(), 'fake-token')
-    expect(autoUpdaterMock.disableDifferentialDownload).toBe(true)
+    expect(autoUpdaterMock.disableDifferentialDownload).toBe(false)
     expect(autoUpdaterMock.autoDownload).toBe(false)
     expect(autoUpdaterMock.autoInstallOnAppQuit).toBe(false)
+  })
+
+  it('显式固定 allowPrerelease=false：避免 prerelease 版本被钉死在 rc channel 收不到稳定版', () => {
+    initAutoUpdater(createWindowMock(), 'fake-token')
+    expect(autoUpdaterMock.allowPrerelease).toBe(false)
   })
 
   it('仓库已公开：不调用 setFeedURL，即使环境变量中存在 GH_TOKEN 也不传给 electron-updater', () => {
@@ -94,6 +109,13 @@ describe('initAutoUpdater', () => {
     expect(autoUpdaterMock.setFeedURL).not.toHaveBeenCalled()
   })
 })
+
+/** 可手动结算的 pending promise：用于在测试结束时让链路收尾，避免 downloadChain 泄漏 */
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((r) => { resolve = r })
+  return { promise, resolve }
+}
 
 describe('update:download handler', () => {
   it('自动下载进行中手动点击下载：失败传播为 { success: false, error }，不再假成功', async () => {
@@ -172,23 +194,157 @@ describe('update:download handler', () => {
     expect(errorSends[errorSends.length - 1][1]).toContain('always failing')
   })
 
-  it('下载停滞时 5 分钟超时后取消停滞请求并进入重试', async () => {
+  it('差量尝试 60 秒无进度即取消，置 disableDifferentialDownload 并在 30 秒后回退全量重试', async () => {
     vi.useFakeTimers()
     initAutoUpdater(createWindowMock(), 'fake-token')
     const tokens: Array<{ cancel: () => void }> = []
-    autoUpdaterMock.downloadUpdate.mockImplementation((token?: { cancel: () => void }) => {
-      tokens.push(token!)
-      return new Promise(() => {})
-    })
+    const attempt2 = createDeferred()
+    autoUpdaterMock.downloadUpdate
+      .mockImplementationOnce((token?: { cancel: () => void }) => {
+        tokens.push(token!)
+        return new Promise(() => {}) // 差量尝试挂起
+      })
+      .mockImplementationOnce(() => attempt2.promise)
 
     fireUpdateAvailable()
 
-    await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
-
-    // 超时触发了取消，但重试还没开始
+    // 差量尝试挂起：60 秒停滞窗口到点取消
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(tokens[0]!.cancel).toHaveBeenCalled()
+    expect(autoUpdaterMock.disableDifferentialDownload).toBe(true)
     expect(autoUpdaterMock.downloadUpdate).toHaveBeenCalledTimes(1)
+
+    // 30 秒重试间隔后以全量模式重试
     await vi.advanceTimersByTimeAsync(30_000)
     expect(autoUpdaterMock.downloadUpdate).toHaveBeenCalledTimes(2)
+
+    // 收尾：结算链路，避免 downloadChain 泄漏到后续测试
+    attempt2.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+  })
+
+  it('全量尝试 5 分钟无进度取消重试（停滞窗口仅由 download-progress 重置）', async () => {
+    vi.useFakeTimers()
+    initAutoUpdater(createWindowMock(), 'fake-token')
+    const tokens: Array<{ cancel: () => void }> = []
+    const attempt2 = createDeferred()
+    const attempt3 = createDeferred()
+    autoUpdaterMock.downloadUpdate
+      .mockImplementationOnce(() => Promise.reject(new Error('differential failed')))
+      .mockImplementationOnce((token?: { cancel: () => void }) => {
+        tokens.push(token!)
+        return attempt2.promise
+      })
+      .mockImplementationOnce(() => attempt3.promise)
+
+    fireUpdateAvailable()
+
+    // 第一次（差量）立即报错 → 回退全量
+    await vi.advanceTimersByTimeAsync(0)
+    expect(autoUpdaterMock.disableDifferentialDownload).toBe(true)
+
+    // 30 秒后开始全量重试（挂起）
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(tokens[0]).toBeDefined()
+
+    // 全量停滞窗口 5 分钟：窗口内有 progress 事件 → 计时被重置，不取消
+    await vi.advanceTimersByTimeAsync(4 * 60 * 1000)
+    fireDownloadProgress()
+    await vi.advanceTimersByTimeAsync(59 * 1000)
+    expect(tokens[0]!.cancel).not.toHaveBeenCalled()
+
+    // 此后 5 分钟无任何进度 → 取消并进入下一次重试
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+    expect(tokens[0]!.cancel).toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(autoUpdaterMock.downloadUpdate).toHaveBeenCalledTimes(3)
+
+    // 收尾
+    attempt3.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+  })
+
+  it('下载正常推进时停滞窗口不断被重置，下载不会被误判为停滞', async () => {
+    vi.useFakeTimers()
+    initAutoUpdater(createWindowMock(), 'fake-token')
+    const attempt1 = createDeferred()
+    autoUpdaterMock.downloadUpdate.mockImplementation(() => attempt1.promise)
+
+    fireUpdateAvailable()
+
+    // 每 30 秒一个进度事件，持续 5 分钟远超 60 秒窗口也不取消
+    for (let i = 0; i < 10; i++) {
+      await vi.advanceTimersByTimeAsync(30_000)
+      fireDownloadProgress()
+    }
+    expect(autoUpdaterMock.downloadUpdate).toHaveBeenCalledTimes(1)
+
+    // 收尾
+    attempt1.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+  })
+
+  it('上一条链路回退全量后，新的下载链路重新尝试差量', async () => {
+    vi.useFakeTimers()
+    initAutoUpdater(createWindowMock(), 'fake-token')
+    const differentialFlags: Array<boolean | undefined> = []
+    autoUpdaterMock.downloadUpdate.mockImplementation(() => {
+      differentialFlags.push(!autoUpdaterMock.disableDifferentialDownload)
+      return Promise.reject(new Error('failed'))
+    })
+
+    fireUpdateAvailable()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(differentialFlags).toEqual([true, false, false])
+    expect(autoUpdaterMock.disableDifferentialDownload).toBe(true)
+
+    // 新链路（如发现下一个新版本）重新从差量开始
+    fireUpdateAvailable('0.8.3')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(differentialFlags[3]).toBe(true)
+
+    // 收尾：推进到第二条链 3 次尝试全部失败，downloadChain 清空，避免泄漏
+    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(autoUpdaterMock.downloadUpdate).toHaveBeenCalledTimes(6)
+  })
+})
+
+describe('update:check handler', () => {
+  it('手动检查 15 秒竞速超时后返回失败，不再等 GitHub 挂起连接', async () => {
+    vi.useFakeTimers()
+    initAutoUpdater(createWindowMock(), 'fake-token')
+    autoUpdaterMock.checkForUpdates.mockImplementation(() => new Promise(() => {}))
+
+    const pending = getHandler('update:check')()
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    const result = await pending
+    expect(result.success).toBe(false)
+    expect(String(result.error)).toContain('timed out')
+  })
+
+  it('手动检查正常完成返回成功', async () => {
+    vi.useFakeTimers()
+    initAutoUpdater(createWindowMock(), 'fake-token')
+    autoUpdaterMock.checkForUpdates.mockResolvedValue(null)
+
+    const result = await getHandler('update:check')()
+    expect(result).toEqual({ success: true })
+  })
+
+  it('自动检查超时保持静默：不向渲染端发 update:error', async () => {
+    vi.useFakeTimers()
+    initAutoUpdater(createWindowMock(), 'fake-token')
+    autoUpdaterMock.checkForUpdates.mockImplementation(() => new Promise(() => {}))
+
+    // 启动 30 秒后首次自动检查，8 秒竞速超时
+    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.advanceTimersByTimeAsync(8_000)
+
+    const errorSends = sendToRendererMock.mock.calls.filter(([ch]) => ch === 'update:error')
+    expect(errorSends).toHaveLength(0)
   })
 })
