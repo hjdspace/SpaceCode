@@ -54,6 +54,11 @@ export interface InputInjectPayload {
     previewUrl: string
     data: string
   }
+  /** 引用文本附件(选中文本浮条"添加到对话"), 显示在输入框上方附件条 */
+  quote?: {
+    id: string
+    text: string
+  }
 }
 
 export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview' | 'subagent'
@@ -517,6 +522,18 @@ export const useAppStore = defineStore('app', () => {
       data: file,
       closeable: true
     })
+  }
+
+  /** 选中内容改写(原地替换预览): 同步更新所有同路径 file/markdown tab 的内容 */
+  function updateOpenFileContent(filePath: string, content: string) {
+    for (const tab of infoPanelTabs.value) {
+      if ((tab.type === 'file' || tab.type === 'markdown') && tab.data) {
+        const f = tab.data as FileInfo
+        if (f.path === filePath) {
+          tab.data = { ...f, content }
+        }
+      }
+    }
   }
 
   async function openFile(filePath: string, line?: number, endLine?: number) {
@@ -1005,6 +1022,7 @@ export const useAppStore = defineStore('app', () => {
     showToolDiff,
     markToolActionCompleted,
     setCurrentFile,
+    updateOpenFileContent,
     openFile,
     resolveSessionPath,
     getLanguageFromPath,

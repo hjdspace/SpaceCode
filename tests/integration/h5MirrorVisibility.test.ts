@@ -48,6 +48,7 @@ vi.mock('@/components/work/WorkspaceOnboarding.vue', () => ({ default: component
 vi.mock('@/components/mobile/ConnectMobileDialog.vue', () => ({ default: componentStub }))
 vi.mock('@/components/layout/FileQuickOpen.vue', () => ({ default: componentStub }))
 vi.mock('@/components/common/DialogProvider.vue', () => ({ default: componentStub }))
+vi.mock('@/components/common/SelectionActionBar.vue', () => ({ default: componentStub }))
 
 vi.mock('@/services/h5ApiClient', () => ({
   isH5Mode: () => true,

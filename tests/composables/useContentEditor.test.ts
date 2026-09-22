@@ -9,6 +9,7 @@
  * - Paste marker parsing
  */
 import { describe, it, expect } from 'vitest'
+import { serializeQuoteAttachments } from '@/composables/useContentEditor'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -264,6 +265,24 @@ describe('useContentEditor - pure logic', () => {
 
     it('should return basename when no working directory', () => {
       expect(buildRelativePath(undefined, '/some/path/file.ts')).toBe('file.ts')
+    })
+  })
+
+  describe('quote attachment serialization (from @/composables/useContentEditor)', () => {
+    it('should serialize a single-line quote as blockquote', () => {
+      expect(serializeQuoteAttachments([{ text: 'hello' }])).toBe('> hello')
+    })
+
+    it('should serialize a multi-line quote with blockquote per line', () => {
+      expect(serializeQuoteAttachments([{ text: 'line1\nline2' }])).toBe('> line1\n> line2')
+    })
+
+    it('should join multiple quotes with a blank line', () => {
+      expect(serializeQuoteAttachments([{ text: 'a' }, { text: 'b' }])).toBe('> a\n\n> b')
+    })
+
+    it('should return empty string for no quotes', () => {
+      expect(serializeQuoteAttachments([])).toBe('')
     })
   })
 })

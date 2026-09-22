@@ -400,6 +400,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     text: string
     attachments: { name: string; path: string; isFolder: boolean }[]
     images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+    quotes?: { id: string; text: string }[]
     editorHtml: string
   }
   const sessionStash = ref<Map<string, PromptStashData>>(new Map())

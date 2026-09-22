@@ -65,6 +65,7 @@ import rtk from './rtk'
 import im from './im'
 import skillManagerV2 from './skillManagerV2'
 import memorySettings from './memorySettings'
+import selectionActions from './selectionActions'
 
 export default {
   common,
@@ -134,4 +135,5 @@ export default {
   im,
   skillManagerV2,
   memorySettings,
+  selectionActions,
 }

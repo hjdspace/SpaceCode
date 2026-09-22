@@ -95,7 +95,7 @@
       <div class="code-with-lines" :style="{ height: totalHeight + 'px', position: 'relative' }">
         <!-- Line numbers column -->
         <div class="line-numbers" :style="{ position: 'absolute', top: 0, left: 0, bottom: 0, width: lineNumberWidth + 'px' }">
-          <div :style="{ transform: `translateY(${offsetY - LINE_PADDING}px)` }">
+          <div :style="{ transform: `translateY(${offsetY}px)` }">
             <div
               v-for="lineNum in visibleLineNumbers"
               :key="lineNum"
@@ -106,20 +106,7 @@
           </div>
         </div>
         <!-- Code content area -->
-        <pre class="code-content" :style="{ marginLeft: lineNumberWidth + 'px', position: 'absolute', top: 0, left: 0, right: 0 }">
-          <code ref="codeElRef" :class="`language-${appStore.currentFile.language}`">
-            <!-- Top spacer to push visible lines to correct scroll position -->
-            <div :style="{ height: offsetY + 'px' }"></div>
-            <div
-              v-for="item in visibleRenderItems"
-              :key="item.key"
-              class="code-line"
-              v-html="item.html"
-            ></div>
-            <!-- Bottom spacer -->
-            <div :style="{ height: bottomSpacerHeight + 'px' }"></div>
-          </code>
-        </pre>
+        <pre class="code-content" :style="{ marginLeft: lineNumberWidth + 'px', position: 'absolute', top: 0, left: 0, right: 0 }"><code ref="codeElRef" :class="`language-${appStore.currentFile.language}`"><div :style="{ height: offsetY + 'px' }"></div><div v-for="item in visibleRenderItems" :key="item.key" class="code-line" v-html="item.html"></div><div :style="{ height: bottomSpacerHeight + 'px' }"></div></code></pre>
       </div>
     </div>
     <div class="empty-state" v-else>
@@ -135,6 +122,7 @@ import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { FileCode, Eye, FileText, Search, ChevronUp, ChevronDown, X } from 'lucide-vue-next'
 import hljs from 'highlight.js'
+import { registerSelectionHost } from '@/composables/useSelectionActions'
 
 // ── 常量 ──────────────────────────────────────────────────────────
 const LINE_HEIGHT = 21.6 // px, matches CSS line-height: 1.6 * 13px font
@@ -411,6 +399,65 @@ watch(
   { immediate: true }
 )
 
+// ── 选中文字浮动操作条 ────────────────────────────────────────────
+/** 行内字符偏移: TreeWalker 累加文本节点长度(同 performSearch 技术) */
+function charOffsetInLine(lineEl: HTMLElement, node: Node, offset: number): number {
+  const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT)
+  let count = 0
+  let n: Node | null
+  while ((n = walker.nextNode())) {
+    if (n === node) return count + offset
+    count += (n.textContent || '').length
+  }
+  return count
+}
+
+/** 将 DOM 选区映射为源文件中的绝对偏移; 超长截断行返回 null(交由字符串回退定位) */
+function getSelectionInfo(): { absStart: number; absEnd: number; text: string; startLine: number; endLine: number } | null {
+  const sel = window.getSelection()
+  const codeEl = codeElRef.value
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !codeEl || !appStore.currentFile) return null
+  const range = sel.getRangeAt(0)
+  if (!codeEl.contains(range.commonAncestorContainer)) return null
+
+  const lineEls = Array.from(codeEl.querySelectorAll('.code-line'))
+  const startLineEl = (range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement)?.closest('.code-line')
+  const endLineEl = (range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement)?.closest('.code-line')
+  if (!startLineEl || !endLineEl) return null
+  const startIdx = lineEls.indexOf(startLineEl as HTMLElement)
+  const endIdx = lineEls.indexOf(endLineEl as HTMLElement)
+  if (startIdx < 0 || endIdx < 0) return null
+
+  const startLine = startIndex.value + startIdx + 1 // 1-based
+  const endLine = startIndex.value + endIdx + 1
+  const lines = allLines.value
+  if (startLine > lines.length || endLine > lines.length) return null
+  // 超长截断行: DOM 文本 ≠ 原始行文本, 无法精确映射
+  if (lines[startLine - 1].length > MAX_LINE_RENDER_CHARS || lines[endLine - 1].length > MAX_LINE_RENDER_CHARS) return null
+
+  const startChar = charOffsetInLine(startLineEl as HTMLElement, range.startContainer, range.startOffset)
+  const endChar = charOffsetInLine(endLineEl as HTMLElement, range.endContainer, range.endOffset)
+  const absStart = lines.slice(0, startLine - 1).reduce((sum, l) => sum + l.length + 1, 0) + startChar
+  const absEnd = lines.slice(0, endLine - 1).reduce((sum, l) => sum + l.length + 1, 0) + endChar
+  if (absEnd <= absStart) return null
+  return { absStart, absEnd, text: appStore.currentFile.content.slice(absStart, absEnd), startLine, endLine }
+}
+
+function flashRange(startLine: number, endLine: number) {
+  flashLines(startLine, endLine)
+}
+
+let unregisterSelectionHost: (() => void) | undefined
+onMounted(() => {
+  if (codeContainer.value) {
+    unregisterSelectionHost = registerSelectionHost(codeContainer.value, {
+      context: 'file',
+      getSelectionInfo,
+      flashRange,
+    })
+  }
+})
+
 // ── 代码搜索逻辑 ──────────────────────────────────────────────────
 const showSearch = ref(false)
 const searchQuery = ref('')
@@ -578,16 +625,18 @@ watch(scrollTop, () => {
   }, 300)
 })
 
-// 文件切换时关闭搜索 + 清理缓存 + 重置滚动
-watch(() => appStore.currentFile?.path, () => {
-  if (showSearch.value) closeSearch()
+// 文件切换时关闭搜索 + 清理缓存 + 重置滚动; 内容被改写(选中内容原地替换)时也需清缓存
+watch(() => [appStore.currentFile?.path, appStore.currentFile?.content], ([newPath], [oldPath]) => {
+  if (newPath !== oldPath) {
+    if (showSearch.value) closeSearch()
+    scrollTop.value = 0
+    scrollLeft.value = 0
+    nextTick(() => {
+      updateViewport()
+      onScroll()
+    })
+  }
   clearLineCache()
-  scrollTop.value = 0
-  scrollLeft.value = 0
-  nextTick(() => {
-    updateViewport()
-    onScroll()
-  })
 })
 
 // ── ResizeObserver ─────────────────────────────────────────────────
@@ -608,6 +657,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onGlobalKeydown, true)
+  unregisterSelectionHost?.()
   if (searchDebounce) clearTimeout(searchDebounce)
   if (flashTimer) clearTimeout(flashTimer)
   if (scrollRaf) cancelAnimationFrame(scrollRaf)

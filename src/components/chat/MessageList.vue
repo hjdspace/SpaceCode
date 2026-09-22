@@ -77,6 +77,7 @@ import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
+import { registerSelectionHost } from '@/composables/useSelectionActions'
 import { getCompletedTurnTargets, type RewindTurnTarget } from '@/utils/turnCheckpointUtils'
 
 const { t } = useI18n()
@@ -343,6 +344,7 @@ function restoreSessionScroll(sessionId: string, element: HTMLElement) {
 
 // ========== 优化3: 智能自动滚动控制 ==========
 const listRef = ref<HTMLElement | null>(null)
+let unregisterSelectionHost: (() => void) | undefined
 const shouldAutoScrollRef = ref(true)
 const isProgrammaticScrollingRef = ref(false)
 const lastSessionIdRef = ref<string | null>(null)
@@ -517,6 +519,11 @@ onMounted(async () => {
     listRef.value.addEventListener('scroll', handleScroll, { passive: true })
   }
 
+  // 选中文字浮动操作条(聊天场景)
+  if (listRef.value) {
+    unregisterSelectionHost = registerSelectionHost(listRef.value, { context: 'chat' })
+  }
+
   if (props.messages.length > 0) {
     scrollToBottom()
   }
@@ -533,6 +540,8 @@ onUnmounted(() => {
   if (listRef.value) {
     listRef.value.removeEventListener('scroll', handleScroll)
   }
+
+  unregisterSelectionHost?.()
 
   if (_turnCheckpointsTimeout) {
     clearTimeout(_turnCheckpointsTimeout)
