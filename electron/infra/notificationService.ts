@@ -7,6 +7,7 @@
 // 点击通知会聚焦（并还原）主窗口。
 
 import { app, BrowserWindow, ipcMain, nativeImage, Notification } from 'electron'
+import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { info, warn } from './logger'
@@ -54,34 +55,71 @@ export function resolveNotificationIconPath(): string | undefined {
 }
 
 /**
+ * Electron's Linux notification backend can be unavailable in minimal
+ * desktop environments (or when an AppImage is launched without the usual
+ * desktop integration).  libnotify's CLI uses the same D-Bus session and is
+ * a useful fallback when it is installed.
+ */
+function showLinuxNotification(options: SystemNotificationOptions, iconPath?: string): boolean {
+  if (process.platform !== 'linux') return false
+
+  const args = ['--app-name=SpaceCode']
+  if (iconPath) args.push(`--icon=${iconPath}`)
+  args.push(options.title, options.message)
+
+  try {
+    const result = spawnSync('notify-send', args, {
+      stdio: 'ignore',
+      timeout: 3000,
+    })
+    if (result.error || result.status !== 0) {
+      warn('Notification', 'Linux notify-send fallback failed', {
+        error: result.error ? String(result.error) : `exit=${result.status}`,
+      })
+      return false
+    }
+    info('Notification', `Linux notify-send fallback shown | title=${options.title}`)
+    return true
+  } catch (err) {
+    warn('Notification', 'Linux notify-send fallback threw', { error: String(err) })
+    return false
+  }
+}
+
+/**
  * 弹出系统通知。支持 Windows（右下角 toast）与 Linux（libnotify）。
  * @returns 是否成功弹出
  */
 export function showSystemNotification(options: SystemNotificationOptions): boolean {
   if (!Notification.isSupported()) {
     warn('Notification', 'System notifications are not supported on this platform')
-    return false
+    return showLinuxNotification(options, resolveNotificationIconPath())
   }
 
   const iconPath = resolveNotificationIconPath()
-  const notification = new Notification({
-    title: options.title,
-    body: options.message,
-    ...(iconPath ? { icon: nativeImage.createFromPath(iconPath) } : {}),
-  })
+  try {
+    const notification = new Notification({
+      title: options.title,
+      body: options.message,
+      ...(iconPath ? { icon: nativeImage.createFromPath(iconPath) } : {}),
+    })
 
-  notification.on('click', () => {
-    const win = options.window && !options.window.isDestroyed() ? options.window : null
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.show()
-      win.focus()
-    }
-  })
+    notification.on('click', () => {
+      const win = options.window && !options.window.isDestroyed() ? options.window : null
+      if (win) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
+    })
 
-  notification.show()
-  info('Notification', `System notification shown | title=${options.title} | icon=${iconPath ?? 'default'}`)
-  return true
+    notification.show()
+    info('Notification', `System notification shown | title=${options.title} | icon=${iconPath ?? 'default'}`)
+    return true
+  } catch (err) {
+    warn('Notification', 'Electron system notification failed', { error: String(err) })
+    return showLinuxNotification(options, iconPath)
+  }
 }
 
 /**

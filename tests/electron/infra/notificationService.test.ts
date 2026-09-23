@@ -40,7 +40,12 @@ const electronMock = vi.hoisted(() => {
   }
 })
 
+const childProcessMock = vi.hoisted(() => ({
+  spawnSync: vi.fn(),
+}))
+
 vi.mock('electron', () => ({ default: electronMock, ...electronMock }))
+vi.mock('child_process', () => childProcessMock)
 
 // logger 通过 electron 的 app（initLogger）写文件；测试中 mock 掉避免副作用。
 vi.mock('@electron/infra/logger', () => ({
@@ -71,6 +76,7 @@ describe('notificationService', () => {
     )
     electronMock.app.isPackaged = false
     vi.mocked(electronMock.ipcMain.on).mockClear()
+    childProcessMock.spawnSync.mockReset()
   })
 
   describe('getNotificationIconPath', () => {
@@ -134,6 +140,24 @@ describe('notificationService', () => {
       ;(electronMock.Notification as any).isSupported.mockImplementation(() => false)
       expect(showSystemNotification({ title: 'T', message: 'M' })).toBe(false)
       expect(electronMock.Notification).not.toHaveBeenCalled()
+    })
+
+    it('falls back to notify-send on Linux when Electron notifications are unavailable', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
+      childProcessMock.spawnSync.mockReturnValue({ status: 0, error: undefined })
+      ;(electronMock.Notification as any).isSupported.mockImplementation(() => false)
+
+      try {
+        expect(showSystemNotification({ title: 'T', message: 'M' })).toBe(true)
+        expect(childProcessMock.spawnSync).toHaveBeenCalledWith(
+          'notify-send',
+          expect.arrayContaining(['T', 'M']),
+          expect.objectContaining({ stdio: 'ignore' }),
+        )
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
     })
 
     it('restores, shows and focuses the window on click', () => {

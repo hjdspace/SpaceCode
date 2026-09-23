@@ -1,3 +1,33 @@
+## [0.8.5](https://github.com/hjdspace/SpaceCode/compare/v0.8.4...v0.8.5) (2026-09-23)
+
+### Features
+
+- **selection-ai:** 新增划词 AI 操作栏，划选内容可快捷发送 AI 处理，引用以附件形式随消息传递
+- **code-viewer:** 代码查看器支持在线编辑、全屏切换与虚拟滚动，信息面板支持全屏
+- **model-catalog:** 新增模型目录管理与模型能力配置，支持图片/Token 能力声明与高级选项
+- **session:** 会话列表支持搜索，新增会话缩略图预览提示
+- **draft:** 聊天会话草稿自动保存与恢复
+- **editor:** 新增二进制文件检测，避免以文本方式打开二进制文件
+- **notification:** Linux 下 Electron 通知不可用时使用 notify-send 作为 fallback
+- **reasoning:** 流式边界时自动完成当前推理事件
+- **tabs:** 标签页关闭时新增未保存更改确认
+- **updater:** 增强更新下载逻辑与超时处理
+
+### Bug Fixes
+
+- 修复 ChatPanel 中 session-id 绑定问题
+
+### Refactor
+
+- 下拉框样式改用 fixed 定位，避免被容器裁剪
+- 重构 autoUpdaterService 以支持公开仓库访问
+- 文件打开逻辑统一走 appStore.openFile
+- 重构 CodeViewer 渲染与选区处理
+
+### Build
+
+- 新增 GitHub Release 镜像同步到 CNB 的 workflow
+
 ## [0.8.4](https://github.com/hjdspace/SpaceCode/compare/v0.8.3...v0.8.4) (2026-09-20)
 
 ### Features
