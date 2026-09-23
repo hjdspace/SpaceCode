@@ -8,6 +8,7 @@
 import * as childProcess from 'child_process'
 import { writeFileSync, readFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
 import { watch, type FSWatcher } from 'fs'
+import { Worker } from 'worker_threads'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { ipcMain, BrowserWindow } from 'electron'
@@ -1228,6 +1229,7 @@ async function resetTo(cwd: string, hash: string, mode: 'soft' | 'mixed' | 'hard
 
 let gitWatcher: FSWatcher | null = null
 let worktreeWatcher: FSWatcher | null = null
+let worktreeWorker: Worker | null = null
 let watchedProjectRoot: string | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 const DEBOUNCE_MS = 300
@@ -1241,13 +1243,126 @@ function notifyRendererStatusChanged(): void {
   }
 }
 
+function scheduleStatusNotify(): void {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    notifyRendererStatusChanged()
+    debounceTimer = null
+  }, DEBOUNCE_MS)
+}
+
+function isRelevantWorktreeChange(filename: string): boolean {
+  // Ignore .git changes (watched separately) and node_modules
+  return !filename.startsWith('.git') && !filename.startsWith('node_modules')
+}
+
+/**
+ * Worker-thread source for the recursive worktree watcher on Linux.
+ *
+ * On Linux, Node implements `fs.watch(..., { recursive: true })` in JS
+ * (lib/internal/fs/recursive_watch.js): the initial watch() call performs a
+ * fully SYNCHRONOUS tree walk (statSync + readdirSync per directory) and
+ * creates one inotify watch per directory, all on the calling thread. On a
+ * large worktree this blocks the Electron main thread for seconds (observed
+ * ~70s on a cold NFS cache), freezing the whole app at startup.
+ *
+ * Running the watch in a worker thread keeps that walk off the main thread.
+ * Windows/macOS use kernel-backed recursive watch with non-blocking setup,
+ * so they keep the in-process watcher (see startGitWatcher).
+ */
+const WORKTREE_WATCHER_WORKER_SOURCE = `
+const { workerData, parentPort } = require('worker_threads');
+const { watch } = require('fs');
+const postError = (err) => parentPort.postMessage({
+  type: 'error',
+  message: err && err.message ? err.message : String(err),
+});
+try {
+  const watcher = watch(workerData.root, { recursive: true }, (_event, filename) => {
+    if (!filename) return;
+    if (filename.startsWith('.git') || filename.startsWith('node_modules')) return;
+    parentPort.postMessage({ type: 'change', filename });
+  });
+  watcher.on('error', postError);
+} catch (err) {
+  postError(err);
+}
+`
+
+function stopWorktreeWorkerWatcher(): void {
+  if (worktreeWorker) {
+    const worker = worktreeWorker
+    worktreeWorker = null
+    worker.terminate().catch(() => {})
+  }
+}
+
+function startNonRecursiveWorktreeWatcher(projectRoot: string): void {
+  try {
+    worktreeWatcher = watch(projectRoot, (_event, filename) => {
+      if (!filename) return
+      if (!isRelevantWorktreeChange(filename)) return
+      scheduleStatusNotify()
+    })
+    worktreeWatcher.on('error', (err) => {
+      // Without a listener, FSWatcher errors become uncaught exceptions
+      console.warn(`[GitService] Worktree watcher error: ${projectRoot}`, err)
+      if (worktreeWatcher) {
+        worktreeWatcher.close()
+        worktreeWatcher = null
+      }
+    })
+    debug('GitService', `Watching worktree (non-recursive fallback): ${projectRoot}`)
+  } catch (e) {
+    console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e)
+  }
+}
+
+function startWorktreeWorkerWatcher(projectRoot: string): void {
+  try {
+    const worker = new Worker(WORKTREE_WATCHER_WORKER_SOURCE, {
+      eval: true,
+      workerData: { root: projectRoot },
+    })
+    worker.unref() // Never keep the app alive just for file watching
+    worker.on('message', (msg: { type?: string; message?: string }) => {
+      if (msg?.type === 'change') {
+        scheduleStatusNotify()
+        return
+      }
+      if (msg?.type === 'error') {
+        // e.g. inotify watch limit (ENOSPC) reached mid-run. Graceful
+        // degradation: keep at least root-level coverage in-process.
+        console.warn(`[GitService] Recursive worktree watcher failed: ${msg?.message}`)
+        if (worktreeWorker !== worker) return // Stale message after a project switch
+        stopWorktreeWorkerWatcher()
+        startNonRecursiveWorktreeWatcher(projectRoot)
+      }
+    })
+    worker.on('error', (err) => {
+      console.warn(`[GitService] Worktree watcher worker crashed: ${projectRoot}`, err)
+      if (worktreeWorker !== worker) return // Stale worker after a project switch
+      worktreeWorker = null
+      if (!worktreeWatcher) startNonRecursiveWorktreeWatcher(projectRoot)
+    })
+    worker.on('exit', () => {
+      if (worktreeWorker === worker) worktreeWorker = null
+    })
+    worktreeWorker = worker
+    debug('GitService', `Watching worktree (recursive, worker thread): ${projectRoot}`)
+  } catch (e) {
+    console.warn(`[GitService] Failed to start worktree watcher worker: ${projectRoot}`, e)
+    startNonRecursiveWorktreeWatcher(projectRoot)
+  }
+}
+
 function startGitWatcher(projectRoot: string): void {
   // Stop existing watcher if watching a different project
-  if (gitWatcher && watchedProjectRoot !== projectRoot) {
+  if ((gitWatcher || worktreeWatcher || worktreeWorker) && watchedProjectRoot !== projectRoot) {
     stopGitWatcher()
   }
 
-  if (gitWatcher) return // Already watching this project
+  if (gitWatcher || worktreeWatcher || worktreeWorker) return // Already watching this project
 
   watchedProjectRoot = projectRoot
   const gitDir = join(projectRoot, '.git')
@@ -1260,11 +1375,7 @@ function startGitWatcher(projectRoot: string): void {
       const isRelevant = relevantPrefixes.some(p => filename.startsWith(p))
       if (!isRelevant) return
 
-      if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        notifyRendererStatusChanged()
-        debounceTimer = null
-      }, DEBOUNCE_MS)
+      scheduleStatusNotify()
     })
     debug('GitService', `Watching .git directory: ${gitDir}`)
   } catch (e) {
@@ -1273,37 +1384,34 @@ function startGitWatcher(projectRoot: string): void {
 
   // Watch worktree for file modifications (recursive to detect new/deleted files in subdirectories)
   // This catches external editor changes and LLM-generated files that don't touch .git immediately.
-  // { recursive: true } is supported on Windows and macOS. On Linux it falls back to non-recursive.
+  // { recursive: true } is kernel-backed and non-blocking on Windows and macOS.
+  // On Linux the JS-polyfill recursive walk would block the main thread, so it
+  // runs in a worker thread instead (see startWorktreeWorkerWatcher).
+  if (process.platform === 'linux') {
+    startWorktreeWorkerWatcher(projectRoot)
+    return
+  }
+
   try {
     worktreeWatcher = watch(projectRoot, { recursive: true }, (_event, filename) => {
       if (!filename) return
-      // Ignore .git changes (already watched above) and node_modules
-      if (filename.startsWith('.git') || filename.startsWith('node_modules')) return
-
-      if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        notifyRendererStatusChanged()
-        debounceTimer = null
-      }, DEBOUNCE_MS)
+      if (!isRelevantWorktreeChange(filename)) return
+      scheduleStatusNotify()
+    })
+    worktreeWatcher.on('error', (err) => {
+      // Without a listener, FSWatcher errors become uncaught exceptions;
+      // degrade to root-level coverage instead of crashing
+      console.warn(`[GitService] Worktree watcher error: ${projectRoot}`, err)
+      if (worktreeWatcher) {
+        worktreeWatcher.close()
+        worktreeWatcher = null
+      }
+      startNonRecursiveWorktreeWatcher(projectRoot)
     })
     debug('GitService', `Watching worktree (recursive): ${projectRoot}`)
   } catch (e) {
-    // Fallback: try non-recursive watch if recursive is not supported (e.g. Linux)
-    try {
-      worktreeWatcher = watch(projectRoot, (_event, filename) => {
-        if (!filename) return
-        if (filename.startsWith('.git') || filename.startsWith('node_modules')) return
-
-        if (debounceTimer) clearTimeout(debounceTimer)
-        debounceTimer = setTimeout(() => {
-          notifyRendererStatusChanged()
-          debounceTimer = null
-        }, DEBOUNCE_MS)
-      })
-      debug('GitService', `Watching worktree (non-recursive fallback): ${projectRoot}`)
-    } catch (e2) {
-      console.warn(`[GitService] Failed to watch worktree: ${projectRoot}`, e2)
-    }
+    // Fallback: try non-recursive watch if recursive is not supported
+    startNonRecursiveWorktreeWatcher(projectRoot)
   }
 }
 
@@ -1316,6 +1424,7 @@ function stopGitWatcher(): void {
     worktreeWatcher.close()
     worktreeWatcher = null
   }
+  stopWorktreeWorkerWatcher()
   watchedProjectRoot = null
   if (debounceTimer) {
     clearTimeout(debounceTimer)
