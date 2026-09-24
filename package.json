@@ -368,17 +368,27 @@
       "!**/node_modules/better-sqlite3/deps/**/*",
       "!**/node_modules/better-sqlite3/prebuilds/win32-arm64*",
       "!**/node_modules/better-sqlite3/prebuilds/linuxmusl-*",
+      "!**/node_modules/better-sqlite3/src/**/*",
+      "!**/node_modules/better-sqlite3/build/**/*",
+      "!**/node_modules/node-pty/prebuilds/darwin-*",
+      "!**/node_modules/node-pty/prebuilds/linux-*",
       "!**/node_modules/node-pty/prebuilds/win32-arm64*",
+      "!**/node_modules/node-pty/prebuilds/**/*.pdb",
+      "!**/node_modules/node-pty/src/**/*",
+      "!**/node_modules/node-pty/deps/**/*",
       "!**/node_modules/node-pty/third_party/conpty/**/win10-arm64/**/*",
+      "!**/node_modules/@mariozechner/pi-coding-agent/docs/**/*",
+      "!**/node_modules/@mariozechner/pi-coding-agent/examples/**/*",
+      "!**/node_modules/@mariozechner/pi-ai/node_modules/**/*",
+      "!**/node_modules/koffi/build/koffi/darwin_*",
       "!**/node_modules/koffi/build/koffi/freebsd_*",
       "!**/node_modules/koffi/build/koffi/openbsd_*",
       "!**/node_modules/koffi/build/koffi/musl_*",
-      "!**/node_modules/koffi/build/koffi/linux_loong64",
-      "!**/node_modules/koffi/build/koffi/linux_riscv64d",
-      "!**/node_modules/koffi/build/koffi/linux_ia32",
-      "!**/node_modules/koffi/build/koffi/linux_armhf",
+      "!**/node_modules/koffi/build/koffi/linux_*",
       "!**/node_modules/koffi/build/koffi/win32_ia32",
-      "!**/node_modules/koffi/build/koffi/win32_arm64"
+      "!**/node_modules/koffi/build/koffi/win32_arm64",
+      "!**/node_modules/koffi/doc/**/*",
+      "!**/node_modules/koffi/vendor/**/*"
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*",
@@ -484,7 +494,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
-    "compression": "store",
+    "compression": "maximum",
     "electronLanguages": [
       "zh-CN",
       "en-US"
