@@ -192,7 +192,9 @@ describe('traceViewModel — 诊断 diagnosis', () => {
       ev({ type: 'user_message', actor: 'user', timestamp: T0 }),
       ev({ type: 'tool_call', actor: 'tool', status: 'running', timestamp: T1 }),
     ])
+    expect(vm.diagnosis.status).toBe('attention')
     expect(vm.diagnosis.reason).toBe('pending_tool')
+    expect(vm.diagnosis.pendingToolCalls).toBe(1)
   })
 
   it('最后 Turn 只有用户消息、无代理产出 → waiting_for_agent', () => {
