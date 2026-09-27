@@ -72,6 +72,16 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     }
   }
 
+  function cleanup() {
+    isResizing.value = false
+    document.removeEventListener('mousemove', handleMousemove)
+    document.removeEventListener('mouseup', handleMouseup)
+    window.removeEventListener('blur', handleBlur)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    document.body.classList.remove('panel-resizing')
+  }
+
   function handleMouseup() {
     // 确保最后一帧的值被写入
     if (rafId !== null) {
@@ -81,13 +91,21 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     if (pendingSize !== null) {
       flushPending()
     }
+    cleanup()
+  }
 
-    isResizing.value = false
-    document.removeEventListener('mousemove', handleMousemove)
-    document.removeEventListener('mouseup', handleMouseup)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-    document.body.classList.remove('panel-resizing')
+  /** 窗口失焦时也清理（防止鼠标拖出窗口后 mouseup 丢失） */
+  function handleBlur() {
+    if (isResizing.value) {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      if (pendingSize !== null) {
+        flushPending()
+      }
+      cleanup()
+    }
   }
 
   function onMousedown(e: MouseEvent) {
@@ -97,6 +115,8 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
 
     document.addEventListener('mousemove', handleMousemove)
     document.addEventListener('mouseup', handleMouseup)
+    // 窗口失焦时清理（Electron 中拖出窗口可能导致 mouseup 不触发）
+    window.addEventListener('blur', handleBlur)
     document.body.style.cursor = options.direction === 'horizontal' ? 'col-resize' : 'row-resize'
     document.body.style.userSelect = 'none'
     // 添加全局标记类，CSS 据此在拖拽期间禁用 backdrop-filter / transition
@@ -110,6 +130,7 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     }
     document.removeEventListener('mousemove', handleMousemove)
     document.removeEventListener('mouseup', handleMouseup)
+    window.removeEventListener('blur', handleBlur)
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
     document.body.classList.remove('panel-resizing')

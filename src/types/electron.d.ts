@@ -504,6 +504,10 @@ export interface ElectronAPI {
 
   showNotification: (options: { title: string; message: string }) => void
 
+  preview: {
+    getUrl: (filePath: string) => Promise<string | null>
+  }
+
   design: {
     listSystems: () => Promise<DesignSystemSummary[]>
     getSystemPreview: (systemId: string, pagePath: string) => Promise<string>

@@ -39,6 +39,7 @@ import { PetFileService } from './pet/petFileService'
 import { PetWindowController } from './pet/petWindowManager'
 import { registerPetIpcHandlers } from './pet/petIpcHandlers'
 import { setupLinuxPlatform } from './infra/platformSetup'
+import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
 const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
@@ -972,6 +973,10 @@ info('Startup', 'CuaDriver IPC handlers registered')
   registerPromptOptimizerIPC()
   info('Startup', 'Prompt Optimizer IPC handlers registered')
 
+  // Register Preview Server IPC handlers (本地 HTTP 预览服务器)
+  registerPreviewServerIPCHandlers()
+  info('Startup', 'Preview Server IPC handlers registered')
+
   // Register Auto Updater IPC handlers (always register, but only init in production)
   registerAutoUpdaterIPC()
   if (!isDev) {
@@ -1061,6 +1066,7 @@ app.on('before-quit', async () => {
 info('App', 'App quitting')
 // 如果更新已下载，在退出时静默安装（不重启）
 installUpdateOnQuit()
+cleanupPreviewServer()
 cleanupOfficeCli()
 await cleanupCuaDriverMcp()
 await cleanupBrowserUseMcp()

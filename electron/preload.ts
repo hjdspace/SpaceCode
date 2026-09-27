@@ -577,6 +577,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showNotification: (options: { title: string; message: string }) =>
     ipcRenderer.send('app:showNotification', options),
 
+  // Preview Server API — 获取本地 HTTP 预览 URL（替代 file:// 协议）
+  preview: {
+    getUrl: (filePath: string): Promise<string | null> =>
+      ipcRenderer.invoke('preview:getUrl', filePath),
+  },
+
   // Design API
   design: {
     listSystems: (): Promise<

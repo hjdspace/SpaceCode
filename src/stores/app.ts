@@ -770,8 +770,15 @@ export const useAppStore = defineStore('app', () => {
     return (isLocal ? 'http://' : 'https://') + trimmed
   }
 
-  /** 将本地文件路径转为 file:// URL 并在内置浏览器打开（用于预览 .html 等产物） */
-  function openFileInWebview(filePath: string) {
+  /** 将本地文件路径转为预览 URL 并在内置浏览器打开（用于预览 .html 等产物） */
+  async function openFileInWebview(filePath: string) {
+    // 优先使用本地 HTTP 预览服务器（解决 file:// 协议下 ES Module / CORS 问题）
+    const previewUrl = await api.preview.getUrl(filePath)
+    if (previewUrl) {
+      openWebview(previewUrl)
+      return
+    }
+    // Fallback: file:// 协议（preview server 不可用时）
     const normalized = filePath.replace(/\\/g, '/')
     const url = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
     openWebview(url)
