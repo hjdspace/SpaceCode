@@ -1,7 +1,8 @@
 <template>
-  <div class="sc-right-panel" :style="{ width: panelWidth + 'px' }">
+  <div class="sc-right-panel" :class="{ fullscreen: sessionContext.rightPanelFullscreen }" :style="panelStyle">
     <!-- Resize handle (left edge, drag to adjust width) -->
     <div
+      v-if="!sessionContext.rightPanelFullscreen"
       class="sc-resize-handle"
       @mousedown="startPanelResize"
       :class="{ active: isPanelResizing }"
@@ -25,6 +26,14 @@
         {{ t('sessionContext.review') }}
       </button>
       <div class="sc-tab-spacer" />
+      <button
+        class="sc-icon-btn"
+        :title="sessionContext.rightPanelFullscreen ? t('infoPanel.exitFullscreen') : t('infoPanel.enterFullscreen')"
+        @click="sessionContext.toggleRightPanelFullscreen()"
+      >
+        <Minimize2 v-if="sessionContext.rightPanelFullscreen" :size="14" />
+        <Maximize2 v-else :size="14" />
+      </button>
       <button class="sc-icon-btn" :title="t('sessionContext.close')" @click="sessionContext.closeRightPanel()">
         <X :size="14" />
       </button>
@@ -139,7 +148,8 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ClipboardList, FileDiff, X, ChevronRight,
-  CheckCircle2, Loader2, Circle, Lock
+  CheckCircle2, Loader2, Circle, Lock,
+  Maximize2, Minimize2
 } from 'lucide-vue-next'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useAppStore } from '@/stores/app'
@@ -151,6 +161,9 @@ const sessionContext = useSessionContext()
 const appStore = useAppStore()
 
 // ── 面板宽度拖拽缩放 ──
+/** 全屏前保存的宽度，退出全屏时恢复 */
+let savedPanelWidth = 420
+
 const {
   size: panelWidth,
   isResizing: isPanelResizing,
@@ -161,6 +174,31 @@ const {
   max: () => Math.max(420, window.innerWidth - 400),
   direction: 'horizontal',
   reverse: true,
+  overshootThreshold: 40,
+  // 拖到最大后继续往左拖 → 审查面板全屏
+  onOvershootMax: () => {
+    if (!sessionContext.rightPanelFullscreen) {
+      savedPanelWidth = panelWidth.value
+      sessionContext.toggleRightPanelFullscreen()
+    }
+  },
+  // 拖到最小后继续往右拖 → 折叠审查面板
+  onOvershootMin: () => {
+    if (sessionContext.rightPanelFullscreen) {
+      // 全屏状态下 → 退出全屏
+      sessionContext.toggleRightPanelFullscreen()
+    } else {
+      // 非全屏 → 收起面板
+      sessionContext.closeRightPanel()
+    }
+  },
+})
+
+// 退出全屏时恢复全屏前的面板宽度
+watch(() => sessionContext.rightPanelFullscreen, (fullscreen) => {
+  if (!fullscreen && savedPanelWidth > 0) {
+    panelWidth.value = savedPanelWidth
+  }
 })
 
 interface DiffLine {
@@ -179,6 +217,11 @@ const taskProgress = computed(() => sessionContext.taskProgress)
 const progressPercent = computed(() => {
   const { completed, total } = taskProgress.value
   return total > 0 ? (completed / total) * 100 : 0
+})
+
+const panelStyle = computed(() => {
+  if (sessionContext.rightPanelFullscreen) return undefined
+  return { width: panelWidth.value + 'px' }
 })
 
 function getFileName(path: string): string {
@@ -296,6 +339,12 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
   overflow: hidden;
   height: 100%;
   position: relative;
+
+  &.fullscreen {
+    flex: 1;
+    width: auto !important;
+    border-left: none;
+  }
 }
 
 .sc-resize-handle {

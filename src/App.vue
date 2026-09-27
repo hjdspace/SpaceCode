@@ -284,6 +284,9 @@ const {
   direction: 'horizontal',
 })
 
+/** 右面板全屏前保存的宽度，退出全屏时恢复 */
+let savedRightWidth = 400
+
 const {
   size: rightWidth,
   isResizing: isRightResizing,
@@ -295,6 +298,31 @@ const {
   max: () => Math.max(650, window.innerWidth - 48),
   direction: 'horizontal',
   reverse: true,
+  overshootThreshold: 40,
+  // 拖到最大后继续往左拖 → 右面板全屏
+  onOvershootMax: () => {
+    if (!appStore.infoPanelFullscreen) {
+      savedRightWidth = rightWidth.value
+      appStore.toggleInfoPanelFullscreen()
+    }
+  },
+  // 拖到最小后继续往右拖 → 折叠右面板
+  onOvershootMin: () => {
+    if (appStore.infoPanelFullscreen) {
+      // 全屏状态下 → 退出全屏
+      appStore.exitInfoPanelFullscreen()
+    } else if (appStore.infoPanelVisible) {
+      // 非全屏 → 收起面板
+      appStore.infoPanelVisible = false
+    }
+  },
+})
+
+// 退出全屏时恢复全屏前的面板宽度
+watch(() => appStore.infoPanelFullscreen, (fullscreen) => {
+  if (!fullscreen && savedRightWidth > 0) {
+    rightWidth.value = savedRightWidth
+  }
 })
 
 const {

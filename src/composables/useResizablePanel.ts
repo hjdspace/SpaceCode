@@ -9,6 +9,10 @@
  *  - 使用 requestAnimationFrame 节流 mousemove，避免高频更新导致 UI 卡顿
  *  - 拖拽期间在 <body> 添加 `panel-resizing` 类，通过 CSS 禁用 backdrop-filter、
  *    transition 等昂贵效果，大幅减少 webview/复合层的重绘开销
+ *
+ * 超出边界回调（overshoot）：
+ *  - 当拖拽结束时，若鼠标超出 min/max 边界超过阈值，触发 onOvershootMin/onOvershootMax
+ *  - 用于实现「拖到最大后继续拖 → 全屏」「拖到最小后继续拖 → 折叠」
  */
 import { ref, onUnmounted, type Ref } from 'vue'
 
@@ -25,6 +29,12 @@ export interface UseResizablePanelOptions {
   reverse?: boolean
   /** 拖拽过程中尺寸更新的回调（用于同步外部 store） */
   onUpdate?: (size: number) => void
+  /** 拖拽结束时，若鼠标超出 min 边界超过阈值则触发（像素值 = 超出量） */
+  onOvershootMin?: (overshoot: number) => void
+  /** 拖拽结束时，若鼠标超出 max 边界超过阈值则触发（像素值 = 超出量） */
+  onOvershootMax?: (overshoot: number) => void
+  /** 触发 overshoot 的最小像素阈值，默认 30 */
+  overshootThreshold?: number
 }
 
 export interface UseResizablePanelReturn {
@@ -46,6 +56,8 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
   let rafId: number | null = null
   /** 缓存最新一次 mousemove 计算出的尺寸，等 rAF 回调时写入 */
   let pendingSize: number | null = null
+  /** 拖拽过程中累积的超出 min/max 的最大量（正=超max, 负=超min） */
+  let maxOvershoot = 0
 
   function flushPending() {
     rafId = null
@@ -63,7 +75,15 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     if (options.reverse) diff = -diff
 
     const maxSize = typeof options.max === 'function' ? options.max() : options.max
-    const newSize = Math.min(Math.max(startSize + diff, options.min), maxSize)
+    const rawSize = startSize + diff
+    const newSize = Math.min(Math.max(rawSize, options.min), maxSize)
+
+    // 记录超出量：正值表示试图超过 max，负值表示试图低于 min
+    if (rawSize > maxSize) {
+      maxOvershoot = Math.max(maxOvershoot, rawSize - maxSize)
+    } else if (rawSize < options.min) {
+      maxOvershoot = Math.min(maxOvershoot, rawSize - options.min)
+    }
 
     // 缓存目标值，用 rAF 合并同一帧内的多次 mousemove
     pendingSize = newSize
@@ -74,6 +94,7 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
 
   function cleanup() {
     isResizing.value = false
+    maxOvershoot = 0
     document.removeEventListener('mousemove', handleMousemove)
     document.removeEventListener('mouseup', handleMouseup)
     window.removeEventListener('blur', handleBlur)
@@ -91,6 +112,15 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     if (pendingSize !== null) {
       flushPending()
     }
+
+    // 检查是否触发 overshoot 回调
+    const threshold = options.overshootThreshold ?? 30
+    if (maxOvershoot >= threshold && options.onOvershootMax) {
+      options.onOvershootMax(maxOvershoot)
+    } else if (maxOvershoot <= -threshold && options.onOvershootMin) {
+      options.onOvershootMin(Math.abs(maxOvershoot))
+    }
+
     cleanup()
   }
 
@@ -112,6 +142,7 @@ export function useResizablePanel(options: UseResizablePanelOptions): UseResizab
     isResizing.value = true
     startPos = options.direction === 'horizontal' ? e.clientX : e.clientY
     startSize = size.value
+    maxOvershoot = 0
 
     document.addEventListener('mousemove', handleMousemove)
     document.addEventListener('mouseup', handleMouseup)

@@ -1,168 +1,236 @@
 <template>
-  <div class="reasoning-card" :class="{ 'is-thinking': isThinking, 'is-expanded': isExpanded }">
-    <div class="reasoning-header" @click="toggleExpand">
-      <span class="reasoning-title">
-          <template v-if="isThinking">
-            {{ t('chat.thinking') }}
-            <span class="thinking-dots">{{ dots }}</span>
-          </template>
-          <template v-else>
-            {{ t('chat.thoughtFor', { duration: duration }) }}
-          </template>
-        </span>
-      <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
-    </div>
-    <div v-show="isExpanded" class="reasoning-content">
-      <MarkdownRenderer :content="reasoning.content" />
-    </div>
+  <div class="reasoning-card" :class="{ 'is-thinking': isThinking }">
+    <button
+      type="button"
+      class="reasoning-header"
+      :aria-expanded="isExpanded"
+      @click="toggleExpand"
+    >
+      <span class="reasoning-indicator" :class="{ active: isThinking }" aria-hidden="true">
+        <Brain v-if="!isThinking" :size="13" />
+        <span v-else class="thinking-orb"></span>
+      </span>
+      <span class="reasoning-label">{{ t('chat.reasoning') }}</span>
+      <span class="reasoning-summary" :title="summary">{{ summary }}</span>
+      <span class="reasoning-chevron" :class="{ expanded: isExpanded }" aria-hidden="true">
+        <ChevronDown :size="13" />
+      </span>
+    </button>
+
+    <Transition name="reasoning-reveal">
+      <div v-if="isExpanded" class="reasoning-content">
+        <div class="reasoning-clip">
+          <div ref="contentRef" class="reasoning-text">{{ reasoning.content }}</div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { ReasoningBlock } from '@/types'
-import { ChevronDown } from 'lucide-vue-next'
-import MarkdownRenderer from '../common/MarkdownRenderer.vue'
-import { computed, ref, watch, onUnmounted, onMounted } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { Brain, ChevronDown } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-
-const { t } = useI18n()
+import type { ReasoningBlock } from '@/types'
 
 const props = defineProps<{
   reasoning: ReasoningBlock
+  isThinking?: boolean
 }>()
 
-const isExpanded = ref(!props.reasoning.endTime)
-const isThinking = computed(() => !props.reasoning.endTime)
+const { t } = useI18n()
+const isThinking = computed(() => props.isThinking ?? props.reasoning.endTime == null)
+const isExpanded = ref(isThinking.value)
+const userToggled = ref(false)
+const contentRef = ref<HTMLElement | null>(null)
 
-// thinking 开始时自动展开，完成时自动折叠
-watch(isThinking, (thinking) => {
-  if (thinking) {
-    isExpanded.value = true
-  } else {
-    isExpanded.value = false
+const summary = computed(() => {
+  const lines = props.reasoning.content.split('\n').filter(line => line.trim())
+  return isThinking.value ? (lines[lines.length - 1] ?? '') : (lines[0] ?? '')
+})
+
+watch(isThinking, async active => {
+  if (!userToggled.value) isExpanded.value = active
+  if (active && isExpanded.value) {
+    await nextTick()
+    contentRef.value?.scrollTo({ top: contentRef.value.scrollHeight })
   }
 })
 
-const duration = computed(() => {
-  if (!props.reasoning.endTime) return '0.0'
-  return ((props.reasoning.endTime - props.reasoning.startTime) / 1000).toFixed(1)
+watch(() => props.reasoning.content, async () => {
+  if (!isThinking.value || !isExpanded.value) return
+  await nextTick()
+  contentRef.value?.scrollTo({ top: contentRef.value.scrollHeight })
 })
 
 function toggleExpand() {
+  userToggled.value = true
   isExpanded.value = !isExpanded.value
 }
-
-// 动画dots
-const dots = ref('')
-let dotsInterval: number | null = null
-
-onMounted(() => {
-  if (isThinking.value) {
-    let count = 0
-    dotsInterval = window.setInterval(() => {
-      count = (count + 1) % 4
-      dots.value = '.'.repeat(count)
-    }, 500)
-  }
-})
-
-onUnmounted(() => {
-  if (dotsInterval) {
-    clearInterval(dotsInterval)
-  }
-})
 </script>
 
 <style lang="scss" scoped>
 .reasoning-card {
-  margin: 6px 0;
-  border-radius: 6px;
-  background: var(--surface-glass);
-  border: 1px solid var(--surface-border);
+  position: relative;
+  margin: 4px 0;
+  border-radius: 8px;
   overflow: hidden;
-  font-size: var(--text-sm-plus);
+}
+
+.reasoning-card.is-thinking::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 20%, rgba(var(--accent-primary-rgb, 59, 130, 246), 0.07) 50%, transparent 80%);
+  content: '';
+  pointer-events: none;
+  animation: reasoning-sweep 2.6s ease-in-out infinite;
 }
 
 .reasoning-header {
+  position: relative;
   display: flex;
+  width: 100%;
+  min-height: 28px;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  user-select: none;
+  gap: 7px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
   color: var(--text-muted);
-  transition: all var(--transition-fast);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
 
   &:hover {
     background: var(--surface-glass-hover);
     color: var(--text-secondary);
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+  }
 }
 
-.reasoning-title {
-  flex: 1;
-  font-size: var(--text-sm-plus);
-  font-weight: var(--font-weight-medium);
-  display: flex;
+.reasoning-indicator {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  color: var(--text-muted);
+
+  &.active {
+    color: var(--accent-primary);
+  }
 }
 
-.thinking-dots {
-  font-family: var(--font-mono);
+.thinking-orb {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb, 59, 130, 246), 0.12);
+  animation: reasoning-breathe 1.6s ease-in-out infinite;
+}
+
+.reasoning-label {
+  flex: 0 0 auto;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: inherit;
+}
+
+.reasoning-summary {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reasoning-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-muted);
   opacity: 0.7;
-  min-width: 24px;
-}
+  transition: transform 180ms ease;
 
-.expand-icon {
-  flex-shrink: 0;
-  opacity: 0.5;
-  transition: transform var(--transition-fast), opacity var(--transition-fast);
-
-  &.is-expanded {
+  &.expanded {
     transform: rotate(180deg);
   }
 }
 
-.reasoning-header:hover .expand-icon {
-  opacity: 0.8;
-}
-
 .reasoning-content {
-  padding: 8px 12px 12px 34px;
-  font-size: var(--text-sm-plus);
-  color: var(--text-muted);
-  line-height: var(--leading-chat);
-  border-top: 1px solid var(--surface-border);
+  display: grid;
+  grid-template-rows: 1fr;
+  overflow: hidden;
+  padding: 2px 4px 4px 23px;
+}
+
+.reasoning-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.reasoning-text {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 7px;
   background: var(--bg-secondary);
-
-  // 穿透 MarkdownRenderer 的 color: var(--text-primary) 覆盖
-  :deep(.markdown-renderer) {
-    color: var(--text-muted);
-
-    .md-heading {
-      color: var(--text-muted);
-    }
-
-    strong {
-      color: var(--text-muted);
-    }
-
-    .code-block code {
-      color: var(--text-muted);
-    }
-  }
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-chat);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.is-thinking .reasoning-header {
-  &:hover {
-    background: var(--surface-glass-hover);
-    color: var(--text-secondary);
-  }
+.reasoning-reveal-enter-active,
+.reasoning-reveal-leave-active {
+  display: grid;
+  transition: grid-template-rows 180ms ease, opacity 180ms ease;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+.reasoning-reveal-enter-from,
+.reasoning-reveal-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.reasoning-reveal-enter-to,
+.reasoning-reveal-leave-from {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+@keyframes reasoning-breathe {
+  0%, 100% { transform: scale(0.82); opacity: 0.72; }
+  50% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes reasoning-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-card.is-thinking::before,
+  .thinking-orb {
+    animation: none;
+  }
+
+  .reasoning-header,
+  .reasoning-chevron,
+  .reasoning-reveal-enter-active,
+  .reasoning-reveal-leave-active {
+    transition: none;
+  }
 }
 </style>

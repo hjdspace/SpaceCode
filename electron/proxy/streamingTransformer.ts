@@ -6,6 +6,12 @@ interface OpenAIStreamChunk {
     delta?: {
       role?: string
       content?: string | null
+      /**
+       * DeepSeek and other OpenAI-compatible providers send `reasoning_content`
+       * for chain-of-thought / thinking. We map this to Anthropic's `thinking`
+       * content blocks so the desktop UI can display the model's reasoning.
+       */
+      reasoning_content?: string | null
       tool_calls?: Array<{
         index: number
         id?: string
@@ -32,6 +38,7 @@ const ContentBlockType = {
   None: 0,
   Text: 1,
   ToolUse: 2,
+  Thinking: 3,
 } as const
 type ContentBlockType = (typeof ContentBlockType)[keyof typeof ContentBlockType]
 
@@ -124,7 +131,50 @@ export class OpenAIToAnthropicStreamTransformer {
     const choice = chunk.choices?.[0]
     if (!choice) return output
 
+    // ── reasoning_content → Anthropic thinking block ──
+    // DeepSeek and compatible providers send `delta.reasoning_content` for
+    // chain-of-thought. This is mapped to Anthropic's `thinking` content
+    // blocks so the desktop UI can display the model's reasoning process.
+    // An empty string is a valid signal (DeepSeek v4 thinking mode), so we
+    // check `!= null` rather than `!== ''` for the block-open decision.
+    const reasoningContent = choice.delta?.reasoning_content
+    if (reasoningContent != null) {
+      if (this.contentBlockType !== ContentBlockType.Thinking) {
+        // Close any open block (text or tool_use) before opening thinking
+        if (this.contentBlockType !== ContentBlockType.None) {
+          output.push(this.formatSSE('content_block_stop', {
+            type: 'content_block_stop',
+            index: this.contentBlockIndex,
+          }))
+          this.contentBlockIndex++
+        }
+        this.contentBlockType = ContentBlockType.Thinking
+        output.push(this.formatSSE('content_block_start', {
+          type: 'content_block_start',
+          index: this.contentBlockIndex,
+          content_block: { type: 'thinking', thinking: '', signature: '' },
+        }))
+      }
+
+      if (reasoningContent !== '') {
+        output.push(this.formatSSE('content_block_delta', {
+          type: 'content_block_delta',
+          index: this.contentBlockIndex,
+          delta: { type: 'thinking_delta', thinking: reasoningContent },
+        }))
+      }
+    }
+
     if (choice.delta?.content != null && choice.delta.content !== '') {
+      if (this.contentBlockType === ContentBlockType.Thinking) {
+        output.push(this.formatSSE('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.contentBlockIndex,
+        }))
+        this.contentBlockIndex++
+        this.contentBlockType = ContentBlockType.None
+      }
+
       if (this.contentBlockType === ContentBlockType.ToolUse) {
         output.push(this.formatSSE('content_block_stop', {
           type: 'content_block_stop',

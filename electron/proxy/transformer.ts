@@ -79,6 +79,24 @@ export function anthropicToOpenAIRequest(body: Record<string, any>): Record<stri
     result.tool_choice = mapToolChoice(body.tool_choice)
   }
 
+  // ── thinking / extended thinking → OpenAI-compatible chain-of-thought ──
+  //
+  // Anthropic sends `thinking: { type: 'enabled' | 'adaptive' | 'disabled' }`
+  // to control extended thinking. OpenAI-compatible endpoints (DeepSeek, MiMo)
+  // use different parameter names. We emit all known formats simultaneously;
+  // each endpoint uses the one it recognizes and ignores the rest.
+  //   Official DeepSeek API:  `thinking: { type: 'enabled' }`
+  //   Self-hosted DeepSeek:   `enable_thinking: true`
+  //   MiMo (Xiaomi):          `chat_template_kwargs: { enable_thinking: true }`
+  const thinkingEnabled = body.thinking && (
+    body.thinking.type === 'enabled' || body.thinking.type === 'adaptive'
+  )
+  if (thinkingEnabled) {
+    result.thinking = { type: 'enabled' }
+    result.enable_thinking = true
+    result.chat_template_kwargs = { thinking: true, enable_thinking: true }
+  }
+
   return result
 }
 
@@ -102,10 +120,16 @@ function convertMessage(msg: any, out: Array<Record<string, any>>): void {
 
   if (role === 'assistant') {
     let text = ''
+    let reasoning = ''
     const toolCalls: Array<Record<string, any>> = []
     for (const block of content) {
       if (block.type === 'text') {
         text += block.text || ''
+      } else if (block.type === 'thinking') {
+        // Anthropic thinking blocks → OpenAI reasoning_content (sent back
+        // to the API in subsequent requests). DeepSeek v4 thinking mode
+        // requires this round-trip — see openaiStreamAdapter.ts thinking support.
+        reasoning += block.thinking || block.text || ''
       } else if (block.type === 'tool_use') {
         toolCalls.push({
           id: block.id,
@@ -118,6 +142,7 @@ function convertMessage(msg: any, out: Array<Record<string, any>>): void {
       }
     }
     const m: Record<string, any> = { role: 'assistant', content: text || null }
+    if (reasoning) m.reasoning_content = reasoning
     if (toolCalls.length > 0) m.tool_calls = toolCalls
     out.push(m)
     return
@@ -146,6 +171,13 @@ export function openAIToAnthropicResponse(body: Record<string, any>): Record<str
   const message = choice?.message || {}
 
   const contentBlocks: Array<Record<string, any>> = []
+  // OpenAI reasoning_content → Anthropic thinking block. DeepSeek and other
+  // compatible providers put chain-of-thought in `message.reasoning_content`.
+  // Without this mapping the thinking content is silently dropped and the
+  // desktop UI never shows the model's reasoning process.
+  if (message.reasoning_content) {
+    contentBlocks.push({ type: 'thinking', thinking: message.reasoning_content })
+  }
   if (message.content) {
     contentBlocks.push({ type: 'text', text: message.content })
   }

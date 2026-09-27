@@ -229,16 +229,12 @@
 
           <!-- Event content -->
           <div class="event-body">
-            <!-- Reasoning event -->
+            <!-- Reasoning event: 使用 ReasoningCard 复刻 soc-verify 的思考块 UI -->
             <template v-if="item.event!.type === 'reasoning'">
-              <div class="event-row" @click="toggleEvent(item.event!.id)">
-                <span class="event-label">{{ t('timeline.thinking') }}</span>
-                <span v-if="item.event!.duration" class="event-duration">{{ item.event!.duration }}s</span>
-                <ChevronDown v-if="item.event!.content" :size="12" class="event-chevron" :class="{ expanded: expandedEvents[item.event!.id] }" />
-              </div>
-              <div v-if="expandedEvents[item.event!.id] && item.event!.content" class="event-detail">
-                <MarkdownRenderer :content="item.event!.content" />
-              </div>
+              <ReasoningCard
+                :reasoning="reasoningForEvent(item.event!)"
+                :is-thinking="item.event!.status === 'running'"
+              />
             </template>
 
             <!-- Text event -->
@@ -387,7 +383,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/types'
+import type { Message, ToolCall, MessageMetadata, ClassifiedError, ReasoningBlock } from '@/types'
 import type { Component } from 'vue'
 import { computed, markRaw, onMounted, onUnmounted, reactive, watch, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -397,6 +393,7 @@ import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
 import ThinkingState from './ThinkingState.vue'
+import ReasoningCard from './ReasoningCard.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -1109,6 +1106,21 @@ function toggleEvent(eventId: string) {
 
 function shouldRenderSpecialComponent(event: TimelineEvent): boolean {
   return !!event.specialComponent
+}
+
+/**
+ * 把 TimelineEvent (reasoning) 转换为 ReasoningCard 需要的 ReasoningBlock。
+ * - 运行中: endTime=undefined → ReasoningCard 显示 "思考中..." + 动画 dots，自动展开
+ * - 已完成: 用 duration 字段构造 startTime/endTime，自动折叠
+ */
+function reasoningForEvent(event: TimelineEvent): ReasoningBlock {
+  const content = event.content || ''
+  if (event.status === 'running') {
+    return { content, startTime: now.value, endTime: undefined }
+  }
+  // 已完成: duration 字段是秒数字符串 (如 "2.3")
+  const durSec = event.duration ? parseFloat(event.duration) : 0
+  return { content, startTime: 0, endTime: durSec * 1000 }
 }
 
 function getToolContentKey(tool: ToolCall): string {

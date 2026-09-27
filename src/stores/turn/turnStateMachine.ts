@@ -8,6 +8,12 @@ import type { TurnState } from './types'
 import { createSettledTurn } from './types'
 import { createUuid } from '@/utils/uuid'
 
+/** Turn 成功结算后的冷却期（ms）：在此期间 ensureTurn 拒绝创建新 turn。
+ *  引擎在 result 事件后可能发送残留 stream_event / assistant 事件（如
+ *  message_stop、子代理转录尾包），这些事件不应创建幽灵 turn 重新激活
+ *  loading 状态，否则 UI 会再次显示"正在回复"并可能触发重复桌面通知。 */
+const TURN_SETTLED_COOLDOWN_MS = 5_000
+
 export interface TurnStateMachineOptions {
   sink: SessionSink
   traceEvent: (event: {
@@ -42,6 +48,8 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
   } = opts
 
   const turnStates = new Map<string, TurnState>()
+  // 记录每个 session 最近一次 turn 成功结算的时间戳，用于 ensureTurn 冷却期判断
+  const settledAt = new Map<string, number>()
 
   const beginTurn = (sessionId: string, opts: { isAutonomous: boolean; resolve?: () => void; reject?: (e: any) => void }): TurnState => {
     const assistantMessageId = createUuid()
@@ -62,6 +70,8 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
       streamingToolJson: new Map(),
     }
     turnStates.set(sessionId, ts)
+    // 清除冷却期标记：新 turn 开始，之前的结算冷却不再有效
+    settledAt.delete(sessionId)
 
     loadingSessions.value.set(sessionId, true)
     streamingContents.value.set(sessionId, '')
@@ -86,8 +96,10 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
     return ts
   }
 
-  const endTurn = (sessionId: string) => {
+  const endTurn = (sessionId: string, ts: TurnState) => {
     turnStates.delete(sessionId)
+    // 记录结算时间，供 ensureTurn 冷却期判断使用
+    if (ts.settled) settledAt.set(sessionId, Date.now())
     // 注意：绝不退订持久监听器
   }
 
@@ -95,6 +107,14 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
   const ensureTurn = (sessionId: string): TurnState => {
     const existing = turnStates.get(sessionId)
     if (existing) return existing
+
+    // ★ 冷却期保护：turn 成功结算后的短时间内，引擎可能发送残留事件
+    // （message_stop、子代理转录尾包等）。这些事件不应创建幽灵 turn 重新
+    // 激活 loading 状态，否则 UI 会再次显示"正在回复"并可能触发重复通知。
+    const settledTime = settledAt.get(sessionId)
+    if (settledTime && Date.now() - settledTime < TURN_SETTLED_COOLDOWN_MS) {
+      return createSettledTurn()
+    }
 
     // sendMessage 正在进行中（addMessage 已执行、beginTurn 尚未执行）：
     // 此时 session.messages.length > 0，但不应该创建 autonomous turn，

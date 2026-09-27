@@ -256,6 +256,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     addToolTimelineEvent,
   } = timeline
 
+  // 桌面通知去重：记录每个 session 最近一次通知的时间戳，
+  // 防止同一 turn 周期内因幽灵 turn 或残留事件触发多次通知。
+  const notifiedSessions = new Map<string, number>()
+  const NOTIFICATION_DEBOUNCE_MS = 5_000
+
   // Renderer IPC can continue delivering text deltas while the window is hidden.
   // Coalesce message writes so a burst accumulated during background throttling
   // does not turn into one reactive update per delta when the window is restored.
@@ -1181,15 +1186,24 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     }
 
     // ── Show desktop system notification when a task completes successfully ──
+    // 去重：同一 session 在 NOTIFICATION_DEBOUNCE_MS 内只通知一次，
+    // 防止残留事件创建幽灵 turn 后再次触发 handleResult 导致重复通知。
     const desktopNotifyEnabled = isDesktopNotifyOnTaskComplete()
     if (desktopNotifyEnabled) {
-      try {
-        api.showNotification({
-          title: i18n.global.t('chat.taskCompleteNotificationTitle', { session: getSessionTitle(sessionId) }) as string,
-          message: i18n.global.t('chat.taskCompleteNotificationBody') as string,
-        })
-      } catch (e) {
-        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to show task complete notification`, { error: String(e) })
+      const lastNotified = notifiedSessions.get(sessionId)
+      const now = Date.now()
+      if (!lastNotified || now - lastNotified > NOTIFICATION_DEBOUNCE_MS) {
+        notifiedSessions.set(sessionId, now)
+        try {
+          api.showNotification({
+            title: i18n.global.t('chat.taskCompleteNotificationTitle', { session: getSessionTitle(sessionId) }) as string,
+            message: i18n.global.t('chat.taskCompleteNotificationBody') as string,
+          })
+        } catch (e) {
+          logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to show task complete notification`, { error: String(e) })
+        }
+      } else {
+        logger.info('ChatStore', `[${sessionId.slice(0, 8)}] task complete notification suppressed (debounced)`)
       }
     }
   }

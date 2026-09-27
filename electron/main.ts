@@ -257,25 +257,35 @@ function getIconPath(): string {
   return devIcoPath // return .ico path even if missing
 }
 
-// Load a NativeImage for tray/window icon, with .ico → .png fallback
+// Load a NativeImage for tray/window icon.
+// On Windows, .ico files loaded via nativeImage.createFromPath can produce
+// images that BrowserWindow.setIcon() fails to apply to the taskbar — the
+// taskbar falls back to the process exe icon (the default Electron logo in
+// dev mode). Using .png produces a reliable NativeImage that setIcon() applies
+// correctly to both the window title bar and the taskbar.
+// On macOS/Linux, .png is also preferred for the same reason.
 function loadIconImage(): Electron.NativeImage {
-  const iconPath = getIconPath()
-  info('Icon', `Loading icon from: ${iconPath} | exists=${existsSync(iconPath)}`)
+  const icoPath = getIconPath()
+  // Always prefer .png for NativeImage creation (more reliable across platforms)
+  const pngPath = icoPath.replace(/\.ico$/, '.png')
+  const preferredPath = existsSync(pngPath) ? pngPath : icoPath
+  info('Icon', `Loading icon from: ${preferredPath} | exists=${existsSync(preferredPath)}`)
 
   try {
-    if (existsSync(iconPath)) {
-      const img = nativeImage.createFromPath(iconPath)
+    if (existsSync(preferredPath)) {
+      const img = nativeImage.createFromPath(preferredPath)
       if (!img.isEmpty()) {
-        debug('Icon', `Icon loaded successfully: ${iconPath} (${img.getSize().width}x${img.getSize().height})`)
+        const size = img.getSize()
+        info('Icon', `Icon loaded: ${preferredPath} (${size.width}x${size.height})`)
         return img
       }
-      warn('Icon', `Icon at ${iconPath} loaded but is EMPTY — trying PNG fallback`)
+      warn('Icon', `Icon at ${preferredPath} loaded but is EMPTY — trying fallback`)
     }
 
-    // Try PNG fallback
-    const fallbackExt = extname(iconPath) === '.ico' ? '.png' : '.ico'
-    const fallbackPath = iconPath.replace(/\.(ico|png)$/, fallbackExt)
-    if (fallbackPath !== iconPath && existsSync(fallbackPath)) {
+    // Try the other format as fallback (.ico → .png or .png → .ico)
+    const fallbackExt = extname(preferredPath) === '.ico' ? '.png' : '.ico'
+    const fallbackPath = preferredPath.replace(/\.(ico|png)$/, fallbackExt)
+    if (fallbackPath !== preferredPath && existsSync(fallbackPath)) {
       const fallbackImg = nativeImage.createFromPath(fallbackPath)
       if (!fallbackImg.isEmpty()) {
         info('Icon', `Using fallback icon: ${fallbackPath}`)
@@ -461,11 +471,12 @@ function createWindow() {
   // On Windows & Linux, passing a file-path string to the BrowserWindow constructor's
   // `icon` option does not reliably set the taskbar icon (the OS may fall back to the
   // process icon — i.e. the default Electron logo in dev, or the .exe icon in prod).
-  // Calling setIcon() with a NativeImage forces the taskbar to use our icon.
+  // Calling setIcon() with a NativeImage (especially from .png) forces the taskbar
+  // to use our icon instead of the process exe icon.
   const windowIcon = loadIconImage()
   if (!windowIcon.isEmpty()) {
     mainWindow.setIcon(windowIcon)
-    debug('Icon', 'Window icon set via setIcon()')
+    info('Icon', `Window icon set via setIcon() (${windowIcon.getSize().width}x${windowIcon.getSize().height})`)
   } else {
     warn('Icon', 'Window icon is empty — taskbar will show default icon')
   }

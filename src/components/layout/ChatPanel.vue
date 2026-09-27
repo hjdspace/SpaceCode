@@ -53,7 +53,7 @@
         <div
           ref="chatMainRef"
           class="chat-main"
-          :class="{ 'with-env-panel': sessionContext.showEnvPanel, 'chat-main-reserved': chatMainReservesEnvPanel }"
+          :class="{ 'with-env-panel': sessionContext.showEnvPanel, 'chat-main-reserved': chatMainReservesEnvPanel, 'chat-main-hidden': sessionContext.rightPanelFullscreen }"
         >
           <div class="chat-panel-body">
             <NoProjectHome v-if="showNoProjectWelcome" />
@@ -1824,6 +1824,10 @@ async function handleRestoreHistorySession(session: any) {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+
+  &.chat-main-hidden {
+    display: none;
+  }
   // 300 (panel width) + 12 (right margin) + 12 (gutter to chat) = 324.
   --env-shoulder: 0px;
   &.with-env-panel.chat-main-reserved {
