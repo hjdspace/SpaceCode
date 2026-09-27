@@ -99,6 +99,50 @@ describe('Turn engine retry lifecycle', () => {
     await vi.runAllTimersAsync()
   })
 
+  it('normalizes engine api_retry events and ignores synthetic API error content', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sessionId = 'sess-api-retry-event'
+    sessionStore.createSession('Test', undefined, sessionId)
+
+    ;(turn as any).beginTurn(sessionId, { isAutonomous: false })
+    fake._handlers.onSystem?.({
+      sessionId,
+      data: {
+        subtype: 'api_retry',
+        attempt: 2,
+        max_retries: 5,
+        retry_delay_ms: 4000,
+        error_status: 429,
+        error: 'rate_limit',
+      },
+    })
+
+    const session = sessionStore.sessions.find(s => s.id === sessionId)!
+    const assistant = session.messages[session.messages.length - 1]
+    expect(assistant.metadata?.retryState).toMatchObject({
+      attempt: 2,
+      maxRetries: 5,
+      delayMs: 4000,
+      errorCode: '429',
+    })
+
+    fake._handlers.onAssistant?.({
+      sessionId,
+      data: {
+        message: {
+          content: [{ type: 'text', text: 'API Error: 429 {"error":{"message":"rate limited"}}' }],
+        },
+      },
+    })
+
+    expect(assistant.content).toBe('')
+    expect(assistant.metadata?.retryState).toMatchObject({ attempt: 2 })
+    await vi.runAllTimersAsync()
+  })
+
   it('late successful result clears retry state even when the old turn is settled', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')

@@ -24,6 +24,7 @@ export default {
   technicalDetail: 'Technical Details',
   apiErrorPrefix: 'API Error',
   reconnecting: 'Reconnecting ({attempt}/{max})',
+  retryCountdown: 'Retrying ({attempt}/{max}); trying again in {seconds}s',
   cancelRetry: 'Cancel Retry',
   timeoutError: 'Timeout',
 }

@@ -16,7 +16,7 @@ import { useAutoRetry } from '@/composables/useAutoRetry'
 import type { TurnState } from './types'
 import { createTimelineAssembler } from './timelineAssembler'
 import { createTurnStateMachine } from './turnStateMachine'
-import { createEventHandlers } from './eventHandlers'
+import { createEventHandlers, isSyntheticApiErrorAssistant } from './eventHandlers'
 import { useGoalStore } from '../goal'
 import { buildContinuationPrompt, parseGoalMarkers, MAX_GOAL_TURNS } from '@/lib/goalPrompts'
 import { i18n } from '@/i18n'
@@ -824,6 +824,63 @@ export function useTurnStore(injectedApi?: any) {
     }
 
     // ────────────────────────────────────────────────────────────────────
+    // Engine 内部重试状态管理（engine 的 withRetry 机制，非前端 autoRetry）
+    // ────────────────────────────────────────────────────────────────────
+    // 当 engine 在 API 调用期间遇到 429/529 等可重试错误时，会通过
+    // SystemAPIErrorMessage (type='system', subtype='api_error') 通知前端。
+    // 这些信息被写入助手消息的 metadata.retryState，让 UI 展示重试提示。
+    // 当 engine 重试成功（发出 assistant 消息）或前端 autoRetry 接管时清除。
+
+    function setEngineRetryState(
+      sessionId: string,
+      attempt: number,
+      maxRetries: number,
+      retryInMs: number,
+      errorText: string,
+    ): void {
+      const session = sink.get(sessionId)
+      if (!session) return
+      const ts = turnStates.get(sessionId)
+      const assistantMessageId = ts?.assistantMessageId
+      const msg = assistantMessageId
+        ? session.messages.find(m => m.id === assistantMessageId)
+        : undefined
+      if (!msg) return
+      const isRateLimit = /429|rate.?limit/i.test(errorText)
+      if (/^\s*API Error:/i.test(msg.content)) {
+        msg.content = ''
+      }
+      msg.metadata = {
+        ...(msg.metadata || {}),
+        retryState: {
+          attempt,
+          maxRetries,
+          errorCategory: isRateLimit ? ErrorCategory.RATE_LIMIT : ErrorCategory.SERVER_ERROR,
+          errorTitle: isRateLimit ? '请求过于频繁' : '服务器暂时不可用',
+          errorMessage: errorText,
+          errorCode: errorText.match(/\b([45]\d{2})\b/)?.[1],
+          delayMs: retryInMs,
+          startedAt: Date.now(),
+          aborted: false,
+          ...(assistantMessageId ? { assistantMessageId } : {}),
+        },
+      }
+    }
+
+    function clearEngineRetryState(sessionId: string): void {
+      const session = sink.get(sessionId)
+      if (!session) return
+      const ts = turnStates.get(sessionId)
+      const assistantMessageId = ts?.assistantMessageId
+      const msg = assistantMessageId
+        ? session.messages.find(m => m.id === assistantMessageId)
+        : undefined
+      if (!msg?.metadata?.retryState) return
+      const { retryState, ...rest } = msg.metadata
+      msg.metadata = rest
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // 持久订阅（store 初始化时注册一次，按 sessionId 多路复用，永不退订）
     // ────────────────────────────────────────────────────────────────────
     const claudeCodeApi = resolvedApi.claudeCode
@@ -845,6 +902,12 @@ export function useTurnStore(injectedApi?: any) {
         if (isSidechainMessage(event.data)) {
           sessionStore.recordSubagentMessage(event.data, event.sessionId)
           return
+        }
+
+        // Engine 重试成功后发出真实 assistant 消息 — 清除 engine 重试状态。
+        // 合成的 API 错误 assistant 只用于记录失败，不能清除 api_retry 状态。
+        if (!isSyntheticApiErrorAssistant(event.data)) {
+          clearEngineRetryState(event.sessionId)
         }
 
         const ts = ensureTurn(event.sessionId)
@@ -901,7 +964,30 @@ export function useTurnStore(injectedApi?: any) {
           if (event.data.success === true) {
             sessionStore.logger.info('ChatStore', `[${event.sessionId.slice(0, 8)}] engine auto-retry succeeded, clearing retry state`)
             autoRetry.clearOnSuccess(event.sessionId)
+            // 清除助手消息上的 engine 重试状态
+            clearEngineRetryState(event.sessionId)
           }
+          return
+        }
+        if (event.data?.subtype === 'api_error' || event.data?.subtype === 'api_retry') {
+          // Claude engine exposes this as api_retry; older adapters used
+          // api_error. Normalize both payload shapes for the same UI state.
+          const d = event.data
+          const attempt = typeof d.retryAttempt === 'number' ? d.retryAttempt : d.attempt
+          const maxRetries = typeof d.maxRetries === 'number' ? d.maxRetries : d.max_retries
+          const retryInMs = typeof d.retryInMs === 'number' ? d.retryInMs : d.retry_delay_ms
+          // 从 error 对象中提取友好信息
+          const errorObj = d.error
+          const errorMsg = typeof errorObj === 'string'
+            ? errorObj
+            : errorObj?.message || String(errorObj || 'API error')
+          const status = errorObj?.status ?? d.error_status
+          const errorText = status ? `${status} ${errorMsg}` : errorMsg
+          const normalizedAttempt = typeof attempt === 'number' ? attempt : 0
+          const normalizedMaxRetries = typeof maxRetries === 'number' ? maxRetries : 0
+          const normalizedRetryInMs = typeof retryInMs === 'number' ? retryInMs : 0
+          sessionStore.logger.info('ChatStore', `[${event.sessionId.slice(0, 8)}] engine retry | attempt=${normalizedAttempt}/${normalizedMaxRetries} | retryInMs=${normalizedRetryInMs} | error=${errorText.slice(0, 120)}`)
+          setEngineRetryState(event.sessionId, normalizedAttempt, normalizedMaxRetries, normalizedRetryInMs, errorText)
           return
         }
         if (event.data?.subtype === 'task_notification') {

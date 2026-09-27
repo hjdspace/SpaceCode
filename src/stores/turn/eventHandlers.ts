@@ -60,6 +60,16 @@ interface ArtifactsApi {
   list: (workingDir: string) => Promise<{ artifacts: any[] }>
 }
 
+/** Synthetic assistant records emitted by the engine for retryable API errors. */
+export function isSyntheticApiErrorAssistant(assistant: any): boolean {
+  if (assistant?.isApiErrorMessage === true) return true
+  const content = assistant?.message?.content
+  if (typeof content === 'string') return /^\s*API Error:/i.test(content)
+  return Array.isArray(content) && content.length > 0 && content.every((block: any) =>
+    block?.type === 'text' && typeof block.text === 'string' && /^\s*API Error:/i.test(block.text),
+  )
+}
+
 export interface EventReducerOptions {
   sink: SessionSink
   stateMachine: TurnStateMachine
@@ -549,6 +559,14 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const handleAssistant = (sessionId: string, ts: TurnState, assistant: any) => {
     logger.info('ChatStore', `[${sessionId.slice(0, 8)}] assistant event received`)
 
+    // Claude engine writes retry failures as synthetic assistant messages. They
+    // are represented by the system api_retry event and must not become chat
+    // content (the payload can contain the raw provider JSON error).
+    if (isSyntheticApiErrorAssistant(assistant)) {
+      logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] ignored synthetic API error assistant message`)
+      return
+    }
+
     if (typeof assistant.message?.model === 'string' && assistant.message.model.trim()) {
       ts.model = assistant.message.model
     }
@@ -966,12 +984,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       return
     }
 
-    // 429 限流错误：底层 engine 自带重试机制，前端无需感知。
-    // 不结算 turn、不显示错误 UI、不触发自动重试，保持 turn 活跃等待 engine 内部重试后的正常 result 事件。
-    if ((isError || looksLikeApiError) && /429|rate.?limit/i.test(resultText)) {
-      logger.info('ChatStore', `[${sessionId.slice(0, 8)}] 429 rate limit detected in result, engine will retry internally | errorText=${resultText.slice(0, 120)}`)
-      return
-    }
     if (isError || looksLikeApiError) {
       const errorText = resultText || 'API error'
       logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] result event has error, routing to handleError | isError=${isError} | looksLikeApiError=${looksLikeApiError} | errorText=${errorText.slice(0, 120)}`)
@@ -1206,17 +1218,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       baseUrl: getBaseUrl(),
       phase: 'stream',
     })
-
-    // 429 限流错误（非进程退出场景）：底层 engine 自带重试机制，前端无需感知。
-    // 保持 turn 活跃等待 engine 内部重试。进程退出场景（errorMsg 含 "Process exited"）
-    // 说明 engine 已死亡，仍需走 auto-retry 重启流程。
-    if (classified.category === ErrorCategory.RATE_LIMIT) {
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      if (!/Process exited/i.test(errorMsg)) {
-        logger.info('ChatStore', `[${sessionId.slice(0, 8)}] 429 rate limit detected in handleError, engine will retry internally | error=${errorMsg.slice(0, 120)}`)
-        return
-      }
-    }
 
     if (autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
       const claudeCode = getClaudeCode()

@@ -66,7 +66,27 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
   })
 
   if (lowerMsg.includes('429') || lowerMsg.includes('rate_limit') || lowerMsg.includes('rate limit')) {
-    return make(ErrorCategory.RATE_LIMIT, { retryDelay: extractRetryAfter(msg, error), retryable: true })
+    // 从 "API Error: 429 {\"error\":{\"message\":\"...\",...}}" 格式中提取友好信息
+    const jsonMatch = msg.match(/\{[\s\S]*\}/)
+    let friendlyDetail: string | undefined
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0])
+        if (parsed?.error?.message) {
+          friendlyDetail = parsed.error.message
+        } else if (parsed?.message) {
+          friendlyDetail = parsed.message
+        }
+      } catch { /* not valid JSON, fall through */ }
+    }
+    const technicalDetail = friendlyDetail
+      ? `429 Rate Limit · ${friendlyDetail}`
+      : msg
+    return make(ErrorCategory.RATE_LIMIT, {
+      retryDelay: extractRetryAfter(msg, error),
+      retryable: true,
+      technicalDetail,
+    })
   }
   if (/5\d{2}/.test(lowerMsg) || lowerMsg.includes('server error') || lowerMsg.includes('internal server')) {
     return make(ErrorCategory.SERVER_ERROR, { retryable: true })

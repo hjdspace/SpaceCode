@@ -198,6 +198,8 @@ const messageGroups = computed<MessageGroup[]>(() => {
 // loading=true 时判断是否已有 assistant 内容可渲染。
 // 当 LLM 首个 token 到达后，assistant 消息会获得 content / reasoning / toolCalls，
 // AgentTimeline 即可接管展示，ThinkingState 占位动画不再需要。
+// 此外，当 engine 内部重试时（429/529），assistant 消息的 metadata.retryState
+// 会被写入，此时也应由 AgentTimeline 接管展示重试提示。
 const hasVisibleAssistantContent = computed(() => {
   if (!props.loading) return false
   // 检查最后一个 assistant group 是否已有可见内容
@@ -207,7 +209,8 @@ const hasVisibleAssistantContent = computed(() => {
       return group.messages.some(
         m => (m.content?.trim() ?? '') !== '' ||
           (m.reasoning?.content?.trim() ?? '') !== '' ||
-          (m.toolCalls?.length ?? 0) > 0,
+          (m.toolCalls?.length ?? 0) > 0 ||
+          !!m.metadata?.retryState,
       )
     }
     // 遇到 user group 说明前面没有 assistant group

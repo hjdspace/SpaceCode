@@ -24,6 +24,7 @@ export default {
   technicalDetail: '技术详情',
   apiErrorPrefix: 'API 错误',
   reconnecting: '正在重连（{attempt}/{max}）',
+  retryCountdown: '正在重试（{attempt}/{max}），{seconds} 秒后再次尝试',
   cancelRetry: '取消重试',
   timeoutError: '超时',
 }
