@@ -8,6 +8,10 @@ export interface TurnState {
   /** 本轮流式响应实际使用的模型（由 message_start/assistant 事件提供） */
   model?: string
   accumulatedContent: string
+  /** 累积本轮所有 thinking 块的内容，按节流窗口写入响应式消息。 */
+  accumulatedReasoning: string
+  /** 当前 thinking 块的内容，避免多个 thinking 块之间重复时间线文本。 */
+  currentReasoningContent: string
   currentTextEventId: string | null
   currentReasoningEventId: string | null
   streamingHandledThinking: boolean
@@ -37,6 +41,8 @@ export function createSettledTurn(): TurnState {
   return {
     assistantMessageId: '',
     accumulatedContent: '',
+    accumulatedReasoning: '',
+    currentReasoningContent: '',
     currentTextEventId: null,
     currentReasoningEventId: null,
     streamingHandledThinking: false,

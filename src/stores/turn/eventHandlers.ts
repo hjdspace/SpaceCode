@@ -268,9 +268,28 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     pendingContentPatches.delete(sessionId)
 
     const message = getAssistantMessage(sessionId, ts)
-    if (message && message.content !== ts.accumulatedContent) {
-      sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
+    if (!message) return
+
+    const textEvent = ts.currentTextEventId
+      ? message.timelineEvents?.find(event => event.id === ts.currentTextEventId)
+      : undefined
+    if (textEvent && textEvent.content !== ts.accumulatedContent) {
+      textEvent.content = ts.accumulatedContent
     }
+    const reasoningEvent = ts.currentReasoningEventId
+      ? message.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
+      : undefined
+    if (reasoningEvent && reasoningEvent.content !== ts.currentReasoningContent) {
+      reasoningEvent.content = ts.currentReasoningContent
+    }
+
+    const updates: Partial<typeof message> = {}
+    if (message.content !== ts.accumulatedContent) updates.content = ts.accumulatedContent
+    if (message.reasoning && message.reasoning.content !== ts.accumulatedReasoning) {
+      updates.reasoning = { ...message.reasoning, content: ts.accumulatedReasoning }
+    }
+    if (Object.keys(updates).length > 0) sink.patchMessage(sessionId, ts.assistantMessageId, updates)
+    streamingContents.value.set(sessionId, ts.accumulatedContent)
   }
 
   function scheduleContentPatch(sessionId: string, ts: TurnState): void {
@@ -280,10 +299,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const timer = setTimeout(() => {
       pendingContentPatches.delete(sessionId)
       if (ts.settled) return
-      const message = getAssistantMessage(sessionId, ts)
-      if (message && message.content !== ts.accumulatedContent) {
-        sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-      }
+      flushContentPatch(sessionId, ts)
     }, CONTENT_PATCH_INTERVAL_MS)
     pendingContentPatches.set(sessionId, { timer, turn: ts })
   }
@@ -400,6 +416,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       ev.type === 'message_stop' ||
       ev.type === 'content_block_start'
     ) {
+      flushContentPatch(sessionId, ts)
       completeCurrentTextEvent(sessionId, ts)
       completeCurrentReasoningEvent(sessionId, ts)
     }
@@ -424,6 +441,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       // 上一段 reasoning 已在边界收口处完成并清空 currentReasoningEventId
       const s = sink.get(sessionId)
       if (s) {
+        ts.currentReasoningContent = ''
         const msg = s.messages.find(m => m.id === ts.assistantMessageId)
         if (msg) {
           if (!msg.reasoning) {
@@ -443,15 +461,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     }
 
     if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta?.text) {
-      const textEventId = ensureTextTimelineEvent(sessionId, ts)
+      ensureTextTimelineEvent(sessionId, ts)
       ts.accumulatedContent += ev.delta.text
-      streamingContents.value.set(sessionId, ts.accumulatedContent)
-      const msg = getAssistantMessage(sessionId, ts)
-      const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-      updateTimelineEvent(sessionId, ts, textEventId, {
-        content: `${textEvent?.content || ''}${ev.delta.text}`,
-        status: 'running'
-      })
       scheduleContentPatch(sessionId, ts)
     }
 
@@ -464,7 +475,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           if (!msg.reasoning) {
             msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
           }
-          msg.reasoning.content += ev.delta.thinking
+          ts.accumulatedReasoning += ev.delta.thinking
+          ts.currentReasoningContent += ev.delta.thinking
           if (!ts.currentReasoningEventId) {
             ts.currentReasoningEventId = createUuid()
             addTimelineEvent(sessionId, ts, {
@@ -475,11 +487,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               content: ''
             })
           }
-          const reasoningEvent = msg.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
-          updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, {
-            content: `${reasoningEvent?.content || ''}${ev.delta.thinking}`,
-            status: 'running'
-          })
+          scheduleContentPatch(sessionId, ts)
         }
       }
     }
@@ -637,7 +645,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                     if (!msg.reasoning) {
                       msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
                     }
-                    msg.reasoning.content += thinkingText
+                    ts.accumulatedReasoning += thinkingText
+                    ts.currentReasoningContent += thinkingText
                     if (!ts.currentReasoningEventId) {
                       ts.currentReasoningEventId = createUuid()
                       addTimelineEvent(sessionId, ts, {
@@ -650,9 +659,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                     }
                     const reasoningEvent = msg.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
                     updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, {
-                      content: `${reasoningEvent?.content || ''}${thinkingText}`,
+                      content: reasoningEvent?.content || '',
                       status: 'completed'
                     })
+                    scheduleContentPatch(sessionId, ts)
                     ts.streamingHandledThinking = true
                   }
                 }

@@ -953,3 +953,34 @@ describe('Turn 时间线占位事件边界收口', () => {
     turn.endTurn(sid, ts)
   })
 })
+
+describe('Turn 流式增量节流', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it('合并 thinking 增量并在时间窗口到期后一次写入消息', async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = makeFakeApi()
+      const { useTurnStore } = await import('../turn')
+      const turn = useTurnStore(fake as any)
+      const sessionStore = useChatSessionStore()
+      const sid = 'sess-think-throttle'
+      sessionStore.createSession('Test', undefined, sid)
+      const ts = turn.beginTurn(sid, { isAutonomous: false })
+
+      fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_start', content_block: { type: 'thinking' } } })
+      fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '先读 ' } } })
+      fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '文件再修改' } } })
+
+      const message = sessionStore.sessions.find(s => s.id === sid)!.messages.find(m => m.id === ts.assistantMessageId)!
+      expect(message.reasoning?.content).toBe('')
+
+      await vi.advanceTimersByTimeAsync(50)
+      expect(message.reasoning?.content).toBe('先读 文件再修改')
+
+      turn.endTurn(sid, ts)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
