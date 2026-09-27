@@ -82,9 +82,15 @@ if (existsSync(envPath)) {
 
 setupLinuxPlatform()
 
-// Windows: set AppUserModelId so taskbar shows the correct icon instead of Electron default
+// Windows: set AppUserModelId.
+// - 生产：appId 与安装器创建的开始菜单快捷方式（内嵌同一 AUMID）匹配，任务栏/通知正常解析。
+// - 开发：若使用同一 AUMID，会匹配到已安装应用的快捷方式，但快捷方式指向的不是当前
+//   进程的 electron.exe，Windows 会拒绝该快捷方式并回退到 electron.exe 的默认原子图标，
+//   导致任务栏图标错误。改用 dev 专属 AUMID（系统中无任何快捷方式与之匹配），
+//   Windows 解析失败后会回退使用窗口图标（见 loadIconImage）。
+//   实测：AUMID 匹配到目标不符的快捷方式 → 原子图标；AUMID 无解析结果 → 窗口图标。
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.spacecode.desktop')
+  app.setAppUserModelId(app.isPackaged ? 'com.spacecode.desktop' : 'com.spacecode.desktop.dev')
 }
 
 app.commandLine.appendSwitch('no-sandbox')
