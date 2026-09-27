@@ -358,11 +358,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uninstall: (agentName: string, scope: 'global' | 'project', cwd?: string) =>
       ipcRenderer.invoke('agents:uninstall', agentName, scope, cwd),
     getInstalled: (cwd?: string) => ipcRenderer.invoke('agents:getInstalled', cwd),
-    listWorkflows: () => ipcRenderer.invoke('agents:listWorkflows'),
-    saveWorkflow: (workflow: any) => ipcRenderer.invoke('agents:saveWorkflow', workflow),
-    deleteWorkflow: (id: string) => ipcRenderer.invoke('agents:deleteWorkflow', id),
-    exportWorkflow: (id: string, scope: 'global' | 'project', cwd?: string) =>
-      ipcRenderer.invoke('agents:exportWorkflow', id, scope, cwd),
     saveCustom: (agentName: string, content: string) =>
       ipcRenderer.invoke('agents:saveCustom', agentName, content),
   },

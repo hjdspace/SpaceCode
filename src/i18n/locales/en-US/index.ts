@@ -52,7 +52,6 @@ import sessionContext from './sessionContext'
 import askUser from './askUser'
 import chatPanel from './chatPanel'
 import timeline from './timeline'
-import workflow from './workflow'
 import agentDetail from './agentDetail'
 import toolCards from './toolCards'
 import subagentPanel from './subagentPanel'
@@ -122,7 +121,6 @@ export default {
   askUser,
   chatPanel,
   timeline,
-  workflow,
   agentDetail,
   toolCards,
   subagentPanel,

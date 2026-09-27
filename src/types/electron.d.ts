@@ -292,10 +292,6 @@ export interface ElectronAgentsAPI {
   install: (agentName: string, scope: string, cwd?: string) => Promise<void>
   uninstall: (agentName: string, scope: string, cwd?: string) => Promise<void>
   getInstalled: (cwd?: string) => Promise<unknown>
-  listWorkflows: () => Promise<unknown>
-  saveWorkflow: (workflow: unknown) => Promise<void>
-  deleteWorkflow: (id: string) => Promise<void>
-  exportWorkflow: (id: string, scope: string, cwd?: string) => Promise<unknown>
   saveCustom: (agentName: string, content: string) => Promise<{ success: boolean; path: string }>
 }
 

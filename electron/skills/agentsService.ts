@@ -1,11 +1,10 @@
 /**
- * Agents Service - Handles agent management and workflow operations
+ * Agents Service - Handles agent management operations
  */
 
 import { ipcMain, app } from 'electron'
 import { join, basename } from 'path'
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
-import { promises as fsp } from 'fs'
 
 import { parseYamlFrontMatter } from '../infra/frontMatter'
 
@@ -300,176 +299,11 @@ async function handleGetInstalled(
   return { agents }
 }
 
-// ==================== Workflow Functions ====================
-
-interface WorkflowNode {
-  id: string
-  type: 'agent' | 'condition' | 'merge' | 'input' | 'output'
-  position: { x: number; y: number }
-  data: Record<string, any>
-}
-
-interface WorkflowEdge {
-  id: string
-  source: string
-  target: string
-  sourcePort?: 'true' | 'false' | 'default'
-}
-
-interface WorkflowDef {
-  id: string
-  name: string
-  description?: string
-  nodes: WorkflowNode[]
-  edges: WorkflowEdge[]
-  createdAt: string
-  updatedAt: string
-}
-
-async function getWorkflowsDir(): Promise<string> {
-  const dir = join(app.getPath('home'), '.claude', 'agent-workflows')
-  try {
-    await fsp.access(dir)
-  } catch {
-    await fsp.mkdir(dir, { recursive: true })
-  }
-  return dir
-}
-
-async function handleListWorkflows(): Promise<{ workflows: WorkflowDef[] }> {
-  const dir = await getWorkflowsDir()
-  const workflows: WorkflowDef[] = []
-  try {
-    const entries = await fsp.readdir(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.json')) {
-        try {
-          const content = await fsp.readFile(join(dir, entry.name), 'utf-8')
-          workflows.push(JSON.parse(content))
-        } catch (err) {
-          console.error(`[Workflows] Failed to read workflow file: ${entry.name}`, err)
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[Workflows] Failed to list workflows:', err)
-  }
-  return { workflows }
-}
-
-async function handleSaveWorkflow(
-  _event: Electron.IpcMainInvokeEvent,
-  workflow: WorkflowDef
-): Promise<{ success: boolean }> {
-  const dir = await getWorkflowsDir()
-  const filePath = join(dir, `${workflow.id}.json`)
-  workflow.updatedAt = new Date().toISOString()
-  await fsp.writeFile(filePath, JSON.stringify(workflow, null, 2), 'utf-8')
-  return { success: true }
-}
-
-async function handleDeleteWorkflow(
-  _event: Electron.IpcMainInvokeEvent,
-  id: string
-): Promise<{ success: boolean }> {
-  const filePath = join(await getWorkflowsDir(), `${id}.json`)
-  try {
-    await fsp.access(filePath)
-  } catch {
-    throw new Error(`Workflow '${id}' not found`)
-  }
-  await fsp.unlink(filePath)
-  return { success: true }
-}
-
-async function handleExportWorkflow(
-  _event: Electron.IpcMainInvokeEvent,
-  id: string,
-  scope: 'global' | 'project',
-  cwd?: string
-): Promise<{ content: string; path: string }> {
-  const filePath = join(await getWorkflowsDir(), `${id}.json`)
-  try {
-    await fsp.access(filePath)
-  } catch {
-    throw new Error(`Workflow '${id}' not found`)
-  }
-  const workflow: WorkflowDef = JSON.parse(await fsp.readFile(filePath, 'utf-8'))
-
-  // Generate agent .md content
-  const agentNodes = workflow.nodes.filter(n => n.type === 'agent')
-  const allTools = new Set<string>()
-  for (const node of agentNodes) {
-    if (node.data?.agentName) {
-      const agentPath = join(getAgentsLibRoot(), `${node.data.agentName}.md`)
-      try {
-        const content = await fsp.readFile(agentPath, 'utf-8')
-        const fm = parseYamlFrontMatter(content)
-        if (fm?.tools) {
-          const tools = Array.isArray(fm.tools) ? fm.tools : [fm.tools]
-          tools.forEach((t: string) => allTools.add(t))
-        }
-      } catch {
-        // Agent file doesn't exist, skip
-      }
-    }
-  }
-
-  let stepNum = 1
-  let flowSteps = ''
-  for (const node of workflow.nodes) {
-    if (node.type === 'agent') {
-      flowSteps += `${stepNum}. **${node.data?.label || node.data?.agentName}**：调用 ${node.data?.agentName} agent\n`
-      if (node.data?.inputTemplate) {
-        flowSteps += `   输入模板：${node.data.inputTemplate}\n`
-      }
-      stepNum++
-    } else if (node.type === 'condition') {
-      flowSteps += `${stepNum}. **条件判断**：${node.data?.condition}\n`
-      stepNum++
-    } else if (node.type === 'merge') {
-      flowSteps += `${stepNum}. **汇总**：${node.data?.strategy === 'summarize' ? '由 LLM 总结合并' : '直接拼接合并'}\n`
-      stepNum++
-    }
-  }
-
-  const mdContent = `---
-name: ${workflow.name}
-description: ${workflow.description || `编排工作流：${workflow.name}`}
-tools: [${Array.from(allTools).join(', ')}]
-model: sonnet
----
-
-你是一个编排代理。按以下流程执行：
-
-## 执行流程
-
-${flowSteps}
-
-## 输出格式
-
-将每个阶段的结果汇总为结构化报告。
-`
-
-  const targetDir = scope === 'global' ? getGlobalAgentsDir() : getProjectAgentsDir(cwd || process.cwd())
-  if (!existsSync(targetDir)) {
-    mkdirSync(targetDir, { recursive: true })
-  }
-  const targetPath = join(targetDir, `${workflow.name}.md`)
-  writeFileSync(targetPath, mdContent, 'utf-8')
-
-  return { content: mdContent, path: targetPath }
-}
-
 export function registerAgentsIPCHandlers(): void {
   ipcMain.handle('agents:scanLibrary', handleScanLibrary)
   ipcMain.handle('agents:install', handleInstallAgent)
   ipcMain.handle('agents:uninstall', handleUninstallAgent)
   ipcMain.handle('agents:getInstalled', handleGetInstalled)
-  ipcMain.handle('agents:listWorkflows', handleListWorkflows)
-  ipcMain.handle('agents:saveWorkflow', handleSaveWorkflow)
-  ipcMain.handle('agents:deleteWorkflow', handleDeleteWorkflow)
-  ipcMain.handle('agents:exportWorkflow', handleExportWorkflow)
 
   // Phase 5: 保存自定义助手到 ~/.claude/agents/<name>.md
   ipcMain.handle('agents:saveCustom', async (_event, agentName: string, content: string) => {
