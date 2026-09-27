@@ -41,8 +41,9 @@ const electronMock = vi.hoisted(() => {
 })
 
 const childProcessMock = vi.hoisted(() => ({
-  spawnSync: vi.fn(),
+  spawn: vi.fn(),
 }))
+const hostPlatform = process.platform
 
 vi.mock('electron', () => ({ default: electronMock, ...electronMock }))
 vi.mock('child_process', () => childProcessMock)
@@ -68,6 +69,7 @@ import {
 
 describe('notificationService', () => {
   beforeEach(() => {
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     electronMock.notificationInstances.length = 0
     electronMock.Notification.mockClear()
     ;(electronMock.Notification as any).isSupported.mockClear().mockImplementation(() => true)
@@ -76,7 +78,7 @@ describe('notificationService', () => {
     )
     electronMock.app.isPackaged = false
     vi.mocked(electronMock.ipcMain.on).mockClear()
-    childProcessMock.spawnSync.mockReset()
+    childProcessMock.spawn.mockReset()
   })
 
   describe('getNotificationIconPath', () => {
@@ -116,41 +118,63 @@ describe('notificationService', () => {
 
   describe('showSystemNotification', () => {
     it('creates a notification with title/body and app icon', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       const ok = showSystemNotification({ title: 'T', message: 'M' })
 
-      expect(ok).toBe(true)
-      expect(electronMock.Notification).toHaveBeenCalledTimes(1)
-      const inst = electronMock.notificationInstances[0]
-      expect(inst.opts.title).toBe('T')
-      expect(inst.opts.body).toBe('M')
-      expect(inst.opts.icon).toBeDefined()
-      expect(inst.show).toHaveBeenCalledTimes(1)
+      try {
+        expect(ok).toBe(true)
+        expect(electronMock.Notification).toHaveBeenCalledTimes(1)
+        const inst = electronMock.notificationInstances[0]
+        expect(inst.opts.title).toBe('T')
+        expect(inst.opts.body).toBe('M')
+        expect(inst.opts.icon).toBeDefined()
+        expect(inst.show).toHaveBeenCalledTimes(1)
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
     })
 
     it('omits icon when no valid icon file resolves', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       electronMock.nativeImage.createFromPath.mockImplementation(() => ({ isEmpty: () => true }))
 
-      showSystemNotification({ title: 'T', message: 'M' })
+      try {
+        showSystemNotification({ title: 'T', message: 'M' })
 
-      const opts = electronMock.notificationInstances[0].opts
-      expect(opts.icon).toBeUndefined()
+        const opts = electronMock.notificationInstances[0].opts
+        expect(opts.icon).toBeUndefined()
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
     })
 
     it('returns false when notifications are not supported', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       ;(electronMock.Notification as any).isSupported.mockImplementation(() => false)
-      expect(showSystemNotification({ title: 'T', message: 'M' })).toBe(false)
-      expect(electronMock.Notification).not.toHaveBeenCalled()
+      try {
+        expect(showSystemNotification({ title: 'T', message: 'M' })).toBe(false)
+        expect(electronMock.Notification).not.toHaveBeenCalled()
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
     })
 
     it('falls back to notify-send on Linux when Electron notifications are unavailable', () => {
-      const originalPlatform = process.platform
+      const originalPlatform = hostPlatform
       Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
-      childProcessMock.spawnSync.mockReturnValue({ status: 0, error: undefined })
-      ;(electronMock.Notification as any).isSupported.mockImplementation(() => false)
+      childProcessMock.spawn.mockImplementation((_command: string, _args: string[], _options: unknown) => ({
+        once: (_event: string, callback: (code?: number) => void) => {
+          if (_event === 'exit') callback(0)
+          return undefined
+        },
+      }))
 
       try {
         expect(showSystemNotification({ title: 'T', message: 'M' })).toBe(true)
-        expect(childProcessMock.spawnSync).toHaveBeenCalledWith(
+        expect(childProcessMock.spawn).toHaveBeenCalledWith(
           'notify-send',
           expect.arrayContaining(['T', 'M']),
           expect.objectContaining({ stdio: 'ignore' }),
@@ -160,24 +184,63 @@ describe('notificationService', () => {
       }
     })
 
+    it('falls back to gdbus when notify-send is unavailable', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
+      const children: Array<{ command: string; emit: (event: string, value?: unknown) => void; once: (event: string, cb: (value?: unknown) => void) => void; kill: ReturnType<typeof vi.fn> }> = []
+      childProcessMock.spawn.mockImplementation((command: string) => {
+        const listeners = new Map<string, (value?: unknown) => void>()
+        const child = {
+          command,
+          emit: (event: string, value?: unknown) => listeners.get(event)?.(value),
+          once: (event: string, cb: (value?: unknown) => void) => { listeners.set(event, cb) },
+          kill: vi.fn(),
+        }
+        children.push(child)
+        if (command === 'notify-send') queueMicrotask(() => child.emit('error', Object.assign(new Error('missing'), { code: 'ENOENT' })))
+        else queueMicrotask(() => child.emit('exit', 0))
+        return child
+      })
+
+      try {
+        expect(showSystemNotification({ title: 'T', message: 'M' })).toBe(true)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(childProcessMock.spawn).toHaveBeenCalledWith('gdbus', expect.any(Array), expect.objectContaining({ stdio: 'ignore' }))
+        expect(children.map((child) => child.command)).toEqual(['notify-send', 'gdbus'])
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: hostPlatform })
+      }
+    })
+
     it('restores, shows and focuses the window on click', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       const win = { isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn() }
 
-      showSystemNotification({ title: 'T', message: 'M', window: win as any })
-      electronMock.notificationInstances[0].emitClick()
+      try {
+        showSystemNotification({ title: 'T', message: 'M', window: win as any })
+        electronMock.notificationInstances[0].emitClick()
 
-      expect(win.restore).toHaveBeenCalledTimes(1)
-      expect(win.show).toHaveBeenCalledTimes(1)
-      expect(win.focus).toHaveBeenCalledTimes(1)
+        expect(win.restore).toHaveBeenCalledTimes(1)
+        expect(win.show).toHaveBeenCalledTimes(1)
+        expect(win.focus).toHaveBeenCalledTimes(1)
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
     })
 
     it('skips a destroyed window on click', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       const win = { isDestroyed: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn() }
 
-      showSystemNotification({ title: 'T', message: 'M', window: win as any })
-      electronMock.notificationInstances[0].emitClick()
+      try {
+        showSystemNotification({ title: 'T', message: 'M', window: win as any })
+        electronMock.notificationInstances[0].emitClick()
 
-      expect(win.show).not.toHaveBeenCalled()
+        expect(win.show).not.toHaveBeenCalled()
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
     })
   })
 

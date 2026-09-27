@@ -291,8 +291,8 @@ const {
 } = useResizablePanel({
   initial: 400,
   min: 200,
-  // 右面板允许拓宽至接近全窗口，同时保留最小主内容区
-  max: () => Math.max(650, window.innerWidth - leftWidth.value - 200),
+  // 右面板允许拓宽至接近全窗口，仅保留极小主内容区（48px = 侧边栏折叠宽度）
+  max: () => Math.max(650, window.innerWidth - 48),
   direction: 'horizontal',
   reverse: true,
 })

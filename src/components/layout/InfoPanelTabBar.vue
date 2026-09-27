@@ -1,9 +1,9 @@
 <template>
-  <div class="info-panel-tab-bar" v-if="tabs.length > 0">
-    <button class="home-btn" :class="{ active: appStore.panelHome }" @click="handleGoHome" :title="t('panel.home')">
+  <div class="info-panel-tab-bar">
+    <button v-if="tabs.length > 0" class="home-btn" :class="{ active: appStore.panelHome }" @click="handleGoHome" :title="t('panel.home')">
       <LayoutGrid :size="14" />
     </button>
-    <div class="tabs-scroll-container" ref="scrollContainer">
+    <div v-if="tabs.length > 0" class="tabs-scroll-container" ref="scrollContainer">
       <div
         v-for="tab in tabs"
         :key="tab.id"
@@ -20,10 +20,11 @@
           @click.stop="handleClose(tab.id)"
           :title="t('infoPanel.closeTab')"
         >
-          <X :size="12" />
+        <X :size="12" />
         </button>
       </div>
     </div>
+    <div v-else class="tabs-spacer"></div>
     <button
       class="fullscreen-btn"
       @click="toggleFullscreen"
@@ -124,6 +125,10 @@ async function handleClosePanel() {
       transparent 100%
     );
   }
+}
+
+.tabs-spacer {
+  flex: 1;
 }
 
 .tabs-scroll-container {
