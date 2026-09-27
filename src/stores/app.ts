@@ -299,6 +299,8 @@ export const useAppStore = defineStore('app', () => {
       if (infoPanelTabs.value.length === 0) {
         activeInfoTabId.value = null
         infoPanelVisible.value = false
+        // 关闭最后一个 tab 时退出全屏，否则中间面板仍被隐藏
+        infoPanelFullscreen.value = false
       } else {
         const nextIndex = Math.min(index, infoPanelTabs.value.length - 1)
         activeInfoTabId.value = infoPanelTabs.value[nextIndex].id
@@ -310,6 +312,8 @@ export const useAppStore = defineStore('app', () => {
     infoPanelTabs.value = []
     activeInfoTabId.value = null
     infoPanelVisible.value = false
+    // 关闭全部 tab 时退出全屏，否则中间面板仍被隐藏
+    infoPanelFullscreen.value = false
   }
 
   function openSubagentPanel(toolCallId: string) {
@@ -329,6 +333,8 @@ export const useAppStore = defineStore('app', () => {
     subagentPanelState.value = null
     // 关闭 subagent 页面后直接收起右侧面板，而不是回退到之前的标签/启动器
     infoPanelVisible.value = false
+    // 退出全屏，否则中间面板仍被隐藏
+    infoPanelFullscreen.value = false
   }
 
   function showInfoPanel(mode: InfoPanelTabType) {

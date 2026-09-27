@@ -17,6 +17,8 @@ export default {
   sourceMode: 'Source',
   closeTab: 'Close tab',
   closePanel: 'Close panel',
+  enterFullscreen: 'Fullscreen',
+  exitFullscreen: 'Exit fullscreen (Esc)',
   back: 'Back',
   forward: 'Forward',
   refresh: 'Refresh',

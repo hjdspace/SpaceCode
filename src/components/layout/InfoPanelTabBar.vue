@@ -24,6 +24,14 @@
         </button>
       </div>
     </div>
+    <button
+      class="fullscreen-btn"
+      @click="toggleFullscreen"
+      :title="isFullscreen ? t('infoPanel.exitFullscreen') : t('infoPanel.enterFullscreen')"
+    >
+      <Minimize2 v-if="isFullscreen" :size="14" />
+      <Maximize2 v-else :size="14" />
+    </button>
     <button class="close-panel-btn" @click="handleClosePanel" :title="t('infoPanel.closePanel')">
       <X :size="14" />
     </button>
@@ -34,7 +42,7 @@
 import { computed, ref } from 'vue'
 import { useAppStore, type InfoPanelTab } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
-import { X, LayoutGrid } from 'lucide-vue-next'
+import { X, LayoutGrid, Maximize2, Minimize2 } from 'lucide-vue-next'
 import { useDialog } from '@/composables/useDialog'
 
 const appStore = useAppStore()
@@ -44,6 +52,11 @@ const scrollContainer = ref<HTMLElement | null>(null)
 
 const tabs = computed<InfoPanelTab[]>(() => appStore.infoPanelTabs)
 const activeTabId = computed(() => appStore.activeInfoTabId)
+const isFullscreen = computed(() => appStore.infoPanelFullscreen)
+
+function toggleFullscreen() {
+  appStore.toggleInfoPanelFullscreen()
+}
 
 function handleTabClick(tab: InfoPanelTab) {
   appStore.panelHome = false
@@ -228,6 +241,30 @@ async function handleClosePanel() {
   }
 
   &.active {
+    color: var(--accent-primary);
+  }
+}
+
+.fullscreen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: var(--surface-glass-hover, rgba(0,0,0,0.05));
+    color: var(--text-primary, #111827);
+  }
+
+  &.is-active {
     color: var(--accent-primary);
   }
 }
