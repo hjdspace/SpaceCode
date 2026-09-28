@@ -27,6 +27,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
   // === Right side panel (tasks / review) ===
   const showRightPanel = ref(false)
   const rightPanelView = ref<RightPanelView>('tasks')
+  const rightPanelFullscreen = ref(false)
 
   // 记住右侧面板展开前环境卡片的显隐状态，用于右侧面板折叠后恢复
   const envPanelCollapsedByRightPanel = ref(false)
@@ -129,6 +130,11 @@ export const useSessionContext = defineStore('sessionContext', () => {
 
   function closeRightPanel() {
     showRightPanel.value = false
+    rightPanelFullscreen.value = false
+  }
+
+  function toggleRightPanelFullscreen() {
+    rightPanelFullscreen.value = !rightPanelFullscreen.value
   }
 
   function switchRightPanelView(view: RightPanelView) {
@@ -329,6 +335,8 @@ export const useSessionContext = defineStore('sessionContext', () => {
     clearPendingReviewFile,
     closeRightPanel,
     switchRightPanelView,
+    rightPanelFullscreen,
+    toggleRightPanelFullscreen,
 
     // Branch dropdown
     togglePanelMenu,

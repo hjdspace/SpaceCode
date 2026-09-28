@@ -1,6 +1,6 @@
 /**
  * Agents store tests — filtering, install/uninstall lifecycle,
- * category stats, and workflow CRUD.
+ * category stats.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -11,10 +11,6 @@ const apiMocks = vi.hoisted(() => ({
     getInstalled: vi.fn(),
     install: vi.fn(),
     uninstall: vi.fn(),
-    listWorkflows: vi.fn(),
-    saveWorkflow: vi.fn(),
-    deleteWorkflow: vi.fn(),
-    exportWorkflow: vi.fn(),
   },
 }))
 
@@ -317,87 +313,5 @@ describe('agents store — selectCategory & setSearchQuery', () => {
     const store = useAgentsStore()
     store.setSearchQuery('test query')
     expect(store.searchQuery).toBe('test query')
-  })
-})
-
-describe('agents store — workflows', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    setActivePinia(createPinia())
-  })
-
-  it('fetchWorkflows populates workflows array', async () => {
-    const mockWorkflows = [{ id: '1', name: 'wf1' }]
-    apiMocks.agents.listWorkflows.mockResolvedValue({ workflows: mockWorkflows })
-
-    const store = useAgentsStore()
-    await store.fetchWorkflows()
-
-    expect(store.workflows).toEqual(mockWorkflows)
-    expect(store.workflowLoading).toBe(false)
-  })
-
-  it('fetchWorkflows handles error gracefully', async () => {
-    apiMocks.agents.listWorkflows.mockRejectedValue(new Error('fail'))
-
-    const store = useAgentsStore()
-    await store.fetchWorkflows()
-
-    expect(store.workflowLoading).toBe(false)
-    expect(store.workflows).toEqual([])
-  })
-
-  it('saveWorkflow calls api and refreshes', async () => {
-    apiMocks.agents.saveWorkflow.mockResolvedValue(undefined)
-    apiMocks.agents.listWorkflows.mockResolvedValue({ workflows: [{ id: '1' }] })
-
-    const store = useAgentsStore()
-    await store.saveWorkflow({ name: 'new wf' })
-
-    expect(apiMocks.agents.saveWorkflow).toHaveBeenCalledWith({ name: 'new wf' })
-    expect(store.workflows).toHaveLength(1)
-  })
-
-  it('saveWorkflow propagates error', async () => {
-    apiMocks.agents.saveWorkflow.mockRejectedValue(new Error('save failed'))
-
-    const store = useAgentsStore()
-    await expect(store.saveWorkflow({})).rejects.toThrow('save failed')
-  })
-
-  it('deleteWorkflow calls api and refreshes', async () => {
-    apiMocks.agents.deleteWorkflow.mockResolvedValue(undefined)
-    apiMocks.agents.listWorkflows.mockResolvedValue({ workflows: [] })
-
-    const store = useAgentsStore()
-    await store.deleteWorkflow('wf-1')
-
-    expect(apiMocks.agents.deleteWorkflow).toHaveBeenCalledWith('wf-1')
-    expect(store.workflows).toEqual([])
-  })
-
-  it('deleteWorkflow propagates error', async () => {
-    apiMocks.agents.deleteWorkflow.mockRejectedValue(new Error('del fail'))
-
-    const store = useAgentsStore()
-    await expect(store.deleteWorkflow('x')).rejects.toThrow('del fail')
-  })
-
-  it('exportWorkflow calls api and returns result', async () => {
-    const mockResult = { path: '/exported/wf.json' }
-    apiMocks.agents.exportWorkflow.mockResolvedValue(mockResult)
-
-    const store = useAgentsStore()
-    const result = await store.exportWorkflow('wf-1', 'global', '/repo')
-
-    expect(apiMocks.agents.exportWorkflow).toHaveBeenCalledWith('wf-1', 'global', '/repo')
-    expect(result).toEqual(mockResult)
-  })
-
-  it('exportWorkflow propagates error', async () => {
-    apiMocks.agents.exportWorkflow.mockRejectedValue(new Error('export fail'))
-
-    const store = useAgentsStore()
-    await expect(store.exportWorkflow('x', 'global')).rejects.toThrow('export fail')
   })
 })

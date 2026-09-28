@@ -149,53 +149,6 @@ export const useAgentsStore = defineStore('agents', () => {
     searchQuery.value = query
   }
 
-  // Workflow state
-  const workflows = ref<any[]>([])
-  const workflowLoading = ref(false)
-
-  async function fetchWorkflows() {
-    workflowLoading.value = true
-    try {
-      const data = await api.agents.listWorkflows()
-      workflows.value = data.workflows || []
-    } catch (err) {
-      console.error('Failed to fetch workflows:', err)
-    } finally {
-      workflowLoading.value = false
-    }
-  }
-
-  async function saveWorkflow(workflow: any) {
-    try {
-      await api.agents.saveWorkflow(workflow)
-      await fetchWorkflows()
-      return true
-    } catch (err) {
-      console.error('Failed to save workflow:', err)
-      throw err
-    }
-  }
-
-  async function deleteWorkflow(id: string) {
-    try {
-      await api.agents.deleteWorkflow(id)
-      await fetchWorkflows()
-      return true
-    } catch (err) {
-      console.error('Failed to delete workflow:', err)
-      throw err
-    }
-  }
-
-  async function exportWorkflow(id: string, scope: 'global' | 'project', cwd?: string) {
-    try {
-      return await api.agents.exportWorkflow(id, scope, cwd)
-    } catch (err) {
-      console.error('Failed to export workflow:', err)
-      throw err
-    }
-  }
-
   return {
     libraryAgents,
     installedAgents,
@@ -214,11 +167,5 @@ export const useAgentsStore = defineStore('agents', () => {
     uninstallAgent,
     selectCategory,
     setSearchQuery,
-    workflows,
-    workflowLoading,
-    fetchWorkflows,
-    saveWorkflow,
-    deleteWorkflow,
-    exportWorkflow,
   }
 })

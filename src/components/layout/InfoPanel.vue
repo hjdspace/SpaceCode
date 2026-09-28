@@ -226,11 +226,12 @@ const canGoForward = computed(() =>
   appStore.currentHistoryIndex < appStore.webviewHistory.length - 1
 )
 
-// 判断当前 webview 是否在预览本地 HTML PPT 产物（file:// 协议 + .html 后缀）
+// 判断当前 webview 是否在预览本地 HTML PPT 产物（file:// 或本地预览服务器 + .html 后缀）
 // 仅这类页面才显示键盘操作提示条
 const isHtmlPptPreview = computed(() => {
   const url = appStore.webviewUrl || ''
-  return url.startsWith('file://') && /\.html?$/i.test(url)
+  const isLocalPreview = url.startsWith('file://') || url.startsWith('http://127.0.0.1:')
+  return isLocalPreview && /\.html?$/i.test(url)
 })
 
 function handleGoBack() {
@@ -782,7 +783,7 @@ watch(() => appStore.webviewUrl, () => {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: rgba(var(--bg-primary-rgb), 0.9);
+  background: rgba(12, 12, 29, 0.9);
   backdrop-filter: blur(4px);
   color: var(--text-muted);
   font-size: 13px;

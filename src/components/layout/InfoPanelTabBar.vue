@@ -1,9 +1,9 @@
 <template>
-  <div class="info-panel-tab-bar" v-if="tabs.length > 0">
-    <button class="home-btn" :class="{ active: appStore.panelHome }" @click="handleGoHome" :title="t('panel.home')">
+  <div class="info-panel-tab-bar">
+    <button v-if="tabs.length > 0" class="home-btn" :class="{ active: appStore.panelHome }" @click="handleGoHome" :title="t('panel.home')">
       <LayoutGrid :size="14" />
     </button>
-    <div class="tabs-scroll-container" ref="scrollContainer">
+    <div v-if="tabs.length > 0" class="tabs-scroll-container" ref="scrollContainer">
       <div
         v-for="tab in tabs"
         :key="tab.id"
@@ -20,10 +20,19 @@
           @click.stop="handleClose(tab.id)"
           :title="t('infoPanel.closeTab')"
         >
-          <X :size="12" />
+        <X :size="12" />
         </button>
       </div>
     </div>
+    <div v-else class="tabs-spacer"></div>
+    <button
+      class="fullscreen-btn"
+      @click="toggleFullscreen"
+      :title="isFullscreen ? t('infoPanel.exitFullscreen') : t('infoPanel.enterFullscreen')"
+    >
+      <Minimize2 v-if="isFullscreen" :size="14" />
+      <Maximize2 v-else :size="14" />
+    </button>
     <button class="close-panel-btn" @click="handleClosePanel" :title="t('infoPanel.closePanel')">
       <X :size="14" />
     </button>
@@ -34,7 +43,7 @@
 import { computed, ref } from 'vue'
 import { useAppStore, type InfoPanelTab } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
-import { X, LayoutGrid } from 'lucide-vue-next'
+import { X, LayoutGrid, Maximize2, Minimize2 } from 'lucide-vue-next'
 import { useDialog } from '@/composables/useDialog'
 
 const appStore = useAppStore()
@@ -44,6 +53,11 @@ const scrollContainer = ref<HTMLElement | null>(null)
 
 const tabs = computed<InfoPanelTab[]>(() => appStore.infoPanelTabs)
 const activeTabId = computed(() => appStore.activeInfoTabId)
+const isFullscreen = computed(() => appStore.infoPanelFullscreen)
+
+function toggleFullscreen() {
+  appStore.toggleInfoPanelFullscreen()
+}
 
 function handleTabClick(tab: InfoPanelTab) {
   appStore.panelHome = false
@@ -111,6 +125,10 @@ async function handleClosePanel() {
       transparent 100%
     );
   }
+}
+
+.tabs-spacer {
+  flex: 1;
 }
 
 .tabs-scroll-container {
@@ -228,6 +246,30 @@ async function handleClosePanel() {
   }
 
   &.active {
+    color: var(--accent-primary);
+  }
+}
+
+.fullscreen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: var(--surface-glass-hover, rgba(0,0,0,0.05));
+    color: var(--text-primary, #111827);
+  }
+
+  &.is-active {
     color: var(--accent-primary);
   }
 }

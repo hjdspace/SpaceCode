@@ -19,16 +19,12 @@
         <button class="tab-btn" :class="{ active: viewTab === 'installed' }" @click="viewTab = 'installed'">
           {{ t('agents.tabInstalled') }}
         </button>
-        <button class="tab-btn" :class="{ active: viewTab === 'workflow' }" @click="viewTab = 'workflow'">
-          {{ t('agents.tabWorkflow') }}
-        </button>
       </div>
     </div>
 
     <div class="agent-content">
       <AgentLibrary v-if="viewTab === 'library'" />
       <InstalledAgents v-else-if="viewTab === 'installed'" />
-      <WorkflowEditor v-else-if="viewTab === 'workflow'" />
     </div>
   </div>
 </template>
@@ -40,11 +36,10 @@ import { ArrowLeft } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import AgentLibrary from './AgentLibrary.vue'
 import InstalledAgents from './InstalledAgents.vue'
-import WorkflowEditor from './WorkflowEditor.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const viewTab = ref<'library' | 'installed' | 'workflow'>('library')
+const viewTab = ref<'library' | 'installed'>('library')
 
 function handleClose() {
   appStore.showAgentManager = false

@@ -229,16 +229,12 @@
 
           <!-- Event content -->
           <div class="event-body">
-            <!-- Reasoning event -->
+            <!-- Reasoning event: 使用 ReasoningCard 复刻 soc-verify 的思考块 UI -->
             <template v-if="item.event!.type === 'reasoning'">
-              <div class="event-row" @click="toggleEvent(item.event!.id)">
-                <span class="event-label">{{ t('timeline.thinking') }}</span>
-                <span v-if="item.event!.duration" class="event-duration">{{ item.event!.duration }}s</span>
-                <ChevronDown v-if="item.event!.content" :size="12" class="event-chevron" :class="{ expanded: expandedEvents[item.event!.id] }" />
-              </div>
-              <div v-if="expandedEvents[item.event!.id] && item.event!.content" class="event-detail">
-                <MarkdownRenderer :content="item.event!.content" />
-              </div>
+              <ReasoningCard
+                :reasoning="reasoningForEvent(item.event!)"
+                :is-thinking="item.event!.status === 'running'"
+              />
             </template>
 
             <!-- Text event -->
@@ -344,8 +340,29 @@
         </div>
       </template>
 
+      <!-- Engine 内部重试中提示：429/529 等错误时 engine 自动重试 -->
+      <div v-if="engineRetryState && engineRetrySeconds > 0" class="timeline-engine-retry">
+        <div class="engine-retry-card">
+          <AlertTriangle :size="14" class="engine-retry-icon" />
+          <div class="engine-retry-body">
+            <span class="engine-retry-title">{{ engineRetryState.errorTitle }}</span>
+            <span class="engine-retry-detail">
+              {{ t('errors.retryCountdown', { attempt: engineRetryState.attempt, max: engineRetryState.maxRetries, seconds: engineRetrySeconds }) }}
+            </span>
+          </div>
+          <Loader2 :size="12" class="spin-icon engine-retry-spinner" />
+        </div>
+      </div>
+
+      <div v-else-if="engineRetryState" class="timeline-waiting">
+        <ThinkingState
+          :start-time="engineRetryState.startedAt + engineRetryState.delayMs"
+          variant="responding"
+        />
+      </div>
+
       <!-- 等待 LLM 下一轮响应：工具调用结束后的间隙指示（修复2） -->
-      <div v-if="isWaitingForLlm" class="timeline-waiting">
+      <div v-else-if="isWaitingForLlm && !engineRetryState" class="timeline-waiting">
         <ThinkingState
           :start-time="turnStartTimestamp"
           variant="responding"
@@ -366,7 +383,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Message, ToolCall, MessageMetadata, ClassifiedError } from '@/types'
+import type { Message, ToolCall, MessageMetadata, ClassifiedError, ReasoningBlock } from '@/types'
 import type { Component } from 'vue'
 import { computed, markRaw, onMounted, onUnmounted, reactive, watch, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -376,12 +393,13 @@ import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
 import ThinkingState from './ThinkingState.vue'
+import ReasoningCard from './ReasoningCard.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import {
-  Loader2, X, ChevronDown, Bot, AlertCircle, Clock,
+  Loader2, X, ChevronDown, Bot, AlertCircle, AlertTriangle, Clock,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Folder, Code,
   MessageCircle, Info, ListChecks
 } from 'lucide-vue-next'
@@ -936,6 +954,26 @@ const isWaitingForLlm = computed(() => {
   return true
 })
 
+// ── Engine 内部重试状态检测 ──
+// 当 engine 在 API 调用期间遇到 429/529 等错误并自动重试时，
+// 通过 SystemAPIErrorMessage 将 retryState 写入助手消息的 metadata。
+// 这里读取该状态，展示"正在重连 (attempt/maxRetries)"提示。
+const engineRetryState = computed(() => {
+  const msgs = props.messages
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]
+    if (m.role === 'assistant' && m.metadata?.retryState) {
+      return m.metadata.retryState
+    }
+  }
+  return null
+})
+
+const engineRetrySeconds = computed(() => {
+  if (!engineRetryState.value) return 0
+  return Math.max(0, Math.ceil((engineRetryState.value.startedAt + engineRetryState.value.delayMs - now.value) / 1000))
+})
+
 // 等待指示行的计时起点：本组内最近一次活动的结束时刻 ——
 // 取工具结果返回时间（toolCalls.endTime）与最后一个时间线事件创建时间的最大值，
 // 即当前这轮"等待 LLM 响应"间隙的开始，每轮等待各自从 0 计时、不累加此前轮次。
@@ -1068,6 +1106,21 @@ function toggleEvent(eventId: string) {
 
 function shouldRenderSpecialComponent(event: TimelineEvent): boolean {
   return !!event.specialComponent
+}
+
+/**
+ * 把 TimelineEvent (reasoning) 转换为 ReasoningCard 需要的 ReasoningBlock。
+ * - 运行中: endTime=undefined → ReasoningCard 显示 "思考中..." + 动画 dots，自动展开
+ * - 已完成: 用 duration 字段构造 startTime/endTime，自动折叠
+ */
+function reasoningForEvent(event: TimelineEvent): ReasoningBlock {
+  const content = event.content || ''
+  if (event.status === 'running') {
+    return { content, startTime: now.value, endTime: undefined }
+  }
+  // 已完成: duration 字段是秒数字符串 (如 "2.3")
+  const durSec = event.duration ? parseFloat(event.duration) : 0
+  return { content, startTime: 0, endTime: durSec * 1000 }
 }
 
 function getToolContentKey(tool: ToolCall): string {
@@ -1255,6 +1308,51 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 .timeline-waiting {
   margin-left: 32px;
   padding: 2px 0 6px;
+}
+
+/* Engine 内部重试中提示卡片 */
+.timeline-engine-retry {
+  margin: 4px 0 4px 32px;
+}
+
+.engine-retry-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.engine-retry-icon {
+  flex-shrink: 0;
+  color: #f59e0b;
+}
+
+.engine-retry-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.engine-retry-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.engine-retry-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.engine-retry-spinner {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  animation: spin 1s linear infinite;
 }
 
 .timeline-event {

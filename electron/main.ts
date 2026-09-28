@@ -39,6 +39,7 @@ import { PetFileService } from './pet/petFileService'
 import { PetWindowController } from './pet/petWindowManager'
 import { registerPetIpcHandlers } from './pet/petIpcHandlers'
 import { setupLinuxPlatform } from './infra/platformSetup'
+import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
 const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
@@ -81,9 +82,15 @@ if (existsSync(envPath)) {
 
 setupLinuxPlatform()
 
-// Windows: set AppUserModelId so taskbar shows the correct icon instead of Electron default
+// Windows: set AppUserModelId.
+// - 生产：appId 与安装器创建的开始菜单快捷方式（内嵌同一 AUMID）匹配，任务栏/通知正常解析。
+// - 开发：若使用同一 AUMID，会匹配到已安装应用的快捷方式，但快捷方式指向的不是当前
+//   进程的 electron.exe，Windows 会拒绝该快捷方式并回退到 electron.exe 的默认原子图标，
+//   导致任务栏图标错误。改用 dev 专属 AUMID（系统中无任何快捷方式与之匹配），
+//   Windows 解析失败后会回退使用窗口图标（见 loadIconImage）。
+//   实测：AUMID 匹配到目标不符的快捷方式 → 原子图标；AUMID 无解析结果 → 窗口图标。
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.spacecode.desktop')
+  app.setAppUserModelId(app.isPackaged ? 'com.spacecode.desktop' : 'com.spacecode.desktop.dev')
 }
 
 app.commandLine.appendSwitch('no-sandbox')
@@ -256,25 +263,35 @@ function getIconPath(): string {
   return devIcoPath // return .ico path even if missing
 }
 
-// Load a NativeImage for tray/window icon, with .ico → .png fallback
+// Load a NativeImage for tray/window icon.
+// On Windows, .ico files loaded via nativeImage.createFromPath can produce
+// images that BrowserWindow.setIcon() fails to apply to the taskbar — the
+// taskbar falls back to the process exe icon (the default Electron logo in
+// dev mode). Using .png produces a reliable NativeImage that setIcon() applies
+// correctly to both the window title bar and the taskbar.
+// On macOS/Linux, .png is also preferred for the same reason.
 function loadIconImage(): Electron.NativeImage {
-  const iconPath = getIconPath()
-  info('Icon', `Loading icon from: ${iconPath} | exists=${existsSync(iconPath)}`)
+  const icoPath = getIconPath()
+  // Always prefer .png for NativeImage creation (more reliable across platforms)
+  const pngPath = icoPath.replace(/\.ico$/, '.png')
+  const preferredPath = existsSync(pngPath) ? pngPath : icoPath
+  info('Icon', `Loading icon from: ${preferredPath} | exists=${existsSync(preferredPath)}`)
 
   try {
-    if (existsSync(iconPath)) {
-      const img = nativeImage.createFromPath(iconPath)
+    if (existsSync(preferredPath)) {
+      const img = nativeImage.createFromPath(preferredPath)
       if (!img.isEmpty()) {
-        debug('Icon', `Icon loaded successfully: ${iconPath} (${img.getSize().width}x${img.getSize().height})`)
+        const size = img.getSize()
+        info('Icon', `Icon loaded: ${preferredPath} (${size.width}x${size.height})`)
         return img
       }
-      warn('Icon', `Icon at ${iconPath} loaded but is EMPTY — trying PNG fallback`)
+      warn('Icon', `Icon at ${preferredPath} loaded but is EMPTY — trying fallback`)
     }
 
-    // Try PNG fallback
-    const fallbackExt = extname(iconPath) === '.ico' ? '.png' : '.ico'
-    const fallbackPath = iconPath.replace(/\.(ico|png)$/, fallbackExt)
-    if (fallbackPath !== iconPath && existsSync(fallbackPath)) {
+    // Try the other format as fallback (.ico → .png or .png → .ico)
+    const fallbackExt = extname(preferredPath) === '.ico' ? '.png' : '.ico'
+    const fallbackPath = preferredPath.replace(/\.(ico|png)$/, fallbackExt)
+    if (fallbackPath !== preferredPath && existsSync(fallbackPath)) {
       const fallbackImg = nativeImage.createFromPath(fallbackPath)
       if (!fallbackImg.isEmpty()) {
         info('Icon', `Using fallback icon: ${fallbackPath}`)
@@ -460,11 +477,12 @@ function createWindow() {
   // On Windows & Linux, passing a file-path string to the BrowserWindow constructor's
   // `icon` option does not reliably set the taskbar icon (the OS may fall back to the
   // process icon — i.e. the default Electron logo in dev, or the .exe icon in prod).
-  // Calling setIcon() with a NativeImage forces the taskbar to use our icon.
+  // Calling setIcon() with a NativeImage (especially from .png) forces the taskbar
+  // to use our icon instead of the process exe icon.
   const windowIcon = loadIconImage()
   if (!windowIcon.isEmpty()) {
     mainWindow.setIcon(windowIcon)
-    debug('Icon', 'Window icon set via setIcon()')
+    info('Icon', `Window icon set via setIcon() (${windowIcon.getSize().width}x${windowIcon.getSize().height})`)
   } else {
     warn('Icon', 'Window icon is empty — taskbar will show default icon')
   }
@@ -972,6 +990,10 @@ info('Startup', 'CuaDriver IPC handlers registered')
   registerPromptOptimizerIPC()
   info('Startup', 'Prompt Optimizer IPC handlers registered')
 
+  // Register Preview Server IPC handlers (本地 HTTP 预览服务器)
+  registerPreviewServerIPCHandlers()
+  info('Startup', 'Preview Server IPC handlers registered')
+
   // Register Auto Updater IPC handlers (always register, but only init in production)
   registerAutoUpdaterIPC()
   if (!isDev) {
@@ -1061,6 +1083,7 @@ app.on('before-quit', async () => {
 info('App', 'App quitting')
 // 如果更新已下载，在退出时静默安装（不重启）
 installUpdateOnQuit()
+cleanupPreviewServer()
 cleanupOfficeCli()
 await cleanupCuaDriverMcp()
 await cleanupBrowserUseMcp()

@@ -44,7 +44,11 @@
         </div>
         
         <!-- 思考过程 -->
-        <ReasoningCard v-if="message.reasoning" :reasoning="message.reasoning" />
+        <ReasoningCard
+          v-if="message.reasoning"
+          :reasoning="message.reasoning"
+          :is-thinking="reasoningIsThinking(message)"
+        />
         
         <!-- 工具调用 -->
         <ToolCallList
@@ -193,6 +197,11 @@ const emit = defineEmits<{
   rewind: [message: Message]
   editResend: [message: Message, newContent: string]
 }>()
+
+function reasoningIsThinking(message: Message): boolean {
+  const event = message.timelineEvents?.find(item => item.type === 'reasoning')
+  return event ? event.status === 'running' : message.reasoning?.endTime == null
+}
 
 const isHovered = ref(false)
 const previewImage = ref<ImageAttachment | null>(null)

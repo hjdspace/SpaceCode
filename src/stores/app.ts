@@ -299,6 +299,8 @@ export const useAppStore = defineStore('app', () => {
       if (infoPanelTabs.value.length === 0) {
         activeInfoTabId.value = null
         infoPanelVisible.value = false
+        // 关闭最后一个 tab 时退出全屏，否则中间面板仍被隐藏
+        infoPanelFullscreen.value = false
       } else {
         const nextIndex = Math.min(index, infoPanelTabs.value.length - 1)
         activeInfoTabId.value = infoPanelTabs.value[nextIndex].id
@@ -310,6 +312,8 @@ export const useAppStore = defineStore('app', () => {
     infoPanelTabs.value = []
     activeInfoTabId.value = null
     infoPanelVisible.value = false
+    // 关闭全部 tab 时退出全屏，否则中间面板仍被隐藏
+    infoPanelFullscreen.value = false
   }
 
   function openSubagentPanel(toolCallId: string) {
@@ -329,6 +333,8 @@ export const useAppStore = defineStore('app', () => {
     subagentPanelState.value = null
     // 关闭 subagent 页面后直接收起右侧面板，而不是回退到之前的标签/启动器
     infoPanelVisible.value = false
+    // 退出全屏，否则中间面板仍被隐藏
+    infoPanelFullscreen.value = false
   }
 
   function showInfoPanel(mode: InfoPanelTabType) {
@@ -770,8 +776,15 @@ export const useAppStore = defineStore('app', () => {
     return (isLocal ? 'http://' : 'https://') + trimmed
   }
 
-  /** 将本地文件路径转为 file:// URL 并在内置浏览器打开（用于预览 .html 等产物） */
-  function openFileInWebview(filePath: string) {
+  /** 将本地文件路径转为预览 URL 并在内置浏览器打开（用于预览 .html 等产物） */
+  async function openFileInWebview(filePath: string) {
+    // 优先使用本地 HTTP 预览服务器（解决 file:// 协议下 ES Module / CORS 问题）
+    const previewUrl = await api.preview.getUrl(filePath)
+    if (previewUrl) {
+      openWebview(previewUrl)
+      return
+    }
+    // Fallback: file:// 协议（preview server 不可用时）
     const normalized = filePath.replace(/\\/g, '/')
     const url = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
     openWebview(url)

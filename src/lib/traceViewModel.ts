@@ -355,7 +355,7 @@ function buildDiagnosis(
   rootId: string,
   fallbackTimestamp: string,
 ): TraceDiagnosis {
-  const meaningfulSpans = spans.filter((span) => span.id !== rootId)
+  const meaningfulSpans = spans.filter((span) => span.id !== rootId && span.kind !== 'turn')
   const errorSpans = meaningfulSpans.filter((span) => span.status === 'error')
   const pendingModels = meaningfulSpans.filter((span) => span.kind === 'llm' && span.status === 'pending')
   const pendingTools = meaningfulSpans.filter((span) => span.kind === 'tool' && span.status === 'pending')

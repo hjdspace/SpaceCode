@@ -60,6 +60,16 @@ interface ArtifactsApi {
   list: (workingDir: string) => Promise<{ artifacts: any[] }>
 }
 
+/** Synthetic assistant records emitted by the engine for retryable API errors. */
+export function isSyntheticApiErrorAssistant(assistant: any): boolean {
+  if (assistant?.isApiErrorMessage === true) return true
+  const content = assistant?.message?.content
+  if (typeof content === 'string') return /^\s*API Error:/i.test(content)
+  return Array.isArray(content) && content.length > 0 && content.every((block: any) =>
+    block?.type === 'text' && typeof block.text === 'string' && /^\s*API Error:/i.test(block.text),
+  )
+}
+
 export interface EventReducerOptions {
   sink: SessionSink
   stateMachine: TurnStateMachine
@@ -246,6 +256,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     addToolTimelineEvent,
   } = timeline
 
+  // 桌面通知去重：记录每个 session 最近一次通知的时间戳，
+  // 防止同一 turn 周期内因幽灵 turn 或残留事件触发多次通知。
+  const notifiedSessions = new Map<string, number>()
+  const NOTIFICATION_DEBOUNCE_MS = 5_000
+
   // Renderer IPC can continue delivering text deltas while the window is hidden.
   // Coalesce message writes so a burst accumulated during background throttling
   // does not turn into one reactive update per delta when the window is restored.
@@ -258,9 +273,28 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     pendingContentPatches.delete(sessionId)
 
     const message = getAssistantMessage(sessionId, ts)
-    if (message && message.content !== ts.accumulatedContent) {
-      sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
+    if (!message) return
+
+    const textEvent = ts.currentTextEventId
+      ? message.timelineEvents?.find(event => event.id === ts.currentTextEventId)
+      : undefined
+    if (textEvent && textEvent.content !== ts.accumulatedContent) {
+      textEvent.content = ts.accumulatedContent
     }
+    const reasoningEvent = ts.currentReasoningEventId
+      ? message.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
+      : undefined
+    if (reasoningEvent && reasoningEvent.content !== ts.currentReasoningContent) {
+      reasoningEvent.content = ts.currentReasoningContent
+    }
+
+    const updates: Partial<typeof message> = {}
+    if (message.content !== ts.accumulatedContent) updates.content = ts.accumulatedContent
+    if (message.reasoning && message.reasoning.content !== ts.accumulatedReasoning) {
+      updates.reasoning = { ...message.reasoning, content: ts.accumulatedReasoning }
+    }
+    if (Object.keys(updates).length > 0) sink.patchMessage(sessionId, ts.assistantMessageId, updates)
+    streamingContents.value.set(sessionId, ts.accumulatedContent)
   }
 
   function scheduleContentPatch(sessionId: string, ts: TurnState): void {
@@ -270,10 +304,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const timer = setTimeout(() => {
       pendingContentPatches.delete(sessionId)
       if (ts.settled) return
-      const message = getAssistantMessage(sessionId, ts)
-      if (message && message.content !== ts.accumulatedContent) {
-        sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
-      }
+      flushContentPatch(sessionId, ts)
     }, CONTENT_PATCH_INTERVAL_MS)
     pendingContentPatches.set(sessionId, { timer, turn: ts })
   }
@@ -390,6 +421,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       ev.type === 'message_stop' ||
       ev.type === 'content_block_start'
     ) {
+      flushContentPatch(sessionId, ts)
       completeCurrentTextEvent(sessionId, ts)
       completeCurrentReasoningEvent(sessionId, ts)
     }
@@ -414,6 +446,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       // 上一段 reasoning 已在边界收口处完成并清空 currentReasoningEventId
       const s = sink.get(sessionId)
       if (s) {
+        ts.currentReasoningContent = ''
         const msg = s.messages.find(m => m.id === ts.assistantMessageId)
         if (msg) {
           if (!msg.reasoning) {
@@ -433,15 +466,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     }
 
     if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta?.text) {
-      const textEventId = ensureTextTimelineEvent(sessionId, ts)
+      ensureTextTimelineEvent(sessionId, ts)
       ts.accumulatedContent += ev.delta.text
-      streamingContents.value.set(sessionId, ts.accumulatedContent)
-      const msg = getAssistantMessage(sessionId, ts)
-      const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-      updateTimelineEvent(sessionId, ts, textEventId, {
-        content: `${textEvent?.content || ''}${ev.delta.text}`,
-        status: 'running'
-      })
       scheduleContentPatch(sessionId, ts)
     }
 
@@ -454,7 +480,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           if (!msg.reasoning) {
             msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
           }
-          msg.reasoning.content += ev.delta.thinking
+          ts.accumulatedReasoning += ev.delta.thinking
+          ts.currentReasoningContent += ev.delta.thinking
           if (!ts.currentReasoningEventId) {
             ts.currentReasoningEventId = createUuid()
             addTimelineEvent(sessionId, ts, {
@@ -465,11 +492,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               content: ''
             })
           }
-          const reasoningEvent = msg.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
-          updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, {
-            content: `${reasoningEvent?.content || ''}${ev.delta.thinking}`,
-            status: 'running'
-          })
+          scheduleContentPatch(sessionId, ts)
         }
       }
     }
@@ -549,6 +572,14 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const handleAssistant = (sessionId: string, ts: TurnState, assistant: any) => {
     logger.info('ChatStore', `[${sessionId.slice(0, 8)}] assistant event received`)
 
+    // Claude engine writes retry failures as synthetic assistant messages. They
+    // are represented by the system api_retry event and must not become chat
+    // content (the payload can contain the raw provider JSON error).
+    if (isSyntheticApiErrorAssistant(assistant)) {
+      logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] ignored synthetic API error assistant message`)
+      return
+    }
+
     if (typeof assistant.message?.model === 'string' && assistant.message.model.trim()) {
       ts.model = assistant.message.model
     }
@@ -619,7 +650,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                     if (!msg.reasoning) {
                       msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
                     }
-                    msg.reasoning.content += thinkingText
+                    ts.accumulatedReasoning += thinkingText
+                    ts.currentReasoningContent += thinkingText
                     if (!ts.currentReasoningEventId) {
                       ts.currentReasoningEventId = createUuid()
                       addTimelineEvent(sessionId, ts, {
@@ -632,9 +664,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                     }
                     const reasoningEvent = msg.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
                     updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, {
-                      content: `${reasoningEvent?.content || ''}${thinkingText}`,
+                      content: reasoningEvent?.content || '',
                       status: 'completed'
                     })
+                    scheduleContentPatch(sessionId, ts)
                     ts.streamingHandledThinking = true
                   }
                 }
@@ -966,12 +999,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       return
     }
 
-    // 429 限流错误：底层 engine 自带重试机制，前端无需感知。
-    // 不结算 turn、不显示错误 UI、不触发自动重试，保持 turn 活跃等待 engine 内部重试后的正常 result 事件。
-    if ((isError || looksLikeApiError) && /429|rate.?limit/i.test(resultText)) {
-      logger.info('ChatStore', `[${sessionId.slice(0, 8)}] 429 rate limit detected in result, engine will retry internally | errorText=${resultText.slice(0, 120)}`)
-      return
-    }
     if (isError || looksLikeApiError) {
       const errorText = resultText || 'API error'
       logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] result event has error, routing to handleError | isError=${isError} | looksLikeApiError=${looksLikeApiError} | errorText=${errorText.slice(0, 120)}`)
@@ -1159,15 +1186,24 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     }
 
     // ── Show desktop system notification when a task completes successfully ──
+    // 去重：同一 session 在 NOTIFICATION_DEBOUNCE_MS 内只通知一次，
+    // 防止残留事件创建幽灵 turn 后再次触发 handleResult 导致重复通知。
     const desktopNotifyEnabled = isDesktopNotifyOnTaskComplete()
     if (desktopNotifyEnabled) {
-      try {
-        api.showNotification({
-          title: i18n.global.t('chat.taskCompleteNotificationTitle', { session: getSessionTitle(sessionId) }) as string,
-          message: i18n.global.t('chat.taskCompleteNotificationBody') as string,
-        })
-      } catch (e) {
-        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to show task complete notification`, { error: String(e) })
+      const lastNotified = notifiedSessions.get(sessionId)
+      const now = Date.now()
+      if (!lastNotified || now - lastNotified > NOTIFICATION_DEBOUNCE_MS) {
+        notifiedSessions.set(sessionId, now)
+        try {
+          api.showNotification({
+            title: i18n.global.t('chat.taskCompleteNotificationTitle', { session: getSessionTitle(sessionId) }) as string,
+            message: i18n.global.t('chat.taskCompleteNotificationBody') as string,
+          })
+        } catch (e) {
+          logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to show task complete notification`, { error: String(e) })
+        }
+      } else {
+        logger.info('ChatStore', `[${sessionId.slice(0, 8)}] task complete notification suppressed (debounced)`)
       }
     }
   }
@@ -1206,17 +1242,6 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       baseUrl: getBaseUrl(),
       phase: 'stream',
     })
-
-    // 429 限流错误（非进程退出场景）：底层 engine 自带重试机制，前端无需感知。
-    // 保持 turn 活跃等待 engine 内部重试。进程退出场景（errorMsg 含 "Process exited"）
-    // 说明 engine 已死亡，仍需走 auto-retry 重启流程。
-    if (classified.category === ErrorCategory.RATE_LIMIT) {
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      if (!/Process exited/i.test(errorMsg)) {
-        logger.info('ChatStore', `[${sessionId.slice(0, 8)}] 429 rate limit detected in handleError, engine will retry internally | error=${errorMsg.slice(0, 120)}`)
-        return
-      }
-    }
 
     if (autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
       const claudeCode = getClaudeCode()

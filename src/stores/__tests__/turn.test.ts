@@ -99,6 +99,50 @@ describe('Turn engine retry lifecycle', () => {
     await vi.runAllTimersAsync()
   })
 
+  it('normalizes engine api_retry events and ignores synthetic API error content', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sessionId = 'sess-api-retry-event'
+    sessionStore.createSession('Test', undefined, sessionId)
+
+    ;(turn as any).beginTurn(sessionId, { isAutonomous: false })
+    fake._handlers.onSystem?.({
+      sessionId,
+      data: {
+        subtype: 'api_retry',
+        attempt: 2,
+        max_retries: 5,
+        retry_delay_ms: 4000,
+        error_status: 429,
+        error: 'rate_limit',
+      },
+    })
+
+    const session = sessionStore.sessions.find(s => s.id === sessionId)!
+    const assistant = session.messages[session.messages.length - 1]
+    expect(assistant.metadata?.retryState).toMatchObject({
+      attempt: 2,
+      maxRetries: 5,
+      delayMs: 4000,
+      errorCode: '429',
+    })
+
+    fake._handlers.onAssistant?.({
+      sessionId,
+      data: {
+        message: {
+          content: [{ type: 'text', text: 'API Error: 429 {"error":{"message":"rate limited"}}' }],
+        },
+      },
+    })
+
+    expect(assistant.content).toBe('')
+    expect(assistant.metadata?.retryState).toMatchObject({ attempt: 2 })
+    await vi.runAllTimersAsync()
+  })
+
   it('late successful result clears retry state even when the old turn is settled', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')
@@ -907,5 +951,36 @@ describe('Turn 时间线占位事件边界收口', () => {
     expect(turn.getIsLoading(sid)).toBe(true)
 
     turn.endTurn(sid, ts)
+  })
+})
+
+describe('Turn 流式增量节流', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  it('合并 thinking 增量并在时间窗口到期后一次写入消息', async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = makeFakeApi()
+      const { useTurnStore } = await import('../turn')
+      const turn = useTurnStore(fake as any)
+      const sessionStore = useChatSessionStore()
+      const sid = 'sess-think-throttle'
+      sessionStore.createSession('Test', undefined, sid)
+      const ts = turn.beginTurn(sid, { isAutonomous: false })
+
+      fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_start', content_block: { type: 'thinking' } } })
+      fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '先读 ' } } })
+      fake._handlers.onStreamEvent({ sessionId: sid, data: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '文件再修改' } } })
+
+      const message = sessionStore.sessions.find(s => s.id === sid)!.messages.find(m => m.id === ts.assistantMessageId)!
+      expect(message.reasoning?.content).toBe('')
+
+      await vi.advanceTimersByTimeAsync(50)
+      expect(message.reasoning?.content).toBe('先读 文件再修改')
+
+      turn.endTurn(sid, ts)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

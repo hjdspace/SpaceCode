@@ -17,6 +17,8 @@ export default {
   sourceMode: '源码',
   closeTab: '关闭标签页',
   closePanel: '关闭面板',
+  enterFullscreen: '全屏',
+  exitFullscreen: '退出全屏 (Esc)',
   back: '后退',
   forward: '前进',
   refresh: '刷新',

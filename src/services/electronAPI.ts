@@ -685,6 +685,16 @@ export const api = {
     }
   },
 
+  // Preview Server API — 获取本地 HTTP 预览 URL（替代 file:// 协议）
+  preview: {
+    getUrl: (filePath: string): Promise<string | null> => {
+      if (electronAPI?.preview?.getUrl) {
+        return electronAPI.preview.getUrl(filePath)
+      }
+      return Promise.resolve(null)
+    },
+  },
+
   // ── 命名空间对象（从 ./api/*.ts 导入） ──
   agents,
   artifacts,

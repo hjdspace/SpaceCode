@@ -1,3 +1,27 @@
+## [0.8.6](https://github.com/hjdspace/SpaceCode/compare/v0.8.5...v0.8.6) (2026-09-28)
+
+### Features
+
+- **thinking:** 支持多端思考模式与流式 thinking 块的增量节流更新
+- **infoPanel:** 信息面板支持全屏与拖拽交互
+- **engine:** 实现引擎内部重试提示及相关逻辑
+- **preview:** 新增本地 HTTP 预览服务器，解决 file:// 协议的 CORS 问题
+- **utils:** 新增防抖节流工具函数及相关测试
+
+### Bug Fixes
+
+- **traceViewModel:** 修复诊断状态计算问题
+- **electron:** 修复 Windows 环境下生产与开发应用用户模型 ID 未区分的问题
+
+### Refactor
+
+- 移除工作流功能相关代码和资源
+- Linux worktree 文件监听迁移至 worker thread 实现，并为 GitService 文件监听生命周期补充测试
+
+### Build
+
+- 优化打包配置并精简标题栏 Skills 按钮
+
 ## [0.8.5](https://github.com/hjdspace/SpaceCode/compare/v0.8.4...v0.8.5) (2026-09-23)
 
 ### Features
