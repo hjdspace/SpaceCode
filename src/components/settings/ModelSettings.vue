@@ -787,6 +787,11 @@ async function fetchModels() {
           max_tokens: m.max_tokens,
           modalities: m.modalities,
           input_modalities: m.input_modalities,
+          input: m.input,
+          capabilities: m.capabilities,
+          vision: m.vision,
+          supports_vision: m.supports_vision,
+          image_input: m.image_input,
         }))
         const catalog = await loadModelCatalog()
         const rawById = new Map(rawModels.map((m) => [m.id, m]))
