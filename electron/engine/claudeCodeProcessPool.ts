@@ -81,21 +81,14 @@ export class ClaudeCodeProcessPool {
       const pendingMode = this.pendingPermissionModes.get(sessionId)
       if (pendingMode) {
         info('ProcessPool', `[${sessionId.slice(0, 8)}] Applying pending permission mode | mode=${pendingMode}`)
-        try {
-          await proc.setPermissionMode(pendingMode as any)
+        if (await this.applyPermissionModeWithRetry(sessionId, proc, pendingMode, 'start')) {
           this.pendingPermissionModes.delete(sessionId)
-        } catch (e) {
-          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to apply pending permission mode`, { error: String(e) })
         }
       } else if (config.permissionMode && config.permissionMode !== 'bypassPermissions') {
         // engine 因 --dangerously-skip-permissions 启动为 bypass 模式，
         // 启动后切回用户配置的模式，同时保留运行时切换到 bypass 的能力。
         info('ProcessPool', `[${sessionId.slice(0, 8)}] Restoring user permission mode | mode=${config.permissionMode}`)
-        try {
-          await proc.setPermissionMode(config.permissionMode as any)
-        } catch (e) {
-          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to restore user permission mode`, { error: String(e) })
-        }
+        await this.applyPermissionModeWithRetry(sessionId, proc, config.permissionMode, 'start')
       }
     } catch (err) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to start session`, { error: String(err) })
@@ -121,21 +114,14 @@ export class ClaudeCodeProcessPool {
       const pendingMode = this.pendingPermissionModes.get(sessionId)
       if (pendingMode) {
         info('ProcessPool', `[${sessionId.slice(0, 8)}] Applying pending permission mode after resume | mode=${pendingMode}`)
-        try {
-          await proc.setPermissionMode(pendingMode as any)
+        if (await this.applyPermissionModeWithRetry(sessionId, proc, pendingMode, 'resume')) {
           this.pendingPermissionModes.delete(sessionId)
-        } catch (e) {
-          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to apply pending permission mode after resume`, { error: String(e) })
         }
       } else if (proc.config.permissionMode && proc.config.permissionMode !== 'bypassPermissions') {
         // engine 因 --dangerously-skip-permissions 启动为 bypass 模式，
         // resume 后切回用户配置的模式，同时保留运行时切换到 bypass 的能力。
         info('ProcessPool', `[${sessionId.slice(0, 8)}] Restoring user permission mode after resume | mode=${proc.config.permissionMode}`)
-        try {
-          await proc.setPermissionMode(proc.config.permissionMode as any)
-        } catch (e) {
-          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to restore user permission mode after resume`, { error: String(e) })
-        }
+        await this.applyPermissionModeWithRetry(sessionId, proc, proc.config.permissionMode, 'resume')
       }
     } catch (err) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to resume session`, { error: String(err) })
@@ -148,6 +134,37 @@ export class ClaudeCodeProcessPool {
     if (!proc) return
     info('ProcessPool', `[${sessionId.slice(0, 8)}] Suspending session | canSafelySuspend=${proc.canSafelySuspend()} | pendingTools=${proc.getPendingToolCount()}`)
     proc.suspend()
+  }
+
+  /**
+   * 启动/恢复后立即下发权限模式。Linux AppImage 冷启动等场景下，CLI 可能超过
+   * setPermissionMode 的 10s 超时窗口才开始消费 stdin 控制请求；而 engine 以
+   * --dangerously-skip-permissions 启动为 bypass 模式，一旦恢复失败，会话将静默
+   * 停留在 bypass（权限确认框不再弹出）。失败后有限次重试，进程已退出则立即放弃。
+   * 返回是否最终下发成功。
+   */
+  private async applyPermissionModeWithRetry(
+    sessionId: string,
+    proc: SessionProcess,
+    mode: string,
+    context: 'start' | 'resume',
+  ): Promise<boolean> {
+    const maxAttempts = 3
+    const retryDelayMs = 3_000
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await proc.setPermissionMode(mode as any)
+        return true
+      } catch (e) {
+        if (!proc.isRunning() || attempt >= maxAttempts) {
+          warn('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to apply permission mode after ${attempt} attempt(s) | context=${context}`, { error: String(e) })
+          return false
+        }
+        warn('ProcessPool', `[${sessionId.slice(0, 8)}] Permission mode attempt ${attempt}/${maxAttempts} failed, retrying in ${retryDelayMs}ms | context=${context}`, { error: String(e) })
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs))
+      }
+    }
+    return false
   }
 
   sendMessage(sessionId: string, content: string, images?: any[]): void {
