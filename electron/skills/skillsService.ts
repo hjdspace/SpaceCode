@@ -1118,6 +1118,7 @@ interface LocalSkillPack {
   id: string                 // packDir absolute path
   name: string               // 目录名
   description?: string
+  category: string           // 推断出的分类 id（与 LocalSkill.category 同一体系）
   packDir: string            // absolute path
   categories: Array<{ name: string; skillCount: number }>
   skillCount: number
@@ -1237,6 +1238,30 @@ const CATEGORY_OVERRIDES: Record<string, string> = {
 
   // 沟通协作
   'internal-comms': 'communication',
+}
+
+/**
+ * 技能包分类覆盖表 —— 按包目录名强制指定包级分类，优先级最高，不修改第三方技能文件。
+ * berkshire 是金融投资类技能包；matt-skills 是开发流程类技能包。
+ */
+const PACK_CATEGORY_OVERRIDES: Record<string, string> = {
+  'berkshire': 'finance',
+  'matt-skills': 'development',
+}
+
+/**
+ * 推断技能包的分类。覆盖表优先，其余按子技能分类众数回退，空包归 other。
+ */
+function resolvePackCategory(packName: string, skills: LocalSkill[]): string {
+  if (PACK_CATEGORY_OVERRIDES[packName]) {
+    return PACK_CATEGORY_OVERRIDES[packName]
+  }
+  const counts: Record<string, number> = {}
+  for (const skill of skills) {
+    counts[skill.category] = (counts[skill.category] || 0) + 1
+  }
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
+  return top ? top[0] : 'other'
 }
 
 function inferCategory(skillPath: string, content: string): string {
@@ -1725,6 +1750,7 @@ async function handleScanLocalLibrary(
           allPacks.push({
             id: fullPath,
             name: basename(fullPath),
+            category: resolvePackCategory(basename(fullPath), skills),
             packDir: fullPath,
             categories,
             skillCount: skills.length,
@@ -1763,6 +1789,7 @@ async function handleScanLocalLibrary(
               allPacks.push({
                 id: subDir,
                 name: entry.name,
+                category: resolvePackCategory(entry.name, skills),
                 packDir: subDir,
                 categories,
                 skillCount: skills.length,

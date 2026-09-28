@@ -67,6 +67,7 @@ import {
   Code2,
   Brain,
   Server,
+  TrendingUp,
   Sparkles,
   MessageSquare,
   Package,
@@ -108,6 +109,7 @@ const iconComponents: Record<string, any> = {
   'Code2': Code2,
   'Brain': Brain,
   'Server': Server,
+  'TrendingUp': TrendingUp,
   'Sparkles': Sparkles,
   'MessageSquare': MessageSquare,
   'Package': Package

@@ -23,6 +23,7 @@ import { registerLocalLibraryIPCHandlers } from '../skills/skillsService'
 
 interface PackSkill {
   name: string
+  description: string
   packId?: string
   packName?: string
   packCategory?: string
@@ -35,6 +36,7 @@ interface ScanResult {
     id: string
     name: string
     packDir: string
+    category?: string
     categories: Array<{ name: string; skillCount: number }>
     skillCount: number
     installedCount: number
@@ -49,6 +51,16 @@ function writeSkill(skillDir: string, name: string): void {
   writeFileSync(
     join(skillDir, 'SKILL.md'),
     `---\nname: ${name}\ndescription: ${name} description\n---\n`,
+    'utf-8',
+  )
+}
+
+/** berkshire 形态：SKILL.md 带 UTF-8 BOM，description 为带冒号的双引号值 */
+function writeBomSkill(skillDir: string, name: string): void {
+  mkdirSync(skillDir, { recursive: true })
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    `\uFEFF---\nname: ${name}\ndescription: "AI Berkshire skill: ${name} 系列：8 篇长文拆一家公司."\n---\n\n# 正文\n`,
     'utf-8',
   )
 }
@@ -71,9 +83,13 @@ describe('skills:scan-local-library — skill packs', () => {
     libRoot = join(rootDir, 'resources', 'skills-lib')
 
     // skills-grouped：<pack>/skills/<category>/<skill>
-    writeSkill(join(libRoot, 'matt-like', 'skills', 'engineering', 'alpha'), 'alpha')
-    writeSkill(join(libRoot, 'matt-like', 'skills', 'engineering', 'beta'), 'beta')
-    writeSkill(join(libRoot, 'matt-like', 'skills', 'misc', 'gamma'), 'gamma')
+    writeSkill(join(libRoot, 'matt-skills', 'skills', 'engineering', 'alpha'), 'alpha')
+    writeSkill(join(libRoot, 'matt-skills', 'skills', 'engineering', 'beta'), 'beta')
+    writeSkill(join(libRoot, 'matt-skills', 'skills', 'misc', 'gamma'), 'gamma')
+
+    // grouped + BOM：berkshire 形态（包级分类覆盖 + BOM frontmatter）
+    writeBomSkill(join(libRoot, 'berkshire', 'deep-research', 'berkshire-series'), 'berkshire-series')
+    writeBomSkill(join(libRoot, 'berkshire', 'earnings', 'berkshire-earnings'), 'berkshire-earnings')
 
     // grouped：<pack>/<category>/<skill>
     writeSkill(join(libRoot, 'grouped-pack', 'cat-one', 'delta'), 'delta')
@@ -103,19 +119,35 @@ describe('skills:scan-local-library — skill packs', () => {
     ])
 
     const packNames = result.packs.map((pack) => pack.name)
-    expect(packNames).toContain('matt-like')
+    expect(packNames).toContain('matt-skills')
+    expect(packNames).toContain('berkshire')
     expect(packNames).toContain('grouped-pack')
     expect(packNames).toContain('flat-pack')
     expect(packNames).toContain('deep-pack')
     expect(packNames).not.toContain('plain-skill')
     expect(packNames).not.toContain('nested-golf')
 
-    const mattLike = result.packs.find((pack) => pack.name === 'matt-like')
+    const mattLike = result.packs.find((pack) => pack.name === 'matt-skills')
     expect(mattLike?.categories).toEqual([
       { name: 'engineering', skillCount: 2 },
       { name: 'misc', skillCount: 1 },
     ])
     expect(mattLike?.skillCount).toBe(3)
+    // 包级分类覆盖：matt-skills 是开发流程相关分类
+    expect(mattLike?.category).toBe('development')
+
+    const berkshire = result.packs.find((pack) => pack.name === 'berkshire')
+    expect(berkshire?.categories).toEqual([
+      { name: 'deep-research', skillCount: 1 },
+      { name: 'earnings', skillCount: 1 },
+    ])
+    // 包级分类覆盖：berkshire 是金融相关分类
+    expect(berkshire?.category).toBe('finance')
+
+    // BOM 不应导致 front matter 解析失败 —— description 绝不能是 '---'
+    const series = result.skills.find((skill) => skill.name === 'berkshire-series')
+    expect(series?.description).toBe('AI Berkshire skill: berkshire-series 系列：8 篇长文拆一家公司.')
+    expect(series?.description).not.toBe('---')
 
     const grouped = result.packs.find((pack) => pack.name === 'grouped-pack')
     expect(grouped?.categories).toEqual([{ name: 'cat-one', skillCount: 1 }])
@@ -126,7 +158,7 @@ describe('skills:scan-local-library — skill packs', () => {
 
     // 包内技能带 pack 信息；散装技能不带
     const alpha = result.skills.find((skill) => skill.name === 'alpha')
-    expect(alpha?.packName).toBe('matt-like')
+    expect(alpha?.packName).toBe('matt-skills')
     expect(alpha?.packCategory).toBe('engineering')
     const echo = result.skills.find((skill) => skill.name === 'echo')
     expect(echo?.packName).toBe('flat-pack')

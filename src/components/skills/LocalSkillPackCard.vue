@@ -7,6 +7,7 @@
     <div class="pack-info">
       <div class="title-row">
         <h3 class="pack-name">{{ pack.name }}</h3>
+        <span v-if="categoryLabel" class="category-badge">{{ categoryLabel }}</span>
         <span v-if="pack.installedCount >= pack.skillCount" class="all-installed-badge">
           <CheckCircle :size="10" />
           {{ t('skillManagerV2.builtinPacks.allInstalled') }}
@@ -47,6 +48,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Boxes, CheckCircle, Layers, Folder, Eye } from 'lucide-vue-next'
+import { packCategoryKey } from '../skill_manager/skillLabels'
 import type { LocalSkillPack } from '../../stores/localSkills'
 
 const props = defineProps<{
@@ -57,11 +59,18 @@ defineEmits<{
   (e: 'open', pack: LocalSkillPack): void
 }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 
 const progressPercent = computed(() => {
   if (props.pack.skillCount === 0) return 0
   return Math.round((props.pack.installedCount / props.pack.skillCount) * 100)
+})
+
+/** 包级分类的本地化标签，未知分类回退显示原始 id，无分类返回 null。 */
+const categoryLabel = computed<string | null>(() => {
+  const key = packCategoryKey(props.pack.category)
+  if (!key || !props.pack.category) return null
+  return te(key) ? t(key) : props.pack.category
 })
 </script>
 
@@ -127,6 +136,15 @@ const progressPercent = computed(() => {
   font-weight: 500;
   border: 1px solid #10b981;
   color: #10b981;
+}
+
+.category-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  color: var(--accent-primary);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .meta-row {

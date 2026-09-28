@@ -15,6 +15,7 @@ export default {
     development: 'Development Tools',
     aiMl: 'AI/Machine Learning',
     devOps: 'DevOps',
+    finance: 'Finance',
     creative: 'Creative/Art',
     communication: 'Communication',
     other: 'Other'

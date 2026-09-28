@@ -21,9 +21,9 @@ import {
 } from 'lucide-vue-next'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
-import { getSkillGlyph } from './skillLabels'
+import { getSkillGlyph, packCategoryKey } from './skillLabels'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const appStore = useAppStore()
 
 // ── Types (mirrors electron/skills/skillsService.ts) ──────────────
@@ -37,6 +37,7 @@ interface SkillPack {
   id: string
   name: string
   description?: string
+  category?: string
   packDir: string
   categories: PackCategory[]
   skillCount: number
@@ -71,6 +72,13 @@ const installResults = ref<Map<string, InstallStatus>>(new Map())
 const resultNotice = ref<string | null>(null)
 
 const hasProject = computed(() => Boolean(appStore.projectRoot))
+
+/** 包级分类的本地化标签，未知分类回退显示原始 id，无分类返回 null。 */
+function packCategoryLabel(category?: string): string | null {
+  const key = packCategoryKey(category)
+  if (!key || !category) return null
+  return te(key) ? t(key) : category
+}
 
 // ── Data loading ──────────────────────────────────────────────────
 
@@ -301,6 +309,9 @@ function resultStatusOf(skill: PackSkill): InstallStatus {
           </div>
         </div>
         <div class="sbp-card-cats">
+          <span v-if="packCategoryLabel(pack.category)" class="sbp-cat-chip primary">
+            {{ packCategoryLabel(pack.category) }}
+          </span>
           <span v-for="cat in pack.categories" :key="cat.name" class="sbp-cat-chip">
             {{ cat.name }} · {{ cat.skillCount }}
           </span>
@@ -335,6 +346,9 @@ function resultStatusOf(skill: PackSkill): InstallStatus {
             <div class="sbp-modal-title">
               <h3>{{ activePack.name }}</h3>
               <p>
+                <template v-if="packCategoryLabel(activePack.category)">
+                  {{ packCategoryLabel(activePack.category) }} ·
+                </template>
                 {{ t('skillManagerV2.builtinPacks.skills', { count: activePack.skillCount }) }}
                 · {{ t('skillManagerV2.builtinPacks.categories', { count: activePack.categories.length }) }}
               </p>
@@ -702,6 +716,12 @@ function resultStatusOf(skill: PackSkill): InstallStatus {
   color: var(--text-secondary);
   font-size: 10px;
   font-weight: 600;
+
+  &.primary {
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    color: var(--accent-primary);
+    font-weight: 700;
+  }
 }
 
 .sbp-card-foot {

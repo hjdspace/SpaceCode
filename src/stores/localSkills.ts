@@ -24,6 +24,7 @@ export interface LocalSkillPack {
   id: string
   name: string
   description?: string
+  category?: string
   packDir: string
   categories: Array<{ name: string; skillCount: number }>
   skillCount: number
@@ -75,6 +76,7 @@ export const CATEGORIES: Category[] = [
   { id: 'development', icon: 'Code2', labelKey: 'skills.categories.development', color: '#10b981', count: 0 },
   { id: 'ai-ml', icon: 'Brain', labelKey: 'skills.categories.aiMl', color: '#f59e0b', count: 0 },
   { id: 'devops', icon: 'Server', labelKey: 'skills.categories.devOps', color: '#ef4444', count: 0 },
+  { id: 'finance', icon: 'TrendingUp', labelKey: 'skills.categories.finance', color: '#eab308', count: 0 },
   { id: 'creative', icon: 'Sparkles', labelKey: 'skills.categories.creative', color: '#ec4899', count: 0 },
   { id: 'communication', icon: 'MessageSquare', labelKey: 'skills.categories.communication', color: '#06b6d4', count: 0 },
   { id: 'other', icon: 'Package', labelKey: 'skills.categories.other', color: '#6b7280', count: 0 }
@@ -154,6 +156,10 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
   const filteredPacks = computed(() => {
     let result = packs.value
 
+    if (selectedCategory.value !== 'all') {
+      result = result.filter(p => p.category === selectedCategory.value)
+    }
+
     if (selectedDirectory.value) {
       const sel = selectedDirectory.value
       result = result.filter(p => isWithinDirectory(p.packDir, sel))
@@ -181,12 +187,17 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
 
   const categoryStats = computed(() => {
     const freeSkills = skills.value.filter(s => !s.bundleId && !s.packId)
-    const stats: Record<string, number> = { all: freeSkills.length + bundles.value.length }
+    const stats: Record<string, number> = {
+      all: freeSkills.length + bundles.value.length + packs.value.length,
+    }
     freeSkills.forEach(skill => {
       stats[skill.category] = (stats[skill.category] || 0) + 1
     })
     bundles.value.forEach(bundle => {
       stats[bundle.category] = (stats[bundle.category] || 0) + 1
+    })
+    packs.value.forEach(pack => {
+      stats[pack.category || 'other'] = (stats[pack.category || 'other'] || 0) + 1
     })
     return stats
   })

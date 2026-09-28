@@ -5,6 +5,9 @@
  *  - LF **and** CRLF line endings. This is load-bearing: 106 of the 138
  *    front-matter files under `resources/skills-lib/` use CRLF, and a `\n`-only matcher
  *    silently returns null for every one of them.
+ *  - A leading UTF-8 BOM. The 21 SKILL.md files in the berkshire pack are
+ *    BOM-authored; without stripping, the `^---` anchor never matches and the
+ *    scan fallback surfaces the BOM-prefixed `---` line as the description.
  *  - `key: value`
  *  - `key: [a, b]` inline arrays (quotes unwrapped, blank items dropped)
  *  - `key:` followed by an indented `- item` block list
@@ -18,7 +21,7 @@
  * front matter for CRLF-authored skills.
  */
 export function parseYamlFrontMatter(content: string): Record<string, any> | null {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  const match = content.replace(/^\uFEFF/, '').match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!match) return null
 
   try {

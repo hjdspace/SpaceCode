@@ -34,6 +34,26 @@ describe('parseYamlFrontMatter', () => {
     })
   })
 
+  // berkshire 技能包的 SKILL.md 带 UTF-8 BOM —— BOM 未剥离时整个 front matter
+  // 匹配失败，fallback 会把 BOM 前缀的 `---` 行当成 description 展示。
+  it('parses front matter with a UTF-8 BOM', () => {
+    const content = '\uFEFF---\nname: berkshire-deep-company-series\ndescription: "AI Berkshire skill: 深度公司系列：8 篇长文拆一家公司. Source: berkshire-deep-company-series."\n---\n\n# 深度公司系列\n'
+
+    expect(parseYamlFrontMatter(content)).toEqual({
+      name: 'berkshire-deep-company-series',
+      description: 'AI Berkshire skill: 深度公司系列：8 篇长文拆一家公司. Source: berkshire-deep-company-series.',
+    })
+  })
+
+  it('parses BOM + CRLF front matter', () => {
+    const content = '\uFEFF---\r\nname: my-skill\r\ndescription: does things\r\n---\r\n'
+
+    expect(parseYamlFrontMatter(content)).toEqual({
+      name: 'my-skill',
+      description: 'does things',
+    })
+  })
+
   it('does not leave trailing carriage returns in CRLF values', () => {
     const parsed = parseYamlFrontMatter('---\r\nname: my-skill\r\n---\r\n')
 
@@ -160,7 +180,8 @@ describe('parseYamlFrontMatter', () => {
             walk(full)
           } else if (entry.endsWith('.md') && (!filename || entry === filename)) {
             const raw = readFileSync(full, 'utf-8')
-            if (raw.startsWith('---')) found.push(raw)
+            // BOM 前缀的文档也在契约范围内：parser 必须自己剥离 BOM
+            if (raw.startsWith('---') || raw.startsWith('\uFEFF---')) found.push(raw)
           }
         }
       }
