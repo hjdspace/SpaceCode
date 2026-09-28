@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -138,5 +138,17 @@ describe('skills:scan-local-library — skill packs', () => {
     const india = result.skills.find((skill) => skill.name === 'india')
     expect(india?.packName).toBe('deep-pack')
     expect(india?.packCategory).toBe('cat-two')
+  })
+
+  it('installs a pack-nested skill by name without skillPath', async () => {
+    const handler = electronMock.handlers.get('skills:install-local')
+    if (!handler) throw new Error('skills:install-local handler was not registered')
+
+    const cwd = join(rootDir, 'project')
+    // 只传技能名（Work 助手启动时的调用方式），无 skillPath，需在包内递归命中
+    const result = (await handler({}, 'delta', 'project', cwd)) as { success: boolean }
+    expect(result.success).toBe(true)
+    // 安装目标是 getProjectSkillsDirs(cwd)[0]（既有行为：.claude/commands）
+    expect(existsSync(join(cwd, '.claude', 'commands', 'delta', 'SKILL.md'))).toBe(true)
   })
 })

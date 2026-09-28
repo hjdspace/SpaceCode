@@ -1900,6 +1900,55 @@ async function handleUninstallLocalBundle(
   }
 }
 
+/**
+ * 在库根目录树中按名称查找 SKILL.md（支持技能包嵌套布局：<pack>/<category>/<skill>/SKILL.md）。
+ * 命中规则与顶层扫描一致：frontmatter name 优先，缺失时回退为所在目录名。
+ */
+function findSkillMdByName(rootDir: string, skillName: string): string | null {
+  const target = skillName.toLowerCase()
+  const matchSkillMd = (skillDir: string): string | null => {
+    const candidatePath = join(skillDir, 'SKILL.md')
+    try {
+      const frontMatter = parseYamlFrontMatter(readFileSync(candidatePath, 'utf-8'))
+      const candidateName = frontMatter?.name || basename(skillDir)
+      return candidateName.toLowerCase() === target ? candidatePath : null
+    } catch {
+      return null
+    }
+  }
+
+  if (!existsSync(rootDir)) return null
+
+  // 根目录自身是单个技能（散装 SKILL.md）
+  if (existsSync(join(rootDir, 'SKILL.md'))) {
+    return matchSkillMd(rootDir)
+  }
+
+  const walk = (dir: string, depth: number): string | null => {
+    if (depth > 4) return null
+    let entries: any[]
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return null
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue
+      const subDir = join(dir, entry.name)
+      if (existsSync(join(subDir, 'SKILL.md'))) {
+        const found = matchSkillMd(subDir)
+        if (found) return found
+        continue // 目录自身是技能，不再下钻
+      }
+      const found = walk(subDir, depth + 1)
+      if (found) return found
+    }
+    return null
+  }
+
+  return walk(rootDir, 0)
+}
+
 async function handleInstallLocalSkill(
   _event: Electron.IpcMainInvokeEvent,
   skillName: string,
@@ -1929,30 +1978,9 @@ async function handleInstallLocalSkill(
 
       for (const dirPath of allDirPaths) {
         const fullPath = resolveLocalLibPath(dirPath)
-        const entries = existsSync(fullPath) ? readdirSync(fullPath, { withFileTypes: true }) : []
-
-        for (const entry of entries) {
-          // Only search for SKILL.md files when installing
-          const candidatePath = entry.isDirectory()
-            ? join(fullPath, entry.name, 'SKILL.md')
-            : entry.isFile() && entry.name === 'SKILL.md'
-              ? join(fullPath, entry.name)
-              : null
-
-          if (!candidatePath || !existsSync(candidatePath)) {
-            continue
-          }
-
-          const content = readFileSync(candidatePath, 'utf-8')
-          const frontMatter = parseYamlFrontMatter(content)
-          const candidateName = frontMatter?.name || (entry.isDirectory() ? entry.name : entry.name.replace('.md', ''))
-          if (candidateName.toLowerCase() === skillName.toLowerCase()) {
-            sourceSkillPath = candidatePath
-            break
-          }
-        }
-
-        if (sourceSkillPath) {
+        const found = findSkillMdByName(fullPath, skillName)
+        if (found) {
+          sourceSkillPath = found
           break
         }
       }
