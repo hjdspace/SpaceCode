@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   enrichModels,
   formatTokenCount,
+  modelIdsMatch,
   parseEndpointCapabilities,
   parseModelsDevCatalog,
   providerKeyFromBaseUrl,
@@ -26,6 +27,28 @@ const mockCatalog: Catalog = {
       'deepseek-v4-pro': { context: 128_000, output: 8_000, image: false },
     },
   },
+  // 模拟 models.dev 中带命名空间/前缀的真实 key（端点返回的 id 通常更短）
+  openrouter: {
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    models: {
+      'deepseek/deepseek-v3': { context: 128_000, output: 8_000, image: false },
+    },
+  },
+  zhipuai: {
+    name: 'ZhipuAI',
+    baseUrl: null,
+    models: {
+      'zai-glm-4.6': { context: 200_000, output: 128_000, image: false },
+    },
+  },
+  minimax: {
+    name: 'MiniMax',
+    baseUrl: null,
+    models: {
+      'MiniMax-M2': { context: 200_000, output: 130_000, image: true },
+    },
+  },
 }
 
 describe('parseEndpointCapabilities', () => {
@@ -43,6 +66,20 @@ describe('parseEndpointCapabilities', () => {
   it('解析端点自述图片支持', () => {
     expect(parseEndpointCapabilities({ id: 'a', modalities: ['text', 'image'] }).supportsImages).toBe(true)
     expect(parseEndpointCapabilities({ id: 'a', input_modalities: ['text'] }).supportsImages).toBe(false)
+  })
+
+  it('解析端点自述图片支持（扩展字段：input 数组 / capabilities / 布尔标记）', () => {
+    expect(parseEndpointCapabilities({ id: 'a', input: ['text', 'image'] }).supportsImages).toBe(true)
+    expect(parseEndpointCapabilities({ id: 'a', capabilities: { vision: true } }).supportsImages).toBe(true)
+    expect(parseEndpointCapabilities({ id: 'a', capabilities: { image: true } }).supportsImages).toBe(true)
+    expect(parseEndpointCapabilities({ id: 'a', capabilities: { image_input: true } }).supportsImages).toBe(true)
+    expect(parseEndpointCapabilities({ id: 'a', supports_vision: true }).supportsImages).toBe(true)
+    expect(parseEndpointCapabilities({ id: 'a', vision: true }).supportsImages).toBe(true)
+    expect(parseEndpointCapabilities({ id: 'a', image_input: true }).supportsImages).toBe(true)
+    // 数组模态字段声明了不含 image 时不采信布尔兜底
+    expect(parseEndpointCapabilities({ id: 'a', modalities: ['text'], supports_vision: true }).supportsImages).toBe(false)
+    // 布尔 false 不采信（留空由目录补全）
+    expect(parseEndpointCapabilities({ id: 'a', capabilities: { vision: false } }).supportsImages).toBeUndefined()
   })
 
   it('无自述字段时返回空对象', () => {
@@ -98,6 +135,36 @@ describe('providerKeyFromBaseUrl', () => {
   })
 })
 
+describe('modelIdsMatch', () => {
+  it('精确匹配与大小写不敏感', () => {
+    expect(modelIdsMatch('deepseek-v3', 'deepseek-v3')).toBe(true)
+    expect(modelIdsMatch('MiniMax-M2', 'minimax-m2')).toBe(true)
+    expect(modelIdsMatch('', 'deepseek-v3')).toBe(false)
+  })
+
+  it('a/b 命名空间互匹配（两个方向）', () => {
+    expect(modelIdsMatch('deepseek-ai/deepseek-v3', 'deepseek-v3')).toBe(true)
+    expect(modelIdsMatch('deepseek-v3', 'deepseek-ai/deepseek-v3')).toBe(true)
+  })
+
+  it('model@region 别名', () => {
+    expect(modelIdsMatch('gemini-2.5-pro@us', 'gemini-2.5-pro')).toBe(true)
+    expect(modelIdsMatch('gemini-2.5-pro', 'gemini-2.5-pro@us')).toBe(true)
+  })
+
+  it('vendor 前缀（- 或 . 分隔）', () => {
+    expect(modelIdsMatch('zai-glm-4.6', 'glm-4.6')).toBe(true)
+    expect(modelIdsMatch('zhipuai.glm-4.6', 'glm-4.6')).toBe(true)
+  })
+
+  it('不同模型不误匹配', () => {
+    expect(modelIdsMatch('deepseek-v3.1', 'deepseek-v3')).toBe(false)
+    expect(modelIdsMatch('deepseek-v3', 'deepseek-v3.1')).toBe(false)
+    expect(modelIdsMatch('claude-sonnet-4-5', 'claude-haiku-4-5')).toBe(false)
+    expect(modelIdsMatch('totally-unknown-model', 'claude-haiku-4-5')).toBe(false)
+  })
+})
+
 describe('enrichModels', () => {
   it('端点自述字段优先于目录', () => {
     const rawById = new Map([['claude-haiku-4-5', { id: 'claude-haiku-4-5', context_length: 999_999 }]])
@@ -150,6 +217,40 @@ describe('enrichModels', () => {
     expect(result[0].contextWindow).toBeUndefined()
     expect(result[0].maxTokens).toBeUndefined()
     expect(result[0].supportsImages).toBeUndefined()
+  })
+
+  it('未知 baseUrl 时按目录命名空间 id 全局兜底匹配', () => {
+    // 私有网关 + 端点 id 无命名空间，目录 key 为 deepseek/deepseek-v3
+    const result = enrichModels(
+      [{ id: 'deepseek-v3' }],
+      'https://my-proxy.example.com/v1',
+      mockCatalog,
+    )
+    expect(result[0].contextWindow).toBe(128_000)
+    expect(result[0].maxTokens).toBe(8_000)
+    expect(result[0].supportsImages).toBe(false)
+  })
+
+  it('未知 baseUrl 时按 vendor 前缀 / 大小写全局兜底匹配', () => {
+    const result = enrichModels(
+      [{ id: 'glm-4.6' }, { id: 'MiniMax-M2' }],
+      'https://my-proxy.example.com/v1',
+      mockCatalog,
+    )
+    expect(result[0].contextWindow).toBe(200_000)
+    expect(result[1].contextWindow).toBe(200_000)
+    expect(result[1].supportsImages).toBe(true)
+  })
+
+  it('全局兜底不覆盖端点自述字段', () => {
+    const rawById = new Map([['MiniMax-M2', { id: 'MiniMax-M2', context_length: 999 }]])
+    const result = enrichModels(
+      [{ id: 'MiniMax-M2' }],
+      'https://my-proxy.example.com/v1',
+      mockCatalog,
+      rawById,
+    )
+    expect(result[0].contextWindow).toBe(999)
   })
 
   it('空目录时端点自述字段仍然生效', () => {
