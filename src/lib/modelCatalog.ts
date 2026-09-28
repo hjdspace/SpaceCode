@@ -24,6 +24,11 @@ export interface RawModel {
   max_tokens?: unknown
   modalities?: unknown
   input_modalities?: unknown
+  input?: unknown
+  capabilities?: unknown
+  vision?: unknown
+  supports_vision?: unknown
+  image_input?: unknown
 }
 
 /** models.dev 目录中的模型条目（已归一化） */
@@ -135,6 +140,76 @@ function metaForModel(prov: CatalogProvider, modelId: string): CatalogModelMeta 
   return null
 }
 
+// ─── modelId 模糊匹配（目录全局兜底用） ───
+
+/** models.dev 中带 vendor 前缀的模型 id（`<vendor>-<id>` / `<vendor>.<id>` 命名风格） */
+const MODEL_VENDOR_PREFIXES = new Set([
+  'anthropic', 'openai', 'google', 'qwen', 'deepseek', 'deepseek-ai',
+  'moonshot', 'moonshotai', 'xai', 'x-ai', 'zhipuai', 'zai', 'z-ai',
+  'mistral', 'meta', 'minimax', 'cohere', 'amazon', 'aws', 'gemini',
+])
+
+/** modelId 大小写不敏感模糊匹配：精确 / `a/b` 命名空间 / `model@region` 别名 / vendor 前缀。 */
+export function modelIdsMatch(candidate: string, requested: string): boolean {
+  const left = candidate.trim().toLowerCase()
+  const right = requested.trim().toLowerCase()
+  if (!left || !right) return false
+  if (left === right) return true
+  if (left.endsWith(`/${right}`) || right.endsWith(`/${left}`)) return true
+  if (left.startsWith(`${right}@`) || right.startsWith(`${left}@`)) return true
+  for (const separator of ['-', '.'] as const) {
+    const leftPrefix = left.split(`${separator}${right}`, 1)[0]
+    if (left.startsWith(`${leftPrefix}${separator}${right}`) && MODEL_VENDOR_PREFIXES.has(leftPrefix)) return true
+    const rightPrefix = right.split(`${separator}${left}`, 1)[0]
+    if (right.startsWith(`${rightPrefix}${separator}${left}`) && MODEL_VENDOR_PREFIXES.has(rightPrefix)) return true
+  }
+  return false
+}
+
+/** baseUrl 归一化：小写 origin + 去尾斜杠 path，并剥 /v1、/v1beta、/v1alpha 尾缀；非法 URL 返回 undefined */
+function normalizeBaseUrlForMatch(url: string): string | undefined {
+  try {
+    const parsed = new URL(url.trim())
+    let path = parsed.pathname.replace(/\/+$/, '')
+    for (const suffix of ['/v1', '/v1beta', '/v1alpha']) {
+      if (path.endsWith(suffix)) {
+        path = path.slice(0, -suffix.length).replace(/\/+$/, '')
+        break
+      }
+    }
+    return `${parsed.protocol}//${parsed.host}${path}`
+  } catch {
+    return undefined
+  }
+}
+
+/** 全目录按 modelId 模糊匹配兜底：provider 未知（私有网关/中转站）时仅凭 modelId 跨 provider 查找。
+ * 候选中 baseUrl 相同的 provider 优先，逐字段合并，image 取并集。 */
+function metaForModelGlobal(modelId: string, catalog: Catalog, baseUrl: string): CatalogModelMeta | null {
+  const normalizedBase = baseUrl ? normalizeBaseUrlForMatch(baseUrl) : undefined
+  const matches: { meta: CatalogModelMeta; baseUrlMatch: boolean }[] = []
+  for (const prov of Object.values(catalog)) {
+    for (const [key, meta] of Object.entries(prov.models)) {
+      if (modelIdsMatch(key, modelId)) {
+        matches.push({
+          meta,
+          baseUrlMatch: !!normalizedBase && !!prov.baseUrl && normalizeBaseUrlForMatch(prov.baseUrl) === normalizedBase,
+        })
+        break // 每 provider 取一条即可（key 顺序即目录顺序）
+      }
+    }
+  }
+  if (!matches.length) return null
+  matches.sort((a, b) => Number(b.baseUrlMatch) - Number(a.baseUrlMatch))
+  const merged: CatalogModelMeta = { context: null, output: null, image: false }
+  for (const { meta } of matches) {
+    if (merged.context === null && meta.context !== null) merged.context = meta.context
+    if (merged.output === null && meta.output !== null) merged.output = meta.output
+    if (meta.image) merged.image = true
+  }
+  return merged
+}
+
 // ─── 端点自述字段解析 ───
 
 function firstPositiveInteger(...values: unknown[]): number | undefined {
@@ -148,13 +223,28 @@ function firstPositiveInteger(...values: unknown[]): number | undefined {
   return undefined
 }
 
-/** 端点 modalities 字段 → 是否支持图片输入 */
-function parseEndpointImage(modalities: unknown, inputModalities: unknown): boolean | undefined {
-  for (const value of [inputModalities, modalities]) {
-    if (Array.isArray(value)) {
-      return value.map(String).some((m) => m.toLowerCase() === 'image')
-    }
+/** 数组形状的模态字段 → 是否含 image（undefined = 字段缺失/形状不符） */
+function imageInArray(value: unknown): boolean | undefined {
+  if (Array.isArray(value)) {
+    return value.map(String).some((m) => m.toLowerCase() === 'image')
   }
+  return undefined
+}
+
+/** 端点自述字段 → 是否支持图片输入。
+ * 数组模态字段（input/modalities/input_modalities，各家网关命名不一）优先；
+ * 缺失时兜底 capabilities.vision/image/image_input 与 vision/supports_vision/image_input 布尔。 */
+function parseEndpointImage(raw: RawModel): boolean | undefined {
+  for (const value of [raw.input, raw.modalities, raw.input_modalities]) {
+    const inArray = imageInArray(value)
+    if (inArray !== undefined) return inArray
+  }
+  const caps = raw.capabilities
+  if (typeof caps === 'object' && caps !== null) {
+    const c = caps as Record<string, unknown>
+    if (c.vision === true || c.image === true || c.image_input === true) return true
+  }
+  if (raw.vision === true || raw.supports_vision === true || raw.image_input === true) return true
   return undefined
 }
 
@@ -176,7 +266,7 @@ export function parseEndpointCapabilities(raw: RawModel): {
     raw.max_output_tokens,
     raw.max_tokens,
   )
-  const supportsImages = parseEndpointImage(raw.modalities, raw.input_modalities)
+  const supportsImages = parseEndpointImage(raw)
   return {
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(maxTokens !== undefined ? { maxTokens } : {}),
@@ -261,6 +351,10 @@ export function enrichModels(
         meta = metaForModel(cand, m.id)
         if (meta) break
       }
+    }
+    // 3. 全目录 modelId 模糊匹配兜底（私有网关/中转站的 baseUrl 不在目录中）
+    if (!meta) {
+      meta = metaForModelGlobal(m.id, catalog, baseUrl)
     }
     if (meta) {
       if (enriched.contextWindow === undefined && meta.context != null) enriched.contextWindow = meta.context
