@@ -484,12 +484,22 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (!status?.permissionMode) return
     const { usePermissionPolicyStore } = await import('./permissionPolicy')
     const policyStore = usePermissionPolicyStore()
-    if (status.permissionMode !== policyStore.currentPermissionMode) {
+    if (status.permissionMode === policyStore.currentPermissionMode) return
+    const claudeCode = api.claudeCode
+    // Linux AppImage 冷启动时 CLI 可能超过 setPermissionMode 的 10s 超时窗口才
+    // 消费控制请求，首次下发会超时失败；失败后有限重试，避免会话静默停留在
+    // bypass 启动模式（engine 以 --dangerously-skip-permissions 启动）。
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const claudeCode = api.claudeCode
         await claudeCode?.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
+        return
       } catch (e) {
-        logger.warn('ChatStore', `${callerName}: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+        if (attempt >= maxAttempts) {
+          logger.warn('ChatStore', `${callerName}: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+          return
+        }
+        await new Promise(resolve => setTimeout(resolve, 3_000))
       }
     }
   }
