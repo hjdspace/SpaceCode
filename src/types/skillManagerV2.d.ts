@@ -7,7 +7,7 @@
 
 // ── Enums / Literal Types ──────────────────────────────────────────
 
-export type SkillTabId = 'library' | 'install' | 'packs' | 'agents' | 'diagnostics' | 'settings'
+export type SkillTabId = 'library' | 'install' | 'builtinPacks' | 'packs' | 'agents' | 'diagnostics' | 'settings'
 export type ViewMode = 'cards' | 'list'
 export type InstallMode = 'link' | 'copy'
 export type ActualMode = 'link' | 'copy'

@@ -1105,6 +1105,23 @@ interface LocalSkill {
   installedAt?: Date
   bundleId?: string
   bundleName?: string
+  packId?: string
+  packName?: string
+  packCategory?: string
+}
+
+/**
+ * 内置技能包 —— 目录结构为 <packDir>/skills/<category>/<skill>/SKILL.md 的两层分组结构
+ * （例如 resources/skills-lib/matt-skills），与需要 .claude-plugin 清单的 plugin bundle 区分。
+ */
+interface LocalSkillPack {
+  id: string                 // packDir absolute path
+  name: string               // 目录名
+  description?: string
+  packDir: string            // absolute path
+  categories: Array<{ name: string; skillCount: number }>
+  skillCount: number
+  installedCount: number
 }
 
 interface LocalSkillBundle {
@@ -1474,14 +1491,168 @@ function readBundleSkills(bundleDir: string, bundleId: string, bundleName: strin
   return list
 }
 
+/**
+ * 判断目录是否为「技能包」：<dir>/skills 下按分类分组（两层结构），
+ * 即 skills 的直接子目录都没有 SKILL.md，但其子目录中存在 SKILL.md。
+ */
+function isSkillPackDir(dirPath: string): boolean {
+  const skillsDir = join(dirPath, 'skills')
+  if (!existsSync(skillsDir)) return false
+
+  let entries: any[]
+  try {
+    entries = readdirSync(skillsDir, { withFileTypes: true })
+  } catch {
+    return false
+  }
+
+  const subDirs = entries.filter((entry) => entry.isDirectory())
+  if (subDirs.length === 0) return false
+
+  const hasDirectSkill = subDirs.some((entry) => existsSync(join(skillsDir, entry.name, 'SKILL.md')))
+  if (hasDirectSkill) return false
+
+  return subDirs.some((entry) => {
+    const categoryDir = join(skillsDir, entry.name)
+    try {
+      return readdirSync(categoryDir, { withFileTypes: true }).some(
+        (child) => child.isDirectory() && existsSync(join(categoryDir, child.name, 'SKILL.md'))
+      )
+    } catch {
+      return false
+    }
+  })
+}
+
+/** 技能包内部布局。 */
+type PackLayout = 'skills-grouped' | 'grouped' | 'flat'
+
+/**
+ * grouped 布局：<packDir>/<category>/<skill>/SKILL.md —— packDir 的直接子目录
+ * 都不含 SKILL.md，但至少一个直接子目录（分类）下存在技能。
+ */
+function isGroupedPackDir(packDir: string): boolean {
+  let entries: any[]
+  try {
+    entries = readdirSync(packDir, { withFileTypes: true })
+  } catch {
+    return false
+  }
+
+  const subDirs = entries.filter((entry) => entry.isDirectory())
+  if (subDirs.length === 0) return false
+  if (subDirs.some((entry) => existsSync(join(packDir, entry.name, 'SKILL.md')))) return false
+
+  return subDirs.some((entry) => {
+    const categoryDir = join(packDir, entry.name)
+    try {
+      return readdirSync(categoryDir, { withFileTypes: true }).some(
+        (child) => child.isDirectory() && existsSync(join(categoryDir, child.name, 'SKILL.md'))
+      )
+    } catch {
+      return false
+    }
+  })
+}
+
+/** flat 布局：<packDir>/<skill>/SKILL.md —— packDir 的直接子目录中存在技能。 */
+function isFlatPackDir(packDir: string): boolean {
+  let entries: any[]
+  try {
+    entries = readdirSync(packDir, { withFileTypes: true })
+  } catch {
+    return false
+  }
+  return entries.some(
+    (entry) => entry.isDirectory() && existsSync(join(packDir, entry.name, 'SKILL.md'))
+  )
+}
+
+/**
+ * 识别技能包布局。目录自身含 SKILL.md 时视为单个技能而非技能包。
+ * allowFlat 仅对内置技能库（skills-lib）顶层目录开启 —— flat 布局与「散装技能目录」
+ * 结构相同，为不改变用户自定义目录的平铺行为，flat 只在内置库内识别。
+ */
+function detectSkillPackLayout(packDir: string, allowFlat: boolean): PackLayout | null {
+  if (existsSync(join(packDir, 'SKILL.md'))) return null
+  if (isSkillPackDir(packDir)) return 'skills-grouped'
+  if (allowFlat && isFlatPackDir(packDir)) return 'flat'
+  if (isGroupedPackDir(packDir)) return 'grouped'
+  return null
+}
+
+/** 按布局读取技能包内的全部技能，返回分类列表与附加 pack 信息的技能数组。 */
+function readSkillPackSkills(
+  packDir: string,
+  cwd?: string,
+  layout: PackLayout = 'skills-grouped'
+): { categories: Array<{ name: string; skillCount: number }>; skills: LocalSkill[] } {
+  const categories: Array<{ name: string; skillCount: number }> = []
+  const skills: LocalSkill[] = []
+  const packId = packDir
+  const packName = basename(packDir)
+  const seen = new Set<string>()
+
+  const collect = (categoryName: string, categoryDir: string) => {
+    const categorySkills = readLocalSkillsFromDir(categoryDir, packDir, cwd)
+      .filter((skill) => {
+        if (seen.has(skill.skillPath)) return false
+        seen.add(skill.skillPath)
+        return true
+      })
+      .map((skill) => ({
+        ...skill,
+        packId,
+        packName,
+        packCategory: categoryName,
+      }))
+    if (categorySkills.length === 0) return
+    categories.push({ name: categoryName, skillCount: categorySkills.length })
+    skills.push(...categorySkills)
+  }
+
+  // flat 布局：包目录下直接是技能，无分类概念，UI 平铺展示
+  if (layout === 'flat') {
+    const flatSkills = readLocalSkillsFromDir(packDir, packDir, cwd)
+      .filter((skill) => {
+        if (seen.has(skill.skillPath)) return false
+        seen.add(skill.skillPath)
+        return true
+      })
+      .map((skill) => ({
+        ...skill,
+        packId,
+        packName,
+      }))
+    return { categories: [], skills: flatSkills }
+  }
+
+  const baseDir = layout === 'skills-grouped' ? join(packDir, 'skills') : packDir
+  let entries: any[] = []
+  try {
+    entries = readdirSync(baseDir, { withFileTypes: true })
+  } catch (err) {
+    console.error(`[LocalLibrary] Failed to read pack skills dir: ${baseDir}`, err)
+    return { categories, skills }
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    collect(entry.name, join(baseDir, entry.name))
+  }
+
+  return { categories, skills }
+}
+
 async function handleScanLocalLibrary(
   _event: Electron.IpcMainInvokeEvent,
   dirPaths: string[],
   cwd?: string
-): Promise<{ skills: LocalSkill[]; bundles: LocalSkillBundle[] }> {
+): Promise<{ skills: LocalSkill[]; bundles: LocalSkillBundle[]; packs: LocalSkillPack[] }> {
   try {
     const allSkills: LocalSkill[] = []
     const allBundles: LocalSkillBundle[] = []
+    const allPacks: LocalSkillPack[] = []
 
     console.log(`[LocalLibrary] Starting scan with dirs: ${JSON.stringify(dirPaths)}`)
     console.log(`[LocalLibrary] app.isPackaged: ${app.isPackaged}`)
@@ -1545,6 +1716,25 @@ async function handleScanLocalLibrary(
         continue
       }
 
+      // The directory itself may be a skill pack root
+      // (skills/<category>/<skill> or <category>/<skill>; flat 布局不用于目录根).
+      const rootLayout = detectSkillPackLayout(fullPath, false)
+      if (rootLayout) {
+        const { categories, skills } = readSkillPackSkills(fullPath, cwd, rootLayout)
+        if (skills.length > 0) {
+          allPacks.push({
+            id: fullPath,
+            name: basename(fullPath),
+            packDir: fullPath,
+            categories,
+            skillCount: skills.length,
+            installedCount: skills.filter((skill) => skill.isInstalled).length,
+          })
+          allSkills.push(...skills)
+          continue
+        }
+      }
+
       let entries: any[]
       try {
         entries = readdirSync(fullPath, { withFileTypes: true })
@@ -1563,6 +1753,26 @@ async function handleScanLocalLibrary(
             continue
           }
 
+          // Skill pack directory: skills/<category>/<skill>, <category>/<skill>,
+          // 以及 flat <skill>/SKILL.md（flat 仅在内置技能库顶层识别）。
+          const allowFlat = fullPath === getSkillsLibRoot()
+          const packLayout = detectSkillPackLayout(subDir, allowFlat)
+          if (packLayout) {
+            const { categories, skills } = readSkillPackSkills(subDir, cwd, packLayout)
+            if (skills.length > 0) {
+              allPacks.push({
+                id: subDir,
+                name: entry.name,
+                packDir: subDir,
+                categories,
+                skillCount: skills.length,
+                installedCount: skills.filter((skill) => skill.isInstalled).length,
+              })
+              allSkills.push(...skills)
+              continue
+            }
+          }
+
           const seen = new Set<string>()
           for (const skillsDir of getLocalSkillDirs(subDir)) {
             for (const skill of readLocalSkillsFromDir(skillsDir, fullPath, cwd)) {
@@ -1579,9 +1789,10 @@ async function handleScanLocalLibrary(
       }
     }
 
-    console.log(`[LocalLibrary] Scanned ${allSkills.length} skills, ${allBundles.length} bundles from ${dirPaths.length} directories`)
+    console.log(`[LocalLibrary] Scanned ${allSkills.length} skills, ${allBundles.length} bundles, ${allPacks.length} packs from ${dirPaths.length} directories`)
     console.log(`[LocalLibrary] Bundles found:`, allBundles.map(b => b.name))
-    return { skills: allSkills, bundles: allBundles }
+    console.log(`[LocalLibrary] Packs found:`, allPacks.map(p => p.name))
+    return { skills: allSkills, bundles: allBundles, packs: allPacks }
   } catch (err) {
     console.error('[LocalLibrary] Failed to scan library:', err)
     throw err
@@ -1766,6 +1977,57 @@ async function handleInstallLocalSkill(
   }
 }
 
+/**
+ * 批量安装技能（技能包多选安装）。逐个复制技能目录到目标 scope,
+ * 单个失败不影响其余,逐项返回结果。
+ */
+async function handleInstallLocalSkillsBatch(
+  _event: Electron.IpcMainInvokeEvent,
+  skills: Array<{ name: string; skillPath?: string }>,
+  scope: 'global' | 'project',
+  cwd?: string
+): Promise<{ results: Array<{ name: string; success: boolean; error?: string }> }> {
+  const targetDir = scope === 'global' ? getGlobalSkillsDirs()[0] : getProjectSkillsDirs(cwd || process.cwd())[0]
+
+  if (!existsSync(targetDir)) {
+    mkdirSync(targetDir, { recursive: true })
+  }
+
+  const results: Array<{ name: string; success: boolean; error?: string }> = []
+
+  for (const item of skills) {
+    const { name, skillPath } = item
+    try {
+      const targetPath = getSkillInstallPath(targetDir, name)
+      const legacyTargetPath = join(targetDir, `${name}.md`)
+      if (existsSync(targetPath) || existsSync(legacyTargetPath)) {
+        throw new Error(`Skill '${name}' is already installed`)
+      }
+
+      let sourceSkillPath = skillPath
+      if (!sourceSkillPath || !existsSync(sourceSkillPath)) {
+        throw new Error(`Skill '${name}' source not found`)
+      }
+
+      mkdirSync(dirname(targetPath), { recursive: true })
+      if (basename(sourceSkillPath) === 'SKILL.md') {
+        cpSync(dirname(sourceSkillPath), dirname(targetPath), { recursive: true, force: false })
+      } else {
+        writeFileSync(targetPath, readFileSync(sourceSkillPath, 'utf-8'), 'utf-8')
+      }
+
+      results.push({ name, success: true })
+      console.log(`[LocalLibrary] Batch installed skill '${name}' to ${scope}`)
+    } catch (err) {
+      const message = (err as Error).message
+      results.push({ name, success: false, error: message })
+      console.error(`[LocalLibrary] Batch install failed for '${name}':`, message)
+    }
+  }
+
+  return { results }
+}
+
 async function handleUninstallLocalSkill(
   _event: Electron.IpcMainInvokeEvent,
   skillName: string,
@@ -1853,6 +2115,7 @@ async function handleRemoveCustomDirectory(
 export function registerLocalLibraryIPCHandlers(): void {
   ipcMain.handle('skills:scan-local-library', handleScanLocalLibrary)
   ipcMain.handle('skills:install-local', handleInstallLocalSkill)
+  ipcMain.handle('skills:install-local-batch', handleInstallLocalSkillsBatch)
   ipcMain.handle('skills:uninstall-local', handleUninstallLocalSkill)
   ipcMain.handle('skills:install-local-bundle', handleInstallLocalBundle)
   ipcMain.handle('skills:uninstall-local-bundle', handleUninstallLocalBundle)

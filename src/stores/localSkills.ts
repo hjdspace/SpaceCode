@@ -15,6 +15,30 @@ export interface LocalSkill {
   installedAt?: Date
   bundleId?: string
   bundleName?: string
+  packId?: string
+  packName?: string
+  packCategory?: string
+}
+
+export interface LocalSkillPack {
+  id: string
+  name: string
+  description?: string
+  packDir: string
+  categories: Array<{ name: string; skillCount: number }>
+  skillCount: number
+  installedCount: number
+}
+
+export interface PackInstallItem {
+  name: string
+  skillPath?: string
+}
+
+export interface PackInstallResult {
+  name: string
+  success: boolean
+  error?: string
 }
 
 export interface LocalSkillBundle {
@@ -61,6 +85,7 @@ const BUILTIN_DIR = 'resources/skills-lib'
 export const useLocalSkillsStore = defineStore('localSkills', () => {
   const skills = ref<LocalSkill[]>([])
   const bundles = ref<LocalSkillBundle[]>([])
+  const packs = ref<LocalSkillPack[]>([])
   const customDirectories = ref<string[]>([])
   const selectedCategory = ref<string>('all')
   const selectedDirectory = ref<string | null>(null)
@@ -76,9 +101,10 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     return path === dir || path.startsWith(dir + '/') || path.startsWith(dir + '\\')
   }
 
-  // "Free" skills only — bundle children render under their bundle card.
+  // "Free" skills only — bundle children render under their bundle card,
+  // pack children render under their pack card / install dialog.
   const filteredSkills = computed(() => {
-    let result = skills.value.filter(s => !s.bundleId)
+    let result = skills.value.filter(s => !s.bundleId && !s.packId)
 
     if (selectedCategory.value !== 'all') {
       result = result.filter(s => s.category === selectedCategory.value)
@@ -125,12 +151,36 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     return result
   })
 
+  const filteredPacks = computed(() => {
+    let result = packs.value
+
+    if (selectedDirectory.value) {
+      const sel = selectedDirectory.value
+      result = result.filter(p => isWithinDirectory(p.packDir, sel))
+    }
+
+    if (searchQuery.value.trim()) {
+      const query = searchQuery.value.toLowerCase()
+      result = result.filter(p =>
+        p.name.toLowerCase().includes(query) ||
+        (p.description?.toLowerCase().includes(query) ?? false) ||
+        p.categories.some(c => c.name.toLowerCase().includes(query))
+      )
+    }
+
+    return result
+  })
+
   function getBundleSkills(bundleId: string): LocalSkill[] {
     return skills.value.filter(s => s.bundleId === bundleId)
   }
 
+  function getPackSkills(packId: string): LocalSkill[] {
+    return skills.value.filter(s => s.packId === packId)
+  }
+
   const categoryStats = computed(() => {
-    const freeSkills = skills.value.filter(s => !s.bundleId)
+    const freeSkills = skills.value.filter(s => !s.bundleId && !s.packId)
     const stats: Record<string, number> = { all: freeSkills.length + bundles.value.length }
     freeSkills.forEach(skill => {
       stats[skill.category] = (stats[skill.category] || 0) + 1
@@ -156,6 +206,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
       const data = await api.skills.scanLocalLibrary(dirPaths, cwd)
       skills.value = data.skills || []
       bundles.value = data.bundles || []
+      packs.value = data.packs || []
     } catch (err) {
       console.error('Failed to fetch local skills:', err)
       error.value = err instanceof Error ? err.message : 'Failed to fetch local skills'
@@ -210,6 +261,21 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
       throw err
     } finally {
       installingId.value = null
+    }
+  }
+
+  async function installPackSkills(
+    items: PackInstallItem[],
+    scope: 'global' | 'project',
+    cwd?: string
+  ): Promise<PackInstallResult[]> {
+    try {
+      const data = await api.skills.installLocalSkillsBatch(items, scope, cwd)
+      await fetchLocalSkills(cwd)
+      return data.results || []
+    } catch (err) {
+      console.error('Failed to install pack skills:', err)
+      throw err
     }
   }
 
@@ -281,6 +347,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
   return {
     skills,
     bundles,
+    packs,
     customDirectories,
     selectedCategory,
     selectedDirectory,
@@ -292,7 +359,9 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     allDirectoryPaths,
     filteredSkills,
     filteredBundles,
+    filteredPacks,
     getBundleSkills,
+    getPackSkills,
     categoryStats,
     categoriesWithCount,
     fetchLocalSkills,
@@ -300,6 +369,7 @@ export const useLocalSkillsStore = defineStore('localSkills', () => {
     uninstallSkill,
     installBundle,
     uninstallBundle,
+    installPackSkills,
     addCustomDirectory,
     removeCustomDirectory,
     loadCustomDirectories,

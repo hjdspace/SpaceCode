@@ -30,6 +30,13 @@ export const skills = {
     electronAPI?.skills?.scanLocalLibrary(dirPaths, cwd) || Promise.resolve({ skills: [], bundles: [] }),
   installLocal: (skillName: string, scope: string, cwd?: string, skillPath?: string): Promise<void> =>
     electronAPI?.skills?.installLocal(skillName, scope, cwd, skillPath) || Promise.resolve(),
+  installLocalSkillsBatch: (
+    skills: Array<{ name: string; skillPath?: string }>,
+    scope: string,
+    cwd?: string
+  ): Promise<{ results: Array<{ name: string; success: boolean; error?: string }> }> =>
+    electronAPI?.skills?.installLocalSkillsBatch(skills, scope, cwd) ||
+    Promise.resolve({ results: skills.map((s) => ({ name: s.name, success: false, error: 'electronAPI unavailable' })) }),
   uninstallLocal: (skillName: string, cwd?: string): Promise<void> =>
     electronAPI?.skills?.uninstallLocal(skillName, cwd) || Promise.resolve(),
   installLocalBundle: (bundleId: string, scope: string, cwd?: string): Promise<void> =>

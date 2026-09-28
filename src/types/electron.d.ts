@@ -279,6 +279,7 @@ export interface ElectronSkillsAPI {
   fetchMarketplaceReadme: (source: string, skillId: string) => Promise<string | null>
   scanLocalLibrary: (dirPaths: string[], cwd?: string) => Promise<unknown>
   installLocal: (skillName: string, scope: string, cwd?: string, skillPath?: string) => Promise<void>
+  installLocalSkillsBatch: (skills: Array<{ name: string; skillPath?: string }>, scope: string, cwd?: string) => Promise<{ results: Array<{ name: string; success: boolean; error?: string }> }>
   uninstallLocal: (skillName: string, cwd?: string) => Promise<void>
   installLocalBundle: (bundleId: string, scope: string, cwd?: string) => Promise<void>
   uninstallLocalBundle: (bundleName: string, cwd?: string) => Promise<void>
