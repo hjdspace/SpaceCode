@@ -16,7 +16,7 @@ defineEmits<{ (e: 'select', path: string): void; (e: 'close', path: string): voi
 </script>
 
 <style scoped lang="scss">
-.tabs-bar { display: flex; height: var(--design-tab-height); border-bottom: 1px solid var(--surface-border); background: var(--bg-secondary); overflow-x: auto; }
+.tabs-bar { display: flex; height: var(--design-tab-height); border-bottom: 1px solid var(--surface-border); background: var(--bg-secondary); overflow: auto hidden; scrollbar-width: none; &::-webkit-scrollbar { display: none } }
 .tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-right: 1px solid var(--surface-border); cursor: pointer; font-size: 12px; &:hover { background: var(--surface-hover); } &.active { background: var(--bg-primary); border-bottom: 2px solid var(--accent-primary); } }
 .tab-close { background: none; border: none; cursor: pointer; color: var(--text-muted); &:hover { color: var(--text-primary); } }
 </style>
