@@ -2,6 +2,8 @@ export interface SessionTurnCheckpointTarget {
   targetUserMessageId: string
   userMessageIndex: number
   userMessageCount: number
+  /** engine 把该轮 user 消息写入 JSONL 的时刻（ms epoch），用于把卡片锚定到前端轮次 */
+  turnStartedAt?: number
 }
 
 export interface FileChangedEntry {

@@ -68,6 +68,7 @@ export interface TurnCheckpoint {
     targetUserMessageId: string
     userMessageIndex: number
     userMessageCount: number
+    turnStartedAt?: number
   }
   code: {
     available: boolean
@@ -141,9 +142,11 @@ function readSessionJsonl(sessionPath: string): SessionMessage[] {
   return messages
 }
 
-function extractUserMessages(messages: SessionMessage[]): Array<{ id: string; index: number }> {
+function extractUserMessages(
+  messages: SessionMessage[]
+): Array<{ id: string; index: number; startedAt: number }> {
   let userIndex = -1
-  const userMessages: Array<{ id: string; index: number }> = []
+  const userMessages: Array<{ id: string; index: number; startedAt: number }> = []
 
   for (const msg of messages) {
     if (isRealUserInput(msg)) {
@@ -153,7 +156,8 @@ function extractUserMessages(messages: SessionMessage[]): Array<{ id: string; in
       const id = msg.uuid || msg.messageId || msg.message?.id || ''
       if (id) {
         userIndex += 1
-        userMessages.push({ id, index: userIndex })
+        const ts = msg.timestamp ? Date.parse(msg.timestamp) : NaN
+        userMessages.push({ id, index: userIndex, startedAt: Number.isNaN(ts) ? 0 : ts })
       }
     }
   }
@@ -537,6 +541,7 @@ export async function listSessionTurnCheckpoints(
           targetUserMessageId: userMsg.id,
           userMessageIndex: userMsg.index,
           userMessageCount: userMessages.length,
+          turnStartedAt: userMsg.startedAt || undefined,
         },
         code: {
           available: true,
