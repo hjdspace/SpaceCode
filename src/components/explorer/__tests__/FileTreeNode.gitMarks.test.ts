@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick } from 'vue'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import FileTreeNode from '../FileTreeNode.vue'
 import type { GitFileMark, GitTreeMarks } from '@/composables/useGitTreeMarks'
 
@@ -45,6 +45,19 @@ function mountNode(node: TreeNode, gitMarks: GitTreeMarks, expandedPaths = new S
 }
 
 describe('FileTreeNode git marks', () => {
+  it('renders file-type icons from the bundled offline icon subset', async () => {
+    const wrapper = mountNode(
+      { name: 'App.vue', path: `${ROOT}/App.vue`, type: 'file', extension: 'vue' },
+      marks()
+    )
+    // @iconify/vue resolves the registered collection on the next tick
+    await flushPromises()
+
+    const svg = wrapper.get('svg.node-icon')
+    expect(svg.attributes('viewBox')).toBe('0 0 32 32')
+    expect(svg.findAll('path').length).toBeGreaterThan(0)
+  })
+
   it('shows the status letter on a modified file and tints its name', () => {
     const wrapper = mountNode(
       { name: 'a.ts', path: `${ROOT}/src/a.ts`, type: 'file', extension: 'ts' },

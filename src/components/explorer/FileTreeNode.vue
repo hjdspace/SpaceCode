@@ -34,11 +34,18 @@
       <span v-else class="spacer" />
 
       <!-- File/Folder Icon -->
-      <component
-        :is="getIconComponent()"
-        :size="14"
+      <Icon
+        v-if="node.type === 'file'"
+        :icon="fileIcon"
+        :width="14"
+        :height="14"
         class="node-icon"
-        :class="[getIconClass(), { 'icon-folder': node.type === 'directory' }]"
+      />
+      <component
+        v-else
+        :is="isExpanded ? FolderOpen : Folder"
+        :size="14"
+        class="node-icon icon-folder"
       />
 
       <!-- Node Name (or inline rename input) -->
@@ -105,21 +112,17 @@
 <script setup lang="ts">
 import { computed, ref, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  ChevronRight,
-  File,
-  Folder,
-  FolderOpen,
-  FileCode,
-  FileText,
-  FileJson,
-  Braces,
-  FileType
-} from 'lucide-vue-next'
+import { ChevronRight, Folder, FolderOpen } from 'lucide-vue-next'
+import { Icon, addCollection } from '@iconify/vue'
+import fileIconSet from '@/assets/vscode-icons.json'
 import { api } from '@/services/electronAPI'
 import { useDialog } from '@/composables/useDialog'
 import { normalizeTreePath } from '@/composables/useGitTreeMarks'
+import { getFileIcon } from './fileIcons'
 import type { GitFileMark, GitFileMarkKind, GitDirMarkKind, GitTreeMarks } from '@/composables/useGitTreeMarks'
+
+// 离线图标子集 (scripts/generate-file-icons.mjs 生成), 注册后 <Icon> 不会走网络加载
+addCollection(fileIconSet)
 
 interface TreeNode {
   name: string
@@ -211,6 +214,8 @@ const markClass = computed(() => {
   return kind ? `git-${kind}` : ''
 })
 
+const fileIcon = computed(() => getFileIcon(props.node.name))
+
 // Methods
 function handleClick() {
   if (isRenaming.value) return
@@ -284,48 +289,6 @@ function handleDragStart(e: DragEvent) {
   e.dataTransfer.setData('text/plain', props.node.path)
   
   console.log('[FileTreeNode] Drag start:', props.node.path, props.node.type)
-}
-
-function getIconComponent() {
-  if (props.node.type === 'directory') {
-    return isExpanded.value ? FolderOpen : Folder
-  }
-
-  const ext = props.node.extension?.toLowerCase()
-
-  const codeExts = ['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'java', 'vue', 'svelte', 'c', 'cpp', 'h', 'hpp', 'cs', 'swift', 'kt', 'dart', 'lua', 'php', 'zig']
-  const configExts = ['json', 'yaml', 'yml', 'toml']
-  const styleExts = ['css', 'scss', 'sass', 'less']
-  const textExts = ['md', 'mdx', 'txt', 'csv', 'rst']
-
-  if (ext && codeExts.includes(ext)) return FileCode
-  if (ext && configExts.includes(ext)) return FileType
-  if (ext && styleExts.includes(ext)) return Braces
-  if (ext && textExts.includes(ext)) return FileText
-
-  return File
-}
-
-function getIconClass(): string {
-  if (props.node.type === 'directory') return ''
-
-  const ext = props.node.extension?.toLowerCase()
-  
-  const iconMap: Record<string, string> = {
-    'ts': 'icon-typescript',
-    'tsx': 'icon-typescript',
-    'js': 'icon-javascript',
-    'jsx': 'icon-javascript',
-    'vue': 'icon-vue',
-    'py': 'icon-python',
-    'json': 'icon-json',
-    'css': 'icon-style',
-    'scss': 'icon-style',
-    'sass': 'icon-style',
-    'less': 'icon-style'
-  }
-
-  return iconMap[ext || ''] || ''
 }
 </script>
 
@@ -440,31 +403,6 @@ function getIconClass(): string {
 
 .node-icon {
   flex-shrink: 0;
-  transition: color var(--transition-fast);
-
-  &.icon-typescript {
-    color: #3178c6;
-  }
-
-  &.icon-javascript {
-    color: #f7df1e;
-  }
-
-  &.icon-vue {
-    color: #42b883;
-  }
-
-  &.icon-python {
-    color: #3776ab;
-  }
-
-  &.icon-json {
-    color: #cbcb41;
-  }
-
-  &.icon-style {
-    color: var(--accent-tertiary);
-  }
 
   &.icon-folder {
     color: var(--accent-secondary);
