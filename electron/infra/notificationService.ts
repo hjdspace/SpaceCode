@@ -180,6 +180,9 @@ export function showSystemNotification(options: SystemNotificationOptions): bool
 
   const iconPath = resolveNotificationIconPath()
   try {
+    // 副作用：Windows 的 toast 后端会为当前 AUMID 写出开始菜单快捷方式，dev 下即
+    // "Electron.lnk"；它一出现就把本会话存活窗口的任务栏图标当场翻成 electron.exe 原子图标
+    // （不是只影响下次启动）。完整链路与已验证的修法见 electron/main.ts 的 setAppUserModelId 注释。
     const notification = new Notification({
       title: options.title,
       body: options.message,
