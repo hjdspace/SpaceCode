@@ -16,4 +16,13 @@ export default {
   selectFolder: 'Select a folder',
   showHiddenFiles: 'Show Hidden Files',
   hideHiddenFiles: 'Hide Hidden Files',
+  gitMarkModified: 'Modified',
+  gitMarkAdded: 'Added',
+  gitMarkUntracked: 'Untracked',
+  gitMarkDeleted: 'Deleted',
+  gitMarkRenamed: 'Renamed',
+  gitMarkCopied: 'Copied',
+  gitMarkConflict: 'Conflict',
+  gitMarkDirModified: 'Contains modified files',
+  gitMarkDirAdded: 'Contains added files',
 }

@@ -1,15 +1,20 @@
 <template>
   <div
     class="tree-node"
-    :style="{ paddingLeft: depth * 12 + 'px' }"
+    :style="{ '--tree-indent': depth }"
+    role="treeitem"
+    :aria-expanded="node.type === 'directory' ? isExpanded : undefined"
+    :aria-selected="isSelected"
   >
     <div
       class="node-content"
       :class="[
-        { selected: isSelected, 'is-directory': node.type === 'directory' },
+        { 'is-directory': node.type === 'directory' },
         { 'file-tree-flash': isHighlighted }
       ]"
       :id="isHighlighted ? 'file-tree-highlight' : undefined"
+      :data-selected="isSelected ? '' : undefined"
+      :data-expanded="isExpanded ? '' : undefined"
       draggable="true"
       @click="handleClick"
       @dragstart="handleDragStart"
@@ -22,7 +27,7 @@
         @click.stop="handleToggle"
       >
         <ChevronRight
-          :size="14"
+          :size="12"
           :class="{ expanded: isExpanded }"
         />
       </button>
@@ -31,7 +36,7 @@
       <!-- File/Folder Icon -->
       <component
         :is="getIconComponent()"
-        :size="16"
+        :size="14"
         class="node-icon"
         :class="[getIconClass(), { 'icon-folder': node.type === 'directory' }]"
       />
@@ -48,9 +53,27 @@
         @click.stop
         @mousedown.stop
       />
-      <span v-else class="node-name" :class="{ highlighted: isSearchMatch }">
+      <span
+        v-else
+        class="node-name"
+        :class="[{ highlighted: isSearchMatch }, markClass]"
+      >
         {{ node.name }}
       </span>
+
+      <!-- Git decorations: letter for files, dot for folders -->
+      <span
+        v-if="fileMark"
+        class="git-mark"
+        :class="markClass"
+        :title="t(FILE_MARK_TOOLTIP_KEY[fileMark.kind])"
+      >{{ fileMark.letter }}</span>
+      <span
+        v-else-if="dirMark"
+        class="dir-mark"
+        :class="markClass"
+        :title="t(DIR_MARK_TOOLTIP_KEY[dirMark])"
+      />
     </div>
 
     <!-- Children (only show if directory and expanded) -->
@@ -58,6 +81,7 @@
       <div
         v-if="node.type === 'directory' && isExpanded && node.children"
         class="node-children"
+        role="group"
       >
         <FileTreeNode
           v-for="child in node.children"
@@ -67,6 +91,7 @@
           :search-query="searchQuery"
           :highlight-path="highlightPath"
           :expanded-paths="expandedPaths"
+          :git-marks="gitMarks"
           @select="$emit('select', $event)"
           @toggle="$emit('toggle', $event)"
           @expand-path="$emit('expand-path', $event)"
@@ -79,6 +104,7 @@
 
 <script setup lang="ts">
 import { computed, ref, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   ChevronRight,
   File,
@@ -92,6 +118,8 @@ import {
 } from 'lucide-vue-next'
 import { api } from '@/services/electronAPI'
 import { useDialog } from '@/composables/useDialog'
+import { normalizeTreePath } from '@/composables/useGitTreeMarks'
+import type { GitFileMark, GitFileMarkKind, GitDirMarkKind, GitTreeMarks } from '@/composables/useGitTreeMarks'
 
 interface TreeNode {
   name: string
@@ -108,12 +136,14 @@ interface Props {
   searchQuery?: string
   highlightPath?: string
   expandedPaths?: Set<string>
+  gitMarks?: GitTreeMarks
 }
 
 const props = withDefaults(defineProps<Props>(), {
   searchQuery: '',
   highlightPath: '',
-  expandedPaths: () => new Set()
+  expandedPaths: () => new Set(),
+  gitMarks: () => ({ files: new Map(), dirs: new Map() })
 })
 
 const emit = defineEmits<{
@@ -126,6 +156,22 @@ const emit = defineEmits<{
 }>()
 
 const { showAlert } = useDialog()
+const { t } = useI18n()
+
+const FILE_MARK_TOOLTIP_KEY: Record<GitFileMarkKind, string> = {
+  modified: 'fileTree.gitMarkModified',
+  added: 'fileTree.gitMarkAdded',
+  untracked: 'fileTree.gitMarkUntracked',
+  deleted: 'fileTree.gitMarkDeleted',
+  renamed: 'fileTree.gitMarkRenamed',
+  copied: 'fileTree.gitMarkCopied',
+  conflict: 'fileTree.gitMarkConflict'
+}
+
+const DIR_MARK_TOOLTIP_KEY: Record<GitDirMarkKind, string> = {
+  modified: 'fileTree.gitMarkDirModified',
+  added: 'fileTree.gitMarkDirAdded'
+}
 
 // Rename State
 const isRenaming = ref(false)
@@ -147,6 +193,23 @@ const isSearchMatch = computed(() => {
 })
 
 const isSelected = ref(false) // Could be controlled by parent in future
+
+const normalizedPath = computed(() => normalizeTreePath(props.node.path))
+
+const fileMark = computed<GitFileMark | null>(() => {
+  if (props.node.type !== 'file') return null
+  return props.gitMarks.files.get(normalizedPath.value) ?? null
+})
+
+const dirMark = computed<GitDirMarkKind | null>(() => {
+  if (props.node.type !== 'directory') return null
+  return props.gitMarks.dirs.get(normalizedPath.value) ?? null
+})
+
+const markClass = computed(() => {
+  const kind = fileMark.value?.kind ?? dirMark.value
+  return kind ? `git-${kind}` : ''
+})
 
 // Methods
 function handleClick() {
@@ -267,6 +330,18 @@ function getIconClass(): string {
 </script>
 
 <style lang="scss" scoped>
+/* Git 语义色: 徽标字母、文件名、目录圆点共用一套 tint, 保证标记与文字联动.
+   放在最后声明, 让标记色稳定压过 .node-name 的默认前景色. */
+@mixin git-tint {
+  &.git-modified { color: var(--warning); }
+  &.git-added,
+  &.git-untracked { color: var(--success); }
+  &.git-deleted,
+  &.git-conflict { color: var(--error); }
+  &.git-renamed,
+  &.git-copied { color: var(--info); }
+}
+
 .tree-node {
   user-select: none;
 }
@@ -275,10 +350,14 @@ function getIconClass(): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 8px;
-  border-radius: var(--radius-sm);
+  /* reka-ui tree: 缩进落在行内 padding 上 (基准 0.5rem + 每级 1rem),
+     这样 hover / selected 底色能铺满整行而不是随层级缩短 */
+  padding: 4px 8px 4px calc(0.5rem + var(--tree-indent, 0) * 1rem);
+  margin: 2px 0;
+  min-height: 20px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast);
   position: relative;
 
   &::before {
@@ -290,7 +369,7 @@ function getIconClass(): string {
     width: 2px;
     height: 0;
     background: var(--accent-primary);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
     transition: height var(--transition-fast);
   }
 
@@ -302,11 +381,10 @@ function getIconClass(): string {
     }
   }
 
-  &.selected {
+  &[data-selected] {
     background: var(--surface-glass-active);
 
     .node-name {
-      color: var(--text-primary);
       font-weight: 500;
     }
 
@@ -319,6 +397,10 @@ function getIconClass(): string {
   &.is-directory {
     .node-icon {
       color: var(--accent-secondary);
+    }
+
+    .node-name {
+      font-weight: 500;
     }
   }
 }
@@ -341,10 +423,12 @@ function getIconClass(): string {
   }
 
   svg {
-    transition: transform 0.15s ease-out;
+    opacity: 0.6;
+    transition: transform 0.15s ease-out, opacity var(--transition-fast);
 
     &.expanded {
       transform: rotate(90deg);
+      opacity: 1;
     }
   }
 }
@@ -388,6 +472,8 @@ function getIconClass(): string {
 }
 
 .node-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-secondary);
   overflow: hidden;
@@ -408,6 +494,23 @@ function getIconClass(): string {
   }
 }
 
+.git-mark {
+  flex-shrink: 0;
+  padding-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.dir-mark {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
 .rename-input {
   font-size: 13px;
   color: var(--text-primary);
@@ -422,6 +525,12 @@ function getIconClass(): string {
 
 .node-children {
   overflow: hidden;
+}
+
+.node-name,
+.git-mark,
+.dir-mark {
+  @include git-tint;
 }
 
 // Expand/Collapse Animation
