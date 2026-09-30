@@ -1038,7 +1038,8 @@ watch(() => props.content, (newVal, oldVal) => {
       border: 0;
       border-radius: 0;
       background: transparent !important;
-      overflow-x: auto;
+      overflow: auto hidden;
+      @include scrollbar-overlay;
 
       code {
         display: block;
@@ -1064,6 +1065,7 @@ watch(() => props.content, (newVal, oldVal) => {
     padding: 13px 16px;
     overflow: auto;
     margin: 0.9em 0;
+    @include scrollbar-overlay;
   }
 
   :deep(.hljs) {
@@ -1129,7 +1131,8 @@ watch(() => props.content, (newVal, oldVal) => {
     border-radius: var(--radius-lg);
     padding: 16px;
     margin: 0.9em 0;
-    overflow-x: auto;
+    overflow: auto hidden;
+    @include scrollbar-overlay;
     font-family: var(--font-mono);
     font-size: var(--text-sm-plus);
     color: var(--text-primary);
