@@ -427,6 +427,7 @@ watch(() => appStore.subagentPanelState, (state) => {
 .subagent-body {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 12px 16px;
 }
 
