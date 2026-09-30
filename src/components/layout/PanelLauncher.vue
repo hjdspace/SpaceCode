@@ -68,6 +68,7 @@ const items = computed(() => [
   justify-content: center;
   padding: 16px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .launcher-list {

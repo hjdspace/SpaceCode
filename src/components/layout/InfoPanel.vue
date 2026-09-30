@@ -495,7 +495,7 @@ watch(() => appStore.webviewUrl, () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  @include scrollbar;
+  @include scrollbar-overlay;
 }
 
 .info-terminal-panel {

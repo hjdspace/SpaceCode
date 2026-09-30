@@ -208,6 +208,7 @@ function toggleViewSource() {
   width: 100%;
   height: 100%;
   overflow: auto;
+  @include scrollbar-overlay;
   background-color: #1e1e1e;
   color: #d4d4d4;
   padding: 16px;

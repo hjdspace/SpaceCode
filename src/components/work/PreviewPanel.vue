@@ -585,6 +585,7 @@ onBeforeUnmount(async () => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 12px;
   display: flex;
   flex-direction: column;

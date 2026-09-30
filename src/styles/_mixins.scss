@@ -69,6 +69,31 @@
   }
 }
 
+/* 编辑器风格滚动条: 轨道只留呼吸空间, 滑块靠透明描边收窄成悬浮胶囊.
+   描边不宜超过 3px —— 长文件时滑块本身只有十几个 px, 描边过宽会把它整个吃掉. */
+@mixin scrollbar-overlay($size: 10px, $inset: 3px) {
+  &::-webkit-scrollbar {
+    width: $size;
+    height: $size;
+  }
+
+  &::-webkit-scrollbar-track,
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--text-muted) 55%, transparent);
+    border: $inset solid transparent;
+    border-radius: var(--radius-full);
+    background-clip: padding-box;
+
+    &:hover {
+      background-color: color-mix(in srgb, var(--text-muted) 85%, transparent);
+    }
+  }
+}
+
 @mixin reset-button {
   border: none;
   background: none;

@@ -1549,6 +1549,7 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
   border: 1px solid var(--surface-border);
   max-height: 200px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 
   &.output {
     color: var(--text-muted);

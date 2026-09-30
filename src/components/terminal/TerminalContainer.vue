@@ -281,19 +281,7 @@ defineExpose({ focus, runCommand, clear })
   }
 
   :deep(.xterm-viewport) {
-    &::-webkit-scrollbar {
-      width: 6px;
-    }
-    &::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    &::-webkit-scrollbar-thumb {
-      background: var(--border-default);
-      border-radius: 3px;
-      &:hover {
-        background: var(--text-muted);
-      }
-    }
+    @include scrollbar-overlay;
   }
 }
 </style>

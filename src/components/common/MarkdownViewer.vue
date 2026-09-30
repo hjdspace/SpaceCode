@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow: auto;
   min-height: 0;
-  @include scrollbar;
+  @include scrollbar-overlay;
 }
 
 .preview-pane {
@@ -247,7 +247,9 @@ onBeforeUnmount(() => {
 .source-code {
   margin: 0;
   padding: 0;
-  overflow-x: auto;
+  /* 同 CodeViewer: 横向滚动条占掉的高度会变成纵向溢出, 画出滑块铺满轨道的幽灵滚动条 */
+  overflow: auto hidden;
+  @include scrollbar-overlay;
   font-family: var(--font-mono);
   font-size: var(--text-md);
   line-height: var(--leading-prose);

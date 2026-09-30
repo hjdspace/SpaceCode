@@ -135,8 +135,8 @@ async function exportFile(format: 'html' | 'zip' | 'pdf') {
 .ws-toolbar { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--surface-border); button { background: none; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 11px; cursor: pointer; &.active { background: var(--accent-primary-glow); color: var(--accent-primary); } } }
 .ws-body { flex: 1; overflow: hidden; position: relative; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); text-align: center; h2 { font-size: 14px; margin: 8px 0 4px; color: var(--text-primary); } }
-.code-viewer { height: 100%; overflow: auto; padding: 12px; pre { font-size: 12px; } }
-.artifact-list { border-top: 1px solid var(--surface-border); padding: 8px; max-height: 200px; overflow-y: auto; background: var(--bg-secondary); }
+.code-viewer { height: 100%; overflow: auto; @include scrollbar-overlay; padding: 12px; pre { font-size: 12px; } }
+.artifact-list { border-top: 1px solid var(--surface-border); padding: 8px; max-height: 200px; overflow-y: auto; @include scrollbar-overlay; background: var(--bg-secondary); }
 .al-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
 .al-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; &:hover { background: var(--surface-hover); } &.active { background: var(--accent-primary-glow); } }
 .export-bar { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--surface-border); button { flex: 1; background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 6px; font-size: 11px; cursor: pointer; } }

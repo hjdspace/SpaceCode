@@ -299,6 +299,7 @@ const emptyMessage = computed(() => {
   min-width: 200px;
   border-right: 1px solid var(--surface-border);
   overflow-y: auto;
+  @include scrollbar-overlay;
   background: var(--surface-soft);
   flex-shrink: 0;
 }
@@ -399,6 +400,7 @@ const emptyMessage = computed(() => {
   flex: 1;
   overflow: auto;
   min-height: 0;
+  @include scrollbar-overlay;
 }
 
 .diff-notice {
