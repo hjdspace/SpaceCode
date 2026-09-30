@@ -205,7 +205,7 @@ onBeforeUnmount(() => {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.artifacts-body { flex: 1; min-height: 0; overflow-y: auto; }
+.artifacts-body { flex: 1; min-height: 0; overflow-y: auto; @include scrollbar-overlay; }
 
 .artifacts-empty {
   display: flex;
