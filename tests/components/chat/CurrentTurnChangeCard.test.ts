@@ -3,7 +3,7 @@
  * Seam: cardData prop + session diff API + review panel 打开动作.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -34,6 +34,16 @@ vi.mock('@/stores/sessionContext', () => ({
   useSessionContext: () => mocks,
 }))
 
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({ isDark: false }),
+}))
+
+// @git-diff-view 用 canvas 2d 量算行号列宽，jsdom 不提供该上下文
+HTMLCanvasElement.prototype.getContext = (() => ({
+  font: '',
+  measureText: (text: string) => ({ width: text.length * 7 }),
+})) as unknown as typeof HTMLCanvasElement.prototype.getContext
+
 const i18n = createI18n({
   legacy: false,
   locale: 'zh-CN',
@@ -63,12 +73,15 @@ function makeCardData(fileCount: number): TurnChangeCardData {
   }
 }
 
+let mounted: VueWrapper | null = null
+
 function mountCard(fileCount = 5) {
-  return mount(CurrentTurnChangeCard, {
+  mounted = mount(CurrentTurnChangeCard, {
     props: { cardData: makeCardData(fileCount) },
     global: { plugins: [i18n] },
     attachTo: document.body,
   })
+  return mounted
 }
 
 describe('CurrentTurnChangeCard', () => {
@@ -92,6 +105,10 @@ describe('CurrentTurnChangeCard', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+    // 先卸载，让 Teleport 自己回收弹层，再清空 body；
+    // 否则 DiffView 的异步高亮回填会在已摘除的 DOM 上打补丁
+    mounted?.unmount()
+    mounted = null
     document.body.innerHTML = ''
   })
 
@@ -123,7 +140,7 @@ describe('CurrentTurnChangeCard', () => {
     expect(stats).toContain('-10')
   })
 
-  it('opens a hover diff popup without the git file header', async () => {
+  it('renders the popup diff with the review-panel renderer, without a @@ hunk row', async () => {
     const wrapper = mountCard(5)
 
     wrapper.findAll('.file-row')[0].trigger('mouseenter')
@@ -133,8 +150,9 @@ describe('CurrentTurnChangeCard', () => {
     const popup = document.body.querySelector('.turn-diff-popup')
     expect(popup).not.toBeNull()
     expect(popup!.textContent).toContain('src/mod0.ts')
+    expect(popup!.querySelector('[data-component="git-diff-view"]')).not.toBeNull()
+    expect(popup!.querySelector('.diff-line-hunk')).toBeNull()
     expect(popup!.textContent).toContain('export const a = 1')
-    expect(popup!.textContent).not.toContain('diff --git')
     expect(mocks.getTurnCheckpointDiff).toHaveBeenCalledWith(
       'session-1',
       'engine-uuid-1',
@@ -142,6 +160,42 @@ describe('CurrentTurnChangeCard', () => {
       0,
       'D:/proj'
     )
+  })
+
+  it('stays open when the diff itself is scrolled but closes on any other scroll', async () => {
+    const wrapper = mountCard(5)
+
+    wrapper.findAll('.file-row')[0].trigger('mouseenter')
+    await vi.advanceTimersByTimeAsync(200)
+    await flushPromises()
+
+    const scroller = document.body.querySelector('.turn-diff-popup .popup-diff')
+    expect(scroller).not.toBeNull()
+
+    scroller!.dispatchEvent(new Event('scroll', { bubbles: true }))
+    await flushPromises()
+    expect(document.body.querySelector('.turn-diff-popup')).not.toBeNull()
+
+    // 消息列表滚动
+    document.body.dispatchEvent(new Event('scroll', { bubbles: true }))
+    await flushPromises()
+    expect(document.body.querySelector('.turn-diff-popup')).toBeNull()
+  })
+
+  it('closes when the scroll event targets window instead of a node', async () => {
+    const wrapper = mountCard(5)
+
+    wrapper.findAll('.file-row')[0].trigger('mouseenter')
+    await vi.advanceTimersByTimeAsync(200)
+    await flushPromises()
+
+    expect(document.body.querySelector('.turn-diff-popup')).not.toBeNull()
+
+    // Node.contains(window) 会抛 TypeError，不能让异常吞掉关闭动作
+    window.dispatchEvent(new Event('scroll'))
+    await flushPromises()
+
+    expect(document.body.querySelector('.turn-diff-popup')).toBeNull()
   })
 
   it('closes the popup when the pointer leaves before the hover delay elapses', async () => {

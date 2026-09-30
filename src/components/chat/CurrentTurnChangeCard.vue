@@ -85,6 +85,7 @@
     <Teleport to="body">
       <div
         v-if="hoveredFile"
+        ref="popupRef"
         class="turn-diff-popup"
         :style="popupStyle"
         @mouseenter="cancelHide"
@@ -109,13 +110,20 @@
         <div v-else-if="popupState.status === 'error'" class="popup-state popup-error">
           {{ popupState.error || t('chat.turnChangesDiffUnavailable') }}
         </div>
-        <WorkspaceDiffSurface
+        <div
           v-else-if="popupState.status === 'ready'"
-          :value="popupState.diff"
-          :path="toRelativePath(hoveredFile.path)"
-          :line-limit="POPUP_LINE_LIMIT"
-          :style="{ maxHeight: `${popupBodyHeight}px`, border: 'none', borderRadius: '0' }"
-        />
+          class="popup-diff"
+          :style="{ maxHeight: `${popupBodyHeight}px` }"
+        >
+          <DiffView
+            :key="hoveredFile.path"
+            :data="popupDiffData"
+            :diff-view-mode="DiffModeEnum.Unified"
+            :diff-view-theme="diffTheme"
+            :diff-view-highlight="true"
+            :diff-view-font-size="12"
+          />
+        </div>
       </div>
     </Teleport>
   </div>
@@ -126,12 +134,15 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useSessionContext } from '@/stores/sessionContext'
+import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import { FilePlus2, ChevronDown } from 'lucide-vue-next'
 import { Icon, addCollection } from '@iconify/vue'
 import fileIconSet from '@/assets/vscode-icons.json'
+import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
+import '@git-diff-view/vue/styles/diff-view.css'
+import { createDiffViewData } from '@/services/diffFileBuilder'
 import { getFileIcon } from '../explorer/fileIcons'
-import WorkspaceDiffSurface from './WorkspaceDiffSurface.vue'
 import type { TurnChangeCardData, FileChangedEntry } from '@/types'
 
 addCollection(fileIconSet)
@@ -143,6 +154,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const sessionStore = useChatSessionStore()
 const sessionContext = useSessionContext()
+const appStore = useAppStore()
 
 const COLLAPSED_FILE_COUNT = 3
 const HOVER_DELAY_MS = 160
@@ -150,7 +162,6 @@ const POPUP_MAX_HEIGHT = 420
 const POPUP_MIN_HEIGHT = 160
 const POPUP_GAP = 8
 const POPUP_HEADER_HEIGHT = 40
-const POPUP_LINE_LIMIT = 600
 
 type DiffEntry =
   | { status: 'idle' }
@@ -161,6 +172,7 @@ type DiffEntry =
 const diffs = ref<Record<string, DiffEntry>>({})
 const showAllFiles = ref(false)
 const hoveredFile = ref<FileChangedEntry | null>(null)
+const popupRef = ref<HTMLElement | null>(null)
 const popupStyle = ref<Record<string, string>>({})
 const popupBodyHeight = ref(POPUP_MAX_HEIGHT)
 
@@ -195,6 +207,14 @@ const hiddenFileCount = computed(() =>
 
 const popupState = computed<DiffEntry>(() =>
   hoveredFile.value ? diffs.value[hoveredFile.value.path] || { status: 'idle' } : { status: 'idle' }
+)
+
+const diffTheme = computed<'light' | 'dark'>(() => (appStore.isDark ? 'dark' : 'light'))
+
+const popupDiffData = computed(() =>
+  popupState.value.status === 'ready' && hoveredFile.value
+    ? createDiffViewData(popupState.value.diff, toRelativePath(hoveredFile.value.path))
+    : undefined
 )
 
 const isUndoing = computed(() =>
@@ -290,13 +310,6 @@ function placePopup(anchor: HTMLElement) {
   popupStyle.value = style
 }
 
-/** 弹层头部已展示路径，diff 正文里省掉 git 文件头三行 */
-function stripPatchHeader(patch: string): string {
-  const lines = patch.split('\n')
-  while (lines.length && /^(diff --git |--- a\/|\+\+\+ b\/)/.test(lines[0])) lines.shift()
-  return lines.join('\n')
-}
-
 async function ensureDiff(file: FileChangedEntry) {
   if (diffs.value[file.path]) return
   diffs.value = { ...diffs.value, [file.path]: { status: 'loading' } }
@@ -310,7 +323,7 @@ async function ensureDiff(file: FileChangedEntry) {
       sessionStore.workingDirectory
     )
     diffs.value = result.state === 'ok' && result.diff
-      ? { ...diffs.value, [file.path]: { status: 'ready', diff: stripPatchHeader(result.diff) } }
+      ? { ...diffs.value, [file.path]: { status: 'ready', diff: result.diff } }
       : { ...diffs.value, [file.path]: { status: 'error', error: result.error || undefined } }
   } catch (err) {
     console.error('[CurrentTurnChangeCard] Failed to load diff:', err)
@@ -345,8 +358,11 @@ async function handleUndo() {
   }
 }
 
-// 弹层用 fixed 定位，列表一滚动就会与文件行脱节，直接收起
-function handleScroll() {
+// 弹层用 fixed 定位，消息列表一滚动就会与文件行脱节，直接收起；
+// 弹层内部滚动 diff 不算，否则读长 diff 时一动滚轮弹层就没了
+function handleScroll(event: Event) {
+  const target = event.target
+  if (target instanceof Node && popupRef.value?.contains(target)) return
   closePopup()
 }
 
@@ -628,6 +644,12 @@ onUnmounted(() => {
 
   .popup-error {
     color: var(--error);
+  }
+
+  .popup-diff {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   }
 }
 </style>
