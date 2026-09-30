@@ -1088,7 +1088,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   line-height: 1.6;
   tab-size: 2;
   white-space: pre;
-  @include scrollbar;
+  @include scrollbar-overlay;
 }
 
 .edit-highlight {
@@ -1241,7 +1241,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   flex: 1;
   margin: 0;
   overflow: auto;
-  @include scrollbar;
+  @include scrollbar-overlay;
   background: var(--bg-primary);
   position: relative;
 }
@@ -1300,8 +1300,11 @@ function onGlobalKeydown(e: KeyboardEvent) {
 .code-content {
   margin: 0;
   padding: 16px;
-  overflow-x: auto;
+  /* 纵向滚动归 .code-container 管. 这里只滚横向 —— 但 pre 被内容拉满整篇高度,
+     横向滚动条占掉的十几 px 会变成纵向溢出, 画出一条滑块铺满轨道的幽灵纵向滚动条. */
+  overflow: auto hidden;
   bottom: 0;
+  @include scrollbar-overlay;
 
   code {
     font-family: var(--font-mono);
