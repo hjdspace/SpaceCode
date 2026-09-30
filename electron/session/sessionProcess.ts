@@ -23,6 +23,7 @@ import {
   type ElicitationRequest,
 } from './controlProtocol'
 import { shouldAutoApprovePermission } from './permissionAutoApprove'
+import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
 import { getOfficeCliBinaryPath, getOfficeCliInstalledBinary, getOfficeCliInstallDir } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
@@ -491,29 +492,42 @@ export class SessionProcess extends EventEmitter {
       input: { content, images: images?.length || 0 },
     })
     
-    // 处理图片：保存到临时目录并生成 @-引用
-    let imageRefs = ''
+    // 图片内联成 user 轮的 image block，而不是老做法 —— 写盘后拼一句 `@"路径"`
+    // 让模型自己去 Read。原因见 imageContentBlock.ts：引擎的 OpenAI 兼容转换会
+    // 把 tool_result 压成纯文本，Read 回来的 image block 整块被丢掉，模型于是拿
+    // 上下文里的旧图作答。只有 API 不认的类型（bmp/svg/heic 等）才退回路径引用。
+    const imageBlocks: InlineImageBlock[] = []
+    const pathRefs: string[] = []
     if (images && images.length > 0) {
-      const uploadDir = this.getUploadDir()
       for (const img of images) {
+        const block = toInlineImageBlock(img)
+        if (block) {
+          imageBlocks.push(block)
+          continue
+        }
+        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Image not inlinable, falling back to path ref | name=${img.name}`)
         try {
-          const savedPath = this.saveImageToTemp(img, uploadDir)
-          imageRefs += `@"${savedPath}" `
+          pathRefs.push(`@"${this.saveImageToTemp(img, this.getUploadDir())}"`)
         } catch (err) {
           error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to save image: ${img.name}`, err)
         }
       }
     }
-    
-    // 构建最终消息内容，添加 @-引用前缀
-    let finalContent = content
-    if (imageRefs) {
-      finalContent = `${imageRefs}${content || 'Please analyze the attached images.'}`.trim()
+
+    let text = content
+    if (pathRefs.length > 0) {
+      text = `${pathRefs.join(' ')} ${text || 'Please analyze the attached images.'}`.trim()
     }
-    
+
+    // 正文放在最后一个 block：引擎 processUserInputBase 只在末块是 text 时把它
+    // 当作 inputString，斜杠命令与 @ 提及的展开都依赖这一步。
+    const messageContent = imageBlocks.length > 0
+      ? [...imageBlocks, { type: 'text' as const, text: text || 'Please analyze the attached images.' }]
+      : text
+
     const msg = JSON.stringify({
       type: 'user',
-      message: { role: 'user', content: finalContent }
+      message: { role: 'user', content: messageContent }
     }) + '\n'
     try {
       this.process.stdin!.write(msg)
