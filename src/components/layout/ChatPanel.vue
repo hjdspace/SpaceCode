@@ -12,7 +12,7 @@
 
     <!-- Chat Content -->
     <div v-show="!isTerminalTab && !isOrchestrationTab" class="chat-content-wrapper">
-      <div class="chat-header">
+      <div v-if="!compact" class="chat-header">
         <div class="header-left">
           <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
         </div>
@@ -95,7 +95,7 @@
           />
 
           <ContextUsageWarningBar
-            v-if="!showNoProjectWelcome"
+            v-if="!compact && !showNoProjectWelcome"
             @open="showContextModal = true"
           />
 
@@ -114,8 +114,9 @@
             :placeholder="t('chat.askAnything')"
             :show-open-project-action="showNoProjectWelcome"
             :session-id="paneSessionId || undefined"
+            :compact="compact"
           />
-          <ToastNotification />
+          <ToastNotification v-if="!compact" />
 
           <!-- Work 模式自动路由：多助手匹配时的选择弹窗 -->
           <WorkAssistantPicker
@@ -128,7 +129,7 @@
 
           <!-- Rewind Dialog -->
           <RewindDialog
-            v-if="sessionStore.rewindState.showDialog"
+            v-if="!compact && sessionStore.rewindState.showDialog"
             :show="sessionStore.rewindState.showDialog"
             :selected-message-id="sessionStore.rewindState.selectedMessageId"
             :message-content="rewindSelectedMessageContent"
@@ -146,7 +147,7 @@
 
           <!-- Code Rewind Confirmation Dialog -->
           <CodeRewindConfirmDialog
-            v-if="sessionStore.rewindState.showCodeConfirm"
+            v-if="!compact && sessionStore.rewindState.showCodeConfirm"
             :show="sessionStore.rewindState.showCodeConfirm"
             :files="[...sessionStore.rewindState.filesToRewind]"
             :is-loading="sessionStore.rewindState.isRewinding"
@@ -168,18 +169,18 @@
 
         <!-- Right: Env Panel (floating solid card) -->
         <Transition name="sc-env-fade">
-          <SessionContextEnvPanel v-if="sessionContext.showEnvPanel" @continue="handleContinue" />
+          <SessionContextEnvPanel v-if="!compact && sessionContext.showEnvPanel" @continue="handleContinue" />
         </Transition>
 
         <!-- Right: Detail Panel (tasks/review) -->
         <Transition name="sc-panel-slide">
-          <SessionContextTaskPanel v-if="sessionContext.showRightPanel" />
+          <SessionContextTaskPanel v-if="!compact && sessionContext.showRightPanel" />
         </Transition>
 
         <!-- Capsule (shown when env panel is collapsed: by user, by activity, or always-collapse mode) -->
         <Transition name="sc-capsule-fade">
           <div
-            v-if="!sessionContext.showEnvPanel && (sessionContext.hasActivity || sessionContext.userOverride || sessionContext.panelExpandMode === 'always-collapse')"
+            v-if="!compact && !sessionContext.showEnvPanel && (sessionContext.hasActivity || sessionContext.userOverride || sessionContext.panelExpandMode === 'always-collapse')"
             class="sc-capsule"
             :class="{ 'sc-capsule-shifted': sessionContext.showRightPanel }"
             @click="sessionContext.openEnvPanel()"
@@ -249,20 +250,23 @@
       </div>
     </Transition>
 
-    <!-- Session Context Commit Dialog (modal overlay) -->
-    <SessionContextCommitDialog
-      v-if="sessionContext.showCommitDialog"
-      @close="sessionContext.closeCommitDialog()"
-    />
+    <!-- Session Context 弹窗组由主面板承载：紧凑面板重复渲染会叠出两份同款 modal -->
+    <template v-if="!compact">
+      <!-- Session Context Commit Dialog (modal overlay) -->
+      <SessionContextCommitDialog
+        v-if="sessionContext.showCommitDialog"
+        @close="sessionContext.closeCommitDialog()"
+      />
 
-    <!-- Session Context Create Branch Dialog -->
-    <SessionContextCreateBranchDialog v-if="sessionContext.showCreateBranchDialog" />
+      <!-- Session Context Create Branch Dialog -->
+      <SessionContextCreateBranchDialog v-if="sessionContext.showCreateBranchDialog" />
 
-    <!-- Session Context Git Graph Modal -->
-    <SessionContextGitGraphModal v-if="sessionContext.showGitGraphModal" />
+      <!-- Session Context Git Graph Modal -->
+      <SessionContextGitGraphModal v-if="sessionContext.showGitGraphModal" />
 
-    <!-- Session Context Push Dialog -->
-    <SessionContextPushDialog v-if="sessionContext.showPushDialog" />
+      <!-- Session Context Push Dialog -->
+      <SessionContextPushDialog v-if="sessionContext.showPushDialog" />
+    </template>
   </main>
 </template>
 
@@ -344,6 +348,11 @@ const props = defineProps<{
   paneId?: string
   /** 当前 pane 绑定的 centerTab id（分屏时由 PaneLeafView 传入；用于 pane 级标签高亮和终端判断） */
   paneTabId?: string
+  /**
+   * 紧凑模式（右侧面板的侧边任务）：只保留消息流与输入框。
+   * 同时切断对 sessionContext / diff 弹窗等全局单例的写入，避免与主面板互相覆盖。
+   */
+  compact?: boolean
 }>()
 
 /** 用 prop 或 current 解析出本 pane 实际绑定的会话 id（可能为空字符串） */
@@ -469,6 +478,7 @@ watchEffect((onCleanup) => {
 
 // 监听 TitleBar 的 diff 触发
 const stopDiffWatch = watch(() => sessionStore.diffPanelTrigger, () => {
+  if (props.compact) return
   fetchAndShowDiff()
 })
 
@@ -501,7 +511,8 @@ function handleSessionContextEsc(e: KeyboardEvent) {
     }
   }
 }
-document.addEventListener('keydown', handleSessionContextEsc)
+// sessionContext 是全局单例，紧凑面板不接管它的 ESC 关闭链，否则两份实例抢同一组状态
+if (!props.compact) document.addEventListener('keydown', handleSessionContextEsc)
 
 // Session Context: handle continue button from env panel
 function handleContinue() {
@@ -515,6 +526,7 @@ let gitStatsRequestId = 0
 let scmRefreshKey: string | null = null
 
 function clearSessionContextGitStats() {
+  if (props.compact) return
   sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
 }
 
@@ -524,6 +536,7 @@ function clearSessionContextGitStats() {
 watch(
   () => [paneSessionId.value, paneMessages.value.length, paneWorkingDirectory.value] as const,
   ([sessionId, messageCount, workingDirectory]) => {
+    if (props.compact) return
     if (!sessionId || messageCount === 0 || !workingDirectory) {
       scmRefreshKey = null
       gitStatsRequestId++
@@ -549,6 +562,7 @@ watch(
     scmStore.untracked,
   ],
   async () => {
+    if (props.compact) return
     const requestId = ++gitStatsRequestId
     if (!paneSessionId.value || paneMessages.value.length === 0) {
       clearSessionContextGitStats()
@@ -659,6 +673,7 @@ const _allManagerTasks = computed(() => taskManager.getAllTasks())
 watch(
   _allManagerTasks,
   (tasks) => {
+    if (props.compact) return
     if (tasks.length > 0) {
       sessionContext.updateTasks(
         tasks.map(t => ({
@@ -839,6 +854,8 @@ const isConfigured = computed(() => llmState.isConfigured.value)
 // Check if current tab is a terminal tab
 // 分屏模式下用 paneTabId 判断，避免全局 activeCenterTab 被其他 pane 切换而串扰
 const isTerminalTab = computed(() => {
+  // 紧凑面板不传 paneTabId，若回退到全局 activeCenterTab 会被主面板的终端标签误判
+  if (props.compact) return false
   if (props.paneTabId) {
     return props.paneTabId.startsWith('terminal-')
   }
@@ -847,6 +864,7 @@ const isTerminalTab = computed(() => {
 
 // Check if current tab is an orchestration tab
 const isOrchestrationTab = computed(() => {
+  if (props.compact) return false
   if (props.paneTabId) {
     return props.paneTabId.startsWith('orchestration-')
   }
@@ -887,8 +905,9 @@ const showNoProjectWelcome = computed(() => {
 //   2. work 模式 + 已选助手 + 有推荐 prompt → RecommendedPrompts（推荐任务卡）
 //   3. 其余空会话 → WelcomeHero（兜底欢迎层）
 
-/** 空会话且当前无历史消息（pane-scoped，分屏时跟随所在 pane 的会话） */
-const isEmptyChat = computed(() => paneMessages.value.length === 0)
+/** 空会话且当前无历史消息（pane-scoped，分屏时跟随所在 pane 的会话）；
+ *  紧凑模式改由 MessageList 自带的空态提示占位 */
+const isEmptyChat = computed(() => !props.compact && paneMessages.value.length === 0)
 
 /** 当前会话绑定的 work 助手（assistantId 或 currentAgent 回退） */
 const currentWorkAssistant = computed<AgentDef | undefined>(() => {
@@ -1256,7 +1275,7 @@ async function handleSend(content: string, attachments: AllAttachments, options?
     await turnStore.sendMessage(messageContent, userContent, {
       files: attachments.files,
       images: attachments.images
-    })
+    }, props.sessionId ? { sessionId: paneSessionId.value } : undefined)
     console.log('[ChatPanel] turnStore.sendMessage done')
   } catch (error) {
     console.error('[ChatPanel] sendMessage failed:', error)
@@ -1269,7 +1288,7 @@ async function handleSend(content: string, attachments: AllAttachments, options?
 async function handleStop() {
   console.log('[ChatPanel] Stopping...')
   try {
-    await turnStore.abort()
+    await turnStore.abort(props.sessionId ? paneSessionId.value : undefined)
     console.log('[ChatPanel] Stop requested successfully')
   } catch (error) {
     console.error('[ChatPanel] Error stopping:', error)
@@ -1287,7 +1306,7 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
   await sessionStore.addMessage({
     role: 'user',
     content: commandText
-  })
+  }, props.sessionId)
 
   // 执行命令
   const result = await executeSlashCommand(command, args)
@@ -1300,7 +1319,7 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
       await sessionStore.addMessage({
         role: 'assistant',
         content: result
-      })
+      }, props.sessionId)
     }
     return
   }
@@ -1319,7 +1338,7 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
   await sessionStore.addMessage({
     role: 'assistant',
     content: result
-  })
+  }, props.sessionId)
 }
 
 // 导入新的命令系统

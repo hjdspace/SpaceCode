@@ -232,6 +232,8 @@ export interface Session {
   /** Provider/base URL used by the live engine process for this session. */
   provider?: string
   baseUrl?: string
+  /** 侧边任务会话：不落盘、不出现在会话列表，关闭应用即消失。 */
+  ephemeral?: boolean
 }
 
 export interface FileNode {

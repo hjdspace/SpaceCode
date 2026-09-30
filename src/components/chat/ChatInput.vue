@@ -62,7 +62,7 @@
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
       <!-- 悬浮任务/改动状态栏 -->
-      <ComposerStatusBar />
+      <ComposerStatusBar v-if="!compact" />
 
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <div v-if="attachedQuotes.length > 0" class="quote-attachments">
@@ -446,6 +446,8 @@ const props = defineProps<{
   showOpenProjectAction?: boolean
   /** 本输入框绑定的会话 id；未传时回退全局 currentSessionId */
   sessionId?: string
+  /** 紧凑模式（侧边任务）：隐藏依赖全局 sessionContext 单例的悬浮状态栏 */
+  compact?: boolean
 }>()
 
 // ── Stores ───────────────────────────────────────────────────────
@@ -744,7 +746,7 @@ const hasContent = computed(() => editorHasContent(attachedFiles.value, attached
 const canSend = computed(() => hasContent.value && !props.isSending)
 
 const currentPendingMessages = computed(() => {
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (!sid) return []
   return turnStore.getPendingMessages(sid)
 })
@@ -788,8 +790,10 @@ const modelSubmenuStyle = computed<Record<string, string>>(() => {
 })
 
 // ── Pending Messages ─────────────────────────────────────────────
+// 全部按 editorSessionId（本输入框绑定的会话）寻址，而非全局 currentSessionId：
+// 分屏与侧边任务会同时存在多个 ChatInput 实例，用全局 id 会串到别的会话。
 function recallPendingMsg(msgId: string) {
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (!sid) return
   const recalled = turnStore.recallPendingMessage(sid, msgId)
   if (recalled) {
@@ -804,7 +808,7 @@ function recallPendingMsg(msgId: string) {
 }
 
 function removePendingMsg(msgId: string) {
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (sid) turnStore.removePendingMessage(sid, msgId)
 }
 
@@ -814,7 +818,7 @@ function toggleThinking() {
   settingsStore.thinkingEnabled = thinkingEnabled.value
   settingsStore.saveSettings()
 
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (sid) {
     api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
   }
@@ -1036,7 +1040,7 @@ function handleEditorKeydown(event: KeyboardEvent) {
   if (event.key === 'ArrowUp' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
     const content = getEditorPlainText().trim()
     if (!content) {
-      const sid = sessionStore.currentSessionId
+      const sid = editorSessionId.value
       if (sid) {
         const pending = turnStore.getPendingMessages(sid)
         if (pending.length > 0) {
@@ -1344,7 +1348,7 @@ function handleSend(steerMode = false) {
 
     if (!sendContent && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
 
-    const sid = sessionStore.currentSessionId
+    const sid = editorSessionId.value
     if (!sid) return
 
     if (steerMode) {
@@ -1588,7 +1592,11 @@ onMounted(() => {
 
   // 挂载即恢复本会话草稿（例如从设置页返回时组件被重新挂载）
   editorSessionId.value = props.sessionId ?? sessionStore.currentSessionId
-  nextTick(() => loadDraftForSession(editorSessionId.value))
+  nextTick(() => {
+    loadDraftForSession(editorSessionId.value)
+    // 目标会话刚挂载时就绪前，注入载荷一直留在 store 里，这里补取一次
+    tryConsumePendingInjection()
+  })
 })
 
 onUnmounted(() => {
@@ -1614,11 +1622,17 @@ watch(() => props.modelValue, (newValue) => {
 })
 
 // Watch workbench injection
-watch(() => appStore.pendingInputInjection, (payload) => {
+// 分屏 / 侧边任务会同时存在多个 ChatInput 实例：带 targetSessionId 的载荷只由绑定
+// 该会话的实例消费，其余实例留它在 store 里等目标实例挂载后自取（见 onMounted）。
+function tryConsumePendingInjection() {
+  const payload = appStore.pendingInputInjection
   if (!payload) return
-  injectFromWorkbench(payload)
-  appStore.consumeInputInjection()
-})
+  if (payload.targetSessionId && payload.targetSessionId !== editorSessionId.value) return
+  const owned = appStore.consumeInputInjection()
+  if (owned) injectFromWorkbench(owned)
+}
+
+watch(() => appStore.pendingInputInjection, tryConsumePendingInjection)
 
 // Watch pending input text (rollback restore)
 watch(() => sessionStore.pendingInputText, (newText) => {

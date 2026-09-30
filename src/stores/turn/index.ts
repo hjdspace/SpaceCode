@@ -580,8 +580,9 @@ export function useTurnStore(injectedApi?: any) {
       await sendGoalContinuation(sessionId)
     }
 
-    async function abort(): Promise<void> {
-      const sid = sessionStore.currentSessionId
+    /** 中止指定会话的当前 turn；缺省为目标为全局 currentSessionId。 */
+    async function abort(targetSessionId?: string): Promise<void> {
+      const sid = targetSessionId ?? sessionStore.currentSessionId
       sessionStore.logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'}`)
 
       if (sid) {

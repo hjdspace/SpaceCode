@@ -65,6 +65,7 @@ import im from './im'
 import skillManagerV2 from './skillManagerV2'
 import memorySettings from './memorySettings'
 import selectionActions from './selectionActions'
+import sideTask from './sideTask'
 
 export default {
   common,
@@ -134,4 +135,5 @@ export default {
   skillManagerV2,
   memorySettings,
   selectionActions,
+  sideTask,
 }

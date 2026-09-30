@@ -742,8 +742,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     currentProjectRoot.value = projectPath
   }
 
-  function createSession(title = 'New Chat', workingDirectory?: string, sessionId?: string): Session {
+  function createSession(
+    title = 'New Chat',
+    workingDirectory?: string,
+    sessionId?: string,
+    options?: { ephemeral?: boolean; activate?: boolean },
+  ): Session {
     const id = sessionId || createUuid()
+    // activate=false 供侧边任务使用：主会话必须保持 current，否则新建侧边任务
+    // 会把中间区域切走并清掉主会话的 turn checkpoints
+    const activate = options?.activate !== false
 
     const session: Session = {
       id,
@@ -755,13 +763,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       processStatus: 'none',
       isTabOpen: true,
       lastActivityAt: Date.now(),
-      mode: appStore.mode
+      mode: appStore.mode,
+      ephemeral: options?.ephemeral || undefined,
     }
     sessions.value.unshift(session)
-    currentSessionId.value = session.id
+    if (activate) {
+      currentSessionId.value = session.id
+      clearTurnCheckpoints()
+    }
     // 新建的会话没有 JSONL 历史，标记为已 hydrate 避免无意义的恢复尝试
     hydratedSessionIds.add(session.id)
-    clearTurnCheckpoints()
     saveToStorage()
     traceEvent({
       sessionId: session.id,

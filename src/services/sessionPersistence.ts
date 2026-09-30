@@ -275,7 +275,10 @@ export function prepareSessionsForStorage(
   const truncateText = (text: string, limit: number, suffix: string) =>
     text.length > limit ? text.slice(0, limit) + suffix : text
 
-  const prepared = sessions.map(session => ({
+  // 侧边任务会话只在当前应用生命周期内存在，任何情况下都不写入存储
+  const persistable = sessions.filter(s => !s.ephemeral)
+
+  const prepared = persistable.map(session => ({
     ...session,
     messages: session.messages.map(msg => {
       const next: any = { ...msg }

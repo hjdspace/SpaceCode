@@ -23,6 +23,8 @@
 
       <ArtifactsPanel v-else-if="mode === 'artifacts'" />
 
+      <SideTaskPanel v-else-if="mode === 'side-task'" />
+
       <DesignFileWorkspace v-else-if="mode === 'design-preview'" />
 
       <PreviewPanel
@@ -180,6 +182,7 @@ import CodeViewer from '../common/CodeViewer.vue'
 import MarkdownViewer from '../common/MarkdownViewer.vue'
 import ToolDiffViewer from '../common/ToolDiffViewer.vue'
 import SubagentPanel from './SubagentPanel.vue'
+import SideTaskPanel from './SideTaskPanel.vue'
 import {
   INSPECTOR_SCRIPT,
   INSPECTOR_SELECT_PREFIX,
@@ -503,6 +506,11 @@ watch(() => appStore.webviewUrl, () => {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+// 侧边任务内嵌 ChatPanel，滚动由其内部消息流接管，外层再滚会出现双滚动条
+.info-panel.side-task .panel-content {
+  overflow: hidden;
 }
 
 .webview-nav {

@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw, watch } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow, MessagesSquare } from 'lucide-vue-next'
 import { useChatSessionStore } from './chatSession'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
 import { api } from '@/services/electronAPI'
+import { i18n } from '@/i18n'
 
 export interface FileInfo {
   path: string
@@ -59,9 +60,20 @@ export interface InputInjectPayload {
     id: string
     text: string
   }
+  /**
+   * 注入的目标会话。存在多个 ChatInput 实例(分屏/侧边任务)时只有绑定该会话的
+   * 实例消费; 缺省时由最先就绪的实例消费(保持旧行为)。
+   */
+  targetSessionId?: string
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview' | 'subagent'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview' | 'subagent' | 'side-task'
+
+/** 侧边任务：与主会话并行的一次性辅助对话，关闭标签即销毁其临时会话 */
+export interface SideTask {
+  sessionId: string
+  title: string
+}
 
 export interface InfoPanelTab {
   id: string
@@ -89,6 +101,9 @@ const SHOW_HIDDEN_FILES_STORAGE_KEY = 'app_show_hidden_files'
 const MODE_STORAGE_KEY = 'app_mode'
 const WORK_WORKSPACE_STORAGE_KEY = 'app_work_workspace'
 const WORK_WORKSPACE_CONFIRMED_STORAGE_KEY = 'app_work_workspace_confirmed'
+
+/** 右侧面板中承载侧边任务的固定标签 id */
+const SIDE_TASK_TAB_ID = 'side-task'
 
 /** 工作模式：code = 编码模式（默认）；work = 办公助手模式；design = 设计模式 */
 export type AppMode = 'work' | 'code' | 'design'
@@ -120,6 +135,8 @@ export const useAppStore = defineStore('app', () => {
   const infoPanelTabs = ref<InfoPanelTab[]>([])
   const activeInfoTabId = ref<string | null>(null)
   const subagentPanelState = ref<SubagentPanelState | null>(null)
+  const sideTasks = ref<SideTask[]>([])
+  const activeSideTaskSessionId = ref<string | null>(null)
   const isLoading = ref<boolean>(false)
 
   // 工作台 -> 输入框 的一次性注入载荷(截图/框选元素整合)。
@@ -183,6 +200,10 @@ export const useAppStore = defineStore('app', () => {
     if (subagentPanelState.value) return 'subagent'
     return activeInfoTab.value?.type ?? 'file'
   })
+
+  const activeSideTask = computed<SideTask | null>(() =>
+    sideTasks.value.find(t => t.sessionId === activeSideTaskSessionId.value) || null
+  )
 
   const currentFile = computed<FileInfo | null>(() => {
     const tab = activeInfoTab.value
@@ -293,6 +314,8 @@ export const useAppStore = defineStore('app', () => {
     const index = infoPanelTabs.value.findIndex(t => t.id === tabId)
     if (index === -1) return
 
+    if (tabId === SIDE_TASK_TAB_ID) disposeAllSideTasks()
+
     infoPanelTabs.value.splice(index, 1)
 
     if (activeInfoTabId.value === tabId) {
@@ -309,6 +332,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function closeAllInfoTabs() {
+    disposeAllSideTasks()
     infoPanelTabs.value = []
     activeInfoTabId.value = null
     infoPanelVisible.value = false
@@ -335,6 +359,71 @@ export const useAppStore = defineStore('app', () => {
     infoPanelVisible.value = false
     // 退出全屏，否则中间面板仍被隐藏
     infoPanelFullscreen.value = false
+  }
+
+  // ── 侧边任务（与主任务并行的临时辅助对话）─────────────────────────
+
+  /** 侧边任务标签关闭即销毁全部临时会话，不留后台引擎进程 */
+  function disposeAllSideTasks() {
+    const sessionStore = useChatSessionStore()
+    for (const task of sideTasks.value) void sessionStore.deleteSession(task.sessionId)
+    sideTasks.value = []
+    activeSideTaskSessionId.value = null
+  }
+
+  /** 新建侧边任务：建一个不抢占主会话的临时会话并激活 */
+  function addSideTask(): string {
+    const sessionStore = useChatSessionStore()
+    const title = i18n.global.t('sideTask.newTask')
+    const session = sessionStore.createSession(
+      title,
+      sessionStore.currentProjectRoot || undefined,
+      undefined,
+      { ephemeral: true, activate: false },
+    )
+    sideTasks.value.push({ sessionId: session.id, title })
+    activeSideTaskSessionId.value = session.id
+    return session.id
+  }
+
+  /** 在右侧面板打开侧边任务视图；没有任何任务时先建一个 */
+  function openSideTaskPanel() {
+    // subagent 视图优先级高于标签类型，不显式清掉会盖住侧边任务
+    subagentPanelState.value = null
+    openInfoTab({
+      id: SIDE_TASK_TAB_ID,
+      type: 'side-task',
+      title: i18n.global.t('sideTask.panelTitle'),
+      icon: markRaw(MessagesSquare),
+      data: null,
+      closeable: true,
+    })
+    if (sideTasks.value.length === 0) addSideTask()
+  }
+
+  function selectSideTask(sessionId: string) {
+    if (sideTasks.value.some(t => t.sessionId === sessionId)) {
+      activeSideTaskSessionId.value = sessionId
+    }
+  }
+
+  /** 关闭侧边任务：销毁其临时会话（连带停掉引擎子进程） */
+  function closeSideTask(sessionId: string) {
+    const index = sideTasks.value.findIndex(t => t.sessionId === sessionId)
+    if (index === -1) return
+    sideTasks.value.splice(index, 1)
+    if (activeSideTaskSessionId.value === sessionId) {
+      const next = sideTasks.value[Math.min(index, sideTasks.value.length - 1)]
+      activeSideTaskSessionId.value = next?.sessionId ?? null
+    }
+    void useChatSessionStore().deleteSession(sessionId)
+  }
+
+  /** 选中文字「在侧边任务中提问」：复用当前任务，把选中文本作为引用附件注入其输入框 */
+  function askInSideTask(text: string) {
+    const target = activeSideTaskSessionId.value ?? addSideTask()
+    openSideTaskPanel()
+    pushToInput({ quote: { id: crypto.randomUUID(), text }, targetSessionId: target })
   }
 
   function showInfoPanel(mode: InfoPanelTabType) {
@@ -1010,6 +1099,14 @@ export const useAppStore = defineStore('app', () => {
     activeInfoTabId,
     subagentPanelState,
     activeInfoTab,
+    sideTasks,
+    activeSideTaskSessionId,
+    activeSideTask,
+    addSideTask,
+    openSideTaskPanel,
+    selectSideTask,
+    closeSideTask,
+    askInSideTask,
     projectRoot,
     showHiddenFiles,
     mode,
