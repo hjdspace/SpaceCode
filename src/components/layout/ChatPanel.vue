@@ -28,9 +28,6 @@
           <span class="agent-badge" v-if="sessionStore.currentAgent" :title="sessionStore.currentAgent">
             <span class="badge-dot agent-dot" aria-hidden="true"></span>
             {{ sessionStore.currentAgent }}
-          </span>          <span class="model-badge" v-if="currentModel" :title="currentModel">
-            <span class="badge-dot" aria-hidden="true"></span>
-            {{ formatModelName(currentModel) }}
           </span>
           <ContextUsageChip
             v-if="!showNoProjectWelcome"
@@ -993,7 +990,7 @@ const currentModel = ref('')
 
 // 初始化时从 settings 加载模型。
 // ★ 优先用 lastSelectedModel（用户在输入框最近一次的选择，跨重启持久化），
-// 否则重启后徽标会回退显示 config.model（恒为 sonnet 槽位）。
+// 否则重启后输入框会回退显示 config.model（恒为 sonnet 槽位）。
 onMounted(async () => {
   await initLLMService()
   currentModel.value = settingsStore.lastSelectedModel || settingsStore.config.model || ''
@@ -1174,16 +1171,6 @@ async function handleEffortChange(effort: string) {
 async function handleAgentChange(agent: string) {
   await sessionStore.switchAgent(agent)
   console.log('[ChatPanel] Agent changed to:', agent || '(default)')
-}
-
-// 格式化模型名称显示
-function formatModelName(model: string): string {
-  if (!model) return ''
-  // 如果名称太长，截断显示
-  if (model.length > 25) {
-    return model.slice(0, 22) + '...'
-  }
-  return model
 }
 
 interface SendOptions {
@@ -1912,7 +1899,6 @@ async function handleRestoreHistorySession(session: any) {
   gap: 8px;
 }
 
-.model-badge,
 .provider-badge,
 .agent-badge {
   display: flex;
@@ -1924,21 +1910,6 @@ async function handleRestoreHistorySession(session: any) {
   border-radius: var(--radius-full);
   letter-spacing: 0.5px;
   text-transform: uppercase;
-}
-
-.model-badge {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  border: 1px solid var(--surface-border);
-  max-width: 150px;
-
-  .badge-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent-primary);
-    flex-shrink: 0;
-  }
 }
 
 .agent-badge {
