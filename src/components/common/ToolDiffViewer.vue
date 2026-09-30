@@ -423,6 +423,7 @@ async function handleRevert() {
   flex: 1;
   overflow: auto;
   min-height: 0; /* 关键：允许在 flex 容器中正确收缩 */
+  @include scrollbar-overlay;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
@@ -520,22 +521,11 @@ async function handleRevert() {
   --gdc-gutter-bg-color: var(--gdc-gutter-bg-color, #161b22);
   --gdc-gutter-text-color: var(--gdc-gutter-text-color, #6e7681);
 
-  &::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
+  @include scrollbar-overlay;
 
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 4px;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.25);
-    }
+  /* 横向滚动条挂在 @git-diff-view 自己的容器上, 不覆盖就是浏览器默认外观 */
+  :deep(.diff-table-scroll-container) {
+    @include scrollbar-overlay;
   }
 }
 
@@ -607,7 +597,15 @@ async function handleRevert() {
   .grep-text {
     flex: 1;
     min-width: 0;
-    overflow-x: auto;
+    /* 逐行横向滚动: 行高只有 22px, 任何滚动条都会吃掉文本, 所以只滚不画.
+       overflow-y 一并关掉, 否则横向滚动条占的高度会变成纵向溢出. */
+    overflow: auto hidden;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+
     white-space: pre;
     color: var(--text-secondary);
   }
