@@ -15,6 +15,7 @@ export default {
     development: '开发工具',
     aiMl: 'AI/机器学习',
     devOps: 'DevOps',
+    finance: '金融投资',
     creative: '创意/艺术',
     communication: '沟通协作',
     other: '其他'

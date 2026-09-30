@@ -72,6 +72,17 @@ export function pathBasename(p: string): string {
   return p.split(/[\\/]+/).filter(Boolean).pop() ?? ''
 }
 
+// ── Pack category labels ──────────────────────────────────────────
+
+/**
+ * i18n key for a pack-level category id (`skills.categories.*`),
+ * or null when the pack has no category. Callers decide the missing-key
+ * fallback (e.g. render the raw id).
+ */
+export function packCategoryKey(category?: string): string | null {
+  return category ? `skills.categories.${category}` : null
+}
+
 // ── Unmanaged reason labels ────────────────────────────────────────
 
 const UNMANAGED_REASON_KEYS: Record<string, string> = {

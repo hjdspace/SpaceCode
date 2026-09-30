@@ -42,6 +42,20 @@
       />
 
       <div class="main-pane">
+        <div v-if="store.filteredPacks.length > 0" class="packs-section">
+          <div class="section-title">
+            <Boxes :size="14" />
+            <span>{{ t('skillManagerV2.builtinPacks.sectionTitle') }}</span>
+            <span class="count">{{ store.filteredPacks.length }}</span>
+          </div>
+          <LocalSkillPackCard
+            v-for="p in store.filteredPacks"
+            :key="p.id"
+            :pack="p"
+            @open="openPackDialog"
+          />
+        </div>
+
         <div v-if="store.filteredBundles.length > 0" class="bundles-section">
           <div class="section-title">
             <Package :size="14" />
@@ -77,7 +91,7 @@
         </div>
 
         <div
-          v-if="store.filteredBundles.length === 0 && store.filteredSkills.length === 0"
+          v-if="store.filteredPacks.length === 0 && store.filteredBundles.length === 0 && store.filteredSkills.length === 0"
           class="empty-pane"
         >
           <PackageOpen :size="48" />
@@ -107,6 +121,13 @@
       :skillName="installingSkillName"
       @confirm="handleInstallScopeConfirm"
     />
+
+    <PackInstallDialog
+      v-model:open="showPackDialog"
+      :pack="activePack"
+      :skills="activePack ? store.getPackSkills(activePack.id) : []"
+      @installed="handlePackInstalled"
+    />
   </div>
 </template>
 
@@ -118,9 +139,10 @@ import {
   LayoutGrid,
   List,
   Package,
-  PackageOpen
+  PackageOpen,
+  Boxes
 } from 'lucide-vue-next'
-import { useLocalSkillsStore, type LocalSkill, type LocalSkillBundle } from '../../stores/localSkills'
+import { useLocalSkillsStore, type LocalSkill, type LocalSkillBundle, type LocalSkillPack } from '../../stores/localSkills'
 import { useAppStore } from '@/stores/app'
 import { useDialog } from '@/composables/useDialog'
 import CategorySidebar from './CategorySidebar.vue'
@@ -129,6 +151,8 @@ import LocalSkillDetail from './LocalSkillDetail.vue'
 import DirectoryManager from './DirectoryManager.vue'
 import InstallScopeDialog from './InstallScopeDialog.vue'
 import LocalSkillBundleCard from './LocalSkillBundleCard.vue'
+import LocalSkillPackCard from './LocalSkillPackCard.vue'
+import PackInstallDialog from './PackInstallDialog.vue'
 
 const { t } = useI18n()
 const store = useLocalSkillsStore()
@@ -138,6 +162,8 @@ const selectedSkill = ref<LocalSkill | null>(null)
 const showDirectoryManager = ref(false)
 const showInstallScope = ref(false)
 const installingSkillName = ref('')
+const showPackDialog = ref(false)
+const activePack = ref<LocalSkillPack | null>(null)
 type PendingInstall =
   | { kind: 'skill', name: string }
   | { kind: 'bundle', bundle: LocalSkillBundle }
@@ -146,6 +172,20 @@ const pendingInstall = ref<PendingInstall | null>(null)
 const emit = defineEmits<{
   installed: []
 }>()
+
+function openPackDialog(pack: LocalSkillPack) {
+  activePack.value = pack
+  showPackDialog.value = true
+}
+
+function handlePackInstalled() {
+  // installPackSkills 内部会 fetchLocalSkills 重建 packs，同步弹窗引用
+  if (activePack.value) {
+    const packId = activePack.value.id
+    activePack.value = store.packs.find(p => p.id === packId) || null
+  }
+  emit('installed')
+}
 
 onMounted(async () => {
   await store.loadCustomDirectories()
@@ -320,7 +360,8 @@ async function handleRemoveDirectory(dirPath: string) {
   overflow-y: auto;
 }
 
-.bundles-section {
+.bundles-section,
+.packs-section {
   display: flex;
   flex-direction: column;
   gap: 10px;

@@ -10,6 +10,7 @@ import { onMounted, computed, ref, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Bot,
+  Boxes,
   BookOpen,
   Download,
   HardDrive,
@@ -30,6 +31,7 @@ import InstallPage from './InstallPage.vue'
 import DiagnosisPage from './DiagnosisPage.vue'
 import AgentManagementPage from './AgentManagementPage.vue'
 import SkillPackPage from './SkillPackPage.vue'
+import BuiltinPacksPage from './BuiltinPacksPage.vue'
 
 const { t } = useI18n()
 const store = useSkillManagerStore()
@@ -52,6 +54,7 @@ interface TabDef {
 const tabs: TabDef[] = [
   { id: 'library', labelKey: 'skillManagerV2.tabs.library', icon: BookOpen, group: 'management' },
   { id: 'install', labelKey: 'skillManagerV2.tabs.install', icon: Download, group: 'management' },
+  { id: 'builtinPacks', labelKey: 'skillManagerV2.tabs.builtinPacks', icon: Boxes, group: 'management' },
   { id: 'packs', labelKey: 'skillManagerV2.tabs.packs', icon: PackageOpen, group: 'management' },
   { id: 'agents', labelKey: 'skillManagerV2.tabs.agents', icon: Bot, group: 'management' },
   { id: 'diagnostics', labelKey: 'skillManagerV2.tabs.diagnostics', icon: Stethoscope, group: 'management' },
@@ -213,6 +216,8 @@ async function handleRefresh(): Promise<void> {
         <template v-else>
           <SkillLibraryPage v-if="store.activeTab === 'library'" />
           <InstallPage v-else-if="store.activeTab === 'install'" />
+
+          <BuiltinPacksPage v-else-if="store.activeTab === 'builtinPacks'" />
 
           <SkillPackPage v-else-if="store.activeTab === 'packs'" />
 
