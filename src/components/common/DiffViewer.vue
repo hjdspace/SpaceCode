@@ -288,7 +288,12 @@ onUnmounted(() => {
 .diff-content {
   flex: 1;
   overflow: auto;
-  @include scrollbar;
+  @include scrollbar-overlay;
+
+  /* 横向滚动条挂在 @git-diff-view 自己的容器上, 不覆盖就是浏览器默认外观 */
+  :deep(.diff-table-scroll-container) {
+    @include scrollbar-overlay;
+  }
 }
 
 .diff-loading {
