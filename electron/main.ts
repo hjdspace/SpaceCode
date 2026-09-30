@@ -84,32 +84,24 @@ setupLinuxPlatform()
 
 // Windows: set AppUserModelId.
 // - 生产：appId 与安装器创建的开始菜单快捷方式（内嵌同一 AUMID）匹配，任务栏/通知正常解析。
-//   实测安装版 SpaceCode.exe 的 FileDescription = "SpaceCode"，其开始菜单快捷方式 IconLocation
-//   为空 → 图标继承 exe 内嵌图标，所以下述 dev 问题不影响打包版。
-// - 开发：若使用同一 AUMID，会匹配到已安装应用的快捷方式，但快捷方式指向的不是当前
-//   进程的 electron.exe，Windows 会拒绝该快捷方式并回退到 electron.exe 的默认原子图标，
-//   导致任务栏图标错误。改用 dev 专属 AUMID（系统中无任何快捷方式与之匹配），
-//   Windows 解析失败后会回退使用窗口图标（见 loadIconImage）。
-//   实测：AUMID 匹配到目标不符的快捷方式 → 原子图标；AUMID 无解析结果 → 窗口图标。
+//   实测安装版 SpaceCode.exe 的 FileDescription = "SpaceCode"，其快捷方式 IconLocation 为空 →
+//   图标继承 exe 内嵌图标，故 dev 的问题不影响打包版。
+// - dev 与打包态必须用不同 AUMID：共用会让 dev 进程（electron.exe）的解析结果污染已安装应用
+//   的任务栏组图标缓存，且删除/重建注册表键不会刷新 Explorer 已缓存的组图标。
 //
-// dev 弹一次系统通知就会打破"无快捷方式匹配"这个前提。以下为实测结论，勿再重复踩坑：
-// 1) 触发者是 toast 本身，与 setAppUserModelId 无关：只启动不弹通知时不会生成任何快捷方式；
-//    一次 new Notification().show() 后约 0.1s 内，Electron 的 Windows toast 后端会写出
-//    %APPDATA%\Microsoft\Windows\Start Menu\Programs\Electron.lnk（实测属性：
-//    target = node_modules/electron/dist/electron.exe，AUMID = 本行的 dev 值，IconLocation 为空
-//    → 继承 electron.exe 原子图标；名字来自主进程 exe 的 FileDescription，dev exe 是 "Electron"）。
-//    触发点：notificationService.showSystemNotification() 与 cronService 的 onRunCompleted。
-// 2) 图标不是启动时解析一次：实测同一存活窗口在 toast 弹出、.lnk 出现的瞬间，任务栏图标当场
-//    从窗口图标翻成原子图标。所以"每次启动先删 .lnk"不是修复，只是推迟到下一次通知。
-// 3) 预先放一条同 AUMID 同 target 的"正确"快捷方式也拦不住 —— toast 仍会再写一个 Electron.lnk，
-//    两条同 AUMID 记录反而让解析结果不确定。
-// 4) 已验证可行的根因修法（将来要修就用它）：给 dev 用的 exe 打身份补丁 ——
-//    node_modules/electron-winstaller/vendor/rcedit.exe <electron.exe>
-//      --set-icon icons/icon.ico --set-version-string FileDescription "SpaceCode Dev"
-//    之后 toast 写出的快捷方式改名、图标继承为应用图标；实测通知前后任务栏图标均正确。
-//    代价：改 node_modules 内二进制、破坏其 Authenticode 签名、npm install 或升级 Electron 后需
-//    重打、exe 运行中打不上（须放 dev 前置钩子）。
-// 当前决定：不改行为（dev 保留真实系统 toast），只留本注释。临时恢复 = 删除上面那个 Electron.lnk。
+// dev 态图标曾被系统通知破坏，机制（本机实测）：
+//   1) Electron 的 Windows toast 后端每执行一次 new Notification().show()，就向
+//      %APPDATA%\Microsoft\Windows\Start Menu\Programs\ 写出一个快捷方式，AUMID = 下面的 dev 值、
+//      target = 当前 electron.exe、**IconLocation 为空**（名字取自 exe 的 FileDescription）。
+//   2) 任务栏组图标的解析优先级：匹配 AUMID 的 .lnk > 注册表 IconUri > 进程 exe 图标 > 窗口 HICON。
+//      那个空图标 .lnk 因此接管解析，组图标回退到 exe 图标 = Electron 原子图标，且在同一存活窗口上
+//      当场翻转（不是只影响下次启动）。
+//   3) 在 .lnk 层面无法修：注册表 IconUri 压不过它；预放同 AUMID 同 target 的正规 .lnk 也压不过它；
+//      事后删除或改写它，Explorer 也不会重新解析（本次结果已缓存）。
+//   根因修法是把图标做进 exe 本身 —— scripts/patch-dev-electron-icon.cjs（由 predev /
+//   preelectron:dev / postinstall 自动执行）给 electron.exe 写入应用图标与 FileDescription，
+//   回退链每一环都落在正确图标上，无需在运行时增删改用户的开始菜单文件。脚本失败（如 dev 正在运行
+//   占用 exe）时只告警，图标退回上面描述的错误表现。
 if (process.platform === 'win32') {
   app.setAppUserModelId(app.isPackaged ? 'com.spacecode.desktop' : 'com.spacecode.desktop.dev')
 }
