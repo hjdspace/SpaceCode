@@ -16,9 +16,7 @@ export function estimateInputTokens(body: Record<string, any>): number {
   }
   if (Array.isArray(body.messages)) {
     for (const msg of body.messages) {
-      chars += typeof msg.content === 'string'
-        ? msg.content.length
-        : JSON.stringify(msg.content ?? '').length
+      chars += contentCharLength(msg.content)
     }
   }
   if (Array.isArray(body.tools)) {
@@ -26,6 +24,26 @@ export function estimateInputTokens(body: Record<string, any>): number {
   }
 
   return Math.ceil(chars / 4)
+}
+
+/**
+ * Anthropic 对一张 ≤1.15 百万像素的图片约计 1300 token，按本文件的 chars/4 口径
+ * 折算成字符数。不能直接量 base64 字符串 —— 一张 25KB 的截图就有 ~34k 字符，
+ * 会让上下文用量条凭空多报 8k+ token。
+ */
+const IMAGE_APPROX_CHARS = 1300 * 4
+
+function contentCharLength(content: unknown): number {
+  if (typeof content === 'string') return content.length
+  if (!Array.isArray(content)) return 0
+
+  let chars = 0
+  for (const block of content) {
+    if (block?.type === 'image') chars += IMAGE_APPROX_CHARS
+    else if (block?.type === 'tool_result') chars += contentCharLength(block.content)
+    else chars += JSON.stringify(block ?? '').length
+  }
+  return chars
 }
 
 export function anthropicToOpenAIRequest(body: Record<string, any>): Record<string, any> {
@@ -104,6 +122,7 @@ export function anthropicToOpenAIRequest(body: Record<string, any>): Record<stri
  * Convert one Anthropic message into one or more OpenAI messages.
  * - assistant tool_use blocks → assistant.tool_calls
  * - user tool_result blocks   → separate { role: 'tool', tool_call_id } messages
+ * - user image blocks         → image_url parts on a multimodal user content array
  */
 function convertMessage(msg: any, out: Array<Record<string, any>>): void {
   const role = msg.role
@@ -148,22 +167,82 @@ function convertMessage(msg: any, out: Array<Record<string, any>>): void {
     return
   }
 
-  // role === 'user'：可能混有 text / tool_result（image 暂只提取文本）
+  // role === 'user'：可能混有 text / image / tool_result
   const textParts: string[] = []
+  const imageParts: Array<Record<string, any>> = []
+  const toolResultImageParts: Array<Record<string, any>> = []
   for (const block of content) {
     if (block.type === 'text') {
       textParts.push(block.text || '')
+    } else if (block.type === 'image') {
+      const part = toOpenAIImagePart(block)
+      if (part) imageParts.push(part)
     } else if (block.type === 'tool_result') {
       out.push({
         role: 'tool',
         tool_call_id: block.tool_use_id,
         content: extractToolResultText(block.content),
       })
+      toolResultImageParts.push(...collectImageParts(block.content))
     }
   }
-  if (textParts.length > 0) {
-    out.push({ role: 'user', content: textParts.join('') })
+
+  if (textParts.length > 0 || imageParts.length > 0) {
+    out.push(
+      imageParts.length > 0
+        ? {
+            role: 'user',
+            content: [
+              ...(textParts.length > 0 ? [{ type: 'text', text: textParts.join('') }] : []),
+              ...imageParts,
+            ],
+          }
+        : { role: 'user', content: textParts.join('') },
+    )
   }
+
+  // 模型自己 Read 回来的图片藏在 tool_result 里，而 OpenAI 的 role:'tool' 只能带
+  // 字符串 —— 只能另起一条 user 消息把图片补上，否则这条链上的图必然丢。
+  // 放在所有 tool 消息之后，避免把 tool 消息插到 user 消息后面破坏配对顺序。
+  if (toolResultImageParts.length > 0) {
+    out.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: '[Image content attached from the tool results above]' },
+        ...toolResultImageParts,
+      ],
+    })
+  }
+}
+
+/**
+ * Anthropic image block → OpenAI image_url part。
+ *
+ * base64 源拼成 data URL；url 源直接透传。其余（如 file source）返回 null。
+ */
+function toOpenAIImagePart(block: any): Record<string, any> | null {
+  const source = block?.source
+  if (!source) return null
+  if (source.type === 'base64' && typeof source.data === 'string' && source.data.length > 0) {
+    const mediaType = typeof source.media_type === 'string' ? source.media_type : 'image/png'
+    return { type: 'image_url', image_url: { url: `data:${mediaType};base64,${source.data}` } }
+  }
+  if (source.type === 'url' && typeof source.url === 'string' && source.url.length > 0) {
+    return { type: 'image_url', image_url: { url: source.url } }
+  }
+  return null
+}
+
+/** 从任意 content（block 数组）里收集可转换的 image_url part */
+function collectImageParts(content: any): Array<Record<string, any>> {
+  if (!Array.isArray(content)) return []
+  const parts: Array<Record<string, any>> = []
+  for (const block of content) {
+    if (block?.type !== 'image') continue
+    const part = toOpenAIImagePart(block)
+    if (part) parts.push(part)
+  }
+  return parts
 }
 
 export function openAIToAnthropicResponse(body: Record<string, any>): Record<string, any> {
