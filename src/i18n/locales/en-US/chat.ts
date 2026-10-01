@@ -12,6 +12,11 @@ export default {
   claude: 'Claude',
   taskCompleteNotificationTitle: 'SpaceCode · {session}',
   taskCompleteNotificationBody: 'Task completed, click to view the result',
+  waitingNotifyTitle: 'SpaceCode · {session}',
+  waitingQuestionNotifyBody: 'Waiting for your answer: {detail}',
+  waitingQuestionNotifyBodyPlain: 'Waiting for your answer, click to view',
+  waitingPermissionNotifyBody: 'Your approval is needed: {detail}',
+  waitingPlanNotifyBody: 'Plan is ready for your review',
   startConversation: 'Start a conversation',
   startConversationDesc: 'Type a message to begin working with Claude Code',
   welcomeHero: {

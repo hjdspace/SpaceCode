@@ -98,6 +98,7 @@ import {
   showSystemNotification,
   registerNotificationIPCHandlers,
 } from '@electron/infra/notificationService'
+import { info as loggerInfo } from '@electron/infra/logger'
 
 describe('notificationService', () => {
   beforeEach(() => {
@@ -296,7 +297,7 @@ describe('notificationService', () => {
     it('restores, shows and focuses the window on click', () => {
       const originalPlatform = process.platform
       Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-      const win = { isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn() }
+      const win = { isDestroyed: () => false, isFocused: () => false, isVisible: () => true, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn(), flashFrame: vi.fn() }
 
       try {
         showSystemNotification({ title: 'T', message: 'M', window: win as any })
@@ -305,6 +306,34 @@ describe('notificationService', () => {
         expect(win.restore).toHaveBeenCalledTimes(1)
         expect(win.show).toHaveBeenCalledTimes(1)
         expect(win.focus).toHaveBeenCalledTimes(1)
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
+    })
+
+    it('flashes the taskbar when the window is in the background', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      const win = { isDestroyed: () => false, isFocused: () => false, flashFrame: vi.fn() }
+
+      try {
+        showSystemNotification({ title: 'T', message: 'M', window: win as any })
+
+        expect(win.flashFrame).toHaveBeenCalledWith(true)
+      } finally {
+        Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      }
+    })
+
+    it('does not flash the taskbar while the window is focused', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      const win = { isDestroyed: () => false, isFocused: () => true, flashFrame: vi.fn() }
+
+      try {
+        showSystemNotification({ title: 'T', message: 'M', window: win as any })
+
+        expect(win.flashFrame).not.toHaveBeenCalled()
       } finally {
         Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
       }
@@ -351,8 +380,22 @@ describe('notificationService', () => {
       expect(electronMock.Notification).not.toHaveBeenCalled()
     })
 
+    it('logs the dispatched payload together with the window state', () => {
+      const win = { isDestroyed: () => false, isFocused: () => true, isVisible: () => true, isMinimized: () => false }
+      registerNotificationIPCHandlers(() => win as any)
+      const handler = vi.mocked(electronMock.ipcMain.on).mock.calls[0][1] as (e: unknown, o: unknown) => void
+
+      handler({}, { title: 'Waiting', message: 'AI 在等你回答：选哪个方案' })
+
+      expect(loggerInfo).toHaveBeenCalledWith(
+        'Notification',
+        expect.stringContaining('IPC received | title=Waiting | body=AI 在等你回答：选哪个方案 | focused=true visible=true minimized=false'),
+      )
+      expect(electronMock.Notification).toHaveBeenCalledTimes(1)
+    })
+
     it('opens a topmost popup window when the system notification fails', () => {
-      const win = { isDestroyed: () => false, isMinimized: () => false, restore: vi.fn(), show: vi.fn(), focus: vi.fn() }
+      const win = { isDestroyed: () => false, isFocused: () => false, isVisible: () => true, isMinimized: () => false, restore: vi.fn(), show: vi.fn(), focus: vi.fn(), flashFrame: vi.fn() }
       registerNotificationIPCHandlers(() => win as any)
       const handler = vi.mocked(electronMock.ipcMain.on).mock.calls[0][1] as (e: unknown, o: unknown) => void
       ;(electronMock.Notification as any).isSupported.mockImplementation(() => false)
@@ -378,7 +421,7 @@ describe('notificationService', () => {
     })
 
     it('focuses the main window and closes the popup when the popup is clicked', () => {
-      const win = { isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn() }
+      const win = { isDestroyed: () => false, isFocused: () => false, isVisible: () => true, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn(), flashFrame: vi.fn() }
       registerNotificationIPCHandlers(() => win as any)
       const handler = vi.mocked(electronMock.ipcMain.on).mock.calls[0][1] as (e: unknown, o: unknown) => void
       ;(electronMock.Notification as any).isSupported.mockImplementation(() => false)

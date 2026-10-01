@@ -14,4 +14,6 @@ export default {
   soundOnTaskCompleteDesc: '当 AI 完成任务时播放一段简短提示音',
   desktopNotifyOnTaskComplete: '任务完成桌面通知',
   desktopNotifyOnTaskCompleteDesc: '当 AI 完成任务时弹出系统通知（Windows 右下角 / Linux 桌面通知）',
+  desktopNotifyOnWaiting: '等待处理桌面通知',
+  desktopNotifyOnWaitingDesc: '当 AI 提问、请求授权或等待确认计划时弹出系统通知',
 }

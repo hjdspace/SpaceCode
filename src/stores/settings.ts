@@ -56,6 +56,8 @@ export interface AppearanceSettings {
   soundOnTaskComplete?: boolean
   /** Show a desktop system notification when a chat task completes (default: on). */
   desktopNotifyOnTaskComplete?: boolean
+  /** Show a desktop system notification when the chat is waiting for the user to answer or approve (default: on). */
+  desktopNotifyOnWaiting?: boolean
 }
 
 export interface AuthSettings {
@@ -301,6 +303,7 @@ export const useSettingsStore = defineStore('settings', () => {
     accentColor: 'blue',
     soundOnTaskComplete: false,
     desktopNotifyOnTaskComplete: true,
+    desktopNotifyOnWaiting: true,
   })
   const engineSource = ref<EngineSource>(saved.engineSource || 'bundled')
   const installedCliPath = ref<string | null>(saved.installedCliPath || null)

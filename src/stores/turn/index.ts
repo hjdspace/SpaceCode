@@ -8,6 +8,7 @@ import { useContextUsageStore } from '../contextUsage'
 import type { SessionSink } from '../turnSink'
 import { ErrorCategory } from '@/types'
 import { permissionService, type PermissionRequest } from '@/services/permissionService'
+import { notifyWaitingForUser } from '@/services/waitNotification'
 import {
   isTeammateRawMessage,
   isSidechainMessage,
@@ -67,6 +68,12 @@ export function useTurnStore(injectedApi?: any) {
     // ── 权限请求状态 ──
     // 单一数据源：permissionService。turn store 不再维护本地副本，避免同步不一致。
     const pendingPermissions = computed(() => permissionService.getPendingPermissions())
+
+    /** 会话显示名（无标题时用短 id 兜底），供桌面通知标题使用 */
+    const sessionTitle = (sessionId: string) => {
+      const s = sessionStore.sessions.find(s => s.id === sessionId)
+      return s?.title?.trim() || sessionId.slice(0, 8)
+    }
 
     // ────────────────────────────────────────────────────────────────────
     // Pending Messages（任务 9 从 chatStream.ts 迁移）
@@ -337,10 +344,7 @@ export function useTurnStore(injectedApi?: any) {
       isSoundOnTaskComplete: () => !!settingsStore.appearance?.soundOnTaskComplete,
       // 旧存档 appearance 无此键 → 视为默认开启（与 UI 默认值一致），仅显式 false 才关闭
       isDesktopNotifyOnTaskComplete: () => settingsStore.appearance?.desktopNotifyOnTaskComplete !== false,
-      getSessionTitle: (sessionId: string) => {
-        const s = sessionStore.sessions.find(s => s.id === sessionId)
-        return s?.title?.trim() || sessionId.slice(0, 8)
-      },
+      getSessionTitle: sessionTitle,
       onTurnCompleted: (sessionId: string, finalText: string) => {
         void handleGoalTurnResult(sessionId, finalText)
       },
@@ -1039,7 +1043,15 @@ export function useTurnStore(injectedApi?: any) {
             return
           }
           sessionStore.logger.info('ChatStore', `permission_request | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | toolUseId=${req.toolUseId.slice(0, 8)} | requestId=${req.requestId.slice(0, 8)}`)
-          permissionService.addPermissionRequest(sid, { ...req, sessionId: sid })
+          const request = { ...req, sessionId: sid }
+          permissionService.addPermissionRequest(sid, request)
+          // 会话此刻停住等用户处理，立刻通知（不等本轮 result）
+          const notifyResult = notifyWaitingForUser(sid, request, {
+            // 旧存档 appearance 无此键 → 视为默认开启（与 UI 默认值一致），仅显式 false 才关闭
+            enabled: () => settingsStore.appearance?.desktopNotifyOnWaiting !== false,
+            sessionTitle: () => sessionTitle(sid),
+          })
+          sessionStore.logger.info('ChatStore', `waiting notification | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | result=${notifyResult}`)
         })
       }
       if (typeof (claudeCodeApi as any).onPermissionRequestCancelled === 'function') {

@@ -12,6 +12,11 @@ export default {
   claude: 'Claude',
   taskCompleteNotificationTitle: 'SpaceCode · {session}',
   taskCompleteNotificationBody: '任务已完成，点击查看结果',
+  waitingNotifyTitle: 'SpaceCode · {session}',
+  waitingQuestionNotifyBody: 'AI 在等你回答：{detail}',
+  waitingQuestionNotifyBodyPlain: 'AI 在等你回答，点击查看',
+  waitingPermissionNotifyBody: '需要你授权：{detail}',
+  waitingPlanNotifyBody: '计划已就绪，等待你确认',
   startConversation: '开始对话',
   startConversationDesc: '输入消息开始与 Claude Code 协作',
   welcomeHero: {
