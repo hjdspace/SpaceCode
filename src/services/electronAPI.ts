@@ -265,6 +265,12 @@ export interface GitCommitFileStat {
   [key: string]: unknown
 }
 
+export interface CronAttachment {
+  id: string
+  name: string
+  path: string
+}
+
 export interface CronTask {
   id: string
   cron: string
@@ -274,10 +280,16 @@ export interface CronTask {
   recurring?: boolean
   permanent?: boolean
   name?: string
-  description?: string
   enabled?: boolean
   frequency?: string
   scheduledTime?: string
+  workspace?: string
+  branch?: string
+  model?: string
+  effort?: string
+  agent?: string
+  permissionMode?: string
+  attachments?: CronAttachment[]
   command?: string
   projectRoot?: string
   [key: string]: unknown

@@ -16,6 +16,10 @@ const { dirname, join } = require('node:path')
 const { execFileSync } = require('node:child_process')
 
 const FILE_DESCRIPTION = 'SpaceCode Dev'
+// 杂散快捷方式的文件名取自 exe 的 ProductName（Windows 会截到 12 字符）. 不改的话 dev 下永远叫
+// "Electron.lnk" —— 同机器上其它 Electron 项目（如 soc-verify）的 dev 通知写的是同名文件, 两者会互相
+// 覆盖. 也别用 "SpaceCode": 会与已安装应用的开始菜单快捷方式 SpaceCode.lnk 撞名并被覆盖.
+const PRODUCT_NAME = 'SpaceCodeDev'
 const MARKER_NAME = '.spacecode-dev-icon.json'
 
 const say = (msg) => console.log(`[dev-icon] ${msg}`)
@@ -42,13 +46,14 @@ function resolveRcedit() {
   return null
 }
 
-/** 标记内容: Electron 版本 + 图标文件指纹. 图标重新生成或 Electron 升级后自动重打. */
+/** 标记内容: Electron 版本 + 图标文件指纹 + 写入的身份字段. 图标重生成、Electron 升级或身份变化后自动重打. */
 function currentFingerprint(iconPath) {
   const stat = statSync(iconPath)
   return {
     electronVersion: require('electron/package.json').version,
     iconSize: stat.size,
     iconMtimeMs: stat.mtimeMs,
+    identity: `${FILE_DESCRIPTION}/${PRODUCT_NAME}`,
   }
 }
 
@@ -99,6 +104,7 @@ function main() {
         exePath,
         '--set-icon', iconPath,
         '--set-version-string', 'FileDescription', FILE_DESCRIPTION,
+        '--set-version-string', 'ProductName', PRODUCT_NAME,
       ],
       { stdio: 'pipe' }
     )
@@ -110,7 +116,7 @@ function main() {
   }
 
   writeFileSync(markerPath, JSON.stringify(fingerprint, null, 2))
-  say(`已为 ${exePath} 写入图标与 FileDescription="${FILE_DESCRIPTION}"`)
+  say(`已为 ${exePath} 写入图标与 FileDescription="${FILE_DESCRIPTION}"、ProductName="${PRODUCT_NAME}"`)
 }
 
 main()

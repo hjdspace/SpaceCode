@@ -92,16 +92,19 @@ setupLinuxPlatform()
 // dev 态图标曾被系统通知破坏，机制（本机实测）：
 //   1) Electron 的 Windows toast 后端每执行一次 new Notification().show()，就向
 //      %APPDATA%\Microsoft\Windows\Start Menu\Programs\ 写出一个快捷方式，AUMID = 下面的 dev 值、
-//      target = 当前 electron.exe、**IconLocation 为空**（名字取自 exe 的 FileDescription）。
+//      target = 当前 electron.exe、**IconLocation 为空**（文件名取自 exe 的 ProductName，Windows 截到 12 字符）。
 //   2) 任务栏组图标的解析优先级：匹配 AUMID 的 .lnk > 注册表 IconUri > 进程 exe 图标 > 窗口 HICON。
 //      那个空图标 .lnk 因此接管解析，组图标回退到 exe 图标 = Electron 原子图标，且在同一存活窗口上
 //      当场翻转（不是只影响下次启动）。
 //   3) 在 .lnk 层面无法修：注册表 IconUri 压不过它；预放同 AUMID 同 target 的正规 .lnk 也压不过它；
 //      事后删除或改写它，Explorer 也不会重新解析（本次结果已缓存）。
 //   根因修法是把图标做进 exe 本身 —— scripts/patch-dev-electron-icon.cjs（由 predev /
-//   preelectron:dev / postinstall 自动执行）给 electron.exe 写入应用图标与 FileDescription，
+//   preelectron:dev / postinstall 自动执行）给 electron.exe 写入应用图标、FileDescription 与
+//   ProductName（后者决定那条 .lnk 的文件名，从而与同机其它 Electron 项目的 dev 快捷方式隔离），
 //   回退链每一环都落在正确图标上，无需在运行时增删改用户的开始菜单文件。脚本失败（如 dev 正在运行
 //   占用 exe）时只告警，图标退回上面描述的错误表现。
+//   注意 Shell 图标缓存按 .lnk 路径记忆解析结果且不会因 exe 被改写而失效：本机若此前已把某个 .lnk
+//   名字解析成过原子图标，打完补丁后需重启 Explorer（或换 ProductName）才会看到正确图标。
 if (process.platform === 'win32') {
   app.setAppUserModelId(app.isPackaged ? 'com.spacecode.desktop' : 'com.spacecode.desktop.dev')
 }

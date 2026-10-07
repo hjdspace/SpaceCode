@@ -3,6 +3,13 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { isValidCron } from './cronParser'
 
+/** 提示词里 @image:"<id>" 标记对应的落盘图片 */
+export interface CronAttachment {
+  id: string
+  name: string
+  path: string
+}
+
 export interface CronTask {
   id: string
   cron: string
@@ -12,10 +19,18 @@ export interface CronTask {
   recurring?: boolean
   permanent?: boolean
   name?: string
-  description?: string
   enabled?: boolean
   frequency?: string
   scheduledTime?: string
+  /** 任务自己的工作空间；为空表示跟随当前项目根 */
+  workspace?: string
+  /** 仅作记录：执行时不会替用户 checkout */
+  branch?: string
+  model?: string
+  effort?: string
+  agent?: string
+  permissionMode?: string
+  attachments?: CronAttachment[]
 }
 
 type CronFile = { tasks: CronTask[] }
@@ -70,10 +85,16 @@ export async function addCronTask(
     recurring: input.recurring,
     permanent: input.permanent,
     name: input.name,
-    description: input.description,
     enabled: input.enabled ?? true,
     frequency: input.frequency,
     scheduledTime: input.scheduledTime,
+    workspace: input.workspace,
+    branch: input.branch,
+    model: input.model,
+    effort: input.effort,
+    agent: input.agent,
+    permissionMode: input.permissionMode,
+    attachments: input.attachments,
   }
   tasks.push(task)
   writeCronFileSync(tasks, projectRoot)

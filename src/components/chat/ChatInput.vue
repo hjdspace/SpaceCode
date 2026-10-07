@@ -120,7 +120,10 @@
           </button>
 
           <!-- 权限模式选择器 -->
-          <PermissionModeSelector />
+          <PermissionModeSelector
+            :model-value="permissionMode"
+            @update:model-value="(mode: PermissionMode) => emit('update:permissionMode', mode)"
+          />
 
           <button
             v-if="showOpenProjectAction"
@@ -326,7 +329,10 @@
 
     <!-- Context Toolbar (Project / Git Branch) — code/work/design 模式均显示 -->
     <div class="context-toolbar-row">
-      <ChatContextToolbar v-if="appStore.projectRoot || appStore.mode === 'work' || appStore.mode === 'design'" />
+      <!-- 宿主可整体替换为受控选择器（定时任务弹窗需要任务级工作空间而非全局项目） -->
+      <slot name="context-toolbar">
+        <ChatContextToolbar v-if="appStore.projectRoot || appStore.mode === 'work' || appStore.mode === 'design'" />
+      </slot>
       <!-- 扩展 slot：design 模式注入 DesignSystemPicker 等，与项目/分支选择器同行 -->
       <slot name="context-extra"></slot>
     </div>
@@ -417,6 +423,7 @@ import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
+import type { PermissionMode } from '@/shared/channels/claudeCode'
 import { vClickOutside } from '@/components/common/vClickOutside'
 
 // Re-export types for backward compatibility (other components import from ChatInput)
@@ -433,11 +440,12 @@ const emit = defineEmits<{
   'update:model': [model: string]
   'update:effort': [effort: string]
   'update:agent': [agent: string]
+  'update:permissionMode': [mode: PermissionMode]
   'open-skills': []
   stop: []
 }>()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   disabled?: boolean
   isSending?: boolean
   placeholder?: string
@@ -448,7 +456,13 @@ const props = defineProps<{
   sessionId?: string
   /** 紧凑模式（侧边任务）：隐藏依赖全局 sessionContext 单例的悬浮状态栏 */
   compact?: boolean
-}>()
+  /** 'none' = 不读也不写会话草稿。弹窗等临时宿主用它可避免把宿主会话的草稿冲掉 */
+  draftScope?: 'session' | 'none'
+  /** 受控权限模式：传入时选择器只 emit，不再读写全局 permissionPolicy store */
+  permissionMode?: PermissionMode
+}>(), {
+  draftScope: 'session',
+})
 
 // ── Stores ───────────────────────────────────────────────────────
 const settingsStore = useSettingsStore()
@@ -541,6 +555,7 @@ function buildDraftFromEditor() {
 
 /** 把编辑器当前内容保存为 sid 的草稿；空内容时清掉对应草稿 */
 function saveDraftForSession(sid: string | null) {
+  if (props.draftScope === 'none') return
   const draft = buildDraftFromEditor()
   const hasDraft = draft.text.length > 0 || draft.attachments.length > 0 || draft.images.length > 0 || draft.quotes.length > 0
   const existingMirror = sessionStore.getNewChatDraft()
@@ -565,6 +580,7 @@ function saveDraftForSession(sid: string | null) {
 
 /** 恢复 sid 的草稿到编辑器；无草稿时清空编辑器（避免上一会话内容串台） */
 function loadDraftForSession(sid: string | null) {
+  if (props.draftScope === 'none') return
   const draft = sid ? sessionStore.getDraft(sid) : undefined
   const stash = sid ? sessionStore.getStash(sid) : undefined
   const mirror = sessionStore.getNewChatDraft()
@@ -1697,6 +1713,24 @@ watch(pendingFile, (file) => {
     focusEditor()
   })
 })
+
+// ── 宿主直读/直写编辑器（定时任务弹窗把内容存成任务字段而非发消息） ──
+function getContent(): { text: string; attachments: AllAttachments } {
+  const content = getEditorPlainText().trim()
+  const quoteBlock = serializeQuoteAttachments(attachedQuotes.value)
+  return {
+    text: quoteBlock ? (content ? `${quoteBlock}\n\n${content}` : quoteBlock) : content,
+    attachments: collectAllAttachments(attachedFiles.value, attachedImages.value),
+  }
+}
+
+function setContent(text: string) {
+  clearEditor()
+  setEditorContent(text)
+  nextTick(() => autoResize())
+}
+
+defineExpose({ getContent, setContent, focus: focusEditor })
 </script>
 
 <style lang="scss" scoped>

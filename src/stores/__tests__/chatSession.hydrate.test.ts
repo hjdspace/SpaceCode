@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 /**
@@ -50,39 +50,64 @@ function seedSession(id: string, extra: Record<string, unknown> = {}): void {
   }]))
 }
 
-const flush = (ms = 60) => new Promise(r => setTimeout(r, ms))
+// 手动控制的异步闸门：替代原来 mock 内的 setTimeout 延迟，精确控制 hydrate 窗口，
+// 不依赖真实定时器（并行全量跑时事件循环饥饿会让 30ms/60ms 的假设失效）。
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => { resolve = res })
+  return { promise, resolve }
+}
+
+// 纯微任务冲刷：hydrate 续体在 getFullSession 兑现后全是微任务，
+// 固定轮次即可排干，与机器负载无关。
+async function flushMicrotasks(rounds = 50): Promise<void> {
+  for (let i = 0; i < rounds; i++) await Promise.resolve()
+}
 
 describe('chatSession hydrate race protection', () => {
+  // chatSession 模块级执行 useTaskManager()，要求 import 时已有 active Pinia，
+  // 且模块图冷加载在并行全量跑时可能超过单测试 5s 超时——整个文件只导入一次。
+  let useChatSessionStore: typeof import('../chatSession').useChatSessionStore
+
+  beforeAll(async () => {
+    setActivePinia(createPinia())
+    ;({ useChatSessionStore } = await import('../chatSession'))
+  })
+
   beforeEach(() => {
     localStorage.clear()
-    vi.resetModules()
+    // 每个用例换一个新 Pinia：store 实例状态（sessions、hydratedSessionIds 等）
+    // 随 setup 重跑而完全重置，等效于原来的 resetModules，但无需重复加载模块图。
     setActivePinia(createPinia())
     vi.clearAllMocks()
   })
 
   it('preserves messages appended while JSONL hydration is in flight', async () => {
     // JSONL 快照：历史"你好"（重复 + API 错误会被重试去重折叠成一条）
-    mocks.getFullSession.mockImplementation(async () => {
-      await flush(30)
-      return {
-        messages: [
-          { type: 'user', uuid: 'u1', timestamp: '2026-08-20T11:33:53.117Z', message: { role: 'user', content: '你好' } },
-          { type: 'assistant', uuid: 'a1', isApiErrorMessage: true, timestamp: '2026-08-20T11:36:22.870Z', message: { role: 'assistant', content: 'API Error: 401 Invalid token' } },
-          { type: 'user', uuid: 'u2', timestamp: '2026-08-20T11:36:25.727Z', message: { role: 'user', content: '你好' } },
-        ],
-      }
-    })
-    seedSession('race-1')
+    const gate = deferred<{
+      messages: unknown[]
+    }>()
+    mocks.getFullSession.mockImplementation(() => gate.promise)
 
-    const { useChatSessionStore } = await import('../chatSession')
+    // seed 与建 store 之间不能有任何 await：store 创建时同步读 localStorage，
+    // 若中间让出事件循环，上一次重试残留的 saveToStorage 节流转件可能写入脏数据。
+    seedSession('race-1')
     const store = useChatSessionStore()
 
-    // selectSession 内部 void hydrateSingleSession —— 不等待完成
+    // selectSession 内部 void hydrateSingleSession —— 挂起在 gate 上，竞态窗口完全受控
     await store.selectSession('race-1')
     // hydrate 窗口内用户发送消息（sendMessage 的 appendMessage 先于引擎启动）
     store.addMessage({ role: 'user', content: '写个贪吃蛇小游戏' }, 'race-1')
 
-    await flush()
+    // hydrate 完成：JSONL 快照到达
+    gate.resolve({
+      messages: [
+        { type: 'user', uuid: 'u1', timestamp: '2026-08-20T11:33:53.117Z', message: { role: 'user', content: '你好' } },
+        { type: 'assistant', uuid: 'a1', isApiErrorMessage: true, timestamp: '2026-08-20T11:36:22.870Z', message: { role: 'assistant', content: 'API Error: 401 Invalid token' } },
+        { type: 'user', uuid: 'u2', timestamp: '2026-08-20T11:36:25.727Z', message: { role: 'user', content: '你好' } },
+      ],
+    })
+    await flushMicrotasks()
 
     const msgs = store.sessions.find(s => s.id === 'race-1')!.messages
     const contents = msgs.map(m => m.content)
@@ -99,11 +124,10 @@ describe('chatSession hydrate race protection', () => {
         { type: 'user', uuid: 'u1', message: { role: 'user', content: 'history-only message' } },
       ],
     })
+
     seedSession('race-2', {
       messages: [{ id: 'm-live', role: 'user', content: '刚发送的消息', timestamp: 123 }],
     })
-
-    const { useChatSessionStore } = await import('../chatSession')
     const store = useChatSessionStore()
 
     // 模拟 turn 进行中：sendMessage 会同步把 processStatus 置为 'active'
@@ -111,7 +135,7 @@ describe('chatSession hydrate race protection', () => {
     store.sessions.find(s => s.id === 'race-2')!.processStatus = 'active'
 
     await store.selectSession('race-2')
-    await flush()
+    await flushMicrotasks()
 
     const msgs = store.sessions.find(s => s.id === 'race-2')!.messages
     // turn 进行中：本地消息是最新事实，JSONL 快照（滞后）不得覆盖
@@ -125,13 +149,12 @@ describe('chatSession hydrate race protection', () => {
         { type: 'user', uuid: 'u9', timestamp: '2026-08-20T11:33:53.117Z', message: { role: 'user', content: '你好' } },
       ],
     })
-    seedSession('race-3')
 
-    const { useChatSessionStore } = await import('../chatSession')
+    seedSession('race-3')
     const store = useChatSessionStore()
 
     await store.selectSession('race-3')
-    await flush()
+    await flushMicrotasks()
 
     const msgs = store.sessions.find(s => s.id === 'race-3')!.messages
     expect(msgs).toHaveLength(1)

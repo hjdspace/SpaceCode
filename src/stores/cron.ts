@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
+import type { CronAttachment } from '@/services/electronAPI'
 
 export interface CronTask {
   id: string
@@ -11,10 +12,16 @@ export interface CronTask {
   recurring?: boolean
   permanent?: boolean
   name?: string
-  description?: string
   enabled?: boolean
   frequency?: string
   scheduledTime?: string
+  workspace?: string
+  branch?: string
+  model?: string
+  effort?: string
+  agent?: string
+  permissionMode?: string
+  attachments?: CronAttachment[]
 }
 
 export interface TaskRun {

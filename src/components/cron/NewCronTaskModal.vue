@@ -15,26 +15,15 @@
           <div class="modal-body">
             <!-- Task Name -->
             <div class="form-group">
-              <label class="form-label">{{ t('cron.modal.taskName') }}</label>
+              <label class="form-label">
+                {{ t('cron.modal.taskName') }}
+                <span class="optional">{{ t('cron.modal.optional') }}</span>
+              </label>
               <input
                 v-model="form.name"
                 type="text"
                 class="form-input"
                 :placeholder="t('cron.modal.taskNamePlaceholder')"
-              />
-            </div>
-
-            <!-- Description -->
-            <div class="form-group">
-              <label class="form-label">
-                {{ t('cron.modal.taskDesc') }}
-                <span class="optional">{{ t('cron.modal.optional') }}</span>
-              </label>
-              <input
-                v-model="form.description"
-                type="text"
-                class="form-input"
-                :placeholder="t('cron.modal.taskDescPlaceholder')"
               />
             </div>
 
@@ -110,15 +99,34 @@
               </div>
             </div>
 
-            <!-- Prompt -->
-            <div class="form-group">
+            <!-- Prompt — 与主聊天共用同一个输入框（/ 技能、@ 上下文、图片）。
+                 放在表单末尾：输入框下方的工作空间/分支下拉向上展开，需要留出身位 -->
+            <div class="form-group prompt-group">
               <label class="form-label">{{ t('cron.modal.prompt') }}</label>
-              <textarea
-                v-model="form.prompt"
-                class="form-input"
+              <ChatInput
+                ref="promptInputRef"
+                draft-scope="none"
+                compact
+                :working-directory="effectiveWorkspace"
+                :model-value="form.model"
+                :permission-mode="form.permissionMode"
                 :placeholder="t('cron.modal.promptPlaceholder')"
-                rows="4"
-              />
+                @send="handleSend"
+                @slash-command="handleSlashCommand"
+                @update:model="(m: string) => form.model = m"
+                @update:effort="(e: string) => form.effort = e"
+                @update:agent="(a: string) => form.agent = a"
+                @update:permission-mode="(m: PermissionMode) => form.permissionMode = m"
+              >
+                <template #context-toolbar>
+                  <ChatContextToolbar
+                    :workspace="form.workspace"
+                    :branch="form.branch"
+                    @update:workspace="handleWorkspaceChange"
+                    @update:branch="(b: string) => form.branch = b"
+                  />
+                </template>
+              </ChatInput>
             </div>
 
             <!-- Cron Preview -->
@@ -133,7 +141,11 @@
             <button class="btn btn-secondary" @click="close">
               {{ t('common.cancel') }}
             </button>
-            <button class="btn btn-primary" :disabled="submitting" @click="handleSubmit">
+            <button
+              class="btn btn-primary"
+              :disabled="submitting || !canSubmit"
+              @click="handleSubmitClick"
+            >
               {{ isEdit ? t('cron.modal.save') : t('cron.modal.create') }}
             </button>
           </div>
@@ -144,11 +156,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useCronStore, type CronTask } from '@/stores/cron'
 import { useAppStore } from '@/stores/app'
+import { usePermissionPolicyStore } from '@/stores/permissionPolicy'
+import { useDialog } from '@/composables/useDialog'
+import { api, type CronAttachment } from '@/services/electronAPI'
+import type { PermissionMode } from '@/shared/channels/claudeCode'
+import type { ImageAttachment } from '@/composables/types'
+import ChatInput from '@/components/chat/ChatInput.vue'
+import ChatContextToolbar from '@/components/chat/ChatContextToolbar.vue'
 
 interface Props {
   visible: boolean
@@ -163,9 +182,12 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const cronStore = useCronStore()
 const appStore = useAppStore()
+const permissionPolicy = usePermissionPolicyStore()
+const { showAlert } = useDialog()
 
 const isEdit = computed(() => !!props.editTask?.id)
 const submitting = ref(false)
+const promptInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 
 const frequencyOptions = computed(() => [
   { value: 'hourly', label: t('cron.modal.freqHourly') },
@@ -180,27 +202,41 @@ const showTimePicker = computed(() => form.frequency !== 'hourly' && form.freque
 
 interface FormState {
   name: string
-  description: string
+  /** 编辑器内容的初始值；提交时以编辑器实时内容为准 */
+  prompt: string
   frequency: string
   hour: string
   minute: string
   customCron: string
   recurring: boolean
-  prompt: string
+  workspace: string
+  branch: string
+  model: string
+  effort: string
+  agent: string
+  permissionMode: PermissionMode
 }
 
 const defaultForm = (): FormState => ({
   name: '',
-  description: '',
+  prompt: '',
   frequency: 'daily',
   hour: '09',
   minute: '00',
   customCron: '',
   recurring: true,
-  prompt: '',
+  workspace: appStore.projectRoot || '',
+  branch: '',
+  model: '',
+  effort: '',
+  agent: '',
+  permissionMode: permissionPolicy.currentPermissionMode,
 })
 
 const form = reactive<FormState>(defaultForm())
+
+/** 提示词里的 @ 上下文与 / 技能按任务自己的工作空间解析 */
+const effectiveWorkspace = computed(() => form.workspace || appStore.projectRoot || '')
 
 function buildCron(frequency: string, hour: number, minute: number, customCron?: string): string {
   if (frequency === 'custom' && customCron) return customCron
@@ -221,11 +257,18 @@ const cronExpression = computed(() => {
 })
 
 const cronDescription = ref('')
+const cronValid = ref(true)
+
+/** 频率非法或没有可写入任务文件的项目时不给创建，避免提交后清空编辑器丢内容 */
+const canSubmit = computed(() => cronValid.value && !!appStore.projectRoot)
 
 watch(cronExpression, async (expr) => {
   try {
-    cronDescription.value = await cronStore.describeCron(expr)
+    const result = await cronStore.validateCron(expr)
+    cronValid.value = result.valid
+    cronDescription.value = result.valid ? await cronStore.describeCron(expr) : expr
   } catch {
+    cronValid.value = false
     cronDescription.value = expr
   }
 }, { immediate: true })
@@ -240,20 +283,18 @@ function normalizeTime(field: 'hour' | 'minute') {
   }
 }
 
-function resetForm() {
-  Object.assign(form, defaultForm())
-  if (props.editTask) {
-    populateFromTask(props.editTask)
-  }
-}
-
 function populateFromTask(task: CronTask) {
   form.name = task.name || ''
-  form.description = task.description || ''
+  form.prompt = task.prompt || ''
   form.frequency = task.frequency || 'daily'
   form.recurring = task.recurring !== false
-  form.prompt = task.prompt || ''
   form.customCron = task.frequency === 'custom' ? task.cron : ''
+  form.workspace = task.workspace || appStore.projectRoot || ''
+  form.branch = task.branch || ''
+  form.model = task.model || ''
+  form.effort = task.effort || ''
+  form.agent = task.agent || ''
+  form.permissionMode = (task.permissionMode as PermissionMode) || permissionPolicy.currentPermissionMode
 
   if (task.scheduledTime) {
     const parts = task.scheduledTime.split(':')
@@ -269,17 +310,14 @@ function populateFromTask(task: CronTask) {
   }
 }
 
-watch(() => props.visible, (val) => {
-  if (val) {
-    resetForm()
-  }
+watch(() => props.visible, async (val) => {
+  if (!val) return
+  Object.assign(form, defaultForm())
+  if (props.editTask) populateFromTask(props.editTask)
+  await nextTick()
+  promptInputRef.value?.setContent(form.prompt)
+  promptInputRef.value?.focus()
 })
-
-watch(() => props.editTask, (task) => {
-  if (task && props.visible) {
-    populateFromTask(task)
-  }
-}, { immediate: true })
 
 function close() {
   emit('update:visible', false)
@@ -299,54 +337,100 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEsc)
 })
 
-async function handleSubmit() {
-  if (!form.name.trim()) return
+/** 换工作空间后旧仓库的分支不再相关 */
+function handleWorkspaceChange(path: string) {
+  form.workspace = path
+  form.branch = ''
+}
+
+function handleSend(content: string, attachments: { images: ImageAttachment[] }) {
+  submit(content, attachments.images)
+}
+
+/** 斜杠命令对定时任务而言就是提示词正文，不执行聊天侧的即时命令 */
+function handleSlashCommand(command: string, args: string, attachments: { images: ImageAttachment[] }) {
+  submit(`/${command}${args ? ` ${args}` : ''}`, attachments.images)
+}
+
+function handleSubmitClick() {
+  const captured = promptInputRef.value?.getContent()
+  if (!captured) return
+  submit(captured.text, captured.attachments.images)
+}
+
+async function submit(content: string, images: ImageAttachment[]) {
+  if (submitting.value) return
+  const prompt = content.trim()
+  if (!prompt) return
+
+  // 聊天输入框 send 后会自行清空，所以这些校验失败的路径都要把内容放回去
+  const projectRoot = appStore.projectRoot
+  if (!projectRoot) {
+    await showAlert(t('cron.modal.noProject'))
+    restorePrompt(prompt)
+    return
+  }
+  if (!cronValid.value) {
+    await showAlert(t('cron.modal.invalidSchedule'))
+    restorePrompt(prompt)
+    return
+  }
 
   const h = parseInt(form.hour) || 0
   const m = parseInt(form.minute) || 0
   const cron = buildCron(form.frequency, h, m, form.customCron || undefined)
 
-  // Validate cron expression
-  try {
-    const result = await cronStore.validateCron(cron)
-    if (!result.valid) return
-  } catch {
-    return
-  }
-
   submitting.value = true
   try {
-    const projectRoot = appStore.projectRoot
-    if (!projectRoot) return
+    const root = form.workspace || projectRoot
+    const attachments: CronAttachment[] = []
+    for (const img of images) {
+      const result = await api.cron.saveAttachment(root, {
+        id: img.id,
+        name: img.name,
+        dataUrl: img.data,
+      })
+      if (!result?.path) {
+        await showAlert(t('cron.modal.attachmentFailed', { name: img.name }))
+        restorePrompt(prompt)
+        return
+      }
+      attachments.push({ id: img.id, name: img.name, path: result.path })
+    }
 
-    const scheduledTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    const payload = {
+      name: form.name.trim() || prompt.split('\n')[0].slice(0, 40),
+      cron,
+      prompt,
+      recurring: form.recurring,
+      frequency: form.frequency,
+      scheduledTime: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+      workspace: form.workspace || undefined,
+      branch: form.branch || undefined,
+      model: form.model || undefined,
+      effort: form.effort || undefined,
+      agent: form.agent || undefined,
+      permissionMode: form.permissionMode,
+      attachments: attachments.length ? attachments : undefined,
+    }
 
     if (isEdit.value && props.editTask?.id) {
-      await cronStore.updateTask(projectRoot, props.editTask.id, {
-        name: form.name.trim(),
-        description: form.description.trim() || undefined,
-        cron,
-        prompt: form.prompt.trim(),
-        recurring: form.recurring,
-        frequency: form.frequency,
-        scheduledTime,
-      })
+      await cronStore.updateTask(projectRoot, props.editTask.id, payload)
     } else {
-      await cronStore.createTask(projectRoot, {
-        name: form.name.trim(),
-        description: form.description.trim() || undefined,
-        cron,
-        prompt: form.prompt.trim(),
-        recurring: form.recurring,
-        frequency: form.frequency,
-        scheduledTime,
-        enabled: true,
-      })
+      await cronStore.createTask(projectRoot, { ...payload, enabled: true })
     }
     close()
+  } catch (err: any) {
+    await showAlert(t('cron.modal.saveFailed', { error: err?.message || String(err) }))
+    restorePrompt(prompt)
   } finally {
     submitting.value = false
   }
+}
+
+/** 聊天输入框 send 后会自行清空，保存失败时把用户写的内容放回去 */
+function restorePrompt(prompt: string) {
+  promptInputRef.value?.setContent(prompt)
 }
 </script>
 
@@ -366,7 +450,8 @@ async function handleSubmit() {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
-  width: 520px;
+  width: 680px;
+  max-width: calc(100vw - 48px);
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -481,10 +566,18 @@ async function handleSubmit() {
   }
 }
 
-textarea.form-input {
-  resize: vertical;
-  min-height: 80px;
-  line-height: 1.5;
+// 复用聊天输入框：去掉它作为「页面底部栏」的外边距与分隔线
+.prompt-group {
+  :deep(.chat-input-container) {
+    padding: 0;
+    background: transparent;
+    border-top: none;
+  }
+
+  :deep(.inline-editor) {
+    max-height: 220px;
+    overflow-y: auto;
+  }
 }
 
 // Frequency selector

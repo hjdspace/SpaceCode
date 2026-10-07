@@ -3,4 +3,5 @@ export default {
   noProjects: 'No projects found',
   addNewProject: 'Add new project',
   noProject: "Don't work in a project",
+  branchNone: 'No branch',
 }

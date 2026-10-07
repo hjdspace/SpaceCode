@@ -2,12 +2,24 @@ import { randomUUID } from 'crypto'
 import { readCronTasks, updateLastFired, updateCronTask } from './cronFileStore'
 import { appendRun, updateRun, cleanupStaleRuns } from './taskRunLogger'
 import { cronMatches } from './cronParser'
+import { buildExecutionPrompt } from '@/lib/cronPrompt'
 import type { CronTask } from './cronFileStore'
 import type { TaskRun } from './taskRunLogger'
 
+export interface CronExecOptions {
+  model?: string
+  effort?: string
+  agent?: string
+  permissionMode?: string
+}
+
 export interface CronSchedulerOptions {
   getProjectRoot: () => string | null
-  spawnCliProcess: (prompt: string, cwd: string) => Promise<{ exitCode: number | null; stdout: string; stderr: string; sessionId?: string }>
+  spawnCliProcess: (
+    prompt: string,
+    cwd: string,
+    options?: CronExecOptions,
+  ) => Promise<{ exitCode: number | null; stdout: string; stderr: string; sessionId?: string }>
   onTaskFired?: (run: TaskRun) => void
   onRunCompleted?: (run: TaskRun) => void
 }
@@ -110,7 +122,11 @@ export class CronScheduler {
       )
 
       const result = await Promise.race([
-        this.options.spawnCliProcess(task.prompt, projectRoot),
+        this.options.spawnCliProcess(
+          buildExecutionPrompt(task.prompt, task.attachments),
+          task.workspace || projectRoot,
+          { model: task.model, effort: task.effort, agent: task.agent, permissionMode: task.permissionMode },
+        ),
         timeoutPromise,
       ])
 
