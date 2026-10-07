@@ -1,3 +1,29 @@
+## [0.8.7](https://github.com/hjdspace/SpaceCode/compare/v0.8.6...v0.8.7) (2026-10-08)
+
+### Features
+
+- **cron:** 定时任务支持自定义工作空间、分支、模型与图片附件，执行改为可见的引擎会话
+- **通知:** 会话等待用户回答或授权时即时弹出系统通知，含任务栏闪烁兜底
+- **侧边任务:** 新增 SideTaskPanel 紧凑对话面板，支持选中文本侧边提问
+- **chat:** 新增 TurnChangeCard 悬停 Diff 弹窗与文件列表折叠
+- **explorer:** 文件树新增文件类型图标与 Git 状态标记
+- **skills:** 新增内置技能包与批量安装、技能分类展示及 AI Berkshire 投研技能库
+- **proxy:** 用户消息支持内联图片块转换
+
+### Bug Fixes
+
+- **cron:** 修复定时任务不触发、执行成功却报错及时间滚轮卡顿
+- **cron:** 让定时任务配置的模型真正到达引擎并落到会话记录
+- **浮层:** 面板内滚动不再触发重定位，时间滚轮改为确定才提交
+- **任务栏:** 修复开发态系统通知导致任务栏图标回退为 Electron 默认图标
+
+### Refactor
+
+- 全局滚动条统一为 scrollbar-overlay mixin
+- TurnChangeCard 悬停弹窗渲染引擎替换为 DiffView
+- 权限模式切换引入重试逻辑；模型目录补充 input/capabilities 字段
+- 移除头部模型徽章
+
 ## [0.8.6](https://github.com/hjdspace/SpaceCode/compare/v0.8.5...v0.8.6) (2026-09-28)
 
 ### Features
