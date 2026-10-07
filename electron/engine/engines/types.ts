@@ -17,6 +17,8 @@ export interface EngineSessionConfig {
   resumeSessionId?: string
   engineSource?: 'bundled' | 'installed'
   installedCliPath?: string
+  /** 会话起始权限模式；进程池据此把引擎从 bypass 启动态切回用户选择 */
+  permissionMode?: PermissionMode
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
   /** 是否启用 RTK (Rust Token Killer) token 优化 */

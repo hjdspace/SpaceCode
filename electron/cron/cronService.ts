@@ -1,60 +1,16 @@
 import { ipcMain, BrowserWindow, Notification, app } from 'electron'
-import { spawn } from 'child_process'
-import { join, resolve } from 'path'
+import { join } from 'path'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { CronScheduler } from './cronScheduler'
-import type { CronExecOptions } from './cronScheduler'
+import { createCronSessionRunner } from './cronSessionRunner'
 import { readCronTasks, addCronTask, updateCronTask, deleteCronTask } from './cronFileStore'
 import { getRecentRuns, getTaskRuns } from './taskRunLogger'
 import { isValidCron, cronToHuman } from './cronParser'
 import type { CronTask } from './cronFileStore'
 import type { TaskRun } from './taskRunLogger'
-import { info, warn, error } from '../infra/logger'
+import { info, error } from '../infra/logger'
 
 let scheduler: CronScheduler | null = null
-
-function getCliCommand(): string | null {
-  const cliProjectRoot = app.isPackaged
-    ? resolve(process.resourcesPath, 'engine')
-    : resolve(__dirname, '../engine')
-
-  const desktopCliPath = resolve(cliProjectRoot, 'dist-desktop/cli.js')
-  if (existsSync(desktopCliPath)) {
-    return `bun "${desktopCliPath}"`
-  }
-
-  const distCliPath = resolve(cliProjectRoot, 'dist/cli.js')
-  if (existsSync(distCliPath)) {
-    return `bun "${distCliPath}"`
-  }
-
-  const srcCliPath = resolve(cliProjectRoot, 'src/entrypoints/cli.tsx')
-  if (existsSync(srcCliPath)) {
-    const devScript = resolve(cliProjectRoot, 'scripts/dev.ts')
-    return `bun "${devScript}"`
-  }
-
-  return null
-}
-
-/** 允许直接拼进命令行的取值：不含空格与 shell 元字符 */
-const SAFE_ARG_RE = /^[\w.@:/-]+$/
-const PERMISSION_MODES = ['default', 'plan', 'acceptEdits', 'dontAsk', 'bypassPermissions']
-
-function buildCliFlags(options?: CronExecOptions): string[] {
-  if (!options) return []
-  const flags: string[] = []
-  if (options.model && SAFE_ARG_RE.test(options.model)) flags.push('--model', options.model)
-  if (options.effort && SAFE_ARG_RE.test(options.effort)) flags.push('--effort', options.effort)
-  if (options.agent && SAFE_ARG_RE.test(options.agent)) flags.push('--agent', options.agent)
-  const mode = options.permissionMode
-  if (mode && PERMISSION_MODES.includes(mode)) {
-    flags.push('--permission-mode', mode)
-    // 无人值守：需要放行的任务必须显式选 bypass，其余模式卡在权限请求上直到超时。
-    if (mode === 'bypassPermissions') flags.push('--dangerously-skip-permissions')
-  }
-  return flags
-}
 
 const CRON_ATTACHMENT_DIR = join('.claude', 'cron-attachments')
 const IMAGE_EXT_BY_MIME: Record<string, string> = {
@@ -84,66 +40,13 @@ function saveCronAttachment(
   return filePath
 }
 
-function spawnCliProcess(
-  prompt: string,
-  cwd: string,
-  options?: CronExecOptions,
-): Promise<{ exitCode: number | null; stdout: string; stderr: string; sessionId?: string }> {
-  return new Promise((resolve) => {
-    const cliCommand = getCliCommand()
-    if (!cliCommand) {
-      resolve({ exitCode: 1, stdout: '', stderr: 'No CLI found' })
-      return
-    }
-
-    const flags = buildCliFlags(options)
-    const isWin = process.platform === 'win32'
-    const shell = isWin ? 'cmd.exe' : '/bin/sh'
-    // 提示词走 stdin 而不是 argv：多行提示词经 cmd.exe 拼命令行会被截断，
-    // 路径里的引号与 & 也会破坏参数。engine 在非 TTY 下从 stdin 读 --print 的输入。
-    const shellArgs = isWin
-      ? ['/c', cliCommand, '--print', ...flags]
-      : ['-c', [cliCommand, '--print', ...flags].join(' ')]
-
-    const child = spawn(shell, shellArgs, {
-      cwd,
-      env: { ...process.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-
-    let stdout = ''
-    let stderr = ''
-
-    child.stdout?.on('data', (data: Buffer) => {
-      stdout += data.toString()
-    })
-
-    child.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString()
-    })
-
-    child.on('close', (code) => {
-      resolve({ exitCode: code, stdout, stderr })
-    })
-
-    child.on('error', (err) => {
-      resolve({ exitCode: 1, stdout, stderr: err.message })
-    })
-
-    child.stdin?.on('error', () => {
-      // 引擎提前退出时写 stdin 会 EPIPE，结果仍由 close 事件给出
-    })
-    child.stdin?.write(prompt)
-    child.stdin?.end()
-  })
-}
-
 export function registerCronIPCHandlers(getProjectRoot: () => string | null): void {
   const win = () => BrowserWindow.getAllWindows()[0]
 
   scheduler = new CronScheduler({
     getProjectRoot,
-    spawnCliProcess,
+    // 执行走聊天侧同一套引擎进程（含随包 bun 解析），任务过程才可能在会话里可见
+    runPrompt: createCronSessionRunner(),
     onTaskFired: (run: TaskRun) => {
       win()?.webContents.send('cron:onTaskFired', run)
     },
@@ -212,7 +115,8 @@ export function registerCronIPCHandlers(getProjectRoot: () => string | null): vo
       const task = tasks.find(t => t.id === id)
       if (!task) return { error: 'Task not found' }
       if (!scheduler) return { error: 'Scheduler not initialized' }
-      const run = await scheduler.executeTask(task, projectRoot)
+      // 用户点了「立即执行」就是要看过程：把新会话切到前台
+      const run = await scheduler.executeTask(task, projectRoot, { activate: true })
       return run
     } catch (err: any) {
       error('Cron', 'cron:run failed', err)

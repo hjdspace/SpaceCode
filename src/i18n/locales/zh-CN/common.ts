@@ -24,5 +24,9 @@ export default {
   clear: '清空',
   previous: '上一页',
   next: '下一页',
+  prevMonth: '上个月',
+  nextMonth: '下个月',
+  hour: '小时',
+  minute: '分钟',
   create: '创建',
 }

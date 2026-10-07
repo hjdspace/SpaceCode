@@ -62,6 +62,8 @@ export class ClaudeCodeEngine implements IEngine {
       baseUrl: config.baseUrl,
       apiKey: config.apiKey,
       effortLevel: config.effortLevel as SessionConfig['effortLevel'],
+      // 无人值守的调用方（定时任务）靠这个字段决定是否跳过权限确认，此前被丢弃
+      permissionMode: config.permissionMode,
       systemPrompt: config.systemPrompt,
       agent: config.agent,
       thinkingEnabled: config.thinkingEnabled,

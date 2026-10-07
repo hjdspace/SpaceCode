@@ -359,6 +359,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       session = sink.ensureSession(sessionId, {
         title: data?.title || content.slice(0, 50) || 'Remote Chat',
         projectPath: data?.projectPath || undefined,
+        activate: data?.activate !== false,
       })
     } else {
       if (data?.projectPath && !session.workingDirectory) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeNextCronRun, formatDuration } from '@/lib/cronHelper'
+import { computeNextCronRun, cronToHuman, formatDuration, nextRunAt } from '@/lib/cronHelper'
 
 describe('cronHelper — computeNextCronRun', () => {
   it('空表达式返回 null', () => {
@@ -96,5 +96,48 @@ describe('cronHelper — formatDuration', () => {
   it('小时级显示 "Xh Ym"', () => {
     expect(formatDuration(3_600_000)).toBe('1h 0m')
     expect(formatDuration(3_660_000)).toBe('1h 1m')
+  })
+})
+
+describe('cronHelper — nextRunAt', () => {
+  it('无窗口字段时与 computeNextCronRun 一致', () => {
+    const from = new Date(2026, 0, 1, 10, 0, 0)
+    const next = nextRunAt({ cron: '30 9 * * *' }, from)
+    expect(next!.getDate()).toBe(2) // 当天 09:30 已过 → 次日
+    expect(next!.getHours()).toBe(9)
+  })
+
+  it('startsAt 在未来时不早于它触发：cron 无年份语义，单次任务不能每年重复', () => {
+    const startsAt = new Date(2027, 9, 5, 9, 0, 0).getTime()
+    const from = new Date(2026, 9, 1, 0, 0, 0) // 同一表达式在 2026-10-05 也匹配
+    const next = nextRunAt({ cron: '0 9 5 10 *', startsAt }, from)
+    expect(next!.getFullYear()).toBe(2027)
+    expect(next!.getMonth()).toBe(9)
+    expect(next!.getDate()).toBe(5)
+    expect(next!.getHours()).toBe(9)
+  })
+
+  it('startsAt 正好落在匹配分钟时命中该分钟', () => {
+    const startsAt = new Date(2026, 9, 5, 9, 0, 0).getTime()
+    const from = new Date(2026, 9, 5, 8, 0, 0)
+    expect(nextRunAt({ cron: '0 9 5 10 *', startsAt }, from)!.getTime()).toBe(startsAt)
+  })
+
+  it('窗口已关闭返回 null', () => {
+    const endsAt = new Date(2026, 9, 1, 0, 0, 0).getTime()
+    expect(nextRunAt({ cron: '0 9 * * *', endsAt }, new Date(2026, 9, 5, 9, 0, 0))).toBeNull()
+  })
+
+  it('下一次匹配越过 endsAt 也返回 null', () => {
+    const endsAt = new Date(2026, 9, 5, 23, 59, 59).getTime()
+    expect(nextRunAt({ cron: '0 9 * * *', endsAt }, new Date(2026, 9, 5, 10, 0, 0))).toBeNull()
+  })
+})
+
+describe('cronHelper — cronToHuman', () => {
+  it('小时步长不再回落成裸表达式', () => {
+    const text = cronToHuman('0 */6 * * *')
+    expect(text).not.toBe('0 */6 * * *')
+    expect(text).not.toContain('*/')
   })
 })

@@ -279,6 +279,9 @@ export interface CronTask {
   lastFiredAt?: number
   recurring?: boolean
   permanent?: boolean
+  scheduleMode?: 'once' | 'repeat' | 'interval'
+  startsAt?: number
+  endsAt?: number
   name?: string
   enabled?: boolean
   frequency?: string

@@ -10,6 +10,9 @@ export interface CronAttachment {
   path: string
 }
 
+/** 排期方式：与 5 字段 cron 一同存储，供弹窗回填；调度只看 cron + 窗口 */
+export type CronScheduleMode = 'once' | 'repeat' | 'interval'
+
 export interface CronTask {
   id: string
   cron: string
@@ -18,6 +21,12 @@ export interface CronTask {
   lastFiredAt?: number
   recurring?: boolean
   permanent?: boolean
+  /** 缺省表示窗口字段上线前创建的任务，调度按老逻辑不加门控 */
+  scheduleMode?: CronScheduleMode
+  /** epoch ms：早于此时刻不触发；单次任务即目标时刻 */
+  startsAt?: number
+  /** epoch ms：晚于此时刻调度器自动禁用任务 */
+  endsAt?: number
   name?: string
   enabled?: boolean
   frequency?: string
@@ -84,6 +93,9 @@ export async function addCronTask(
     lastFiredAt: input.lastFiredAt,
     recurring: input.recurring,
     permanent: input.permanent,
+    scheduleMode: input.scheduleMode,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
     name: input.name,
     enabled: input.enabled ?? true,
     frequency: input.frequency,

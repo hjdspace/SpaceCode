@@ -29,6 +29,12 @@ export function cronToHuman(cron: string): string {
     return t('cronHelper.everyNMinutes', { n })
   }
 
+  // Every N hours at :MM: M */N * * *
+  if (minute !== '*' && hour.startsWith('*/') && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
+    const n = hour.slice(2)
+    return t('cronHelper.everyNHours', { n })
+  }
+
   // Every hour at minute M: M * * * *
   if (minute !== '*' && hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
     return t('cronHelper.hourlyAt', { minute: minute.padStart(2, '0') })
@@ -102,6 +108,32 @@ export function computeNextCronRun(cron: string, from?: Date): Date | null {
   }
 
   return null
+}
+
+export interface CronScheduleWindow {
+  cron: string
+  startsAt?: number
+  endsAt?: number
+}
+
+/**
+ * 窗口内的下次执行时间，与主进程 cronScheduler 的 startsAt/endsAt 门控保持一致。
+ * cron 没有年份语义，单次任务的真实触发时刻只能来自 startsAt。
+ */
+export function nextRunAt(task: CronScheduleWindow, from?: Date): Date | null {
+  const now = from ?? new Date()
+  if (task.endsAt !== undefined && now.getTime() > task.endsAt) return null
+
+  // computeNextCronRun 从 from+1 分钟开始搜，回退一分钟才可能命中正好等于 startsAt 的那分钟
+  const anchor =
+    task.startsAt !== undefined && task.startsAt > now.getTime()
+      ? new Date(task.startsAt - 60_000)
+      : now
+
+  const next = computeNextCronRun(task.cron, anchor)
+  if (!next) return null
+  if (task.endsAt !== undefined && next.getTime() > task.endsAt) return null
+  return next
 }
 
 function matchesField(field: string, value: number, min: number, max: number): boolean {

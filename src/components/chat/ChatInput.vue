@@ -300,7 +300,7 @@
         </div>
 
         <!-- 右侧按钮组：优化提示词 + 发送/停止 -->
-        <div class="toolbar-right">
+        <div v-if="showActions" class="toolbar-right">
           <!-- 优化提示词按钮（位于发送按钮左侧） -->
           <button
             class="optimize-btn"
@@ -460,8 +460,14 @@ const props = withDefaults(defineProps<{
   draftScope?: 'session' | 'none'
   /** 受控权限模式：传入时选择器只 emit，不再读写全局 permissionPolicy store */
   permissionMode?: PermissionMode
+  /** false = 不渲染右下角发送/优化提示词按钮（宿主自己提供提交入口时用） */
+  showActions?: boolean
+  /** false = Enter / Ctrl+Enter 不再触发 send，交回浏览器默认换行 */
+  enterSubmits?: boolean
 }>(), {
   draftScope: 'session',
+  showActions: true,
+  enterSubmits: true,
 })
 
 // ── Stores ───────────────────────────────────────────────────────
@@ -1039,14 +1045,14 @@ function handleEditorKeydown(event: KeyboardEvent) {
   }
 
   // Ctrl+Enter / Cmd+Enter: steering
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
+  if (props.enterSubmits && event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
     event.preventDefault()
     handleSend(true)
     return
   }
 
   // Enter without Shift = send
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (props.enterSubmits && event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     handleSend(false)
     return
@@ -2478,7 +2484,9 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  z-index: 500;
+  // 被 Teleport 到 body，只能靠视口层级：必须盖过弹窗 overlay（1000），
+  // 又留在确认/提示对话框（10000）之下 —— 与其余 teleported 菜单同为 9999
+  z-index: 9999;
   overflow: hidden;
   display: flex;
   flex-direction: column;

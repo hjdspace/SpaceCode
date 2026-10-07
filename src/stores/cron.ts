@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
 import type { CronAttachment } from '@/services/electronAPI'
 
+export type CronScheduleMode = 'once' | 'repeat' | 'interval'
+
 export interface CronTask {
   id: string
   cron: string
@@ -11,6 +13,9 @@ export interface CronTask {
   lastFiredAt?: number
   recurring?: boolean
   permanent?: boolean
+  scheduleMode?: CronScheduleMode
+  startsAt?: number
+  endsAt?: number
   name?: string
   enabled?: boolean
   frequency?: string

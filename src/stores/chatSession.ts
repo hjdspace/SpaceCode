@@ -1284,7 +1284,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
       }
 
-      if (session.messages.length === 1 && newMessage.role === 'user') {
+      // 首条用户消息给会话起名，但只在标题还是占位值时生效 ——
+      // 侧边任务 / 定时任务 / 手机端都带着明确标题进来，覆盖掉就把用途冲掉了。
+      if (session.messages.length === 1 && newMessage.role === 'user' && session.title === 'New Chat') {
         const newTitle = newMessage.content.slice(0, 50) + (newMessage.content.length > 50 ? '...' : '')
         session.title = newTitle
       }
@@ -1348,10 +1350,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
   // sink.persist 的实现：当前持久化无 per-session 粒度（saveToStorage 落全量），保留 sessionId 参数为任务 3 的细粒度持久化预留 seam。
   function saveToStorageForSession(_sessionId: string) { saveToStorage() }
-  function ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string }): Session {
+  function ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string; activate?: boolean }): Session {
     const existing = sessions.value.find(s => s.id === sessionId)
     if (existing) return existing
-    return createSession(hint?.title || 'New Chat', hint?.projectPath, sessionId)
+    return createSession(hint?.title || 'New Chat', hint?.projectPath, sessionId, {
+      activate: hint?.activate !== false,
+    })
   }
 
   // ========== 优化: 即时UI反馈 + 异步数据加载 ==========

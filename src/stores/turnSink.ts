@@ -8,5 +8,5 @@ export interface SessionSink {
   patchMessage(sessionId: string, messageId: string, patch: Partial<Message>): void
   patchToolCall(sessionId: string, messageId: string, toolUseId: string, status: ToolCall['status']): void
   persist(sessionId: string): void
-  ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string }): Session
+  ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string; activate?: boolean }): Session
 }

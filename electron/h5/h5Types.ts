@@ -47,6 +47,8 @@ export interface H5RemoteUserMessagePayload {
   projectPath: string | null
   title: string | null
   timestamp: number
+  /** false 表示只在会话列表落位、不抢当前视图（定时任务后台触发用） */
+  activate?: boolean
 }
 
 /** WS 推送的消息格式 */

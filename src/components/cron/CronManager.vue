@@ -5,7 +5,7 @@
         <ArrowLeft :size="18" />
       </button>
     </div>
-    <CronEmptyState v-if="cronStore.tasks.length === 0 && !cronStore.loading" @create="showNewTaskModal = true" />
+    <CronEmptyState v-if="cronStore.tasks.length === 0 && !cronStore.loading" @create="openCreate" />
     <template v-else>
       <div class="cron-header">
         <div class="cron-header-left">
@@ -17,21 +17,21 @@
             <div class="cron-subtitle">{{ t('cron.subtitle') }}</div>
           </div>
         </div>
-        <button class="btn-create" @click="showNewTaskModal = true">
+        <button class="btn-create" @click="openCreate">
           <Plus :size="16" />
           {{ t('cron.newTask') }}
         </button>
       </div>
-      <CronTaskList />
+      <CronTaskList @edit="openEdit" />
     </template>
-    <NewCronTaskModal v-model:visible="showNewTaskModal" />
+    <NewCronTaskModal v-model:visible="showNewTaskModal" :edit-task="editingTask" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Clock, Plus, ArrowLeft } from 'lucide-vue-next'
-import { useCronStore } from '@/stores/cron'
+import { useCronStore, type CronTask } from '@/stores/cron'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import CronTaskList from './CronTaskList.vue'
@@ -43,6 +43,18 @@ const { t } = useI18n()
 const cronStore = useCronStore()
 const appStore = useAppStore()
 const showNewTaskModal = ref(false)
+/** 弹窗靠这个判断是编辑还是新建；点新建必须清掉，否则会改到上一次选中的任务 */
+const editingTask = ref<CronTask | undefined>(undefined)
+
+function openCreate() {
+  editingTask.value = undefined
+  showNewTaskModal.value = true
+}
+
+function openEdit(task: CronTask) {
+  editingTask.value = task
+  showNewTaskModal.value = true
+}
 
 let unsubscribeFired: (() => void) | null = null
 let unsubscribeCompleted: (() => void) | null = null

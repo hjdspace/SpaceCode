@@ -52,6 +52,9 @@ $noise-opacity: 0.015;
 $grid-opacity: 0.01;
 
 :root {
+  /* 原生控件（date/time picker、滚动条、表单填充）的主题色板 */
+  color-scheme: light;
+
   --font-display: #{$font-display};
   --font-body: #{$font-body};
   --font-mono: #{$font-mono};
@@ -308,6 +311,7 @@ $grid-opacity: 0.01;
 
 [data-theme='anthropic-dark'] {
   /* Surface Dark System - Official Anthropic Dark Navy */
+  color-scheme: dark;
   --bg-primary: #181715;
   --bg-secondary: #1c1b1a;
   --bg-tertiary: #1f1e1b;
@@ -415,6 +419,7 @@ $grid-opacity: 0.01;
 
 [data-theme='dark'] {
   /* Dark Theme - Pure Colors, Modern Minimal */
+  color-scheme: dark;
   --bg-primary: #0d0d0d;
   --bg-secondary: #141414;
   --bg-tertiary: #1a1a1a;
