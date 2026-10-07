@@ -611,6 +611,7 @@ const nextRunText = computed(() => {
     cron: cronExpression.value,
     startsAt: startsAt.value ?? undefined,
     endsAt: endsAt.value ?? undefined,
+    recurring: form.mode !== 'once',
   }))
 })
 

@@ -25,7 +25,7 @@
             tabindex="0"
             :aria-label="kind === 'hour' ? t('common.hour') : t('common.minute')"
             :aria-activedescendant="`wheel-${kind}-${index[kind]}`"
-            @scrollend="commitFromScroll(kind)"
+            @scroll="onScroll(kind)"
             @keydown="onKeydown(kind, $event)"
           >
             <button
@@ -55,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Clock } from 'lucide-vue-next'
 import PopoverPanel from './PopoverPanel.vue'
@@ -181,6 +181,22 @@ function commitFromScroll(kind: WheelKind) {
   }
 }
 
+/** 每列一帧只取一次值：等吸附动画结束才提交，手感就是每停一下卡一下 */
+const pendingFrames = new Map<WheelKind, number>()
+
+function onScroll(kind: WheelKind) {
+  if (pendingFrames.has(kind)) return
+  pendingFrames.set(kind, requestAnimationFrame(() => {
+    pendingFrames.delete(kind)
+    commitFromScroll(kind)
+  }))
+}
+
+onBeforeUnmount(() => {
+  pendingFrames.forEach((frame) => cancelAnimationFrame(frame))
+  pendingFrames.clear()
+})
+
 function pick(kind: WheelKind, i: number) {
   index.value = { ...index.value, [kind]: i }
   scrollToIndex(kind, i, true)
@@ -253,7 +269,8 @@ function onKeydown(kind: WheelKind, e: KeyboardEvent) {
   height: var(--wheel-col-h);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scroll-snap-type: y mandatory;
+  // mandatory 会把每次滚轮手势锁死成一格，滚动看起来是断的；proximity 保留吸附又不拦手势
+  scroll-snap-type: y proximity;
   scrollbar-width: none;
   outline: none;
   // 上下各留 (可视高 - 行高)/2，让首尾项也能滚到正中

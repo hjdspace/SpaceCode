@@ -868,7 +868,7 @@ app.whenReady().then(() => {
   info('Startup', 'Artifacts IPC handlers registered')
 
 // Register Cron IPC handlers
-registerCronIPCHandlers(() => (global as any).__projectCwd ?? null)
+registerCronIPCHandlers()
 info('Startup', 'Cron IPC handlers registered')
 
 // Register OfficeCLI IPC handlers

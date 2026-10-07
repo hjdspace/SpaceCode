@@ -632,6 +632,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Cron API
   cron: {
+    setProjectRoot: (projectRoot: string) => ipcRenderer.send('cron:setProjectRoot', projectRoot),
     list: (projectRoot: string) => ipcRenderer.invoke('cron:list', projectRoot),
     create: (projectRoot: string, task: any) => ipcRenderer.invoke('cron:create', projectRoot, task),
     update: (projectRoot: string, id: string, updates: any) => ipcRenderer.invoke('cron:update', projectRoot, id, updates),

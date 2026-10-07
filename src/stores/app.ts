@@ -148,6 +148,9 @@ export const useAppStore = defineStore('app', () => {
     _initialProjectRoot = localStorage.getItem(PROJECT_ROOT_STORAGE_KEY) || ''
   } catch { /* ignore */ }
   const projectRoot = ref<string>(_initialProjectRoot)
+  // 主进程的 cron 调度器要自己按项目根去读任务表，项目根只有渲染进程持有。
+  // 可选链：部分测试与无桥环境拿到的 api 是残缺对象（同本文件对 api.readFile 的判断）
+  watch(projectRoot, (root) => api.cron?.setProjectRoot(root), { immediate: true })
 
   let _initialShowHiddenFiles = false
   try {

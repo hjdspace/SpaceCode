@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { readCronTasks, updateLastFired, updateCronTask } from './cronFileStore'
+import { readCronTasks, updateLastFired, disableCronTask } from './cronFileStore'
 import { appendRun, updateRun, cleanupStaleRuns } from './taskRunLogger'
 import { cronMatches } from './cronParser'
 import { buildExecutionPrompt } from '@/lib/cronPrompt'
@@ -46,7 +46,10 @@ export interface CronSchedulerOptions {
   onRunCompleted?: (run: TaskRun) => void
 }
 
-const TICK_INTERVAL_MS = 60_000
+/** 一个分钟的宽度：采样周期与单次任务的到点余量都用它 */
+const MINUTE_MS = 60_000
+/** 整分之后留一点余量再采样，避免和上一分钟的落盘抢同一毫秒 */
+const TICK_OFFSET_MS = 250
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
 
 /**
@@ -58,13 +61,19 @@ export function checkScheduleWindow(
   now: Date,
 ): 'active' | 'pending' | 'expired' {
   const nowMs = now.getTime()
-  if (task.endsAt && nowMs > task.endsAt) return 'expired'
+  // 单次的 startsAt 就是它唯一的时刻，整个那一分钟都算到点 —— 秒级判过期会让
+  // 21:55:30 的采样把 21:55:00 的任务判成 expired，一次没跑就被禁用
+  const onceDeadline = task.recurring === false && task.startsAt !== undefined
+    ? task.startsAt + MINUTE_MS - 1
+    : undefined
+  const endsAt = task.endsAt ?? onceDeadline
+  if (endsAt && nowMs > endsAt) return 'expired'
   if (task.startsAt && nowMs < task.startsAt) return 'pending'
   return 'active'
 }
 
 export class CronScheduler {
-  private timer: ReturnType<typeof setInterval> | null = null
+  private timer: ReturnType<typeof setTimeout> | null = null
   private runningTasks = new Set<string>()
   private firedMinuteKeys = new Set<string>()
   private options: CronSchedulerOptions
@@ -79,13 +88,26 @@ export class CronScheduler {
     if (projectRoot) {
       cleanupStaleRuns(projectRoot).catch(() => {})
     }
-    this.tick()
-    this.timer = setInterval(() => this.tick(), TICK_INTERVAL_MS)
+    void this.tick().catch(() => {})
+    this.scheduleNextTick()
+  }
+
+  /**
+   * 每轮之后重新对齐到下一个整分。setInterval 的回调只会一次比一次晚，累计漂移
+   * 跨过某个分钟边界时，那一分钟到点的任务就再也不会被采样到 —— 表现是任务凭空不跑。
+   */
+  private scheduleNextTick(): void {
+    const now = new Date()
+    const intoMinuteMs = now.getSeconds() * 1000 + now.getMilliseconds()
+    const delay = MINUTE_MS - intoMinuteMs + TICK_OFFSET_MS
+    this.timer = setTimeout(() => {
+      void this.tick().catch(() => {}).finally(() => this.scheduleNextTick())
+    }, delay)
   }
 
   stop(): void {
     if (this.timer) {
-      clearInterval(this.timer)
+      clearTimeout(this.timer)
       this.timer = null
     }
     this.runningTasks.clear()
@@ -125,7 +147,7 @@ export class CronScheduler {
       const gate = checkScheduleWindow(task, now)
       if (gate === 'expired') {
         // 过期即落盘禁用：列表显示「已禁用」，而不是永远算不出下次执行时间
-        await updateCronTask(task.id, { enabled: false }, projectRoot)
+        await disableCronTask(task.id, projectRoot)
         continue
       }
       if (gate === 'pending') continue
@@ -210,10 +232,6 @@ export class CronScheduler {
 
       await updateRun(runId, completedRun, projectRoot)
       Object.assign(run, completedRun)
-
-      if (!task.recurring) {
-        await updateCronTask(task.id, { enabled: false }, projectRoot)
-      }
     } catch (err: any) {
       const failedRun: Partial<TaskRun> = {
         completedAt: new Date().toISOString(),
@@ -226,6 +244,8 @@ export class CronScheduler {
     } finally {
       if (timeoutTimer) clearTimeout(timeoutTimer)
       this.runningTasks.delete(task.id)
+      // 单次任务跑完就结束，成败都一样；放在 finally 才不会被收尾改写执行结果
+      if (!task.recurring) await disableCronTask(task.id, projectRoot)
       this.options.onRunCompleted?.(run)
     }
 

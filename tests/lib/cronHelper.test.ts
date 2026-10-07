@@ -74,6 +74,32 @@ describe('cronHelper — computeNextCronRun', () => {
     const next = computeNextCronRun('0-30/10 * * * *', from)
     expect([0, 10, 20, 30]).toContain(next!.getMinutes())
   })
+
+  it('命中时刻在明年也照样给出，且不做逐分钟暴力搜索', () => {
+    // 2026-10-07 21:55 之后找 2027-10-05 09:00：暴力逐分钟要迭代 52 万次
+    const from = new Date(2026, 9, 7, 21, 55, 0)
+    const next = computeNextCronRun('0 9 5 10 *', from)
+    expect(next!.getFullYear()).toBe(2027)
+    expect(next!.getMonth()).toBe(9)
+    expect(next!.getDate()).toBe(5)
+    expect(next!.getHours()).toBe(9)
+    expect(next!.getMinutes()).toBe(0)
+  })
+
+  it('dom 与 dow 同时受限时取并集（标准 cron 语义）', () => {
+    // 每月 15 日 或 周一，09:00。2026-01-01 是周四 → 下一个命中是周一 1/5
+    const from = new Date(2026, 0, 1, 0, 0, 0)
+    const next = computeNextCronRun('0 9 15 * 1', from)
+    expect(next!.getDate()).toBe(5)
+    expect(next!.getDay()).toBe(1)
+  })
+
+  it('列表小时：跳到列表里的下一个小时', () => {
+    const from = new Date(2026, 0, 1, 10, 30, 0)
+    const next = computeNextCronRun('0 8,12,18 * * *', from)
+    expect(next!.getHours()).toBe(12)
+    expect(next!.getMinutes()).toBe(0)
+  })
 })
 
 describe('cronHelper — formatDuration', () => {
@@ -131,6 +157,33 @@ describe('cronHelper — nextRunAt', () => {
   it('下一次匹配越过 endsAt 也返回 null', () => {
     const endsAt = new Date(2026, 9, 5, 23, 59, 59).getTime()
     expect(nextRunAt({ cron: '0 9 * * *', endsAt }, new Date(2026, 9, 5, 10, 0, 0))).toBeNull()
+  })
+
+  it('单次任务的下次就是 startsAt 本身', () => {
+    const startsAt = new Date(2026, 9, 7, 21, 55, 0).getTime()
+    const next = nextRunAt(
+      { cron: '55 21 7 10 *', startsAt, recurring: false },
+      new Date(2026, 9, 7, 21, 40, 0),
+    )
+    expect(next!.getTime()).toBe(startsAt)
+  })
+
+  it('单次任务时刻已过不再报明年', () => {
+    const startsAt = new Date(2026, 9, 7, 21, 55, 0).getTime()
+    expect(
+      nextRunAt(
+        { cron: '55 21 7 10 *', startsAt, recurring: false },
+        new Date(2026, 9, 7, 22, 0, 0),
+      ),
+    ).toBeNull()
+  })
+
+  it('窗口字段上线前的单次任务用创建后的首个命中定位', () => {
+    const createdAt = new Date(2026, 9, 7, 21, 40, 0).getTime()
+    const task = { cron: '55 21 7 10 *', recurring: false, createdAt }
+    expect(nextRunAt(task, new Date(2026, 9, 7, 21, 45, 0))?.getTime())
+      .toBe(new Date(2026, 9, 7, 21, 55, 0).getTime())
+    expect(nextRunAt(task, new Date(2026, 9, 8, 9, 0, 0))).toBeNull()
   })
 })
 

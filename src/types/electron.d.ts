@@ -368,6 +368,7 @@ export interface ElectronImWechatAPI {
 }
 
 export interface ElectronCronAPI {
+  setProjectRoot: (projectRoot: string) => void
   list: (projectRoot: string) => Promise<CronTask[]>
   create: (projectRoot: string, task: Omit<CronTask, 'id'>) => Promise<CronTask | null>
   update: (projectRoot: string, id: string, updates: Partial<CronTask>) => Promise<void>

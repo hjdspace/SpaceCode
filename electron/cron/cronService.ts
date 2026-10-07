@@ -11,6 +11,11 @@ import type { TaskRun } from './taskRunLogger'
 import { info, error } from '../infra/logger'
 
 let scheduler: CronScheduler | null = null
+/**
+ * 调度器要自己去读任务表，而项目根只有渲染进程知道（主进程侧的 __projectCwd
+ * 是从未被赋值的死全局，靠它取根等于调度器每分钟直接 return）。
+ */
+let activeProjectRoot: string | null = null
 
 const CRON_ATTACHMENT_DIR = join('.claude', 'cron-attachments')
 const IMAGE_EXT_BY_MIME: Record<string, string> = {
@@ -40,11 +45,11 @@ function saveCronAttachment(
   return filePath
 }
 
-export function registerCronIPCHandlers(getProjectRoot: () => string | null): void {
+export function registerCronIPCHandlers(): void {
   const win = () => BrowserWindow.getAllWindows()[0]
 
   scheduler = new CronScheduler({
-    getProjectRoot,
+    getProjectRoot: () => activeProjectRoot,
     // 执行走聊天侧同一套引擎进程（含随包 bun 解析），任务过程才可能在会话里可见
     runPrompt: createCronSessionRunner(),
     onTaskFired: (run: TaskRun) => {
@@ -70,6 +75,10 @@ export function registerCronIPCHandlers(getProjectRoot: () => string | null): vo
 
   scheduler.start()
   info('Cron', 'CronScheduler started')
+
+  ipcMain.on('cron:setProjectRoot', (_event, root: unknown) => {
+    activeProjectRoot = typeof root === 'string' && root ? root : null
+  })
 
   ipcMain.handle('cron:list', async (_event, projectRoot: string) => {
     try {

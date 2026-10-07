@@ -77,8 +77,8 @@ export function cronToHuman(cron: string): string {
 
 /**
  * Compute the next fire time for a 5-field cron expression.
- * This is a simplified forward-search algorithm — iterates minute-by-minute
- * up to 366 days ahead. Good enough for UI display.
+ * 逐日推进，只在日期命中的那天扫时分取值表 —— 逐分钟暴力搜在「明年同一分钟」
+ * 这类表达式上要迭代 52 万次，时间滚轮每动一格都会同步卡一下。
  */
 export function computeNextCronRun(cron: string, from?: Date): Date | null {
   if (!cron) return null
@@ -86,34 +86,75 @@ export function computeNextCronRun(cron: string, from?: Date): Date | null {
   if (parts.length !== 5) return null
 
   const [minuteField, hourField, domField, monthField, dowField] = parts
+  const minutes = expandField(minuteField, 0, 59)
+  const hours = expandField(hourField, 0, 23)
+  const doms = expandField(domField, 1, 31)
+  const months = expandField(monthField, 1, 12)
+  const dows = expandField(dowField, 0, 6)
+  if (!minutes || !hours || !doms || !months || !dows) return null
 
-  const now = from || new Date()
-  // Start from the next minute
-  const start = new Date(now.getTime())
-  start.setSeconds(0, 0)
-  start.setMinutes(start.getMinutes() + 1)
+  const monthSet = new Set(months)
+  const domSet = new Set(doms)
+  const dowSet = new Set(dows)
+  // 标准 cron：dom 与 dow 同时限定时取并集，否则取交集
+  const bothDaysConstrained = domField !== '*' && dowField !== '*'
 
-  const maxIterations = 525960 // 366 days * 24 * 60 minutes
-  const cursor = new Date(start.getTime())
+  const cursor = new Date((from || new Date()).getTime())
+  cursor.setSeconds(0, 0)
+  cursor.setMinutes(cursor.getMinutes() + 1)
+  const limit = cursor.getTime() + 366 * 24 * 60 * 60 * 1000
 
-  for (let i = 0; i < maxIterations; i++) {
-    if (matchesField(minuteField, cursor.getMinutes(), 0, 59) &&
-        matchesField(hourField, cursor.getHours(), 0, 23) &&
-        matchesField(domField, cursor.getDate(), 1, 31) &&
-        matchesField(monthField, cursor.getMonth() + 1, 1, 12) &&
-        matchesField(dowField, cursor.getDay(), 0, 6)) {
-      return cursor
+  while (cursor.getTime() <= limit) {
+    const domOk = domSet.has(cursor.getDate())
+    const dowOk = dowSet.has(cursor.getDay())
+    const dayOk = bothDaysConstrained ? domOk || dowOk : domOk && dowOk
+    if (monthSet.has(cursor.getMonth() + 1) && dayOk) {
+      for (const hour of hours) {
+        for (const minute of minutes) {
+          const candidate = new Date(
+            cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), hour, minute,
+          )
+          if (candidate.getTime() >= cursor.getTime()) return candidate
+        }
+      }
     }
-    cursor.setMinutes(cursor.getMinutes() + 1)
+    cursor.setDate(cursor.getDate() + 1)
+    cursor.setHours(0, 0, 0, 0)
   }
 
   return null
+}
+
+/** 把单值、区间、步长、列表这几类 cron 字段展开成升序取值表；无法解析返回 null */
+function expandField(field: string, min: number, max: number): number[] | null {
+  const values: number[] = []
+  for (const part of field.split(',')) {
+    const [spec, stepSpec] = part.split('/')
+    if (!spec) return null
+    const step = stepSpec === undefined ? 1 : Number(stepSpec)
+    if (!Number.isInteger(step) || step < 1) return null
+
+    let lo = min
+    let hi = max
+    if (spec !== '*') {
+      const bounds = spec.split('-')
+      lo = Number(bounds[0])
+      hi = bounds.length > 1 ? Number(bounds[1]) : lo
+      if (stepSpec !== undefined && bounds.length === 1) return null
+    }
+    if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < min || hi > max || lo > hi) return null
+
+    for (let value = lo; value <= hi; value += step) values.push(value)
+  }
+  return values.length ? [...new Set(values)].sort((a, b) => a - b) : null
 }
 
 export interface CronScheduleWindow {
   cron: string
   startsAt?: number
   endsAt?: number
+  recurring?: boolean
+  createdAt?: number
 }
 
 /**
@@ -123,6 +164,13 @@ export interface CronScheduleWindow {
 export function nextRunAt(task: CronScheduleWindow, from?: Date): Date | null {
   const now = from ?? new Date()
   if (task.endsAt !== undefined && now.getTime() > task.endsAt) return null
+
+  if (task.recurring === false) {
+    // 窗口字段上线前的单次任务没有 startsAt，它唯一的一次机会就是创建后的首个命中
+    const at = task.startsAt ?? computeNextCronRun(task.cron, new Date(task.createdAt ?? now))?.getTime()
+    if (at === undefined || at < now.getTime()) return null
+    return new Date(at)
+  }
 
   // computeNextCronRun 从 from+1 分钟开始搜，回退一分钟才可能命中正好等于 startsAt 的那分钟
   const anchor =
@@ -134,47 +182,6 @@ export function nextRunAt(task: CronScheduleWindow, from?: Date): Date | null {
   if (!next) return null
   if (task.endsAt !== undefined && next.getTime() > task.endsAt) return null
   return next
-}
-
-function matchesField(field: string, value: number, min: number, max: number): boolean {
-  // *
-  if (field === '*') return true
-
-  // */N
-  const stepMatch = field.match(/^\*\/(\d+)$/)
-  if (stepMatch) {
-    const step = parseInt(stepMatch[1], 10)
-    return step > 0 && value % step === 0
-  }
-
-  // Range: N-M
-  const rangeMatch = field.match(/^(\d+)-(\d+)$/)
-  if (rangeMatch) {
-    const lo = parseInt(rangeMatch[1], 10)
-    const hi = parseInt(rangeMatch[2], 10)
-    return value >= lo && value <= hi
-  }
-
-  // Range with step: N-M/S
-  const rangeStepMatch = field.match(/^(\d+)-(\d+)\/(\d+)$/)
-  if (rangeStepMatch) {
-    const lo = parseInt(rangeStepMatch[1], 10)
-    const hi = parseInt(rangeStepMatch[2], 10)
-    const step = parseInt(rangeStepMatch[3], 10)
-    return value >= lo && value <= hi && (value - lo) % step === 0
-  }
-
-  // List: N,M,K
-  if (field.includes(',')) {
-    return field.split(',').some(part => {
-      const n = parseInt(part, 10)
-      return !isNaN(n) && n === value
-    })
-  }
-
-  // Single value
-  const n = parseInt(field, 10)
-  return !isNaN(n) && n === value
 }
 
 /**
