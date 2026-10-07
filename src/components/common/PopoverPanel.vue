@@ -86,9 +86,36 @@ function place() {
 
   const desiredTop = flipUp ? a.top - ANCHOR_GAP - h : a.bottom + ANCHOR_GAP
 
-  top.value = Math.max(EDGE_MARGIN, Math.min(desiredTop, window.innerHeight - h - EDGE_MARGIN))
-  left.value = Math.max(EDGE_MARGIN, Math.min(a.left, window.innerWidth - w - EDGE_MARGIN))
+  const nextTop = Math.max(EDGE_MARGIN, Math.min(desiredTop, window.innerHeight - h - EDGE_MARGIN))
+  const nextLeft = Math.max(EDGE_MARGIN, Math.min(a.left, window.innerWidth - w - EDGE_MARGIN))
+  // 值没变就不写 style：挪动含滚动器的面板会打断正在进行的滚动
+  if (nextTop !== top.value || nextLeft !== left.value) {
+    top.value = nextTop
+    left.value = nextLeft
+  }
   anchored.value = true
+}
+
+/**
+ * 重定位合并到每帧一次：滚动期间反复强制布局 + 挪面板，滚动动量会被不断打断，
+ * 面板里放滚动条类控件（时间滚轮）时尤其明显。
+ */
+let placeFrame = 0
+
+function requestPlace() {
+  if (placeFrame) return
+  placeFrame = requestAnimationFrame(() => {
+    placeFrame = 0
+    place()
+  })
+}
+
+function onScroll(e: Event) {
+  // 捕获阶段的 scroll 会收到文档内任何滚动容器的滚动（含本面板内部），
+  // 那些与锚点位置无关，直接跳过
+  const source = e.target as Node | null
+  if (source && (panelRef.value?.contains(source) || props.anchor?.contains(source))) return
+  requestPlace()
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -108,17 +135,21 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 function addListeners() {
-  window.addEventListener('scroll', place, true)
+  window.addEventListener('scroll', onScroll, true)
   window.addEventListener('resize', place)
   document.addEventListener('pointerdown', onPointerDown, true)
   document.addEventListener('keydown', onKeyDown, true)
 }
 
 function removeListeners() {
-  window.removeEventListener('scroll', place, true)
+  window.removeEventListener('scroll', onScroll, true)
   window.removeEventListener('resize', place)
   document.removeEventListener('pointerdown', onPointerDown, true)
   document.removeEventListener('keydown', onKeyDown, true)
+  if (placeFrame) {
+    cancelAnimationFrame(placeFrame)
+    placeFrame = 0
+  }
   unstackSelf()
 }
 

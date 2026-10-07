@@ -16,36 +16,39 @@
     <PopoverPanel :open="open" :anchor="triggerRef" :z-index="1300" @close="open = false">
       <div class="wheel" :style="wheelVars">
         <div class="wheel-cols">
-          <div
-            v-for="kind in kinds"
-            :key="kind"
-            :ref="kind === 'hour' ? setHourCol : setMinuteCol"
-            class="wheel-col"
-            role="listbox"
-            tabindex="0"
-            :aria-label="kind === 'hour' ? t('common.hour') : t('common.minute')"
-            :aria-activedescendant="`wheel-${kind}-${index[kind]}`"
-            @scroll="onScroll(kind)"
-            @keydown="onKeydown(kind, $event)"
-          >
-            <button
-              v-for="n in options(kind)"
-              :id="`wheel-${kind}-${n}`"
-              :key="n"
-              type="button"
-              role="option"
-              class="wheel-item"
-              :class="{ 'is-selected': index[kind] === n }"
-              :aria-selected="index[kind] === n"
-              :data-value="n"
-              @click="pick(kind, n)"
+          <div v-for="kind in kinds" :key="kind" class="wheel-col-box">
+            <div
+              :ref="kind === 'hour' ? setHourCol : setMinuteCol"
+              class="wheel-col"
+              role="listbox"
+              tabindex="0"
+              :aria-label="kind === 'hour' ? t('common.hour') : t('common.minute')"
+              :aria-activedescendant="`wheel-${kind}-${index[kind]}`"
+              @scroll="onScroll(kind)"
+              @scrollend="onSettle(kind)"
+              @keydown="onKeydown(kind, $event)"
             >
-              {{ pad(n) }}
-            </button>
+              <button
+                v-for="n in options(kind)"
+                :id="`wheel-${kind}-${n}`"
+                :key="n"
+                type="button"
+                role="option"
+                class="wheel-item"
+                :class="{ 'is-selected': index[kind] === n }"
+                :aria-selected="index[kind] === n"
+                :data-value="n"
+                @click="pick(kind, n)"
+              >
+                {{ pad(n) }}
+              </button>
+            </div>
+            <div class="wheel-fade wheel-fade--top" aria-hidden="true" />
+            <div class="wheel-fade wheel-fade--bottom" aria-hidden="true" />
           </div>
         </div>
         <div class="wheel-footer">
-          <button type="button" class="wheel-confirm" @click="open = false">
+          <button type="button" class="wheel-confirm" @click="confirm">
             {{ t('common.confirm') }}
           </button>
         </div>
@@ -134,12 +137,9 @@ function parse(value: string): Record<WheelKind, number> {
   }
 }
 
-/** 外部改值（如回填任务）要滚到新值；自己 emit 回来的同值不再滚动 */
-let lastEmitted = ''
-
+/** 面板内是草稿：滚动/点选只动本地选中位，确定才外发 */
 watch(() => props.modelValue, (value) => {
   index.value = parse(value)
-  if (value === lastEmitted) return
   if (!open.value) return
   void nextTick(() => {
     scrollToIndex('hour', index.value.hour, false)
@@ -149,6 +149,7 @@ watch(() => props.modelValue, (value) => {
 
 watch(open, (isOpen) => {
   if (!isOpen) return
+  // 每次打开都从外部已提交值起算，上一次没按确定的滚动结果就此作废
   index.value = parse(props.modelValue)
   void nextTick(() => {
     scrollToIndex('hour', index.value.hour, false)
@@ -166,41 +167,59 @@ function scrollToIndex(kind: WheelKind, i: number, smooth: boolean) {
   el?.scrollTo?.({ top: i * ITEM_H, behavior: smooth ? 'smooth' : 'auto' })
 }
 
-function emitValue() {
-  lastEmitted = `${pad(index.value.hour)}:${pad(index.value.minute)}`
-  emit('update:modelValue', lastEmitted)
-}
-
 function commitFromScroll(kind: WheelKind) {
   const el = colEl(kind)
   if (!el) return
   const i = clamp(Math.round(el.scrollTop / ITEM_H), maxOf(kind))
   if (i !== index.value[kind]) {
     index.value = { ...index.value, [kind]: i }
-    emitValue()
   }
 }
 
-/** 每列一帧只取一次值：等吸附动画结束才提交，手感就是每停一下卡一下 */
-const pendingFrames = new Map<WheelKind, number>()
+/**
+ * 手势期间零 JS 读取、零状态写入：每个 scroll 事件都读 scrollTop 并改选中位，
+ * 会让 60 个候选项跟着重绘，滚轮手感就是在这上面一顿一顿的。
+ * 吸附停下（scrollend）或手势静止 IDLE_MS 后才取一次值；scrollend 缺失时靠定时器兜底。
+ */
+const IDLE_MS = 90
+const settleTimers = new Map<WheelKind, number>()
 
-function onScroll(kind: WheelKind) {
-  if (pendingFrames.has(kind)) return
-  pendingFrames.set(kind, requestAnimationFrame(() => {
-    pendingFrames.delete(kind)
-    commitFromScroll(kind)
-  }))
+function clearSettle(kind?: WheelKind) {
+  const kindsToClear: WheelKind[] = kind ? [kind] : [...settleTimers.keys()]
+  for (const k of kindsToClear) {
+    const timer = settleTimers.get(k)
+    if (timer !== undefined) clearTimeout(timer)
+    settleTimers.delete(k)
+  }
 }
 
-onBeforeUnmount(() => {
-  pendingFrames.forEach((frame) => cancelAnimationFrame(frame))
-  pendingFrames.clear()
-})
+function onScroll(kind: WheelKind) {
+  clearSettle(kind)
+  settleTimers.set(kind, window.setTimeout(() => {
+    settleTimers.delete(kind)
+    commitFromScroll(kind)
+  }, IDLE_MS))
+}
+
+function onSettle(kind: WheelKind) {
+  clearSettle(kind)
+  commitFromScroll(kind)
+}
+
+onBeforeUnmount(() => clearSettle())
 
 function pick(kind: WheelKind, i: number) {
   index.value = { ...index.value, [kind]: i }
   scrollToIndex(kind, i, true)
-  emitValue()
+}
+
+function confirm() {
+  // 刚滚完立刻按确定：先把still-pending 的吸附位读进来，别丢掉用户选的时刻
+  for (const kind of [...settleTimers.keys()]) commitFromScroll(kind)
+  clearSettle()
+  const value = `${pad(index.value.hour)}:${pad(index.value.minute)}`
+  open.value = false
+  if (value !== props.modelValue) emit('update:modelValue', value)
 }
 
 function onKeydown(kind: WheelKind, e: KeyboardEvent) {
@@ -265,8 +284,13 @@ function onKeydown(kind: WheelKind, e: KeyboardEvent) {
   padding: 0 8px;
 }
 
-.wheel-col {
+.wheel-col-box {
+  position: relative;
   height: var(--wheel-col-h);
+}
+
+.wheel-col {
+  height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   // mandatory 会把每次滚轮手势锁死成一格，滚动看起来是断的；proximity 保留吸附又不拦手势
@@ -275,20 +299,6 @@ function onKeydown(kind: WheelKind, e: KeyboardEvent) {
   outline: none;
   // 上下各留 (可视高 - 行高)/2，让首尾项也能滚到正中
   padding: var(--wheel-col-pad) 0;
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    #000 32%,
-    #000 68%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    #000 32%,
-    #000 68%,
-    transparent 100%
-  );
 
   &::-webkit-scrollbar {
     display: none;
@@ -297,6 +307,26 @@ function onKeydown(kind: WheelKind, e: KeyboardEvent) {
   &:focus-visible {
     border-radius: var(--radius-sm);
     box-shadow: inset 0 0 0 1px var(--accent-primary-glow);
+  }
+}
+
+// 边缘淡出用覆盖层而不是 mask-image：mask 挂在滚动容器上会让 Blink 走不进
+// 合成器快速滚动路径，每格滚轮都要重绘整列内容。面板底色不透明，两者视觉等价。
+.wheel-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 32%;
+  pointer-events: none;
+
+  &--top {
+    top: 0;
+    background: linear-gradient(to bottom, var(--bg-elevated), transparent);
+  }
+
+  &--bottom {
+    bottom: 0;
+    background: linear-gradient(to top, var(--bg-elevated), transparent);
   }
 }
 
