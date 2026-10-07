@@ -1098,6 +1098,14 @@ watch(() => settingsStore.config.model, (newModel) => {
   }
 })
 
+// 会话自带的模型同步到输入框：定时任务等后台触发方在建会话时就指定了模型，
+// 不同步会让用户看到的还是全局默认值，误以为任务里选的模型没生效
+watch(() => paneSession.value?.model, (model) => {
+  if (model && model !== currentModel.value) {
+    currentModel.value = model
+  }
+})
+
 /**
  * 将用户选择的实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
  *

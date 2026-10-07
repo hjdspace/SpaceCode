@@ -115,6 +115,29 @@ describe('turn H5 remote user events', () => {
     expect(sessionStore.currentSessionId).toBe(main.id)
   })
 
+  it('payload 带 model 时写进会话记录，输入框与续话都沿用任务模型', async () => {
+    const { useTurnStore } = await import('../turn')
+    const turnStore = useTurnStore()
+    const sessionStore = useChatSessionStore()
+
+    mockState.handlers.onUser({
+      sessionId: 'cron-model-session',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '整理今日构建失败',
+        projectPath: 'D:/repo',
+        title: '构建巡检',
+        timestamp: Date.now(),
+        activate: false,
+        model: 'deepseek-v4-flash',
+      },
+    })
+
+    expect(sessionStore.sessions.find(s => s.id === 'cron-model-session')?.model).toBe('deepseek-v4-flash')
+    expect(turnStore.getIsLoading('cron-model-session')).toBe(true)
+  })
+
   it('can create a phone-side session when crypto.randomUUID is unavailable', () => {
     stubCryptoWithoutRandomUUID()
     const sessionStore = useChatSessionStore()

@@ -20,6 +20,7 @@ function fakeDeps(overrides: Partial<CronSessionRunnerDeps> = {}) {
   const listeners = new Set<Listener>()
   const recorder = {
     loadConfig: vi.fn((cwd: string) => ({ cwd })),
+    resolveModelAlias: vi.fn((model: string) => model),
     startSession: vi.fn(async () => null),
     sendMessage: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
@@ -55,10 +56,13 @@ function testContext(patch: Partial<CronRunContext> = {}): CronRunContext {
 }
 
 describe('buildCronEngineConfig', () => {
+  const asAlias = (model: string) => (model === 'deepseek-v4-flash' ? 'sonnet' : model)
+
   it('任务级的模型/推理档/agent 覆盖设置文件里的取值', () => {
     const base = buildCronEngineConfig(
       { cwd: '/w', model: 'sonnet', provider: 'anthropic', effortLevel: 'low' },
       { model: 'opus', effort: 'high', agent: 'reviewer', permissionMode: 'plan' },
+      (m) => m,
     )
     expect(base).toMatchObject({
       cwd: '/w',
@@ -70,11 +74,28 @@ describe('buildCronEngineConfig', () => {
     })
   })
 
+  it('任务里的实际模型名反查成引擎别名，否则代理会把它落回 sonnet 路由', () => {
+    const config = buildCronEngineConfig({ cwd: '/w' }, { model: 'deepseek-v4-flash' }, asAlias)
+    expect(config.model).toBe('sonnet')
+  })
+
+  it('别名拿不到 modelContextWindows：为别名补一份同值键，[1m] 与压缩窗口才生效', () => {
+    const config = buildCronEngineConfig(
+      { cwd: '/w', modelContextWindows: { 'deepseek-v4-flash': 400_000 } },
+      { model: 'deepseek-v4-flash' },
+      asAlias,
+    )
+    expect(config.modelContextWindows).toMatchObject({
+      'deepseek-v4-flash': 400_000,
+      sonnet: 400_000,
+    })
+  })
+
   it('权限模式缺省或不可识别时落到 default，绝不留空', () => {
     // 留空会让进程池跳过"切回用户模式"，引擎于是停在 --dangerously-skip-permissions 的放行态
-    expect(buildCronEngineConfig({ cwd: '/w' }).permissionMode).toBe('default')
-    expect(buildCronEngineConfig({ cwd: '/w' }, { permissionMode: 'dontAsk' }).permissionMode).toBe('default')
-    expect(buildCronEngineConfig({ cwd: '/w' }, { permissionMode: 'bypassPermissions' }).permissionMode)
+    expect(buildCronEngineConfig({ cwd: '/w' }, undefined, (m) => m).permissionMode).toBe('default')
+    expect(buildCronEngineConfig({ cwd: '/w' }, { permissionMode: 'dontAsk' }, (m) => m).permissionMode).toBe('default')
+    expect(buildCronEngineConfig({ cwd: '/w' }, { permissionMode: 'bypassPermissions' }, (m) => m).permissionMode)
       .toBe('bypassPermissions')
   })
 })
@@ -97,8 +118,21 @@ describe('createCronSessionRunner', () => {
     await expect(run).resolves.toEqual({ exitCode: 0, stdout: 'done', stderr: '' })
   })
 
-  it('提示词在引擎会话就绪后才发出', async () => {
-    let resolveStart: (v: null) => void = () => {}
+  it('任务模型以实际名交给渲染进程，以引擎别名起会话', async () => {
+    const f = fakeDeps({
+      resolveModelAlias: vi.fn((m: string) => (m === 'deepseek-v4-flash' ? 'sonnet' : m)),
+    })
+    const run = createCronSessionRunner(f.deps)('p', '/w', testContext(), { model: 'deepseek-v4-flash' })
+
+    expect(f.recorder.pushSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'deepseek-v4-flash' }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(f.recorder.startSession).toHaveBeenCalledWith('sid-1', expect.objectContaining({ model: 'sonnet' }))
+
+    f.emit('sid-1', 'result', { result: 'done' })
+    await run
+  })
+
+  it('提示词在引擎会话就绪后才发出', async () => {    let resolveStart: (v: null) => void = () => {}
     const f = fakeDeps({ startSession: () => new Promise<null>((r) => { resolveStart = r }) })
     const run = createCronSessionRunner(f.deps)('p', '/w', testContext())
 

@@ -370,6 +370,12 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       }
     }
 
+    // 后台触发方（定时任务）指定的模型落到会话记录：输入框显示的是它，
+    // 用户在该会话续话时 initClaudeCodeSession 也会按它重启引擎，而不是退回全局默认
+    if (typeof data?.model === 'string' && data.model && !session.model) {
+      session.model = data.model
+    }
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('h5-remote-user-message', {
         detail: {

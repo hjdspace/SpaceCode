@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { engineGateway } from '../engine/engineGateway'
-import { loadEngineSessionConfig } from '../engine/engineSessionConfig'
+import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 import { EngineFactory } from '../engine/engines/EngineFactory'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannels } from '@/shared/channelMap'
@@ -19,13 +19,27 @@ const SUPPORTED_PERMISSION_MODES: PermissionMode[] = ['default', 'plan', 'accept
  * permissionMode 必须显式给值：sessionProcess 一律带 --dangerously-skip-permissions
  * 启动（让运行时能切到 bypass），再由进程池按 config.permissionMode 切回。
  * 留空就等于让无人值守的任务跑在全放行模式，比改走引擎会话之前的行为更危险。
+ *
+ * 任务里存的模型是设置槽位的实际名（如 deepseek-v4-flash），引擎会话要的是别名：
+ * 代理模式下真名会落回 sonnet 路由，任务选的模型被静默丢弃。resolveModelAlias
+ * 由调用方注入（生产用 engineSessionConfig.resolveEngineModelAlias）。
  */
 export function buildCronEngineConfig(
   base: EngineSessionConfig,
-  options?: CronExecOptions,
+  options: CronExecOptions | undefined,
+  resolveModelAlias: (model: string) => string,
 ): EngineSessionConfig {
   const config: EngineSessionConfig = { ...base }
-  if (options?.model) config.model = options.model
+  if (options?.model) {
+    const alias = resolveModelAlias(options.model)
+    config.model = alias
+    // modelContextWindows 以实际模型名为键，别名查不到会让 [1m] 后缀与
+    // CLAUDE_CODE_AUTO_COMPACT_WINDOW 失效（同 chatSession 的 initClaudeCodeSession 处理）
+    const ctx = alias === options.model ? undefined : base.modelContextWindows?.[options.model]
+    if (ctx !== undefined) {
+      config.modelContextWindows = { ...base.modelContextWindows, [alias]: ctx }
+    }
+  }
   if (options?.effort) config.effortLevel = options.effort
   if (options?.agent) config.agent = options.agent
   const mode = options?.permissionMode as PermissionMode | undefined
@@ -39,10 +53,13 @@ export interface CronSessionPush {
   title: string
   projectPath: string
   activate: boolean
+  /** 任务指定的模型（实际模型名），让会话页输入框显示它而不是全局默认 */
+  model?: string
 }
 
 export interface CronSessionRunnerDeps {
   loadConfig: (cwd: string) => EngineSessionConfig
+  resolveModelAlias: (model: string) => string
   startSession: (sessionId: string, config: EngineSessionConfig) => Promise<unknown>
   sendMessage: (sessionId: string, content: string) => Promise<void>
   stop: (sessionId: string) => Promise<void>
@@ -60,6 +77,7 @@ function pushSessionToRenderer(push: CronSessionPush): void {
     title: push.title,
     timestamp: Date.now(),
     activate: push.activate,
+    ...(push.model ? { model: push.model } : {}),
   }
 
   for (const win of BrowserWindow.getAllWindows()) {
@@ -71,6 +89,7 @@ function pushSessionToRenderer(push: CronSessionPush): void {
 
 export const defaultCronSessionRunnerDeps: CronSessionRunnerDeps = {
   loadConfig: loadEngineSessionConfig,
+  resolveModelAlias: resolveEngineModelAlias,
   startSession: (sessionId, config) => engineGateway.startSession(sessionId, config),
   sendMessage: (sessionId, content) => engineGateway.sendMessage(sessionId, content),
   stop: (sessionId) => engineGateway.stop(sessionId),
@@ -136,10 +155,11 @@ export function createCronSessionRunner(
       title: taskName || prompt.slice(0, 50),
       projectPath: cwd,
       activate,
+      ...(options?.model ? { model: options.model } : {}),
     })
 
     void (async () => {
-      const config = buildCronEngineConfig(deps.loadConfig(cwd), options)
+      const config = buildCronEngineConfig(deps.loadConfig(cwd), options, deps.resolveModelAlias)
       await deps.startSession(sessionId, config)
       // 收口可能落在 startSession 期间（超时中断）。此时再把 prompt 喂进去，
       // 就会留下一个已经无人等待、却仍在跑的引擎进程。

@@ -49,6 +49,8 @@ export interface H5RemoteUserMessagePayload {
   timestamp: number
   /** false 表示只在会话列表落位、不抢当前视图（定时任务后台触发用） */
   activate?: boolean
+  /** 触发方为该会话指定的模型（实际模型名），用于桌面输入框显示与续话沿用 */
+  model?: string
 }
 
 /** WS 推送的消息格式 */
