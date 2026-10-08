@@ -152,11 +152,8 @@ function formatContent(value: unknown): string {
   word-break: break-word;
   max-height: 400px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   background: rgba(0, 0, 0, 0.15);
-
-  &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
 }
 
 // Block type specific styles
