@@ -1,5 +1,5 @@
 <template>
-  <div class="appearance-settings">
+  <div class="appearance-settings s-page-shell">
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
       <h1 class="s-masthead-title">{{ t('appearanceSettings.title') }}</h1>
@@ -446,7 +446,6 @@ function selectAccent(colorId: string) {
 <style lang="scss" scoped>
 
 .appearance-settings {
-  max-width: 780px;
   display: flex;
   flex-direction: column;
   gap: 20px;
