@@ -390,11 +390,8 @@ function getSource(span: TraceSpan): string | null {
 .detail-body {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 8px 16px 24px;
-
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
 }
 
 // Overview Grid
@@ -543,10 +540,7 @@ function getSource(span: TraceSpan): string | null {
   border: 1px solid rgba(255, 255, 255, 0.06);
   max-height: 400px;
   overflow-y: auto;
-
-  &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
+  @include scrollbar-overlay;
 
   &.error-stack {
     font-size: 11px;
