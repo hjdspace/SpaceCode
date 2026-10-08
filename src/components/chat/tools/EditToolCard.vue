@@ -193,23 +193,7 @@ async function openInPanel() {
   --gdc-gutter-bg-color: #161b22;
   --gdc-gutter-text-color: #6e7681;
 
-  &::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 4px;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.25);
-    }
-  }
+  @include scrollbar-overlay;
 }
 
 .empty-diff {
