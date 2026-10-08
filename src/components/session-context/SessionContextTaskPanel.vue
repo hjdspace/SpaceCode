@@ -456,11 +456,8 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
 .sc-task-list {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px 12px 12px;
-
-  &::-webkit-scrollbar { width: 5px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
 }
 
 .sc-task-item {
@@ -570,11 +567,8 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
 .sc-file-list {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px 0;
-
-  &::-webkit-scrollbar { width: 5px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
 }
 
 .sc-file-row {
@@ -667,7 +661,10 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
-  overflow-x: auto;
+  /* 纵向由外层 .sc-file-list 负责. 只开横向的话, 横向滚动条占掉的高度会变成
+     纵向溢出, 画出一条滑块铺满轨道的幽灵纵向滚动条 —— 所以纵向一并关掉. */
+  overflow: auto hidden;
+  @include scrollbar-overlay;
 }
 
 .sc-diff-line {
