@@ -66,10 +66,10 @@
 | `skill_manager/PackBuilder.vue` | `.spp-builder-grid` | 543 | y |
 | `skill_manager/PreviewDialog.vue` | `.pd-body` | 125 | y |
 | `skill_manager/SkillDetailSlider.vue` | `.sds-body` | 392 | y |
-| `skill_manager/SkillDetailSlider.vue` | `.sds-aside { display: flex; flex-direction:  …` | 405 | xy |
+| `skill_manager/SkillDetailSlider.vue` | `.sds-aside pre` | 405 | xy |
 | `skill_manager/SkillDetailSlider.vue` | `.sds-file-tree-scroll` | 414 | y |
-| `skill_manager/SkillDetailSlider.vue` | `.sds-file-content { min-height: 0; overflow: …` | 421 | xy |
-| `skill_manager/SkillDetailSlider.vue` | `@media (max-width: 620px) { .sds-panel { wid …` | 437 | x ⚠️ |
+| `skill_manager/SkillDetailSlider.vue` | `.sds-file-content` | 421 | xy |
+| `skill_manager/SkillDetailSlider.vue` | `.sds-tabs`（在 `@media (max-width: 620px)` 内） | 437 | x ⚠️ |
 | `skill_manager/SkillLibraryPage.vue` | `.slp-page` | 237 | y |
 | `skill_manager/SkillManagerShell.vue` | `.sm2-nav` | 310 | y |
 | `skill_manager/SkillManagerShell.vue` | `.sm2-workspace` | 555 | y |
