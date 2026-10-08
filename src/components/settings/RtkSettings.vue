@@ -1,5 +1,5 @@
 <template>
-  <div class="rtk-settings">
+  <div class="rtk-settings s-page-shell">
     <!-- 标题区 -->
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
@@ -301,7 +301,6 @@ function formatPercent(value?: number): string {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 680px;
 
   // 补充全局 s-panel 样式中缺少的变体
   :deep(.s-panel-header-right) {
