@@ -1,5 +1,5 @@
 <template>
-  <div class="token-usage-settings">
+  <div class="token-usage-settings s-page-shell">
     <div class="s-masthead" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
       <div>
         <div class="s-masthead-eyebrow">Settings</div>
@@ -55,23 +55,16 @@
               <div class="month-row">
                 <span v-for="month in monthLabels" :key="month.key" :style="{ gridColumnStart: month.column }">{{ month.label }}</span>
               </div>
-              <div class="heatmap-wrap">
-                <div class="weekday-labels">
-                  <span>周一</span>
-                  <span>周三</span>
-                  <span>周五</span>
-                </div>
-                <div class="heatmap-grid">
-                  <div
-                    v-for="day in heatmapDays"
-                    :key="day.date"
-                    class="heatmap-cell"
-                    :class="[`level-${day.level}`, { active: hoveredDay?.date === day.date }]"
-                    @mouseenter="showTooltip(day, $event)"
-                    @mousemove="moveTooltip"
-                    @mouseleave="hideTooltip"
-                  ></div>
-                </div>
+              <div class="heatmap-grid">
+                <div
+                  v-for="day in heatmapDays"
+                  :key="day.date"
+                  class="heatmap-cell"
+                  :class="[`level-${day.level}`, { active: hoveredDay?.date === day.date }]"
+                  @mouseenter="showTooltip(day, $event)"
+                  @mousemove="moveTooltip"
+                  @mouseleave="hideTooltip"
+                ></div>
               </div>
             </div>
             <div class="heatmap-legend">
@@ -248,7 +241,6 @@ onMounted(loadStats)
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 780px;
 }
 
 .s-page-header {
@@ -303,22 +295,22 @@ onMounted(loadStats)
 }
 
 .heatmap-scroll {
-  overflow-x: auto;
-  overflow-y: visible;
-  padding: 0 2px 8px;
-  @include scrollbar;
+  padding: 0 2px;
+}
+
+/* 两格必须共用同一套列定义才能对齐; 列宽/gap 随容器伸缩, 故无需横向滚动 */
+.month-row,
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  gap: clamp(1px, 0.4%, 3px);
 }
 
 .month-row {
-  display: grid;
-  grid-template-columns: repeat(53, 16px);
-  gap: 3px;
-  margin-left: 44px;
   margin-bottom: 10px;
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 500;
-  min-width: max-content;
 
   span {
     white-space: nowrap;
@@ -326,43 +318,16 @@ onMounted(loadStats)
   }
 }
 
-.heatmap-wrap {
-  display: flex;
-  gap: 10px;
-}
-
-.weekday-labels {
-  width: 34px;
-  display: grid;
-  grid-template-rows: repeat(7, 16px);
-  gap: 3px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 16px;
-
-  span:nth-child(1) { grid-row: 2; }
-  span:nth-child(2) { grid-row: 4; }
-  span:nth-child(3) { grid-row: 6; }
-}
-
 .heatmap-grid {
-  display: grid;
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, 16px);
-  grid-auto-columns: 16px;
-  gap: 3px;
-  min-width: max-content;
-}
-
-.heatmap-cell,
-.heatmap-legend i {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border: 1px solid var(--border-subtle);
+  grid-template-rows: repeat(7, auto);
 }
 
 .heatmap-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 3px;
+  border: 1px solid var(--border-subtle);
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 
@@ -391,6 +356,10 @@ onMounted(loadStats)
 
   i {
     display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 1px solid var(--border-subtle);
   }
 }
 
