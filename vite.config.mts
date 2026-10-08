@@ -174,6 +174,11 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    // resources/ 是打包进应用的静态资源（officecli 二进制、skills-lib 等），
+    // 无需 HMR；且其中的 exe 可能被运行中的进程锁定，fs.watch 会抛 EBUSY 崩掉 dev server
+    watch: {
+      ignored: ['**/resources/**']
+    }
   }
 })
