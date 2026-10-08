@@ -1,5 +1,5 @@
 <template>
-  <div class="shortcuts-settings">
+  <div class="shortcuts-settings s-page-shell">
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
       <h1 class="s-masthead-title">{{ t('shortcutsSettings.title') }}</h1>
@@ -324,7 +324,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 780px;
 }
 
 .shortcut-item {
