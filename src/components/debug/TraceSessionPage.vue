@@ -674,11 +674,8 @@ onUnmounted(stopPolling)
 .span-tree {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px 0;
-
-  &::-webkit-scrollbar { width: 5px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
 }
 
 .turn-group {
