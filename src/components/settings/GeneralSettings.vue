@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-section">
+  <div class="settings-section s-page-shell">
     <!-- Masthead -->
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
@@ -402,10 +402,6 @@ async function browseProjectRoot() {
 </script>
 
 <style lang="scss" scoped>
-
-.settings-section {
-  max-width: 780px;
-}
 
 /* Language Dropdown */
 .lang-dropdown {

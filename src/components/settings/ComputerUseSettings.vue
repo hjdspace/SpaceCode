@@ -1,5 +1,5 @@
 <template>
-  <div class="computer-use-settings">
+  <div class="computer-use-settings s-page-shell">
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
       <h1 class="s-masthead-title">{{ t('computerUse.title') }}</h1>
@@ -291,10 +291,6 @@ async function handleInstall() {
 </script>
 
 <style lang="scss" scoped>
-.computer-use-settings {
-  max-width: 720px;
-}
-
 .cu-status-row {
   display: flex;
   align-items: center;

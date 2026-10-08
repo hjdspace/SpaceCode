@@ -1,5 +1,5 @@
 <template>
-  <div class="hook-settings">
+  <div class="hook-settings s-page-shell">
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
       <h1 class="s-masthead-title">{{ t('hookSettings.title') }}</h1>
@@ -373,7 +373,7 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 
-.hook-settings { display: flex; flex-direction: column; gap: 20px; max-width: 780px; }
+.hook-settings { display: flex; flex-direction: column; gap: 20px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 
 .view-toggle {

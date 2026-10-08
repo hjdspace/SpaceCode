@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-section">
+  <div class="settings-section s-page-shell">
     <!-- Masthead -->
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">{{ $t('settings.title') }}</div>
@@ -269,9 +269,6 @@ function openGitHubReleases() {
 </script>
 
 <style lang="scss" scoped>
-.settings-section {
-  max-width: 780px;
-}
 
 /* ── Hero ── */
 .about-hero {

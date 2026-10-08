@@ -1,5 +1,5 @@
 <template>
-  <div class="im-settings">
+  <div class="im-settings s-page-shell">
     <!-- Page Header -->
     <div class="im-page-header">
       <h2 class="im-page-title">{{ $t('im.title') }}</h2>
@@ -874,10 +874,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
-.im-settings {
-  max-width: 720px;
-}
-
 // Page Header
 .im-page-header {
   margin-bottom: 28px;

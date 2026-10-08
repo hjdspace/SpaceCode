@@ -1,5 +1,5 @@
 <template>
-  <div class="tools-settings">
+  <div class="tools-settings s-page-shell">
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
       <h1 class="s-masthead-title">{{ t('toolsSettings.title') }}</h1>
@@ -205,7 +205,6 @@ watch(() => configStore.toolConfigs, () => {
 <style lang="scss" scoped>
 
 .tools-settings {
-  max-width: 780px;
   display: flex;
   flex-direction: column;
   gap: 20px;

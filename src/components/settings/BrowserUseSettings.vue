@@ -1,5 +1,5 @@
 <template>
-  <div class="browser-use-settings">
+  <div class="browser-use-settings s-page-shell">
     <!-- Masthead -->
     <div class="s-masthead">
       <div class="s-masthead-eyebrow">Settings</div>
@@ -511,8 +511,6 @@ function checkBadgeClass(status: string): Record<string, boolean> {
 </script>
 
 <style scoped>
-.browser-use-settings { max-width: 720px; }
-
 .s-form-input[rows] {
   resize: vertical;
   font-family: var(--font-mono);

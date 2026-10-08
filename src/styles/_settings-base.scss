@@ -1,5 +1,13 @@
 @use './mixins' as *;
 
+/* 设置页唯一的宽度来源：跟随可用宽度增长，封顶后左右对称留白。
+   页面根元素自带 max-width 会在此之后重新造成右侧死区，不要再写。 */
+.s-page-shell {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+}
+
 .s-page-header {
   margin-bottom: 36px;
 }

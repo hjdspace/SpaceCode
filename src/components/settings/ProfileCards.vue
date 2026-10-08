@@ -1,5 +1,5 @@
 <template>
-  <div class="profile-cards">
+  <div class="profile-cards s-page-shell">
     <!-- ─── 顶部标题区 ─── -->
     <header class="profile-masthead">
       <div class="profile-titles">
@@ -274,7 +274,6 @@ async function onAddNew() {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1120px;
 }
 
 /* ─── 顶部标题区 ─── */
