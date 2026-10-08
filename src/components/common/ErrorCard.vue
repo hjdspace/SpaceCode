@@ -152,6 +152,7 @@ const headerIcon = computed(() => {
     border: 1px solid var(--surface-border);
     max-height: 150px;
     overflow-y: auto;
+    @include scrollbar-overlay;
   }
 }
 

@@ -187,6 +187,7 @@ watch(() => props.open, (isOpen) => {
 .logs-container {
   max-height: 240px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 12px 16px;
   background: var(--bg-secondary);
   font-family: var(--font-mono, monospace);

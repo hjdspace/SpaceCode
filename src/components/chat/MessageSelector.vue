@@ -168,6 +168,7 @@ function handleOverlayClick() {
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   max-height: 60vh;
 }
 

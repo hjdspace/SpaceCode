@@ -298,6 +298,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 10px 0;
   overflow: auto;
+  @include scrollbar-overlay;
   max-height: 280px;
   font-family: var(--font-mono);
   font-size: 12px;

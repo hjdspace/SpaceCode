@@ -148,6 +148,7 @@ const showAllLabel = computed(() => t('workspace.showAllLoadedLines'))
   border-radius: var(--radius-md, 6px);
   border: 1px solid var(--gdc-border-color, var(--border-default, rgba(0, 0, 0, 0.08)));
   overflow: auto;
+  @include scrollbar-overlay;
   max-height: 430px;
 }
 

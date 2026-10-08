@@ -2094,6 +2094,7 @@ async function handleRestoreHistorySession(session: any) {
 .history-modal-body {
   padding: 12px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   flex: 1;
 }
 

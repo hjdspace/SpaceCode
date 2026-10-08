@@ -172,7 +172,7 @@ function goToSettings() {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .browser-use-live {
   display: flex;
   flex-direction: column;
@@ -324,6 +324,7 @@ function goToSettings() {
   min-height: 300px;
   background: var(--bg-tertiary);
   overflow: auto;
+  @include scrollbar-overlay;
   position: relative;
 }
 

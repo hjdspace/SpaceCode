@@ -190,6 +190,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   font-size: var(--text-sm);
   line-height: var(--leading-prose);
   overflow: auto;
+  @include scrollbar-overlay;
   max-height: 300px;
   white-space: pre-wrap;
   word-break: break-word;

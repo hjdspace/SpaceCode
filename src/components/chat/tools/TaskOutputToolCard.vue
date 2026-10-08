@@ -785,6 +785,7 @@ function toggleExpand() {
   border-radius: 6px;
   max-height: 300px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 /* ── 错误块 ── */

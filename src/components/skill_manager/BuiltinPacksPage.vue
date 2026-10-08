@@ -475,6 +475,7 @@ function resultStatusOf(skill: PackSkill): InstallStatus {
 .sbp-page {
   height: 100%;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 24px 28px 40px;
   color: var(--text-primary);
 }
@@ -844,6 +845,7 @@ function resultStatusOf(skill: PackSkill): InstallStatus {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 14px 16px;
 }
 

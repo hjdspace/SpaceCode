@@ -366,6 +366,7 @@ watch(isOpen, (open) => {
 .options-list {
   max-height: 240px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .no-results {

@@ -165,6 +165,7 @@ defineExpose({ searchInputRef, listRef })
 .dropdown-list {
   max-height: 280px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px;
 }
 

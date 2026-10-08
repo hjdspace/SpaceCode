@@ -599,6 +599,7 @@ function getLanguageTag(path: string): string {
 .diff-lines {
   max-height: 320px;
   overflow: auto;
+  @include scrollbar-overlay;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: var(--leading-body);
@@ -622,7 +623,10 @@ function getLanguageTag(path: string): string {
 .diff-content {
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
+  /* 逐行横向滚动: 行高约 20px, 画滚动条会吃掉文本; 纵向一并关掉,
+     否则横向条占的高度会变成纵向溢出. 外层 .diff-lines 已有纵向滚动器. */
+  overflow: auto hidden;
+  @include scrollbar-hidden;
   color: var(--text-secondary);
 }
 

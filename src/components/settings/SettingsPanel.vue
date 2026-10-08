@@ -433,6 +433,7 @@ function handleBack() {
     flex-direction: row;
     padding: 8px;
     overflow-x: auto;
+    @include scrollbar-hidden;
 
     .nav-group {
       display: flex;

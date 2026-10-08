@@ -650,6 +650,7 @@ onUnmounted(() => {
     flex: 1;
     min-height: 0;
     overflow: auto;
+    @include scrollbar-overlay;
   }
 }
 </style>

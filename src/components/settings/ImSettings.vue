@@ -1496,6 +1496,7 @@ onUnmounted(() => {
   padding: 4px 24px 20px;
   max-height: 520px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   font-family: var(--font-body);
   font-size: 13px;
   line-height: 1.7;
@@ -1560,7 +1561,10 @@ onUnmounted(() => {
     padding: 12px 16px;
     background: var(--surface-soft);
     border-radius: var(--radius-sm);
-    overflow-x: auto;
+    /* 纵向滚动归 .guide-content. 只开横向时横向条占掉的高度会变成纵向溢出,
+       画出一条滑块铺满轨道的幽灵纵向滚动条 —— 所以纵向一并关掉. */
+    overflow: auto hidden;
+    @include scrollbar-overlay;
 
     code {
       padding: 0;

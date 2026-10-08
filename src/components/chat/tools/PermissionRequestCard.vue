@@ -248,7 +248,7 @@ async function handleAlwaysAllow() {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .permission-request-card {
   margin: 12px 0;
   padding: 16px;
@@ -384,6 +384,7 @@ async function handleAlwaysAllow() {
   border-radius: 6px;
   max-height: 200px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .json-preview {

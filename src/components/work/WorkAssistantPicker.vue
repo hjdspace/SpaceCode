@@ -107,6 +107,7 @@ function handleCancel() {
   max-width: 90vw;
   max-height: 85vh;
   overflow-y: auto;
+  @include scrollbar-overlay;
   background: var(--bg-elevated, var(--bg-primary));
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);

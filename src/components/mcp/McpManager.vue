@@ -762,6 +762,7 @@ onMounted(() => {
 .mcp-content {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 16px 20px;
 }
 

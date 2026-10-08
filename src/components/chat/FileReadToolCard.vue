@@ -23,6 +23,6 @@ const toggle = () => { expanded.value = !expanded.value }
 .fr-card { border: 1px solid var(--surface-border); border-radius: var(--radius-sm); margin: 4px 0; }
 .fr-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: var(--text-sm); }
 .path { font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fr-body { padding: 8px 10px; max-height: 240px; overflow-y: auto; }
+.fr-body { padding: 8px 10px; max-height: 240px; overflow-y: auto; @include scrollbar-overlay; }
 pre { margin: 0; font-size: var(--text-2xs); white-space: pre-wrap; }
 </style>

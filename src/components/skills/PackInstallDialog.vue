@@ -389,6 +389,7 @@ async function installSelected() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 10px 16px;
   display: flex;
   flex-direction: column;

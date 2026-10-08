@@ -171,6 +171,7 @@ function handleClose() {
 .changelog-body {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 20px;
   min-height: 120px;
 }

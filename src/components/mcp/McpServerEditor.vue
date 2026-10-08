@@ -388,6 +388,7 @@ function handleSave() {
   max-width: 520px;
   max-height: 85vh;
   overflow-y: auto;
+  @include scrollbar-overlay;
   background: var(--bg-primary);
   border-radius: var(--radius-lg);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);

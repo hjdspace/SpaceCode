@@ -308,6 +308,7 @@ async function handleRefresh(): Promise<void> {
   flex: 1;
   padding: 14px 10px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .sm2-nav-label {
@@ -553,6 +554,7 @@ async function handleRefresh(): Promise<void> {
 .sm2-workspace {
   height: 100%;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 16px 20px 24px;
 }
 

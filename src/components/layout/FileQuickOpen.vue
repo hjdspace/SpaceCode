@@ -174,6 +174,7 @@ function close() {
   padding: 6px;
   max-height: 360px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .qo-item {

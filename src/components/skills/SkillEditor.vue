@@ -423,6 +423,7 @@ function handleKeyDown(e: KeyboardEvent) {
   height: 100%;
   padding: 16px;
   overflow: auto;
+  @include scrollbar-overlay;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: var(--text-base);
@@ -456,6 +457,7 @@ function handleKeyDown(e: KeyboardEvent) {
     background: var(--bg-secondary);
     border-radius: 6px;
     overflow: auto;
+    @include scrollbar-overlay;
     margin-bottom: 12px;
 
     code {

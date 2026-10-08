@@ -1212,6 +1212,7 @@ const progressPercent = computed(() => {
   gap: 8px;
   padding: 8px;
   overflow-x: auto;
+  @include scrollbar-hidden;
   flex-wrap: nowrap;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);

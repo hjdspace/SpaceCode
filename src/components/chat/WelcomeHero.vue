@@ -64,6 +64,7 @@ const { t } = useI18n()
   justify-content: center;
   text-align: center;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .hero-eyebrow {

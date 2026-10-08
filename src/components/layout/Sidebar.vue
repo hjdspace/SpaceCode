@@ -946,26 +946,6 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-@mixin scrollbar-thin {
-  &::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: var(--surface-border);
-    border-radius: 3px;
-
-    &:hover {
-      background: var(--text-muted);
-    }
-  }
-}
-
 // Sidebar Container (CodePilot-style)
 .sidebar {
   display: flex;
@@ -1471,7 +1451,7 @@ onUnmounted(() => {
   .session-list-container {
     flex: 1;
     overflow-y: auto;
-    @include scrollbar-thin;
+    @include scrollbar-overlay;
   }
 }
 

@@ -388,6 +388,7 @@ onUnmounted(() => {
 
 .ds-picker-list {
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 10px;
   border-right: 1px solid #e4e9f1;
   display: flex;
@@ -456,6 +457,7 @@ onUnmounted(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 16px 16px 12px;
 }
 

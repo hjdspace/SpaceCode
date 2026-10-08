@@ -145,6 +145,7 @@ const filteredTasks = computed(() => {
 .cron-content {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 0 28px 28px;
 }
 

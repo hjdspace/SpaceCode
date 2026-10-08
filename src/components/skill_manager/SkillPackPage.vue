@@ -688,6 +688,7 @@ function clearNotice(): void {
 .spp-pack-list {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 6px 8px 10px;
   display: flex;
   flex-direction: column;
@@ -1042,6 +1043,7 @@ function clearNotice(): void {
 .spp-section-content {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 14px;
 }
 
@@ -1277,6 +1279,7 @@ function clearNotice(): void {
 .spp-modal-body {
   padding: 16px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   flex: 1;
 }
 
@@ -1345,7 +1348,7 @@ function clearNotice(): void {
   .spp-page { padding: 12px; }
   .spp-header { align-items: stretch; flex-direction: column; }
   .spp-header-actions { justify-content: flex-start; }
-  .spp-layout { grid-template-columns: 1fr; overflow-y: auto; }
+  .spp-layout { grid-template-columns: 1fr; overflow-y: auto; @include scrollbar-overlay; }
   .spp-sidebar { min-height: 220px; }
   .spp-canvas { min-height: 520px; }
   .spp-builder-overlay { padding: 0; }

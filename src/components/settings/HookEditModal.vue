@@ -189,7 +189,7 @@ function save() {
   display: flex; align-items: center; justify-content: center; z-index: 100;
 }
 .form-modal {
-  width: 520px; max-height: 80vh; overflow-y: auto;
+  width: 520px; max-height: 80vh; overflow-y: auto; @include scrollbar-overlay;
   background: var(--bg-elevated); border-radius: var(--radius-xl); padding: 24px;
   display: flex; flex-direction: column; gap: 16px;
   box-shadow: var(--shadow-xl);

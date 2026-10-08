@@ -130,6 +130,7 @@ onMounted(() => {
   padding: 8px;
   border-right: 1px solid var(--border-default);
   overflow-y: auto;
+  @include scrollbar-overlay;
   min-height: 0;
 }
 
@@ -163,6 +164,7 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   align-content: start;
 }
 
