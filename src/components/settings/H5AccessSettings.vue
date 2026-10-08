@@ -1,5 +1,5 @@
 <template>
-  <div class="h5-access-settings">
+  <div class="h5-access-settings s-page-shell">
     <h2 class="settings-title">{{ $t('h5Access.title') }}</h2>
     <p class="settings-desc">{{ $t('h5Access.description') }}</p>
 
@@ -270,10 +270,6 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.h5-access-settings {
-  max-width: 640px;
-}
-
 .settings-title {
   font-size: 22px;
   font-weight: 700;
