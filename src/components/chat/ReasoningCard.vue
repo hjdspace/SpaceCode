@@ -181,6 +181,7 @@ function toggleExpand() {
 .reasoning-text {
   max-height: 240px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 8px 10px;
   border-radius: 7px;
   background: var(--bg-secondary);
