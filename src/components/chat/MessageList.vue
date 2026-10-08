@@ -78,7 +78,12 @@ import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { registerSelectionHost } from '@/composables/useSelectionActions'
-import { getCompletedTurnTargets, type RewindTurnTarget } from '@/utils/turnCheckpointUtils'
+import {
+  assignTurnCardsToGroups,
+  getCompletedTurnTargets,
+  type RewindTurnTarget,
+  type TurnGroupAnchor,
+} from '@/utils/turnCheckpointUtils'
 
 const { t } = useI18n()
 const sessionStore = useChatSessionStore()
@@ -248,21 +253,16 @@ function buildDisplayItems(
   groups: MessageGroup[],
   cards: TurnChangeCardData[]
 ): DisplayItem[] {
-  if (cards.length === 0) {
-    const items: DisplayItem[] = []
-    for (const g of groups) {
-      items.push({
-        type: g.type === 'user' ? 'user-group' : 'assistant-group',
-        key: g.id,
-        group: g,
-      })
-      if (g.type === 'assistant') {
-        const ac = artifactCardItem(g)
-        if (ac) items.push(ac)
-      }
-    }
-    return items
+  const userGroupAnchors: TurnGroupAnchor[] = []
+  for (const g of groups) {
+    if (g.type !== 'user') continue
+    userGroupAnchors.push({
+      groupIndex: userGroupAnchors.length,
+      messageId: g.messages[0]?.id ?? '',
+      timestamp: g.messages[0]?.timestamp ?? 0,
+    })
   }
+  const cardsByGroup = assignTurnCardsToGroups(userGroupAnchors, cards)
 
   const items: DisplayItem[] = []
   let userMsgIndex = -1
@@ -272,8 +272,6 @@ function buildDisplayItems(
 
     if (group.type === 'user') {
       userMsgIndex++
-      const userMsg = group.messages[0]
-
       items.push({ type: 'user-group', key: group.id, group })
 
       if (i + 1 < groups.length && groups[i + 1].type === 'assistant') {
@@ -284,11 +282,7 @@ function buildDisplayItems(
         if (acUser) items.push(acUser)
       }
 
-      const card = cards.find(
-        c =>
-          c.targetUserMessageId === userMsg.id ||
-          c.checkpoint.target.userMessageIndex === userMsgIndex
-      )
+      const card = cardsByGroup.get(userMsgIndex)
       if (card) {
         items.push({
           type: 'turn-card',

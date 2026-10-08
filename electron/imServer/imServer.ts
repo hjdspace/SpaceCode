@@ -14,22 +14,20 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { randomUUID } from 'crypto'
-import { existsSync, readFileSync } from 'fs'
-import { join } from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { info, warn, error as logError } from '../infra/logger'
 import { engineGateway } from '../engine/engineGateway'
+import { loadEngineSessionConfig } from '../engine/engineSessionConfig'
 import { EngineFactory } from '../engine/engines/EngineFactory'
 import { translateEngineEvent } from './engineTranslator'
 import {
   loadConfig,
   saveConfig,
   desensitizeConfig,
-  getClaudeConfigDir,
 } from '../im/adapters/common/config'
 import type { AdapterConfig } from '../im/adapters/common/config'
 import type { ClientMessage, ServerMessage } from '../im/adapters/common/types'
-import type { EngineSessionConfig, UnifiedEngineEvent } from '../engine/engines/types'
+import type { UnifiedEngineEvent } from '../engine/engines/types'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types
@@ -48,26 +46,6 @@ interface SessionRecord {
   clientWs: WebSocket | null
 }
 
-interface PersistedProviderConfig {
-  baseUrl?: string
-  apiKey?: string
-  sonnetModel?: string
-}
-
-interface PersistedGuiSettings {
-  authMethod?: 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
-  anthropicConfig?: PersistedProviderConfig
-  openaiConfig?: PersistedProviderConfig
-  geminiConfig?: PersistedProviderConfig
-  thinkingEnabled?: boolean
-  effortLevel?: string
-  engineType?: EngineSessionConfig['engineType']
-  engineSource?: EngineSessionConfig['engineSource']
-  installedCliPath?: string
-  modelContextWindows?: Record<string, number>
-  rtkEnabled?: boolean
-}
-
 // ──────────────────────────────────────────────────────────────────────────
 // Constants
 // ──────────────────────────────────────────────────────────────────────────
@@ -75,52 +53,6 @@ interface PersistedGuiSettings {
 const SESSION_ID_RE = /^[0-9a-zA-Z_-]{1,64}$/
 const SUPPORTED_PROTOCOL_VERSIONS = ['v1']
 const DEFAULT_PROTOCOL_VERSION = 'v1'
-
-function loadEngineSessionConfig(cwd: string): EngineSessionConfig {
-  const config: EngineSessionConfig = { cwd }
-
-  try {
-    const settingsPath = join(getClaudeConfigDir(), 'gui-settings.json')
-    if (!existsSync(settingsPath)) return config
-
-    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as PersistedGuiSettings
-    let providerConfig: PersistedProviderConfig | undefined
-
-    switch (settings.authMethod) {
-      case 'anthropic_compatible':
-        config.provider = 'anthropic'
-        providerConfig = settings.anthropicConfig
-        break
-      case 'openai_compatible':
-        config.provider = 'openai'
-        providerConfig = settings.openaiConfig
-        break
-      case 'gemini_api':
-        config.provider = 'gemini'
-        providerConfig = settings.geminiConfig
-        break
-      case 'claudeai':
-      case 'console':
-        config.provider = 'anthropic'
-        break
-    }
-
-    if (providerConfig?.sonnetModel) config.model = providerConfig.sonnetModel
-    if (providerConfig?.apiKey) config.apiKey = providerConfig.apiKey
-    if (providerConfig?.baseUrl) config.baseUrl = providerConfig.baseUrl
-    if (typeof settings.thinkingEnabled === 'boolean') config.thinkingEnabled = settings.thinkingEnabled
-    if (settings.effortLevel) config.effortLevel = settings.effortLevel
-    if (settings.engineType) config.engineType = settings.engineType
-    if (settings.engineSource) config.engineSource = settings.engineSource
-    if (settings.installedCliPath) config.installedCliPath = settings.installedCliPath
-    if (settings.modelContextWindows) config.modelContextWindows = settings.modelContextWindows
-    if (typeof settings.rtkEnabled === 'boolean') config.rtkEnabled = settings.rtkEnabled
-  } catch (err) {
-    warn('ImServer', `Failed to load GUI settings for IM session: ${String(err)}`)
-  }
-
-  return config
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 // ImServer

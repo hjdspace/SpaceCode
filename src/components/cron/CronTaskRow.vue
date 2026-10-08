@@ -18,15 +18,16 @@
           <span v-if="task.enabled === false" class="task-meta-item task-disabled-label">
             {{ t('cron.disabled') }}
           </span>
-          <span v-else class="task-meta-item task-next-fire">
+          <span v-else-if="nextFireText" class="task-meta-item task-next-fire">
             <RotateCcw :size="13" />
             {{ t('cron.nextFire') }}: {{ nextFireText }}
           </span>
         </div>
       </div>
       <div class="task-actions">
-        <button class="task-action-btn primary" :title="t('cron.runNow')" @click="handleRunNow">
-          <Play :size="16" />
+        <button class="task-action-btn primary" :title="t('cron.runNow')" :disabled="running" @click="handleRunNow">
+          <Loader v-if="running" :size="16" class="spin" />
+          <Play v-else :size="16" />
         </button>
         <button class="task-action-btn" :title="t('cron.viewRuns')" @click="handleToggleExpanded">
           <FileText :size="16" />
@@ -48,12 +49,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Clock, Play, FileText, Pencil, PowerOff, Power, Trash2, RotateCcw } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Clock, Play, FileText, Pencil, PowerOff, Power, Trash2, RotateCcw, Loader } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useCronStore, type CronTask } from '@/stores/cron'
 import { useAppStore } from '@/stores/app'
-import { cronToHuman, computeNextCronRun, formatNextFire } from '@/lib/cronHelper'
+import { cronToHuman, nextRunAt, formatNextFire } from '@/lib/cronHelper'
 import { useDialog } from '@/composables/useDialog'
 import CronRunsPanel from './CronRunsPanel.vue'
 
@@ -62,10 +63,17 @@ const props = defineProps<{
   expanded: boolean
 }>()
 
+const emit = defineEmits<{
+  edit: [task: CronTask]
+}>()
+
 const { t } = useI18n()
 const cronStore = useCronStore()
 const appStore = useAppStore()
-const { showConfirm } = useDialog()
+const { showConfirm, showAlert } = useDialog()
+
+/** cron:run 要等整轮执行才 resolve，按钮要显式占住，否则连点会排多个执行 */
+const running = ref(false)
 
 const statusClass = computed(() => {
   if (props.task.enabled === false) return 'paused'
@@ -74,15 +82,28 @@ const statusClass = computed(() => {
 
 const humanFrequency = computed(() => cronToHuman(props.task.cron))
 
-const nextFireText = computed(() => {
-  const next = computeNextCronRun(props.task.cron)
-  return formatNextFire(next)
-})
+const nextFireText = computed(() => formatNextFire(nextRunAt(props.task)))
 
-function handleRunNow() {
+async function handleRunNow() {
   const projectRoot = appStore.projectRoot
-  if (projectRoot) {
-    cronStore.runTaskNow(projectRoot, props.task.id)
+  if (!projectRoot || running.value) return
+  running.value = true
+  try {
+    const run = await cronStore.runTaskNow(projectRoot, props.task.id) as
+      | { id?: string; status?: string; error?: string }
+      | null
+    // 执行过程本身已经在会话里可见，这里只报"这一轮没跑成"
+    if (!run) return
+    if (run.status === 'failed' || run.status === 'timeout') {
+      const label = run.status === 'timeout' ? t('cron.runTimeout') : t('cron.runFailed')
+      await showAlert(run.error ? `${label}: ${run.error}` : label)
+    } else if (!run.id && run.error) {
+      await showAlert(run.error)
+    } else {
+      cronStore.fetchTaskRuns(projectRoot, props.task.id)
+    }
+  } finally {
+    running.value = false
   }
 }
 
@@ -91,7 +112,7 @@ function handleToggleExpanded() {
 }
 
 function handleEdit() {
-  // TODO: emit or navigate to edit modal
+  emit('edit', props.task)
 }
 
 function handleToggle() {
@@ -238,6 +259,15 @@ async function handleDelete() {
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .task-action-btn {

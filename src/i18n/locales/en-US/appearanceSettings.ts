@@ -14,4 +14,6 @@ export default {
   soundOnTaskCompleteDesc: 'Play a short notification sound when the AI completes a task',
   desktopNotifyOnTaskComplete: 'Task Complete Desktop Notification',
   desktopNotifyOnTaskCompleteDesc: 'Show a system notification when the AI completes a task (Windows toast / Linux desktop notification)',
+  desktopNotifyOnWaiting: 'Waiting-For-You Desktop Notification',
+  desktopNotifyOnWaitingDesc: 'Show a system notification when the AI asks a question, requests approval, or awaits plan confirmation',
 }

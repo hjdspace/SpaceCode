@@ -180,25 +180,31 @@ export function showSystemNotification(options: SystemNotificationOptions): bool
 
   const iconPath = resolveNotificationIconPath()
   try {
-    // 副作用：Windows 的 toast 后端会为当前 AUMID 写出开始菜单快捷方式，dev 下即
-    // "Electron.lnk"；它一出现就把本会话存活窗口的任务栏图标当场翻成 electron.exe 原子图标
-    // （不是只影响下次启动）。完整链路与已验证的修法见 electron/main.ts 的 setAppUserModelId 注释。
+    // 副作用：Windows 的 toast 后端会为当前 AUMID 写出一个 IconLocation 为空的开始菜单快捷方式，
+    // 任务栏组图标随即回退到进程 exe 图标（不是只影响下次启动，同一存活窗口当场就翻）。dev 态靠
+    // scripts/patch-dev-electron-icon.cjs 把应用图标做进 exe 来兜住这条回退链，完整机制见
+    // electron/main.ts 的 setAppUserModelId 注释。
     const notification = new Notification({
       title: options.title,
       body: options.message,
       ...(iconPath ? { icon: nativeImage.createFromPath(iconPath) } : {}),
     })
 
+    const target = options.window && !options.window.isDestroyed() ? options.window : null
+
     notification.on('click', () => {
-      const win = options.window && !options.window.isDestroyed() ? options.window : null
-      if (win) {
-        if (win.isMinimized()) win.restore()
-        win.show()
-        win.focus()
+      if (target) {
+        if (target.isMinimized()) target.restore()
+        target.show()
+        target.focus()
       }
     })
 
     notification.show()
+    // 横幅会被 Windows 系统策略吞掉（本机实测：主进程 show() 了，但注册表里该 AUMID 的
+    // LastNotificationAddedTime 没有记录这一次）。任务栏闪烁不走通知中心，不受聚焦助手/勿扰
+    // 影响，作为"有人在等你"的兜底信号；窗口本就聚焦时 Windows 不会闪。
+    if (target && !target.isFocused()) target.flashFrame(true)
     info('Notification', `System notification shown | title=${options.title} | icon=${iconPath ?? 'default'}`)
     return true
   } catch (err) {
@@ -220,12 +226,18 @@ export function showSystemNotification(options: SystemNotificationOptions): bool
 export function registerNotificationIPCHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.on('app:showNotification', (_event, options: { title: string; message: string }) => {
     if (!options || typeof options.title !== 'string' || typeof options.message !== 'string') return
+    const win = getWindow()
+    const winState = win && !win.isDestroyed()
+      ? `focused=${win.isFocused()} visible=${win.isVisible()} minimized=${win.isMinimized()}`
+      : 'no-window'
+    // 系统侧"没弹横幅"时靠这一行定案：请求是否到达主进程、正文是哪条通知、当时窗口状态。
+    info('Notification', `IPC received | title=${options.title} | body=${options.message.slice(0, 120)} | ${winState}`)
     showSystemNotification({
       title: options.title,
       message: options.message,
-      window: getWindow(),
+      window: win,
       onFailed: () => {
-        showNotificationPopup({ title: options.title, message: options.message, window: getWindow() })
+        showNotificationPopup({ title: options.title, message: options.message, window: win })
       },
     })
   })

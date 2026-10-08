@@ -85,6 +85,57 @@ describe('turn H5 remote user events', () => {
     })
     expect(session?.messages[1]).toMatchObject({ role: 'assistant', content: '' })
     expect(turnStore.getIsLoading('h5-session')).toBe(true)
+    // 手机端消息保持原有行为：新会话直接切到前台
+    expect(sessionStore.currentSessionId).toBe('h5-session')
+  })
+
+  it('activate:false 只把会话落进列表，不抢走用户正在看的会话', async () => {
+    const { useTurnStore } = await import('../turn')
+    const turnStore = useTurnStore()
+    const sessionStore = useChatSessionStore()
+    const main = sessionStore.createSession('主会话', 'D:/repo')
+
+    mockState.handlers.onUser({
+      sessionId: 'cron-session',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '分析当前项目依赖',
+        projectPath: 'D:/repo',
+        title: '依赖巡检',
+        timestamp: Date.now(),
+        activate: false,
+      },
+    })
+
+    const cronSession = sessionStore.sessions.find(s => s.id === 'cron-session')
+    expect(cronSession?.title).toBe('依赖巡检')
+    expect(cronSession?.messages[0]).toMatchObject({ role: 'user', content: '分析当前项目依赖' })
+    expect(turnStore.getIsLoading('cron-session')).toBe(true)
+    expect(sessionStore.currentSessionId).toBe(main.id)
+  })
+
+  it('payload 带 model 时写进会话记录，输入框与续话都沿用任务模型', async () => {
+    const { useTurnStore } = await import('../turn')
+    const turnStore = useTurnStore()
+    const sessionStore = useChatSessionStore()
+
+    mockState.handlers.onUser({
+      sessionId: 'cron-model-session',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '整理今日构建失败',
+        projectPath: 'D:/repo',
+        title: '构建巡检',
+        timestamp: Date.now(),
+        activate: false,
+        model: 'deepseek-v4-flash',
+      },
+    })
+
+    expect(sessionStore.sessions.find(s => s.id === 'cron-model-session')?.model).toBe('deepseek-v4-flash')
+    expect(turnStore.getIsLoading('cron-model-session')).toBe(true)
   })
 
   it('can create a phone-side session when crypto.randomUUID is unavailable', () => {

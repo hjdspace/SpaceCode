@@ -449,7 +449,7 @@ function closeSessionSearch() {
 // 按当前 Work/Code 模式过滤会话列表（旧会话无 mode 字段时视为 'code'），
 // 再按搜索关键字过滤会话标题
 const filteredSessions = computed(() => {
-  const byMode = sessionStore.sessions.filter(s => (s.mode || 'code') === appStore.mode)
+  const byMode = sessionStore.sessions.filter(s => !s.ephemeral && (s.mode || 'code') === appStore.mode)
   const query = sessionSearchQuery.value.trim().toLowerCase()
   if (!query) return byMode
   return byMode.filter(s => s.title.toLowerCase().includes(query))
@@ -477,7 +477,7 @@ async function handleModeSelect(mode: AppMode) {
   activeTab.value = 'history'
 
   // 切换到新模式下的最近会话；没有则创建新会话
-  const modeSessions = sessionStore.sessions.filter(s => (s.mode || 'code') === mode)
+  const modeSessions = sessionStore.sessions.filter(s => !s.ephemeral && (s.mode || 'code') === mode)
   if (modeSessions.length > 0) {
     const targetSessionId = modeSessions[0].id
     await sessionStore.selectSession(targetSessionId)

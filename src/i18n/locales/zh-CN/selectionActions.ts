@@ -2,6 +2,7 @@
 export default {
   explain: '解释',
   addToConversation: '添加到对话',
+  askInSideTask: '在侧边任务中提问',
   improve: '润色',
   shorten: '缩短',
   changeTone: '更改语气',

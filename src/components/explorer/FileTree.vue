@@ -47,7 +47,7 @@
       </div>
 
       <!-- Tree Nodes -->
-      <div v-else class="nodes-container">
+      <div v-else class="nodes-container" role="tree">
         <FileTreeNode
           v-for="node in filteredTreeData"
           :key="node.path"
@@ -56,6 +56,7 @@
           :search-query="searchQuery"
           :highlight-path="highlightPath"
           :expanded-paths="expandedPaths"
+          :git-marks="gitMarks"
           @select="handleSelect"
           @toggle="handleToggle"
           @expand-path="handleExpandPath"
@@ -90,6 +91,8 @@ import FileTreeNode from './FileTreeNode.vue'
 import FileContextMenu from './FileContextMenu.vue'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
+import { useScmStore } from '@/stores/scm'
+import { buildGitTreeMarks } from '@/composables/useGitTreeMarks'
 
 const { t } = useI18n()
 
@@ -120,6 +123,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const scmStore = useScmStore()
 const treeContentRef = ref<HTMLElement>()
 
 // State
@@ -144,6 +148,15 @@ const filteredTreeData = computed(() => {
   if (!searchQuery.value) return treeData.value
   return filterTree(treeData.value, searchQuery.value.toLowerCase())
 })
+
+// Git 标记: getStatus 的 cwd 是 projectRoot, 返回的 path 相对它, 因此标记表也以
+// projectRoot 为基准拼绝对路径 —— 用树的根 (可能是子目录) 会全部落空.
+const gitMarks = computed(() => buildGitTreeMarks(appStore.projectRoot, {
+  staged: scmStore.staged,
+  unstaged: scmStore.unstaged,
+  untracked: scmStore.untracked,
+  conflicted: scmStore.conflicted
+}))
 
 // Methods
 function getFileIcon(extension?: string) {
@@ -234,6 +247,9 @@ async function fetchTree() {
 
   const controller = new AbortController()
   abortController.value = controller
+
+  // 树的刷新意味着工作区可能变过 (新建/删除/改名), 让 git 徽标同步跟上
+  void scmStore.refresh()
 
   loading.value = true
   error.value = null
@@ -552,7 +568,7 @@ onUnmounted(() => {
   overflow-y: auto;
   overflow-x: hidden;
 
-  @include scrollbar-thin;
+  @include scrollbar-overlay;
 }
 
 .loading-state {
@@ -577,7 +593,7 @@ onUnmounted(() => {
 }
 
 .nodes-container {
-  padding: 4px 0;
+  padding: 4px 6px 8px;
 }
 
 // Highlight flash animation for selected file

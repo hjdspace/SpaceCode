@@ -4,4 +4,5 @@ export default {
   terminal: 'Terminal',
   browser: 'Browser',
   files: 'Files',
+  sideTask: 'Side task',
 }

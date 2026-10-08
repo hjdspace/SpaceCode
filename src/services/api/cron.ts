@@ -2,6 +2,10 @@ import { electronAPI } from './_context'
 import type { CronTask, CronRunEntry } from '../electronAPI'
 
 export const cron = {
+  /** 主进程调度器靠这个根目录读任务表；切换项目时要重新上报 */
+  setProjectRoot: (projectRoot: string): void => {
+    electronAPI?.cron?.setProjectRoot(projectRoot)
+  },
   list: (projectRoot: string): Promise<CronTask[]> =>
     electronAPI?.cron?.list(projectRoot) || Promise.resolve([]),
   create: (projectRoot: string, task: Omit<CronTask, 'id'>): Promise<CronTask | null> =>
@@ -20,6 +24,11 @@ export const cron = {
     electronAPI?.cron?.validate(cron) || Promise.resolve({ valid: false, error: 'Cron API not available' }),
   describe: (cron: string): Promise<string> =>
     electronAPI?.cron?.describe(cron) || Promise.resolve(cron),
+  saveAttachment: (
+    projectRoot: string,
+    attachment: { id: string; name: string; dataUrl: string },
+  ): Promise<{ path?: string; error?: string } | null> =>
+    electronAPI?.cron?.saveAttachment(projectRoot, attachment) || Promise.resolve(null),
   onTaskFired: (callback: (data: { taskId: string; taskName: string; [key: string]: unknown }) => void): (() => void) | null =>
     electronAPI?.cron?.onTaskFired(callback) || null,
   onRunCompleted: (callback: (data: { runId: string; taskId: string; status: string; [key: string]: unknown }) => void): (() => void) | null =>

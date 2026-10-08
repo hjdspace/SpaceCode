@@ -7,6 +7,7 @@
 import { onBeforeUnmount } from 'vue'
 import { useSelectionBarStore, type SelectionBarAnchor } from '@/stores/selectionBar'
 import { useAppStore } from '@/stores/app'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { runSelectionAction, type SelectionActionType } from '@/services/selectionAI'
 import { i18n } from '@/i18n'
 
@@ -144,8 +145,18 @@ export function useSelectionActions() {
   const appStore = useAppStore()
 
   function addToConversation() {
-    appStore.pushToInput({ quote: { id: crypto.randomUUID(), text: store.selectedText } })
+    appStore.pushToInput({
+      quote: { id: crypto.randomUUID(), text: store.selectedText },
+      targetSessionId: useChatSessionStore().currentSessionId ?? undefined,
+    })
     store.close()
+  }
+
+  /** 在侧边任务中提问：打开右侧侧边任务视图，把选中文本作为引用附件注入其输入框 */
+  function askInSideTask() {
+    const text = store.selectedText
+    store.close()
+    appStore.askInSideTask(text)
   }
 
   function locateInSource(content: string, text: string): { start: number; end: number } | null {
@@ -316,6 +327,7 @@ export function useSelectionActions() {
 
   return {
     addToConversation,
+    askInSideTask,
     runAction,
     submitDraft,
     keep,

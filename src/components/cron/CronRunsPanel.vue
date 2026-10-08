@@ -10,33 +10,48 @@
       {{ t('cron.viewRuns') }}
     </div>
     <div v-else class="runs-list">
-      <div class="run-item" v-for="run in runs" :key="run.id">
-        <div class="run-status-icon" :class="run.status">
-          <Check v-if="run.status === 'completed'" :size="10" />
-          <X v-else-if="run.status === 'failed' || run.status === 'timeout'" :size="10" />
-          <Loader v-else :size="10" class="spin" />
-        </div>
-        <div class="run-info">
-          <div class="run-time">{{ formatRunTime(run.startedAt) }}</div>
-          <div class="run-detail">
-            {{ run.status === 'completed' ? t('cron.runCompleted') : run.status === 'failed' ? t('cron.runFailed') : run.status === 'timeout' ? t('cron.runTimeout') : t('cron.runRunning') }}
-            <template v-if="run.durationMs"> · {{ t('cron.duration') }} {{ formatDuration(run.durationMs) }}</template>
+      <div class="run-entry" v-for="run in runs" :key="run.id">
+        <div class="run-item">
+          <div class="run-status-icon" :class="run.status">
+            <Check v-if="run.status === 'completed'" :size="10" />
+            <X v-else-if="run.status === 'failed' || run.status === 'timeout'" :size="10" />
+            <Loader v-else :size="10" class="spin" />
           </div>
+          <div class="run-info">
+            <div class="run-time">{{ formatRunTime(run.startedAt) }}</div>
+            <div class="run-detail">
+              {{ run.status === 'completed' ? t('cron.runCompleted') : run.status === 'failed' ? t('cron.runFailed') : run.status === 'timeout' ? t('cron.runTimeout') : t('cron.runRunning') }}
+              <template v-if="run.durationMs"> · {{ t('cron.duration') }} {{ formatDuration(run.durationMs) }}</template>
+            </div>
+          </div>
+          <button
+            v-if="sessionExists(run)"
+            class="run-session-btn"
+            @click="openRunSession(run)"
+          >
+            {{ t('cron.viewSession') }}
+          </button>
+          <button
+            class="run-output-btn"
+            :aria-expanded="expandedRunId === run.id"
+            @click="toggleOutput(run.id)"
+          >
+            {{ run.status === 'failed' || run.status === 'timeout' ? t('cron.viewError') : t('cron.viewOutput') }}
+          </button>
         </div>
-        <button class="run-output-btn" @click="handleViewOutput(run)">
-          {{ run.status === 'failed' || run.status === 'timeout' ? t('cron.viewError') : t('cron.viewOutput') }}
-        </button>
+        <pre v-if="expandedRunId === run.id" class="run-output">{{ outputOf(run) }}</pre>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Check, X, Loader } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useCronStore, type TaskRun } from '@/stores/cron'
 import { useAppStore } from '@/stores/app'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { formatDuration } from '@/lib/cronHelper'
 
 const props = defineProps<{
@@ -46,8 +61,12 @@ const props = defineProps<{
 const { t } = useI18n()
 const cronStore = useCronStore()
 const appStore = useAppStore()
+const sessionStore = useChatSessionStore()
 
 const runs = computed(() => cronStore.taskRunsMap[props.taskId] || [])
+
+/** 展开看输出的那条记录，同一时刻只展开一条 */
+const expandedRunId = ref<string | null>(null)
 
 onMounted(() => {
   const projectRoot = appStore.projectRoot
@@ -71,9 +90,25 @@ function formatRunTime(isoStr: string): string {
   return `${year}-${month}-${day} ${hour}:${min}`
 }
 
-function handleViewOutput(run: TaskRun) {
-  // TODO: open output viewer or navigate to session
-  console.log('View output for run:', run.id, run.output || run.error)
+function toggleOutput(runId: string) {
+  expandedRunId.value = expandedRunId.value === runId ? null : runId
+}
+
+/** 失败/超时看 stderr，成功看 stdout；另一路留作兜底，别出现"点了没内容" */
+function outputOf(run: TaskRun): string {
+  const primary = run.status === 'completed' ? run.output : run.error
+  return (primary || run.output || run.error || '').trim() || t('cron.noOutput')
+}
+
+/** 只在会话确实还在列表时给入口，否则会跳进一个空面板 */
+function sessionExists(run: TaskRun): boolean {
+  return !!run.sessionId && sessionStore.sessions.some(s => s.id === run.sessionId)
+}
+
+function openRunSession(run: TaskRun): void {
+  if (!run.sessionId) return
+  void sessionStore.selectSession(run.sessionId)
+  appStore.showCronManager = false
 }
 </script>
 
@@ -142,6 +177,22 @@ function handleViewOutput(run: TaskRun) {
   }
 }
 
+.run-output {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .run-status-icon {
   width: 18px;
   height: 18px;
@@ -198,6 +249,22 @@ function handleViewOutput(run: TaskRun) {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 1px;
+}
+
+.run-session-btn {
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-subtle);
+  background: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
 }
 
 .run-output-btn {

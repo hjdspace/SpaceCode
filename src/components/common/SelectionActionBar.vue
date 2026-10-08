@@ -83,13 +83,17 @@
 
         <!-- idle -->
         <template v-else>
-          <!-- chat 场景: 仅解释 + 添加到对话 -->
+          <!-- chat 场景: 仅解释 + 添加到对话 + 侧边任务提问 -->
           <template v-if="store.context === 'chat'">
             <button type="button" class="bar-control" @mousedown.prevent @click="actions.runAction('explain')">
               <MessageCircle :size="14" />{{ t('selectionActions.explain') }}
             </button>
             <button type="button" class="bar-control" @mousedown.prevent @click="actions.addToConversation()">
               <Quote :size="14" />{{ t('selectionActions.addToConversation') }}
+            </button>
+            <span class="bar-divider" />
+            <button type="button" class="bar-control" @mousedown.prevent @click="actions.askInSideTask()">
+              <MessagesSquare :size="14" />{{ t('selectionActions.askInSideTask') }}
             </button>
           </template>
 
@@ -145,6 +149,9 @@
             <button type="button" class="bar-control" @mousedown.prevent @click="actions.addToConversation()">
               <Quote :size="14" />{{ t('selectionActions.addToConversation') }}
             </button>
+            <button type="button" class="bar-control" @mousedown.prevent @click="actions.askInSideTask()">
+              <MessagesSquare :size="14" />{{ t('selectionActions.askInSideTask') }}
+            </button>
           </template>
         </template>
       </div>
@@ -155,7 +162,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ArrowUp, Check, ChevronRight, Copy, MessageCircle, Quote, RotateCw, Scissors, Smile, Sparkles, SpellCheck, X } from 'lucide-vue-next'
+import { ArrowUp, Check, ChevronRight, Copy, MessageCircle, MessagesSquare, Quote, RotateCw, Scissors, Smile, Sparkles, SpellCheck, X } from 'lucide-vue-next'
 import { useSelectionBarStore } from '@/stores/selectionBar'
 import { useSelectionActions } from '@/composables/useSelectionActions'
 

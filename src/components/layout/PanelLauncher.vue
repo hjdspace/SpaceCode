@@ -11,7 +11,7 @@
           <component :is="item.icon" :size="18" />
         </span>
         <span class="item-label">{{ item.label }}</span>
-        <span class="item-shortcut">{{ item.shortcut }}</span>
+        <span v-if="item.shortcut" class="item-shortcut">{{ item.shortcut }}</span>
       </button>
     </div>
   </div>
@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GitCompare, Terminal, Globe, FileSearch } from 'lucide-vue-next'
+import { GitCompare, Terminal, Globe, FileSearch, MessagesSquare } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 
@@ -56,6 +56,14 @@ const items = computed(() => [
     label: t('panel.files'),
     shortcut: 'Ctrl+P',
     action: () => { appStore.showFileQuickOpen = true },
+  },
+  {
+    id: 'sideTask',
+    icon: MessagesSquare,
+    label: t('panel.sideTask'),
+    // 无快捷键：侧边任务只从面板启动器或选中文本浮条进入
+    shortcut: '',
+    action: () => appStore.openSideTaskPanel(),
   },
 ])
 </script>

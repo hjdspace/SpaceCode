@@ -742,8 +742,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     currentProjectRoot.value = projectPath
   }
 
-  function createSession(title = 'New Chat', workingDirectory?: string, sessionId?: string): Session {
+  function createSession(
+    title = 'New Chat',
+    workingDirectory?: string,
+    sessionId?: string,
+    options?: { ephemeral?: boolean; activate?: boolean },
+  ): Session {
     const id = sessionId || createUuid()
+    // activate=false 供侧边任务使用：主会话必须保持 current，否则新建侧边任务
+    // 会把中间区域切走并清掉主会话的 turn checkpoints
+    const activate = options?.activate !== false
 
     const session: Session = {
       id,
@@ -755,13 +763,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       processStatus: 'none',
       isTabOpen: true,
       lastActivityAt: Date.now(),
-      mode: appStore.mode
+      mode: appStore.mode,
+      ephemeral: options?.ephemeral || undefined,
     }
     sessions.value.unshift(session)
-    currentSessionId.value = session.id
+    if (activate) {
+      currentSessionId.value = session.id
+      clearTurnCheckpoints()
+    }
     // 新建的会话没有 JSONL 历史，标记为已 hydrate 避免无意义的恢复尝试
     hydratedSessionIds.add(session.id)
-    clearTurnCheckpoints()
     saveToStorage()
     traceEvent({
       sessionId: session.id,
@@ -1273,7 +1284,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         recordAgentToolCall(session, toolCall, toolCall.status === 'completed' ? 'completed' : toolCall.status === 'error' ? 'failed' : 'running')
       }
 
-      if (session.messages.length === 1 && newMessage.role === 'user') {
+      // 首条用户消息给会话起名，但只在标题还是占位值时生效 ——
+      // 侧边任务 / 定时任务 / 手机端都带着明确标题进来，覆盖掉就把用途冲掉了。
+      if (session.messages.length === 1 && newMessage.role === 'user' && session.title === 'New Chat') {
         const newTitle = newMessage.content.slice(0, 50) + (newMessage.content.length > 50 ? '...' : '')
         session.title = newTitle
       }
@@ -1337,10 +1350,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
   // sink.persist 的实现：当前持久化无 per-session 粒度（saveToStorage 落全量），保留 sessionId 参数为任务 3 的细粒度持久化预留 seam。
   function saveToStorageForSession(_sessionId: string) { saveToStorage() }
-  function ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string }): Session {
+  function ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string; activate?: boolean }): Session {
     const existing = sessions.value.find(s => s.id === sessionId)
     if (existing) return existing
-    return createSession(hint?.title || 'New Chat', hint?.projectPath, sessionId)
+    return createSession(hint?.title || 'New Chat', hint?.projectPath, sessionId, {
+      activate: hint?.activate !== false,
+    })
   }
 
   // ========== 优化: 即时UI反馈 + 异步数据加载 ==========

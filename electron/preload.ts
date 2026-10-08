@@ -632,6 +632,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Cron API
   cron: {
+    setProjectRoot: (projectRoot: string) => ipcRenderer.send('cron:setProjectRoot', projectRoot),
     list: (projectRoot: string) => ipcRenderer.invoke('cron:list', projectRoot),
     create: (projectRoot: string, task: any) => ipcRenderer.invoke('cron:create', projectRoot, task),
     update: (projectRoot: string, id: string, updates: any) => ipcRenderer.invoke('cron:update', projectRoot, id, updates),
@@ -641,6 +642,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     taskRuns: (projectRoot: string, taskId: string) => ipcRenderer.invoke('cron:taskRuns', projectRoot, taskId),
     validate: (cron: string) => ipcRenderer.invoke('cron:validate', cron),
     describe: (cron: string) => ipcRenderer.invoke('cron:describe', cron),
+    saveAttachment: (projectRoot: string, attachment: { id: string; name: string; dataUrl: string }) =>
+      ipcRenderer.invoke('cron:saveAttachment', projectRoot, attachment),
     onTaskFired: (callback: (data: any) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('cron:onTaskFired', wrapper)

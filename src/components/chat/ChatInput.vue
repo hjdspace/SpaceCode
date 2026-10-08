@@ -62,7 +62,7 @@
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
       <!-- 悬浮任务/改动状态栏 -->
-      <ComposerStatusBar />
+      <ComposerStatusBar v-if="!compact" />
 
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <div v-if="attachedQuotes.length > 0" class="quote-attachments">
@@ -120,7 +120,10 @@
           </button>
 
           <!-- 权限模式选择器 -->
-          <PermissionModeSelector />
+          <PermissionModeSelector
+            :model-value="permissionMode"
+            @update:model-value="(mode: PermissionMode) => emit('update:permissionMode', mode)"
+          />
 
           <button
             v-if="showOpenProjectAction"
@@ -297,7 +300,7 @@
         </div>
 
         <!-- 右侧按钮组：优化提示词 + 发送/停止 -->
-        <div class="toolbar-right">
+        <div v-if="showActions" class="toolbar-right">
           <!-- 优化提示词按钮（位于发送按钮左侧） -->
           <button
             class="optimize-btn"
@@ -326,7 +329,10 @@
 
     <!-- Context Toolbar (Project / Git Branch) — code/work/design 模式均显示 -->
     <div class="context-toolbar-row">
-      <ChatContextToolbar v-if="appStore.projectRoot || appStore.mode === 'work' || appStore.mode === 'design'" />
+      <!-- 宿主可整体替换为受控选择器（定时任务弹窗需要任务级工作空间而非全局项目） -->
+      <slot name="context-toolbar">
+        <ChatContextToolbar v-if="appStore.projectRoot || appStore.mode === 'work' || appStore.mode === 'design'" />
+      </slot>
       <!-- 扩展 slot：design 模式注入 DesignSystemPicker 等，与项目/分支选择器同行 -->
       <slot name="context-extra"></slot>
     </div>
@@ -417,6 +423,7 @@ import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
+import type { PermissionMode } from '@/shared/channels/claudeCode'
 import { vClickOutside } from '@/components/common/vClickOutside'
 
 // Re-export types for backward compatibility (other components import from ChatInput)
@@ -433,11 +440,12 @@ const emit = defineEmits<{
   'update:model': [model: string]
   'update:effort': [effort: string]
   'update:agent': [agent: string]
+  'update:permissionMode': [mode: PermissionMode]
   'open-skills': []
   stop: []
 }>()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   disabled?: boolean
   isSending?: boolean
   placeholder?: string
@@ -446,7 +454,21 @@ const props = defineProps<{
   showOpenProjectAction?: boolean
   /** 本输入框绑定的会话 id；未传时回退全局 currentSessionId */
   sessionId?: string
-}>()
+  /** 紧凑模式（侧边任务）：隐藏依赖全局 sessionContext 单例的悬浮状态栏 */
+  compact?: boolean
+  /** 'none' = 不读也不写会话草稿。弹窗等临时宿主用它可避免把宿主会话的草稿冲掉 */
+  draftScope?: 'session' | 'none'
+  /** 受控权限模式：传入时选择器只 emit，不再读写全局 permissionPolicy store */
+  permissionMode?: PermissionMode
+  /** false = 不渲染右下角发送/优化提示词按钮（宿主自己提供提交入口时用） */
+  showActions?: boolean
+  /** false = Enter / Ctrl+Enter 不再触发 send，交回浏览器默认换行 */
+  enterSubmits?: boolean
+}>(), {
+  draftScope: 'session',
+  showActions: true,
+  enterSubmits: true,
+})
 
 // ── Stores ───────────────────────────────────────────────────────
 const settingsStore = useSettingsStore()
@@ -539,6 +561,7 @@ function buildDraftFromEditor() {
 
 /** 把编辑器当前内容保存为 sid 的草稿；空内容时清掉对应草稿 */
 function saveDraftForSession(sid: string | null) {
+  if (props.draftScope === 'none') return
   const draft = buildDraftFromEditor()
   const hasDraft = draft.text.length > 0 || draft.attachments.length > 0 || draft.images.length > 0 || draft.quotes.length > 0
   const existingMirror = sessionStore.getNewChatDraft()
@@ -563,6 +586,7 @@ function saveDraftForSession(sid: string | null) {
 
 /** 恢复 sid 的草稿到编辑器；无草稿时清空编辑器（避免上一会话内容串台） */
 function loadDraftForSession(sid: string | null) {
+  if (props.draftScope === 'none') return
   const draft = sid ? sessionStore.getDraft(sid) : undefined
   const stash = sid ? sessionStore.getStash(sid) : undefined
   const mirror = sessionStore.getNewChatDraft()
@@ -744,7 +768,7 @@ const hasContent = computed(() => editorHasContent(attachedFiles.value, attached
 const canSend = computed(() => hasContent.value && !props.isSending)
 
 const currentPendingMessages = computed(() => {
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (!sid) return []
   return turnStore.getPendingMessages(sid)
 })
@@ -788,8 +812,10 @@ const modelSubmenuStyle = computed<Record<string, string>>(() => {
 })
 
 // ── Pending Messages ─────────────────────────────────────────────
+// 全部按 editorSessionId（本输入框绑定的会话）寻址，而非全局 currentSessionId：
+// 分屏与侧边任务会同时存在多个 ChatInput 实例，用全局 id 会串到别的会话。
 function recallPendingMsg(msgId: string) {
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (!sid) return
   const recalled = turnStore.recallPendingMessage(sid, msgId)
   if (recalled) {
@@ -804,7 +830,7 @@ function recallPendingMsg(msgId: string) {
 }
 
 function removePendingMsg(msgId: string) {
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (sid) turnStore.removePendingMessage(sid, msgId)
 }
 
@@ -814,7 +840,7 @@ function toggleThinking() {
   settingsStore.thinkingEnabled = thinkingEnabled.value
   settingsStore.saveSettings()
 
-  const sid = sessionStore.currentSessionId
+  const sid = editorSessionId.value
   if (sid) {
     api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
   }
@@ -1019,14 +1045,14 @@ function handleEditorKeydown(event: KeyboardEvent) {
   }
 
   // Ctrl+Enter / Cmd+Enter: steering
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
+  if (props.enterSubmits && event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.shiftKey) {
     event.preventDefault()
     handleSend(true)
     return
   }
 
   // Enter without Shift = send
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (props.enterSubmits && event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     handleSend(false)
     return
@@ -1036,7 +1062,7 @@ function handleEditorKeydown(event: KeyboardEvent) {
   if (event.key === 'ArrowUp' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
     const content = getEditorPlainText().trim()
     if (!content) {
-      const sid = sessionStore.currentSessionId
+      const sid = editorSessionId.value
       if (sid) {
         const pending = turnStore.getPendingMessages(sid)
         if (pending.length > 0) {
@@ -1344,7 +1370,7 @@ function handleSend(steerMode = false) {
 
     if (!sendContent && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
 
-    const sid = sessionStore.currentSessionId
+    const sid = editorSessionId.value
     if (!sid) return
 
     if (steerMode) {
@@ -1588,7 +1614,11 @@ onMounted(() => {
 
   // 挂载即恢复本会话草稿（例如从设置页返回时组件被重新挂载）
   editorSessionId.value = props.sessionId ?? sessionStore.currentSessionId
-  nextTick(() => loadDraftForSession(editorSessionId.value))
+  nextTick(() => {
+    loadDraftForSession(editorSessionId.value)
+    // 目标会话刚挂载时就绪前，注入载荷一直留在 store 里，这里补取一次
+    tryConsumePendingInjection()
+  })
 })
 
 onUnmounted(() => {
@@ -1614,11 +1644,17 @@ watch(() => props.modelValue, (newValue) => {
 })
 
 // Watch workbench injection
-watch(() => appStore.pendingInputInjection, (payload) => {
+// 分屏 / 侧边任务会同时存在多个 ChatInput 实例：带 targetSessionId 的载荷只由绑定
+// 该会话的实例消费，其余实例留它在 store 里等目标实例挂载后自取（见 onMounted）。
+function tryConsumePendingInjection() {
+  const payload = appStore.pendingInputInjection
   if (!payload) return
-  injectFromWorkbench(payload)
-  appStore.consumeInputInjection()
-})
+  if (payload.targetSessionId && payload.targetSessionId !== editorSessionId.value) return
+  const owned = appStore.consumeInputInjection()
+  if (owned) injectFromWorkbench(owned)
+}
+
+watch(() => appStore.pendingInputInjection, tryConsumePendingInjection)
 
 // Watch pending input text (rollback restore)
 watch(() => sessionStore.pendingInputText, (newText) => {
@@ -1683,6 +1719,24 @@ watch(pendingFile, (file) => {
     focusEditor()
   })
 })
+
+// ── 宿主直读/直写编辑器（定时任务弹窗把内容存成任务字段而非发消息） ──
+function getContent(): { text: string; attachments: AllAttachments } {
+  const content = getEditorPlainText().trim()
+  const quoteBlock = serializeQuoteAttachments(attachedQuotes.value)
+  return {
+    text: quoteBlock ? (content ? `${quoteBlock}\n\n${content}` : quoteBlock) : content,
+    attachments: collectAllAttachments(attachedFiles.value, attachedImages.value),
+  }
+}
+
+function setContent(text: string) {
+  clearEditor()
+  setEditorContent(text)
+  nextTick(() => autoResize())
+}
+
+defineExpose({ getContent, setContent, focus: focusEditor })
 </script>
 
 <style lang="scss" scoped>
@@ -2430,7 +2484,9 @@ watch(pendingFile, (file) => {
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  z-index: 500;
+  // 被 Teleport 到 body，只能靠视口层级：必须盖过弹窗 overlay（1000），
+  // 又留在确认/提示对话框（10000）之下 —— 与其余 teleported 菜单同为 9999
+  z-index: 9999;
   overflow: hidden;
   display: flex;
   flex-direction: column;

@@ -54,6 +54,7 @@
           :key="task.id"
           :task="task"
           :expanded="cronStore.expandedTaskId === task.id"
+          @edit="(payload: CronTask) => emit('edit', payload)"
         />
       </div>
     </div>
@@ -63,7 +64,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useCronStore } from '@/stores/cron'
+import { useCronStore, type CronTask } from '@/stores/cron'
 import CronTaskRow from './CronTaskRow.vue'
 
 type FilterType = 'all' | 'enabled' | 'disabled' | 'oneshot'
@@ -71,6 +72,10 @@ type FilterType = 'all' | 'enabled' | 'disabled' | 'oneshot'
 const { t } = useI18n()
 const cronStore = useCronStore()
 const filter = ref<FilterType>('all')
+
+const emit = defineEmits<{
+  edit: [task: CronTask]
+}>()
 
 const filteredTasks = computed(() => {
   const tasks = cronStore.tasks

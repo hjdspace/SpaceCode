@@ -24,5 +24,9 @@ export default {
   clear: 'Clear',
   previous: 'Previous',
   next: 'Next',
+  prevMonth: 'Previous month',
+  nextMonth: 'Next month',
+  hour: 'Hours',
+  minute: 'Minutes',
   create: 'Create',
 }

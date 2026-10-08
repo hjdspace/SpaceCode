@@ -16,4 +16,13 @@ export default {
   selectFolder: '选择文件夹',
   showHiddenFiles: '显示隐藏文件',
   hideHiddenFiles: '隐藏隐藏文件',
+  gitMarkModified: '已修改',
+  gitMarkAdded: '已新增',
+  gitMarkUntracked: '未跟踪',
+  gitMarkDeleted: '已删除',
+  gitMarkRenamed: '已重命名',
+  gitMarkCopied: '已复制',
+  gitMarkConflict: '存在冲突',
+  gitMarkDirModified: '包含修改的文件',
+  gitMarkDirAdded: '包含新增的文件',
 }

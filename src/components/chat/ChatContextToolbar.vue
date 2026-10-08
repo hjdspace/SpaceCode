@@ -59,7 +59,7 @@
     </div>
 
     <!-- Git Branch Selector (Code / Design 模式显示) -->
-    <div v-if="!isWorkMode" class="ctx-selector" ref="branchSelectorRef">
+    <div v-if="!isWorkMode || isLocal" class="ctx-selector" ref="branchSelectorRef">
       <button class="ctx-trigger" :class="{ active: showBranchDropdown }" @click="toggleBranchDropdown">
         <GitBranch :size="13" class="ctx-icon" />
         <span class="ctx-label">{{ currentBranch }}</span>
@@ -105,12 +105,14 @@
             </div>
           </div>
 
-          <div class="ctx-divider" />
+          <template v-if="!isLocal">
+            <div class="ctx-divider" />
 
-          <button class="ctx-action" @click="createNewBranch">
-            <Plus :size="14" class="ctx-action-icon" />
-            <span>{{ t('sessionContext.createAndCheckout') }}</span>
-          </button>
+            <button class="ctx-action" @click="createNewBranch">
+              <Plus :size="14" class="ctx-action-icon" />
+              <span>{{ t('sessionContext.createAndCheckout') }}</span>
+            </button>
+          </template>
         </div>
       </Transition>
     </div>
@@ -118,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Folder, FolderPlus, FolderMinus, GitBranch, ChevronDown, ChevronRight,
@@ -133,6 +135,23 @@ import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useDesignStore } from '@/stores/design'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { getRecentProjectRoots, normalizeProjectPathKey, pathsEqual } from '@/utils/recentProjectRoots'
+import { api } from '@/services/electronAPI'
+import type { GitBranch as GitBranchInfo } from '@/services/electronAPI'
+
+/**
+ * workspace 传入即为「受控」模式：选择只 emit 不写全局 store。
+ * 定时任务弹窗用它来给单个任务挑工作空间/分支，而不是把整个 app 的项目切走
+ * （默认模式下选项目会 openProjectByPath，选分支会真的 checkout 工作区）。
+ */
+const props = defineProps<{
+  workspace?: string
+  branch?: string
+}>()
+
+const emit = defineEmits<{
+  'update:workspace': [path: string]
+  'update:branch': [name: string]
+}>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -144,11 +163,13 @@ const designStore = useDesignStore()
 const { switchWorkingDirectory } = useDesignSession()
 
 // ── Work / Code / Design 模式适配 ──────────────────────────────
+const isLocal = computed(() => props.workspace !== undefined)
 const isWorkMode = computed(() => appStore.mode === 'work')
 const isDesignMode = computed(() => appStore.mode === 'design')
 
 /** 当前模式下的工作目录路径 */
 const currentWorkspacePath = computed(() => {
+  if (isLocal.value) return props.workspace || ''
   if (isWorkMode.value) return appStore.workWorkspace
   if (isDesignMode.value) return designStore.designWorkspace
   return appStore.projectRoot
@@ -223,6 +244,10 @@ function closeProjectDropdown() {
 function switchToProject(path: string) {
   closeProjectDropdown()
   if (isCurrent(path)) return
+  if (isLocal.value) {
+    emit('update:workspace', path)
+    return
+  }
   if (isWorkMode.value) {
     appStore.setWorkWorkspace(path)
   } else if (isDesignMode.value) {
@@ -234,6 +259,11 @@ function switchToProject(path: string) {
 
 async function addNewProject() {
   closeProjectDropdown()
+  if (isLocal.value) {
+    const result = await api.selectFolder()
+    if (!result.canceled && result.filePaths[0]) emit('update:workspace', result.filePaths[0])
+    return
+  }
   if (isWorkMode.value) {
     // Work 模式：打开工作区引导（文件夹选择器）
     appStore.showWorkOnboarding = true
@@ -244,6 +274,11 @@ async function addNewProject() {
 
 function clearProject() {
   closeProjectDropdown()
+  if (isLocal.value) {
+    emit('update:workspace', '')
+    emit('update:branch', '')
+    return
+  }
   if (isWorkMode.value) {
     appStore.clearWorkWorkspace()
   } else {
@@ -257,25 +292,50 @@ const showBranchDropdown = ref(false)
 const branchSearch = ref('')
 const branchSelectorRef = ref<HTMLElement | null>(null)
 const branchSearchInput = ref<HTMLInputElement | null>(null)
+const localBranches = ref<GitBranchInfo[]>([])
 
-const currentBranch = computed(() => scmStore.branch || 'main')
+const currentBranch = computed(() => {
+  if (isLocal.value) return props.branch || t('contextToolbar.branchNone')
+  return scmStore.branch || 'main'
+})
 
-const uncommittedCount = computed(() =>
-  scmStore.unstaged.length + scmStore.untracked.length + scmStore.conflicted.length
-)
+const uncommittedCount = computed(() => {
+  if (isLocal.value) return 0
+  return scmStore.unstaged.length + scmStore.untracked.length + scmStore.conflicted.length
+})
+
+/** 受控模式下按任务选中的分支高亮，而不是仓库真实 HEAD */
+const branchList = computed<GitBranchInfo[]>(() => {
+  if (!isLocal.value) return scmStore.branches
+  return localBranches.value.map(b => ({ ...b, current: b.name === props.branch }))
+})
 
 const filteredBranches = computed(() => {
   const q = branchSearch.value.trim().toLowerCase()
-  const list = scmStore.branches
+  const list = branchList.value
   if (!q) return list
   return list.filter(b => b.name.toLowerCase().includes(q))
 })
+
+async function loadLocalBranches() {
+  const cwd = props.workspace
+  if (!cwd) {
+    localBranches.value = []
+    return
+  }
+  try {
+    localBranches.value = (await api.git.getBranches(cwd)) || []
+  } catch {
+    localBranches.value = []
+  }
+}
 
 function toggleBranchDropdown() {
   showBranchDropdown.value = !showBranchDropdown.value
   if (showBranchDropdown.value) {
     branchSearch.value = ''
-    scmStore.refreshBranches()
+    if (isLocal.value) loadLocalBranches()
+    else scmStore.refreshBranches()
     nextTick(() => branchSearchInput.value?.focus())
   }
 }
@@ -287,6 +347,10 @@ function closeBranchDropdown() {
 
 async function checkoutBranch(name: string) {
   closeBranchDropdown()
+  if (isLocal.value) {
+    emit('update:branch', name)
+    return
+  }
   const b = scmStore.branches.find(br => br.name === name)
   if (b?.current) return
   await scmStore.checkoutBranch(name)
@@ -299,9 +363,15 @@ function createNewBranch() {
 
 // --- Lifecycle ---
 onMounted(() => {
+  if (isLocal.value) return
   if (currentWorkspacePath.value) {
     scmStore.refreshBranches()
   }
+})
+
+// 换了工作空间，上一个仓库的分支列表就不再相关
+watch(() => props.workspace, () => {
+  localBranches.value = []
 })
 </script>
 

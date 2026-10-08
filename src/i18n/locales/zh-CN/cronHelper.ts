@@ -2,6 +2,7 @@ export default {
   weekdays: ['日', '一', '二', '三', '四', '五', '六'],
   everyMinute: '每分钟',
   everyNMinutes: '每 {n} 分钟',
+  everyNHours: '每 {n} 小时',
   hourlyAt: '每小时 :{minute}',
   dailyAt: '每天 {hour}:{minute}',
   weekdayAt: '工作日 {hour}:{minute}',

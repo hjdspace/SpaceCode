@@ -3,4 +3,5 @@ export default {
   noProjects: '未找到项目',
   addNewProject: '添加新项目',
   noProject: '不使用项目',
+  branchNone: '未选分支',
 }

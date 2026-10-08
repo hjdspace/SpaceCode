@@ -2,6 +2,7 @@
 export default {
   explain: 'Explain',
   addToConversation: 'Add to conversation',
+  askInSideTask: 'Ask in side task',
   improve: 'Improve',
   shorten: 'Shorten',
   changeTone: 'Change tone',

@@ -368,6 +368,7 @@ export interface ElectronImWechatAPI {
 }
 
 export interface ElectronCronAPI {
+  setProjectRoot: (projectRoot: string) => void
   list: (projectRoot: string) => Promise<CronTask[]>
   create: (projectRoot: string, task: Omit<CronTask, 'id'>) => Promise<CronTask | null>
   update: (projectRoot: string, id: string, updates: Partial<CronTask>) => Promise<void>
@@ -377,6 +378,10 @@ export interface ElectronCronAPI {
   taskRuns: (projectRoot: string, taskId: string) => Promise<CronRunEntry[]>
   validate: (cron: string) => Promise<{ valid: boolean; error?: string }>
   describe: (cron: string) => Promise<string>
+  saveAttachment: (
+    projectRoot: string,
+    attachment: { id: string; name: string; dataUrl: string },
+  ) => Promise<{ path?: string; error?: string } | null>
   onTaskFired: (callback: (data: { taskId: string; taskName: string; [key: string]: unknown }) => void) => () => void
   onRunCompleted: (callback: (data: { runId: string; taskId: string; status: string; [key: string]: unknown }) => void) => () => void
 }

@@ -2,6 +2,7 @@ export default {
   weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
   everyMinute: 'Every minute',
   everyNMinutes: 'Every {n} minutes',
+  everyNHours: 'Every {n} hours',
   hourlyAt: 'Hourly at :{minute}',
   dailyAt: 'Daily at {hour}:{minute}',
   weekdayAt: 'Weekdays at {hour}:{minute}',

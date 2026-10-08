@@ -4,4 +4,5 @@ export default {
   terminal: '终端',
   browser: '浏览器',
   files: '文件',
+  sideTask: '侧边任务',
 }
