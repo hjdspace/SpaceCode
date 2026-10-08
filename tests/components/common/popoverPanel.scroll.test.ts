@@ -71,4 +71,60 @@ describe('PopoverPanel 滚动跟随', () => {
     await nextFrame()
     expect(rectSpy).toHaveBeenCalledTimes(1)
   })
+
+  /**
+   * 嵌套浮层：宿主面板的 slot 里长出锚点，子面板真 Teleport 到 body（不能 stub，
+   * 否则子面板落在宿主 DOM 里，「宿主 own-panel 跳过」会掩盖要测的栈序分支）。
+   */
+  async function mountNestedPair() {
+    const host = mount(PopoverPanel, {
+      props: { open: false, anchor },
+      global: { stubs: { Teleport: true } },
+      slots: {
+        default: '<div class="inner-scroller"><div id="nest-point"><button id="nest-anchor" /></div></div>',
+      },
+      attachTo: document.body,
+    })
+    await host.setProps({ open: true })
+    await flushPromises()
+    await nextFrame()
+
+    const nestAnchor = document.getElementById('nest-anchor') as HTMLElement
+    const nestPoint = document.getElementById('nest-point') as HTMLElement
+    const nested = mount(PopoverPanel, {
+      props: { open: false, anchor: nestAnchor },
+      slots: { default: '<div class="nested-scroller" />' },
+      attachTo: nestPoint,
+    })
+    await nested.setProps({ open: true })
+    await flushPromises()
+    await nextFrame()
+    return { host, nested }
+  }
+
+  it('嵌套浮层内部滚动不触发宿主重定位（teleport 后不在宿主 DOM 里）', async () => {
+    await mountNestedPair()
+
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    rectSpy.mockClear()
+
+    // 子面板（时间滚轮等）内部的滚动：宿主跳过（栈序规则），子面板自己跳过（own-panel）
+    const nestedScroller = document.querySelector('.nested-scroller') as HTMLElement
+    nestedScroller.dispatchEvent(new Event('scroll'))
+    await nextFrame()
+    expect(rectSpy).not.toHaveBeenCalled()
+  })
+
+  it('宿主面板内容滚动时嵌套浮层仍跟随锚点重定位', async () => {
+    await mountNestedPair()
+
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    rectSpy.mockClear()
+
+    // 宿主内容滚动会移动嵌套浮层的锚点 —— 嵌套那层必须重定位，宿主自己跳过
+    const hostScroller = document.querySelector('.inner-scroller') as HTMLElement
+    hostScroller.dispatchEvent(new Event('scroll'))
+    await nextFrame()
+    expect(rectSpy).toHaveBeenCalledTimes(1)
+  })
 })

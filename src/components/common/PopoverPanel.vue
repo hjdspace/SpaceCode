@@ -17,7 +17,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
-import { isInsideAnyPopover, isTopmostPopover, pushPopover, removePopover } from './popoverStack'
+import { isInsideAnyPopover, isInsidePopoverOpenedAfter, isTopmostPopover, pushPopover, removePopover } from './popoverStack'
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -115,6 +115,11 @@ function onScroll(e: Event) {
   // 那些与锚点位置无关，直接跳过
   const source = e.target as Node | null
   if (source && (panelRef.value?.contains(source) || props.anchor?.contains(source))) return
+  // 嵌套浮层（如排期面板里的时间滚轮）teleport 到 body 后不在本面板 DOM 里，
+  // 但它内部的滚动同样动不了本面板的锚点。不跳过的话，宿主面板对着滚轮列
+  // 每滚一格都 place() 一次 —— getBoundingClientRect/offsetHeight 是强制同步
+  // 布局，这些工作攒在滚轮手势期间的主线程上就是肉眼可见的卡顿。
+  if (source && panelRef.value && isInsidePopoverOpenedAfter(source, panelRef.value)) return
   requestPlace()
 }
 

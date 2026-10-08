@@ -553,12 +553,9 @@ onUnmounted(stopPolling)
 // Trace Rows
 .trace-rows {
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 8px 12px;
   height: 100%;
-
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
 }
 
 .trace-card {

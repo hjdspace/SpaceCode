@@ -626,11 +626,8 @@ function handleGitOpsCreateBranch() {
 .sc-task-list {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px 0;
-
-  &::-webkit-scrollbar { width: 5px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 }
 
 .sc-task-group {
@@ -818,11 +815,8 @@ function handleGitOpsCreateBranch() {
 .sc-branch-list {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 2px 0;
-
-  &::-webkit-scrollbar { width: 5px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 }
 
 .sc-branch-item {

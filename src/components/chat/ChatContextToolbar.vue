@@ -542,15 +542,8 @@ watch(() => props.workspace, () => {
 .ctx-list {
   max-height: 220px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   margin: 1px 0;
-
-  /* thin scrollbar */
-  &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.08);
-    border-radius: 4px;
-  }
 }
 
 /* ── Item ── */

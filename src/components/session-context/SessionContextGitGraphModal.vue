@@ -301,10 +301,7 @@ watch(() => sessionContext.showGitGraphModal, (show) => {
   flex: 1;
   min-height: 0;
   overflow: auto;
-
-  &::-webkit-scrollbar { width: 6px; height: 6px; }
-  &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+  @include scrollbar-overlay;
 }
 
 .graph-table {

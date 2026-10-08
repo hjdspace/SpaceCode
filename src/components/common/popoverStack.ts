@@ -21,6 +21,20 @@ export function isInsideAnyPopover(target: Node): boolean {
   return openPopoverStack.some((el) => el.contains(target))
 }
 
+/**
+ * 滚动源是否位于「比 el 后打开」的浮层内部。后打开的浮层（嵌套子浮层，
+ * 如排期面板里的时间滚轮）teleport 出去后不在 el 的 DOM 里，其内部滚动
+ * 不可能移动 el 的锚点 —— 判断错了会让 el 对着别人家的滚动器空跑重定位。
+ */
+export function isInsidePopoverOpenedAfter(target: Node, el: HTMLElement): boolean {
+  const start = openPopoverStack.indexOf(el)
+  if (start < 0) return false
+  for (let i = start + 1; i < openPopoverStack.length; i++) {
+    if (openPopoverStack[i].contains(target)) return true
+  }
+  return false
+}
+
 export function isTopmostPopover(el: HTMLElement | null): boolean {
   return el !== null && openPopoverStack[openPopoverStack.length - 1] === el
 }
