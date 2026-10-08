@@ -1,5 +1,5 @@
 <template>
-  <div class="pet-settings">
+  <div class="pet-settings s-page-shell">
     <h2 class="pet-title">{{ t('pet.title') }}</h2>
     <p class="pet-subtitle">{{ t('pet.subtitle') }}</p>
 
@@ -150,8 +150,6 @@ function onRange(event: Event): void {
 <style scoped lang="scss">
 .pet-settings {
   padding: 24px;
-  max-width: 800px;
-  margin: 0 auto;
 }
 
 .pet-title {
