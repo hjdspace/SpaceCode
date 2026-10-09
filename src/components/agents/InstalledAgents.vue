@@ -90,6 +90,7 @@ onMounted(() => {
 .installed-agents {
   padding: 16px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .agent-group {

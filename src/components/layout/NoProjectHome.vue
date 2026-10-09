@@ -90,6 +90,7 @@ async function onSelectFolder() {
   min-height: 0;
   width: 100%;
   overflow-y: auto;
+  @include scrollbar-overlay;
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -209,6 +209,7 @@ async function handleRemove(dirPath: string) {
 .modal-body {
   padding: 24px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   display: flex;
   flex-direction: column;
   gap: 20px;

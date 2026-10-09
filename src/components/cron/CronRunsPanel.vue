@@ -180,6 +180,7 @@ function openRunSession(run: TaskRun): void {
 .run-output {
   max-height: 220px;
   overflow: auto;
+  @include scrollbar-overlay;
   margin: 0 10px 8px;
   padding: 8px 10px;
   border: 1px solid var(--border-subtle);

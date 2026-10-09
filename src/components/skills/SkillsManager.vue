@@ -409,6 +409,7 @@ onMounted(() => {
 .skills-list {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .skill-group {

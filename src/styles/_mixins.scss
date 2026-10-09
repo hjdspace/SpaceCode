@@ -94,6 +94,16 @@
   }
 }
 
+/* 只滚不画: 用于行高容不下滚动条的面（tab 条、chip 行、逐行滚动的代码行）——
+   那里画 10px 轨道会吃掉文本, 见 ToolDiffViewer 的 .grep-text. */
+@mixin scrollbar-hidden {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @mixin reset-button {
   border: none;
   background: none;

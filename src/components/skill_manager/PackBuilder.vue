@@ -379,6 +379,7 @@ function cancel(): void {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding-right: 3px;
 }
 
@@ -540,7 +541,7 @@ function cancel(): void {
   .spp-builder-identity,
   .spp-builder-grid,
   .spp-builder-footer { padding-right: 16px; padding-left: 16px; }
-  .spp-builder-grid { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
+  .spp-builder-grid { grid-template-columns: minmax(0, 1fr); overflow-y: auto; @include scrollbar-overlay; }
   .spp-builder-card { min-height: 280px; }
   .spp-builder-footer { align-items: stretch; flex-direction: column; }
   .spp-detail-actions { justify-content: flex-end; }

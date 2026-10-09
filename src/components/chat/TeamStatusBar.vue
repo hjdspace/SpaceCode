@@ -87,6 +87,7 @@ const teammateEntries = computed(() =>
   gap: 8px;
   min-width: 0;
   overflow-x: auto;
+  @include scrollbar-hidden;
 }
 
 .teammate-tab {

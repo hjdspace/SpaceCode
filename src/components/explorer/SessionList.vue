@@ -313,27 +313,7 @@ function onLeave(el: Element, done: () => void) {
   overflow-y: auto;
   padding: 8px;
 
-  @include scrollbar-thin;
-}
-
-@mixin scrollbar-thin {
-  &::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: var(--surface-border);
-    border-radius: 3px;
-
-    &:hover {
-      background: var(--text-muted);
-    }
-  }
+  @include scrollbar-overlay;
 }
 
 .empty-state {

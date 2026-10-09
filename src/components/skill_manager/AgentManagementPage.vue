@@ -725,6 +725,7 @@ function severityLabel(severity: string): string {
 .amp-side-body {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 10px;
 }
 
@@ -1017,6 +1018,7 @@ function severityLabel(severity: string): string {
   padding: 10px 14px 0;
   border-bottom: 1px solid var(--border-subtle);
   overflow-x: auto;
+  @include scrollbar-hidden;
   flex-shrink: 0;
 
   button {
@@ -1051,6 +1053,7 @@ function severityLabel(severity: string): string {
 .amp-tab-content {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 14px;
 }
 
@@ -1342,7 +1345,7 @@ function severityLabel(severity: string): string {
 .amp-pack-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding-top: 8px; }
 .amp-pack-group-head { display: flex; align-items: center; justify-content: space-between; min-height: 20px; margin-bottom: 4px; padding: 0 2px; color: var(--text-muted); font-size: 9px; font-weight: 780; }
 .amp-pack-group-head b { min-width: 18px; border-radius: var(--radius-full); padding: 2px 5px; background: var(--surface-soft); text-align: center; font-size: 9px; }
-.amp-pack-list { display: grid; max-height: 142px; gap: 5px; overflow-y: auto; }
+.amp-pack-list { display: grid; max-height: 142px; gap: 5px; overflow-y: auto; @include scrollbar-overlay; }
 .amp-pack-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; min-height: 42px; align-items: center; gap: 7px; border: 1px solid var(--border-default); border-radius: 8px; padding: 5px 6px; background: var(--surface-soft); }
 .amp-pack-row--active { border-color: color-mix(in srgb, var(--success) 23%, var(--border-default)); background: color-mix(in srgb, var(--success) 6%, var(--bg-elevated)); }
 .amp-pack-row > span { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 7px; background: var(--accent-primary-glow); color: var(--accent-primary); }
@@ -1447,7 +1450,7 @@ function severityLabel(severity: string): string {
 }
 
 @media (max-width: 680px) {
-  .amp-layout { display: flex; flex-direction: column; overflow-y: auto; }
+  .amp-layout { display: flex; flex-direction: column; overflow-y: auto; @include scrollbar-overlay; }
   .amp-side-panel { min-height: 180px; flex: 0 0 180px; }
   .amp-detail-panel { min-height: 420px; overflow: visible; }
   .amp-agent-header { align-items: stretch; flex-direction: column; }

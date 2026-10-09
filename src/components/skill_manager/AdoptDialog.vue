@@ -366,6 +366,7 @@ function onClose(): void {
 .ad-body {
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 20px 24px 26px;
 }
 

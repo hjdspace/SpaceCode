@@ -80,6 +80,7 @@ function openInPanel() {
   font-size: var(--text-sm);
   line-height: var(--leading-prose);
   overflow: auto;
+  @include scrollbar-overlay;
   max-height: 400px;
   white-space: pre;
   background: var(--code-bg, #0d1117);

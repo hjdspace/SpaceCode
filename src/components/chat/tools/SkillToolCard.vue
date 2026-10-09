@@ -57,6 +57,7 @@ function toggleExpand() { isExpanded.value = !isExpanded.value }
   white-space: pre-wrap;
   word-break: break-word;
   overflow: auto;
+  @include scrollbar-overlay;
   max-height: 400px;
 }
 </style>

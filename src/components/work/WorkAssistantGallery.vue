@@ -379,7 +379,7 @@ onMounted(async () => {
   &.active { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
 }
 
-.gallery-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 22px 22px; }
+.gallery-body { flex: 1; min-height: 0; overflow-y: auto; @include scrollbar-overlay; padding: 4px 22px 22px; }
 
 .assistants-grid {
   display: grid;
@@ -535,6 +535,7 @@ onMounted(async () => {
   transition: opacity var(--transition-fast), transform var(--transition-fast);
   max-height: 360px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 .hover-card-head {
   display: flex;

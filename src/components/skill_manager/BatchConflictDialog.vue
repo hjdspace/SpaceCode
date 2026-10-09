@@ -202,6 +202,7 @@ function onClose(): void {
 .bcd-body {
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 18px 22px 22px;
 }
 

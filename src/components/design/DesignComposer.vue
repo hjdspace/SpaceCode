@@ -743,6 +743,7 @@ async function send() {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   display: flex;
   flex-direction: column;
   gap: 2px;

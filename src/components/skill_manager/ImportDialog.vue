@@ -442,6 +442,7 @@ defineExpose({ open, close })
 .import-dialog-body {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 20px;
 }
 

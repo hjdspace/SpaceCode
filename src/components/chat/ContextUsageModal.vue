@@ -429,6 +429,7 @@ watch(
 .modal-body {
   padding: 20px 24px 24px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .overview-row {

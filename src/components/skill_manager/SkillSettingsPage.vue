@@ -204,6 +204,7 @@ function setLinkFailPolicy(policy: LinkFailPolicy): void {
 .sst-page {
   height: 100%;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 16px 20px 24px;
   display: flex;
   flex-direction: column;

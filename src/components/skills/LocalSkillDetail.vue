@@ -176,6 +176,7 @@ watch(() => props.skill?.name, () => {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .detail-header {
@@ -340,6 +341,7 @@ watch(() => props.skill?.name, () => {
   border-radius: 8px;
   padding: 12px;
   overflow: auto;
+  @include scrollbar-overlay;
 
   pre {
     margin: 0;

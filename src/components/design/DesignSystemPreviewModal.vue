@@ -719,6 +719,7 @@ onUnmounted(() => {
   min-width: 340px;
   max-width: 560px;
   overflow: auto;
+  @include scrollbar-overlay;
   background: #fff;
   padding: 36px 32px;
   animation: sidebarIn 260ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -774,7 +775,9 @@ onUnmounted(() => {
   background: #f6f8fb;
   padding: 12px;
   border-radius: 8px;
-  overflow-x: auto;
+  /* 纵向滚动归外层 .ds-preview-modal-sidebar, 否则横向条占的高度会画出幽灵纵向条 */
+  overflow: auto hidden;
+  @include scrollbar-overlay;
 }
 
 .ds-preview-modal-markdown :deep(pre code) {

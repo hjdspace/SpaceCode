@@ -160,6 +160,7 @@ onMounted(() => {
 .results-list {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .loading-state {

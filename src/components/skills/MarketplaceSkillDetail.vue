@@ -315,6 +315,7 @@ watch(() => props.skill, () => {
 .detail-body {
   flex: 1;
   overflow: auto;
+  @include scrollbar-overlay;
   padding: 20px;
 }
 
@@ -368,6 +369,7 @@ watch(() => props.skill, () => {
     background: var(--bg-secondary);
     border-radius: 8px;
     overflow: auto;
+    @include scrollbar-overlay;
     margin-bottom: 16px;
 
     code {

@@ -330,6 +330,7 @@ function close(): void {
 .ap-body {
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 20px 24px 26px;
 }
 
@@ -479,6 +480,7 @@ function close(): void {
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding-right: 4px;
 
   label {

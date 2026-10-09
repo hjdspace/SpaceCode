@@ -196,6 +196,7 @@ onMounted(() => {
 .history-session-list {
   padding: 8px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   max-height: calc(75vh - 120px);
 }
 

@@ -2132,6 +2132,7 @@ defineExpose({ getContent, setContent, focus: focusEditor })
     max-height: 200px;
     padding: 0;
     overflow-y: auto;
+    @include scrollbar-overlay;
     word-wrap: break-word;
     white-space: pre-wrap;
 
@@ -2590,6 +2591,7 @@ defineExpose({ getContent, setContent, focus: focusEditor })
 .dropdown-list {
   max-height: 280px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px;
 }
 

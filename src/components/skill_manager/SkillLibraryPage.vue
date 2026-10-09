@@ -234,7 +234,7 @@ function handleDeleteCancel(): void {
 </template>
 
 <style scoped lang="scss">
-.slp-page { height: 100%; min-height: 0; overflow-y: auto; padding: 24px 28px 40px; color: var(--text-primary); }
+.slp-page { height: 100%; min-height: 0; overflow-y: auto; @include scrollbar-overlay; padding: 24px 28px 40px; color: var(--text-primary); }
 .slp-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 22px; }
 .slp-eyebrow { margin: 0 0 5px; color: var(--accent-primary); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .slp-page-head h2 { margin: 0; font-family: var(--font-display); font-size: 25px; line-height: 1.1; letter-spacing: -.02em; }

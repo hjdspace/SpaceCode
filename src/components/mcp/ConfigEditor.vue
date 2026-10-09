@@ -128,6 +128,7 @@ watch(() => props.value, (newValue) => {
   padding: 12px;
   background: var(--bg-secondary);
   overflow: auto;
+  @include scrollbar-overlay;
   max-height: 400px;
 
   pre {

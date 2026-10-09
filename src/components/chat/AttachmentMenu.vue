@@ -258,6 +258,7 @@ function getAgentDescription(agentType: string, originalDescription: string): st
 
 .submenu-list {
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px;
   max-height: 280px;
 }

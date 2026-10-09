@@ -151,6 +151,7 @@ async function handleUninstall() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
@@ -211,6 +212,7 @@ async function handleUninstall() {
   color: var(--text-secondary);
   max-height: 300px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   white-space: pre-wrap;
   margin: 0;
 }

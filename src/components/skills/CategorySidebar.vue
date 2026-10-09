@@ -134,6 +134,7 @@ function getDirectoryName(path: string): string {
   gap: 20px;
   padding: 16px;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .section {

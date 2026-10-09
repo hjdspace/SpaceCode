@@ -358,6 +358,7 @@ async function handleRemoveDirectory(dirPath: string) {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .bundles-section,
@@ -428,6 +429,7 @@ async function handleRemoveDirectory(dirPath: string) {
 
   .local-skill-browser {
     overflow-y: auto;
+    @include scrollbar-overlay;
   }
 
   :deep(.category-sidebar) {

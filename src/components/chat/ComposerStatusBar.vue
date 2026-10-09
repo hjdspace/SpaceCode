@@ -404,6 +404,7 @@ onUnmounted(clearTimers)
 .popup-body {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 4px;
 }
 

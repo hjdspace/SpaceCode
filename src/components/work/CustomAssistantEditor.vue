@@ -358,6 +358,7 @@ function yamlEscape(v: unknown): string {
 .editor-body {
   flex: 1;
   overflow-y: auto;
+  @include scrollbar-overlay;
   padding: 20px;
 }
 

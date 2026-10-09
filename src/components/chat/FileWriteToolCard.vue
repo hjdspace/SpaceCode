@@ -29,5 +29,5 @@ const toggle = () => { expanded.value = !expanded.value }
 .path { font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-btn { background: none; border: 1px solid var(--surface-border); border-radius: var(--radius-xs); padding: 2px; cursor: pointer; }
 .fw-body { padding: 8px 10px; }
-pre { margin: 0; font-size: var(--text-2xs); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+pre { margin: 0; font-size: var(--text-2xs); white-space: pre-wrap; max-height: 200px; overflow-y: auto; @include scrollbar-overlay; }
 </style>

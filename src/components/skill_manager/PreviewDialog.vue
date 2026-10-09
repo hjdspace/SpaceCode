@@ -123,6 +123,7 @@ function handleCancel(): void {
 .pd-body {
   padding: 16px 20px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   flex: 1;
 }
 

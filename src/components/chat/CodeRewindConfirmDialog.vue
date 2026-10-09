@@ -88,7 +88,7 @@ function handleCancel() {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .code-rewind-confirm-overlay {
   position: fixed;
   top: 0;
@@ -111,6 +111,7 @@ function handleCancel() {
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
+  @include scrollbar-overlay;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   border: 1px solid var(--border-color, #e5e7eb);
 }
@@ -148,6 +149,7 @@ function handleCancel() {
   margin-bottom: 16px;
   max-height: 240px;
   overflow-y: auto;
+  @include scrollbar-overlay;
   border: 1px solid var(--border-color, #e5e7eb);
 }
 
