@@ -359,6 +359,47 @@ describe('Turn 事件订阅', () => {
     expect(turn.getIsLoading('sess-exit-before-result')).toBe(false)
     ;(turn as any).endTurn('sess-exit-before-result', ts)
   })
+
+  // 回归：工具调用前后的 text 块各自只渲染自己的内容。
+  // flushContentPatch 曾把整轮累积的 accumulatedContent 写入当前 text 事件，
+  // 导致工具后的 text 事件包含工具前的完整段落 —— 同一段话渲染两遍。
+  it('工具调用前后的 text 时间线事件不重复包含对方内容', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-text-dup')
+    sessionStore.addMessage({ role: 'user', content: '检查环境' }, 'sess-text-dup')
+
+    const ts = (turn as any).beginTurn('sess-text-dup', { isAutonomous: false })
+    try {
+      const fire = (ev: any) => fake._handlers.onStreamEvent({ sessionId: 'sess-text-dup', data: { event: ev } })
+
+      // 第一段 text（工具调用前的说明）
+      fire({ type: 'content_block_start', content_block: { type: 'text' } })
+      fire({ type: 'content_block_delta', delta: { type: 'text_delta', text: '我先确认环境' } })
+      // 工具调用
+      fire({ type: 'content_block_start', content_block: { type: 'tool_use', id: 'tool-dup-1', name: 'Bash' } })
+      fire({ type: 'content_block_stop' })
+      // 工具结束、LLM 第二轮回复的新 text 块
+      fire({ type: 'content_block_start', content_block: { type: 'text' } })
+      fire({ type: 'content_block_delta', delta: { type: 'text_delta', text: '环境确认完毕' } })
+
+      await vi.advanceTimersByTimeAsync(60)
+
+      const session = sessionStore.sessions.find(s => s.id === 'sess-text-dup')!
+      const assistant = session.messages.find(m => m.id === ts.assistantMessageId)!
+      const textEvents = (assistant.timelineEvents || []).filter(e => e.type === 'text')
+      expect(textEvents).toHaveLength(2)
+      expect(textEvents[0].content).toBe('我先确认环境')
+      // 修复前：第二个事件内容是「我先确认环境\n\n环境确认完毕」，工具前文本重复渲染
+      expect(textEvents[1].content).toBe('环境确认完毕')
+      // message.content 仍承载整轮全文（历史持久化 / 非 timeline 渲染依赖它）
+      expect(assistant.content).toBe('我先确认环境\n\n环境确认完毕')
+    } finally {
+      ;(turn as any).endTurn('sess-text-dup', ts)
+    }
+  })
 })
 
 describe('Turn 工具输入流式提取 (Write 卡片逐行渲染数据源)', () => {
