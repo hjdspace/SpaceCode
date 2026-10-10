@@ -30,6 +30,11 @@ vi.mock('@/i18n', () => ({
     },
   },
   detectSystemLanguage: () => 'zh-CN',
+  // chatSession.ts 模块级读取 messages 收集占位会话标题，mock 必须提供同构导出
+  messages: {
+    'zh-CN': { common: { newChat: '新对话' } },
+    'en-US': { common: { newChat: 'New Chat' } },
+  },
 }))
 
 import { useSelectionBarStore } from '@/stores/selectionBar'
