@@ -34,6 +34,12 @@ export default defineConfig({
     // (macOS + Linux) due to worker-thread interactions with native modules.
     // `forks` uses child processes instead of threads, which is stable.
     pool: 'forks',
+    // 本地全量跑时每个文件独占一个 fork（jsdom 环境约 ~10s 启动开销），
+    // 12 核机器默认 11 个并发 fork 会造成 CPU/IO 争用，把原本几秒的
+    // 重导入/文件扫描测试拖过超时线（h5MirrorVisibility、orchestrationRun、
+    // promptStack 曾因此整套跑必超时，单独跑均通过）。非 CI 环境砍半并发；
+    // CI（4 核）保持默认避免拖慢流水线。
+    maxWorkers: process.env.CI ? undefined : '50%',
     // A few tests do genuinely slow work (cold module graph imports, component
     // mounts, filesystem scans) and can exceed the default timeout under load.
     // One retry absorbs that without hiding a deterministic failure.
