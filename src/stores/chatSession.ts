@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
 import type { RewindOption } from '@/types/rewind'
+import { messages } from '@/i18n'
 import { useRewindDialog } from '@/composables/useRewindDialog'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
@@ -40,6 +41,16 @@ import {
 } from '@/services/teamTranscriptService'
 
 const taskManager = useTaskManager()
+
+// 会话占位标题集合：收集所有 locale 下 common.newChat 的取值。
+// 自动命名只应对占位标题生效；若只比对硬编码 'New Chat'，中文界面创建的
+// 会话标题是「新对话」，条件永远不匹配，首条消息后标题不会更新。
+const PLACEHOLDER_SESSION_TITLES = new Set<string>(
+  Object.values(messages)
+    .map((m) => (m as { common?: { newChat?: string } }).common?.newChat)
+    .filter((v): v is string => !!v),
+)
+PLACEHOLDER_SESSION_TITLES.add('New Chat')
 
 // 单会话在内存中保留的最大消息数。
 // 长时间运行的 agent 任务会不断追加消息（每轮 LLM 调用 + 工具调用 + 工具结果），
@@ -1286,7 +1297,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
       // 首条用户消息给会话起名，但只在标题还是占位值时生效 ——
       // 侧边任务 / 定时任务 / 手机端都带着明确标题进来，覆盖掉就把用途冲掉了。
-      if (session.messages.length === 1 && newMessage.role === 'user' && session.title === 'New Chat') {
+      if (session.messages.length === 1 && newMessage.role === 'user' && PLACEHOLDER_SESSION_TITLES.has(session.title)) {
         const newTitle = newMessage.content.slice(0, 50) + (newMessage.content.length > 50 ? '...' : '')
         session.title = newTitle
       }
