@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { i18n } from '@/i18n'
 
 const wsHandlers = new Map<string, (event: { sessionId: string; data: any }) => void>()
 
@@ -133,6 +134,8 @@ describe('H5 mirror visibility', () => {
 
     mount(App, {
       global: {
+        // App.vue setup 调用 useI18n()，必须安装 i18n 插件
+        plugins: [i18n],
         stubs: {
           TitleBar: true,
           Sidebar: true,
