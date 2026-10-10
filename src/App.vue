@@ -82,6 +82,7 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useSettingsStore } from '@/stores/settings'
@@ -146,6 +147,7 @@ const sessionStore = useChatSessionStore()
 const settingsStore = useSettingsStore()
 const splitLayout = useSplitLayoutStore()
 const petStore = usePetStore()
+const { t } = useI18n()
 
 // H5 模式标记
 const h5Mode = isH5Mode()
@@ -219,7 +221,7 @@ function revealRemoteChatSession(event: Event) {
 
 // Initialize shortcuts
 const { register } = useShortcuts({
-  'new_chat': () => { sessionStore.createSession() },
+  'new_chat': () => { sessionStore.createSession(t('common.newChat')) },
   'close_chat': () => {
     if (sessionStore.currentSessionId) {
       sessionStore.deleteSession(sessionStore.currentSessionId)
@@ -247,7 +249,7 @@ const { register } = useShortcuts({
   'clear_chat': () => {
     if (sessionStore.currentSessionId) {
       sessionStore.deleteSession(sessionStore.currentSessionId)
-      sessionStore.createSession('New Chat')
+      sessionStore.createSession(t('common.newChat'))
     }
   }
 })
