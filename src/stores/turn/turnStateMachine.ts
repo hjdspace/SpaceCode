@@ -56,6 +56,7 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
     const ts: TurnState = {
       assistantMessageId,
       accumulatedContent: '',
+      currentTextContent: '',
       accumulatedReasoning: '',
       currentReasoningContent: '',
       currentTextEventId: null,
