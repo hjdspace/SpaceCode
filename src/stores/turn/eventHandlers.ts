@@ -278,8 +278,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const textEvent = ts.currentTextEventId
       ? message.timelineEvents?.find(event => event.id === ts.currentTextEventId)
       : undefined
-    if (textEvent && textEvent.content !== ts.accumulatedContent) {
-      textEvent.content = ts.accumulatedContent
+    // 时间线 text 事件只承载当前块的内容：accumulatedContent 是整轮全文
+    // （跨工具调用的所有 text 块拼接），写入会把工具调用前的文本在
+    // 工具后的 text 事件里重复渲染一遍。
+    if (textEvent && textEvent.content !== ts.currentTextContent) {
+      textEvent.content = ts.currentTextContent
     }
     const reasoningEvent = ts.currentReasoningEventId
       ? message.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
@@ -440,6 +443,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
       logger.debug('ChatStore', `[${sessionId.slice(0, 8)}] stream_event: content_block_start(text) | accLen=${ts.accumulatedContent.length}`)
       ts.currentTextEventId = null
+      // 新 text 块从零累积：上一块（工具调用前的说明文字）已经写入自己的
+      // timeline event，这里若不重置，flushContentPatch 会把整轮全文写进
+      // 新事件，造成工具调用前后同一段文本渲染两遍。
+      ts.currentTextContent = ''
       ensureTextTimelineEvent(sessionId, ts)
       if (ts.accumulatedContent.length > 0 && !ts.accumulatedContent.endsWith('\n')) {
         ts.accumulatedContent += '\n\n'
@@ -475,6 +482,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta?.text) {
       ensureTextTimelineEvent(sessionId, ts)
       ts.accumulatedContent += ev.delta.text
+      ts.currentTextContent += ev.delta.text
       scheduleContentPatch(sessionId, ts)
     }
 
@@ -641,8 +649,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               streamingContents.value.set(sessionId, ts.accumulatedContent)
               const msg = getAssistantMessage(sessionId, ts)
               const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
+              const blockEventContent = `${textEvent?.content || ''}${block.text}`
+              ts.currentTextContent = blockEventContent
               updateTimelineEvent(sessionId, ts, textEventId, {
-                content: `${textEvent?.content || ''}${block.text}`,
+                content: blockEventContent,
                 status: 'running'
               })
             } else if (block.type === 'thinking') {
@@ -700,8 +710,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
             const textEventId = ensureTextTimelineEvent(sessionId, ts)
             const msg = getAssistantMessage(sessionId, ts)
             const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
+            const patchEventContent = `${textEvent?.content || ''}${deltaText}`
+            ts.currentTextContent = patchEventContent
             updateTimelineEvent(sessionId, ts, textEventId, {
-              content: `${textEvent?.content || ''}${deltaText}`,
+              content: patchEventContent,
               status: 'running'
             })
             sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
