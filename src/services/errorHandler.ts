@@ -65,6 +65,24 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
     ...overrides,
   })
 
+  // 400 = 服务端拒绝了请求体，重发同一份历史必然复现（例如含 tool_calls 的消息格式
+  // 不被网关接受），所以既不能自动重发 5 次，也不给"重试"入口。放在 429/5xx 的松散
+  // 子串匹配之前 —— 否则 body 里出现 "15000"、"137500" 这类数字就会被误判成可重试。
+  // 例外：上下文超限类 400 保持可重试，重发会让引擎先跑一轮自动压缩，确实能恢复。
+  const isContextOverflow = /prompt is too long|prompt_too_long|exceed context limit/i.test(msg)
+  const isRequestRejected = !isContextOverflow && (
+    /\bAPI Error: 400\b/i.test(msg) ||
+    /\b400 Bad Request\b/i.test(msg) ||
+    lowerMsg.includes('invalid_request_error') ||
+    lowerMsg.includes('badrequesterror')
+  )
+  if (isRequestRejected) {
+    return make(ErrorCategory.DATA_ERROR, {
+      retryable: false,
+      message: '服务端拒绝了本次请求的数据格式（400），重发无法恢复，请联系网关/模型服务确认对该请求的兼容性。',
+    })
+  }
+
   if (lowerMsg.includes('429') || lowerMsg.includes('rate_limit') || lowerMsg.includes('rate limit')) {
     // 从 "API Error: 429 {\"error\":{\"message\":\"...\",...}}" 格式中提取友好信息
     const jsonMatch = msg.match(/\{[\s\S]*\}/)

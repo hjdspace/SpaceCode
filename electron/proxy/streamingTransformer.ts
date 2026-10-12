@@ -18,7 +18,8 @@ interface OpenAIStreamChunk {
         type?: string
         function?: {
           name?: string
-          arguments?: string
+          // 规范是 JSON 字符串；自建网关也可能直接回对象，见下方 partial_json 处理。
+          arguments?: string | Record<string, unknown>
         }
       }>
     }
@@ -232,6 +233,11 @@ export class OpenAIToAnthropicStreamTransformer {
         }
 
         if (tc.function?.arguments) {
+          // partial_json 只能是字符串（引擎按字符串累加后再 parse）。对象形态的
+          // arguments 先序列化，否则非字符串会把累加器直接打烂。
+          const partialJson = typeof tc.function.arguments === 'string'
+            ? tc.function.arguments
+            : JSON.stringify(tc.function.arguments)
           if (this.currentToolIndex !== tc.index) {
             if (this.contentBlockType === ContentBlockType.ToolUse) {
               output.push(this.formatSSE('content_block_stop', {
@@ -258,7 +264,7 @@ export class OpenAIToAnthropicStreamTransformer {
           output.push(this.formatSSE('content_block_delta', {
             type: 'content_block_delta',
             index: this.contentBlockIndex,
-            delta: { type: 'input_json_delta', partial_json: tc.function.arguments },
+            delta: { type: 'input_json_delta', partial_json: partialJson },
           }))
         }
       }

@@ -262,17 +262,11 @@ export function openAIToAnthropicResponse(body: Record<string, any>): Record<str
   }
   if (Array.isArray(message.tool_calls)) {
     for (const tc of message.tool_calls) {
-      let input: unknown = {}
-      try {
-        input = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {}
-      } catch {
-        input = {}
-      }
       contentBlocks.push({
         type: 'tool_use',
         id: tc.id || `toolu_${Date.now()}`,
         name: tc.function?.name || '',
-        input,
+        input: toToolInput(tc.function?.arguments),
       })
     }
   }
@@ -294,6 +288,22 @@ export function openAIToAnthropicResponse(body: Record<string, any>): Record<str
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: body.usage?.prompt_tokens_details?.cached_tokens || 0,
     },
+  }
+}
+
+/**
+ * tool_calls[].function.arguments 按规范是 JSON 字符串，但自建网关常直接回对象
+ * （它们在服务端就把字符串反序列化成 dict 了）。JSON.parse(对象) 会先把参数强转成
+ * "[object Object]" 再抛错，异常被吞掉后工具入参静默变空 —— 所以先判类型再解析。
+ */
+function toToolInput(args: unknown): Record<string, any> {
+  if (args == null || args === '') return {}
+  if (typeof args === 'object') return args as Record<string, any>
+  try {
+    const parsed = JSON.parse(String(args))
+    return parsed !== null && typeof parsed === 'object' ? parsed as Record<string, any> : {}
+  } catch {
+    return {}
   }
 }
 
