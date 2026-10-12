@@ -15,9 +15,6 @@ import { join } from 'path'
 import { warn, error as logError } from '../infra/logger'
 import { builtinNameFromServerKey, resolveBuiltinMcp } from './mcpConfigResolver'
 
-/** 内置 MCP 服务器的来源标记，与渲染层 BUILTIN_MCP_SOURCE 保持一致 */
-const BUILTIN_SOURCE = 'builtin'
-
 /** MCP 服务器在持久化文件中可能携带的额外元字段（仅供 SpaceCode 内部使用） */
 export interface PersistedMcpServer {
   command?: string
@@ -118,41 +115,6 @@ function toCliMcpServerConfig(server: PersistedMcpServer): McpJsonConfig['mcpSer
 }
 
 /**
- * 预打包内置 MCP 服务器：构建时已随安装包打入 <resources>/mcp-vendor/，
- * 运行时用打包内的 bun 执行预装的 server.js，无需联网下载。
- *
- * key = 内置预设 key（与渲染层 BUILTIN_MCP_PRESETS 的 key 对齐），
- * pkgPath = server.js 相对 <resources> 的路径。
- *
- * 注意：sc-computer-use 不在此列表中 — cua-driver 是原生 Rust 二进制，
- * 由 electron/cuaDriverService.ts 的 findCuaDriverBinary() 负责路径解析
- * （支持 PATH、内置、环境变量三种来源）。
- */
-const BUNDLED_MCP_SERVERS: Record<string, { pkgPath: string }> = {}
-
-/**
- * 解析预打包 MCP 服务器的启动命令。
- * @returns { bunPath, serverPath } 或 null（预打包文件不存在，调用方应回退 npx）
- */
-function resolveBundledMcpCommand(pkgRelPath: string): { bunPath: string; serverPath: string } | null {
-  // 打包模式：resources/ 下含 engine/bin/bun 与 mcp-vendor/
-  // 开发模式：__dirname 的深度取决于构建方式——直接从 electron/ 跑 TS 时
-  // 项目根是上一层；编译到 out/main/ 等子目录时项目根是上两层。依次尝试。
-  const bunName = process.platform === 'win32' ? 'bun.exe' : 'bun'
-  const candidates = app.isPackaged
-    ? [process.resourcesPath]
-    : [join(__dirname, '..'), join(__dirname, '..', '..')]
-  for (const base of candidates) {
-    const bunPath = join(base, 'engine', 'bin', bunName)
-    const serverPath = join(base, pkgRelPath)
-    if (existsSync(bunPath) && existsSync(serverPath)) {
-      return { bunPath, serverPath }
-    }
-  }
-  return null
-}
-
-/**
  * 历史 key → 当前 key 的别名映射（与 src/lib/builtinMcp.ts 的
  * DEPRECATED_BUILTIN_KEY_ALIASES 保持一致）。
  *
@@ -189,16 +151,6 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
     if (cliConfig) {
       // 旧 key → 新 key（避免 'computer-use' 等保留名直接传给 CLI）
       const resolvedName = DEPRECATED_KEY_ALIASES[name] ?? name
-      // 预打包内置服务器：优先用打包内的 bun + 预装 server.js，路径缺失则回退 npx
-      const bundled = server._source === BUILTIN_SOURCE ? BUNDLED_MCP_SERVERS[resolvedName] : undefined
-      if (bundled) {
-        const resolved = resolveBundledMcpCommand(bundled.pkgPath)
-        if (resolved) {
-          cliConfig.command = resolved.bunPath
-          cliConfig.args = ['run', resolved.serverPath]
-          delete cliConfig.env
-        }
-      }
       mcpServers[resolvedName] = cliConfig
 
       // 内置 MCP 服务器（cua-driver / browser-use）路径解析委托给 mcpConfigResolver，
@@ -223,5 +175,3 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
   if (Object.keys(mcpServers).length === 0) return null
   return { mcpServers }
 }
-
-export { BUILTIN_SOURCE }

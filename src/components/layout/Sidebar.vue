@@ -787,22 +787,8 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
   }
 }
 
-async function handleRenameSession(sessionId: string, newTitle: string) {
-  try {
-    // Update session title in store
-    const session = sessionStore.sessions.find(s => s.id === sessionId)
-    if (session) {
-      session.title = newTitle
-      // Sync tab label with session title
-      // Save to storage (method exists on sessionStore)
-      sessionStore.saveToStorage()
-
-      // Dispatch event for UI refresh
-      window.dispatchEvent(new CustomEvent('session-updated'))
-    }
-  } catch (error) {
-    console.error('Failed to rename session:', error)
-  }
+function handleRenameSession(sessionId: string, newTitle: string) {
+  sessionStore.renameSession(sessionId, newTitle)
 }
 
 function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {

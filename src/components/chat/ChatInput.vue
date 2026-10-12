@@ -51,8 +51,11 @@
         <Clock :size="14" class="pending-icon" />
         <span class="pending-text">{{ msg.displayLabel || msg.content }}</span>
         <span class="pending-priority-tag">{{ msg.priority === 'later' ? t('chatInput.priorityLater') : t('chatInput.priorityNow') }}</span>
-        <button class="pending-action-btn" @click="recallPendingMsg(msg.id)" :title="t('chatInput.recallPending')">
+        <button class="pending-action-btn" @click="sendPendingNow(msg.id)" :title="t('chatInput.sendPendingNow')">
           <ArrowUp :size="14" />
+        </button>
+        <button class="pending-action-btn" @click="recallPendingMsg(msg.id)" :title="t('chatInput.recallPending')">
+          <ArrowDown :size="14" />
         </button>
         <button class="pending-action-btn" @click="removePendingMsg(msg.id)" :title="t('chatInput.removePending')">
           <X :size="14" />
@@ -392,7 +395,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick } from 'vue'
 import {
-  ArrowUp, Plus, ChevronDown, Check, Square, X,
+  ArrowUp, ArrowDown, Plus, ChevronDown, Check, Square, X,
   Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Brain,
   Sparkles, Image, ChevronRight, Archive, Clock, LayoutGrid, Settings, Quote
 } from 'lucide-vue-next'
@@ -417,6 +420,8 @@ import { useSlashCommands, type SlashCommand } from '@/composables/useSlashComma
 import { useContextMenu, type ContextItem } from '@/composables/useContextMenu'
 import { useContentEditor, getMimeTypeFromFileName, serializeQuoteAttachments } from '@/composables/useContentEditor'
 import { usePromptStash, resolveDraftSave, resolveDraftLoad, isMirrorValid } from '@/composables/usePromptStash'
+import { useDraftPersistence } from '@/composables/useDraftPersistence'
+import { useQuoteAttachments } from '@/composables/useQuoteAttachments'
 import { useDragDrop } from '@/composables/useDragDrop'
 import { useImageHandler } from '@/composables/useImageHandler'
 import { useAgentSelector } from '@/composables/useAgentSelector'
@@ -542,100 +547,6 @@ const {
 const promptStash = usePromptStash()
 const { showStashHint } = promptStash
 
-// ── Per-session draft persistence ───────────────────────────────
-// 编辑器内容是组件本地 DOM 状态。会话切换 / 页面切换（设置页等会卸载本组件的
-// 视图）时必须按「内容归属的会话」保存草稿，而不是全局 currentSessionId——
-// 切换会话时 store 已经指向新会话，用 current 做 key 会把草稿存错会话。
-// 归属会话由 ChatPanel 通过 props.sessionId 传入（分屏时每个 pane 独立）。
-const editorSessionId = ref<string | null>(null)
-
-function buildDraftFromEditor() {
-  return {
-    text: getEditorPlainText().trim(),
-    attachments: attachedFiles.value.map(f => ({ ...f })),
-    images: attachedImages.value.map(img => ({ ...img })),
-    quotes: attachedQuotes.value.map(q => ({ ...q })),
-    editorHtml: editorRef.value?.innerHTML || '',
-  }
-}
-
-/** 把编辑器当前内容保存为 sid 的草稿；空内容时清掉对应草稿 */
-function saveDraftForSession(sid: string | null) {
-  if (props.draftScope === 'none') return
-  const draft = buildDraftFromEditor()
-  const hasDraft = draft.text.length > 0 || draft.attachments.length > 0 || draft.images.length > 0 || draft.quotes.length > 0
-  const existingMirror = sessionStore.getNewChatDraft()
-  const messageCount = sid ? (sessionStore.getSession(sid)?.messages.length ?? null) : null
-
-  const decision = resolveDraftSave(hasDraft, sid, messageCount, existingMirror?.ownerSessionId)
-
-  if (sid) {
-    if (decision.saveDraft) {
-      sessionStore.saveDraft(sid, draft)
-    } else {
-      sessionStore.clearDraft(sid)
-    }
-  }
-  if (decision.clearMirror) {
-    sessionStore.clearNewChatDraft()
-  }
-  if (decision.saveMirror) {
-    sessionStore.setNewChatDraft(sid, draft)
-  }
-}
-
-/** 恢复 sid 的草稿到编辑器；无草稿时清空编辑器（避免上一会话内容串台） */
-function loadDraftForSession(sid: string | null) {
-  if (props.draftScope === 'none') return
-  const draft = sid ? sessionStore.getDraft(sid) : undefined
-  const stash = sid ? sessionStore.getStash(sid) : undefined
-  const mirror = sessionStore.getNewChatDraft()
-
-  let mirrorUsable = false
-  if (mirror) {
-    const ownerCount = mirror.ownerSessionId
-      ? (sessionStore.getSession(mirror.ownerSessionId)?.messages.length ?? null)
-      : null
-    const isFreshSession = !sid || (sessionStore.getSession(sid)?.messages.length ?? 0) === 0
-    mirrorUsable = isMirrorValid(mirror.ownerSessionId, ownerCount) && isFreshSession
-  }
-
-  const action = resolveDraftLoad(!!draft, !!stash, mirrorUsable)
-
-  if (action === 'draft' && draft) {
-    restoreStashData(draft)
-    return
-  }
-  if (action === 'stash' && stash) {
-    restoreStashData(stash)
-    return
-  }
-  if (action === 'mirror' && mirror) {
-    restoreStashData(mirror.data)
-    return
-  }
-
-  clearEditor()
-  attachedFiles.value = []
-  clearImages()
-  clearQuotes()
-  inputText.value = ''
-}
-
-function restoreStashData(stash: { text: string; attachments: { name: string; path: string; isFolder: boolean }[]; images: any[]; quotes?: { id: string; text: string }[]; editorHtml: string }) {
-  if (editorRef.value && stash.editorHtml) {
-    editorRef.value.innerHTML = stash.editorHtml
-  }
-  attachedFiles.value = stash.attachments.map(f => ({ ...f }))
-  attachedImages.value = stash.images.map(img => ({ ...img }))
-  attachedQuotes.value = (stash.quotes ?? []).map(q => ({ ...q }))
-  inputText.value = stash.text
-  nextTick(() => {
-    autoResize()
-    focusEditor()
-  })
-}
-
 // Drag & drop
 const dragDrop = useDragDrop()
 const { isDragging } = dragDrop
@@ -692,62 +603,32 @@ const promptOptimizer = usePromptOptimizer()
 const { isOptimizing, optimizePrompt: runOptimizePrompt } = promptOptimizer
 
 // ── Quote attachments (selection bar "add to conversation") ─────
-const attachedQuotes = ref<TextQuoteAttachment[]>([])
+const {
+  attachedQuotes,
+  quoteTooltipRef,
+  quoteTooltip,
+  addQuoteAttachment,
+  removeQuoteAttachment,
+  clearQuotes,
+  showQuoteTooltip,
+  hideQuoteTooltip,
+} = useQuoteAttachments()
 
-function addQuoteAttachment(quote: { id: string; text: string }) {
-  if (!attachedQuotes.value.some(q => q.id === quote.id)) {
-    attachedQuotes.value.push({ ...quote })
-  }
-}
-
-function removeQuoteAttachment(id: string) {
-  const idx = attachedQuotes.value.findIndex(q => q.id === id)
-  if (idx >= 0) attachedQuotes.value.splice(idx, 1)
-  hideQuoteTooltip()
-}
-
-// ── Quote chip 悬停提示（主题化浮窗） ─────────────────────────────
-const quoteTooltipRef = ref<HTMLElement | null>(null)
-const quoteTooltip = ref<{ visible: boolean; text: string; style: Record<string, string> }>({
-  visible: false,
-  text: '',
-  style: {},
+// ── Per-session draft persistence ───────────────────────────────
+const draftPersistence = useDraftPersistence({
+  editorRef,
+  getEditorPlainText,
+  setEditorContent,
+  clearEditor,
+  autoResize,
+  focusEditor,
+  inputText,
+  attachedFiles,
+  attachedImages,
+  attachedQuotes,
+  draftScope: () => props.draftScope,
 })
-
-function showQuoteTooltip(quote: { id: string; text: string }, e: MouseEvent) {
-  const chip = e.currentTarget as HTMLElement
-  // 先以 visibility: hidden 渲染以便测量尺寸（display: none 会测得 0, 导致定位遮挡 chip）
-  quoteTooltip.value = { visible: true, text: quote.text, style: { visibility: 'hidden' } }
-  nextTick(() => positionQuoteTooltip(chip))
-}
-
-function hideQuoteTooltip() {
-  quoteTooltip.value = { ...quoteTooltip.value, visible: false }
-}
-
-function positionQuoteTooltip(chip: HTMLElement) {
-  const el = quoteTooltipRef.value
-  if (!el) return
-  const rect = chip.getBoundingClientRect()
-  const gap = 6
-  const margin = 8
-  const width = el.offsetWidth
-  const height = el.offsetHeight
-  // 与 chip 左对齐，超出右边缘时右移钳位
-  const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin)
-  // 默认在 chip 上方，空间不足时翻到下方
-  let top = rect.top - height - gap
-  if (top < margin) top = rect.bottom + gap
-  quoteTooltip.value = {
-    visible: true,
-    text: quoteTooltip.value.text,
-    style: { position: 'fixed', top: `${top}px`, left: `${left}px`, visibility: 'visible' },
-  }
-}
-
-function clearQuotes() {
-  attachedQuotes.value = []
-}
+const { editorSessionId, saveDraftForSession, loadDraftForSession, restoreStashData } = draftPersistence
 
 // ── Local state (not extracted) ──────────────────────────────────
 const showSteerHint = ref(false)
@@ -832,6 +713,18 @@ function recallPendingMsg(msgId: string) {
 function removePendingMsg(msgId: string) {
   const sid = editorSessionId.value
   if (sid) turnStore.removePendingMessage(sid, msgId)
+}
+
+function sendPendingNow(msgId: string) {
+  const sid = editorSessionId.value
+  if (!sid) return
+  const recalled = turnStore.recallPendingMessage(sid, msgId)
+  if (!recalled) return
+  const allAttachments = collectAllAttachments(
+    recalled.attachments.map(f => ({ ...f })),
+    recalled.images.map(img => ({ ...img })),
+  )
+  emit('send', recalled.content, allAttachments)
 }
 
 // ── Thinking toggle ──────────────────────────────────────────────

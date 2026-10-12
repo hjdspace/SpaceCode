@@ -49,6 +49,9 @@ export default {
   wordWrapDesc: '长行自动换行以适应视口',
   minimap: '小地图',
   minimapDesc: '在代码编辑器中显示小地图',
+  sessionPanel: '会话',
+  aiSessionTitle: 'AI 自动生成会话标题',
+  aiSessionTitleDesc: '开启后会把首条消息发给当前 API 配置里的模型生成标题，生成完成前仍按输入内容截断命名。需要填写 API Key；使用 Claude 账号或控制台 OAuth 登录时不生效。',
   saving: '保存中...',
   confirmClose: '你有未保存的更改，确定要关闭吗？',
 }

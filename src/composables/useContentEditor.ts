@@ -46,6 +46,28 @@ export function parseMentionMarkers(text: string): Array<{ kind: 'file' | 'folde
   return results
 }
 
+/** SVG innerHTML for chip delete buttons — used by insertMentionChip, insertImageChip, and buildChipElementFromMarker */
+const DELETE_BTN_SVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
+
+/** Create a chip delete button element with click handler wired to remove the parent chip and sync inputText. */
+function createDeleteButton(chip: HTMLElement, onAfterDelete: () => void): HTMLSpanElement {
+  const deleteBtn = document.createElement('span')
+  deleteBtn.className = 'chip-delete-btn'
+  deleteBtn.setAttribute('contenteditable', 'false')
+  deleteBtn.innerHTML = DELETE_BTN_SVG
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const nextSib = chip.nextSibling
+    if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
+      nextSib.remove()
+    }
+    chip.remove()
+    onAfterDelete()
+  })
+  return deleteBtn
+}
+
 /** Serialize a mention chip to its text marker form */
 export function serializeMentionChip(path: string, isFolder: boolean): string {
   return isFolder ? `@folder:"${path}" ` : `@file:"${path}" `
@@ -191,21 +213,7 @@ export function useContentEditor(options?: {
     nameSpan.className = 'chip-name'
     nameSpan.textContent = name
 
-    // Delete button — visible on hover
-    const deleteBtn = document.createElement('span')
-    deleteBtn.className = 'chip-delete-btn'
-    deleteBtn.setAttribute('contenteditable', 'false')
-    deleteBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      e.preventDefault()
-      const nextSib = chip.nextSibling
-      if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
-        nextSib.remove()
-      }
-      chip.remove()
-      inputText.value = getEditorPlainText()
-    })
+    const deleteBtn = createDeleteButton(chip, () => { inputText.value = getEditorPlainText() })
 
     chip.appendChild(icon)
     chip.appendChild(nameSpan)
@@ -328,21 +336,7 @@ export function useContentEditor(options?: {
     name.className = 'chip-name'
     name.textContent = image.name
 
-    // Delete button — visible on hover
-    const deleteBtn = document.createElement('span')
-    deleteBtn.className = 'chip-delete-btn'
-    deleteBtn.setAttribute('contenteditable', 'false')
-    deleteBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      e.preventDefault()
-      const nextSib = chip.nextSibling
-      if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
-        nextSib.remove()
-      }
-      chip.remove()
-      inputText.value = getEditorPlainText()
-    })
+    const deleteBtn = createDeleteButton(chip, () => { inputText.value = getEditorPlainText() })
 
     // Click on thumbnail to enlarge
     thumb.addEventListener('click', (e) => {
@@ -538,21 +532,7 @@ export function useContentEditor(options?: {
     nameSpan.className = 'chip-name'
     nameSpan.textContent = isImage ? value : (pathBasename(value) || value)
 
-    // Delete button — visible on hover
-    const deleteBtn = document.createElement('span')
-    deleteBtn.className = 'chip-delete-btn'
-    deleteBtn.setAttribute('contenteditable', 'false')
-    deleteBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      e.preventDefault()
-      const nextSib = chip.nextSibling
-      if (nextSib && nextSib.nodeType === Node.TEXT_NODE && nextSib.textContent === '\u00A0') {
-        nextSib.remove()
-      }
-      chip.remove()
-      inputText.value = getEditorPlainText()
-    })
+    const deleteBtn = createDeleteButton(chip, () => { inputText.value = getEditorPlainText() })
 
     chip.appendChild(nameSpan)
     chip.appendChild(deleteBtn)

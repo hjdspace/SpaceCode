@@ -46,11 +46,47 @@ export default defineConfig({
     retry: 1,
     // Keep these patterns broad. Enumerating individual subdirectories is how
     // the previous config silently stopped running 22 test files — a new
-    // `tests/<dir>/` or `electron/<dir>/__tests__/` must never fall through.
+    // `tests/<dir>/` or `electron/<dir>/file.test.ts` must never fall through.
     include: [
       'tests/**/*.test.ts',
       'src/**/*.test.ts',
-      'electron/**/__tests__/**/*.test.ts',
+      'electron/**/*.test.ts',
     ],
+    coverage: {
+      // Files never imported still count as 0% — that is the point: this is the
+      // list of untested code, not a list of code the tests happened to reach.
+      all: true,
+      // Scope the denominator to shipped source only. Without this, `all: true`
+      // sweeps in assets and .d.ts as 0% files (the first report listed 418 of
+      // 633 entries as dead, most of them .svg/.woff2) and hides real gaps.
+      include: ['src/**/*.{ts,vue}', 'electron/**/*.ts'],
+      exclude: [
+        '**/*.d.ts',
+        '**/*.test.ts',
+        '**/__tests__/**',
+        // ~140 files of locale literals: data, not logic.
+        'src/i18n/locales/**',
+      ],
+      reporter: ['html', 'json', 'text-summary'],
+      // Ratchet, not aspiration. Floors are pinned to the committed baseline
+      // (213 files: 30.0% statements / 24.3% branches) so they forbid
+      // regression without demanding a rewrite; the global pair also catches a
+      // brand-new module merged at 0%. Raise each in step with the coverage
+      // plan; delete a floor only together with the tests that earned it.
+      thresholds: {
+        statements: 31,
+        branches: 25,
+        'src/lib/**': { statements: 80 }, // 83.9% (trace/sse + request 解析后)
+        'src/utils/**': { statements: 65 }, // 67.2%
+        'src/stores/**': { statements: 44 }, // 45.9%
+        'src/services/**': { statements: 37 }, // 37.6% (teamTranscriptService 子代理转录归一化与轮询)
+        'electron/cron/**': { statements: 70 }, // 72.7%
+        'electron/engine/**': { statements: 20 }, // 21.5% (cliDetector 探测层)
+        'electron/im/**': { statements: 52 }, // 52.2% (feishuAdapter 事件链路补齐后的下界)
+        'electron/session/**': { statements: 42 }, // 42.2% (turnCheckpointService 检查点/rewind 全链路)
+        'electron/tools/**': { statements: 24 }, // 24.4% (探测/定位/RTK 统计与 hook 判定)
+        'electron/skillManagerV2/**': { statements: 72 }, // 74.8%
+      },
+    },
   },
 })

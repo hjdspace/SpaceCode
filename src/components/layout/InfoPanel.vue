@@ -473,22 +473,6 @@ watch(() => appStore.webviewUrl, () => {
     max-width: none;
     flex: 1;
   }
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 1px;
-    background: linear-gradient(180deg,
-      transparent 0%,
-      var(--accent-primary-glow) 30%,
-      var(--accent-secondary-glow) 70%,
-      transparent 100%
-    );
-    opacity: 0.4;
-  }
 }
 
 .panel-content {
@@ -791,7 +775,7 @@ watch(() => appStore.webviewUrl, () => {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: rgba(12, 12, 29, 0.9);
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
   backdrop-filter: blur(4px);
   color: var(--text-muted);
   font-size: 13px;

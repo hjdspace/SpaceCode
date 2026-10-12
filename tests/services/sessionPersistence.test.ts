@@ -49,6 +49,11 @@ function message(overrides: Partial<Message> = {}): Message {
   return { id: 'm1', role: 'user', content: 'hello', timestamp: 1, ...overrides }
 }
 
+// `truncateLongMessages` writes these onto stored messages. `Message` doesn't
+// declare them because nothing in the app reads them back — they are a
+// persistence-only record of what was dropped.
+type TruncationFlags = { truncated?: boolean; originalLength?: number }
+
 function session(overrides: Partial<Session> = {}): Session {
   return {
     id: 's1',
@@ -212,12 +217,12 @@ describe('stripLargeAttachmentData', () => {
       session({ messages: [message({ imageAttachments: [image] })] }),
     ])
 
-    const stripped = out.messages[0].imageAttachments?.[0] as Record<string, unknown>
-    expect(stripped['data']).toBeUndefined()
-    expect(stripped['previewUrl']).toBeUndefined()
-    expect(stripped['id']).toBe(image.id)
-    expect(stripped['name']).toBe(image.name)
-    expect(stripped['mimeType']).toBe(image.mimeType)
+    const stripped = out.messages[0].imageAttachments?.[0] as Partial<ImageAttachment> | undefined
+    expect(stripped?.data).toBeUndefined()
+    expect(stripped?.previewUrl).toBeUndefined()
+    expect(stripped?.id).toBe(image.id)
+    expect(stripped?.name).toBe(image.name)
+    expect(stripped?.mimeType).toBe(image.mimeType)
   })
 
   it('strips image-type entries in attachments and leaves other attachments alone', () => {
@@ -291,7 +296,7 @@ describe('prepareSessionsForStorage', () => {
       true,
     )
 
-    expect(out.messages[0].truncated ?? (out.messages[0] as Record<string, unknown>)['truncated']).toBe(true)
+    expect((out.messages[0] as Message & TruncationFlags).truncated).toBe(true)
   })
 })
 
@@ -331,8 +336,9 @@ describe('truncateLongMessages', () => {
 
     const msg = out.messages[0]
     expect(msg.content).toBe('a'.repeat(10_000) + '\n\n[Content truncated due to length]')
-    expect((msg as Record<string, unknown>)['truncated']).toBe(true)
-    expect((msg as Record<string, unknown>)['originalLength']).toBe(12_000)
+    const truncated = msg as Message & TruncationFlags
+    expect(truncated.truncated).toBe(true)
+    expect(truncated.originalLength).toBe(12_000)
   })
 
   it('leaves shorter messages alone', () => {

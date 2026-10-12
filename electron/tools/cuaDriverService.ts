@@ -12,7 +12,7 @@ import { app, ipcMain, BrowserWindow } from 'electron'
 import { existsSync, copyFileSync, mkdirSync, chmodSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { spawn, execFile } from 'child_process'
+import { spawn, execFile, execFileSync } from 'child_process'
 import { info, warn, error as logError } from '../infra/logger'
 import { CuaDriverMcpClient } from './cuaDriverMcpClient'
 import type {
@@ -77,7 +77,6 @@ export function findCuaDriverBinary(): string | null {
 /** 在系统 PATH 中查找可执行文件 */
 function findInPath(binName: string): string | null {
   try {
-    const { execFileSync } = require('child_process')
     const cmd = process.platform === 'win32' ? 'where' : 'which'
     const result = execFileSync(cmd, [binName], { encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'] })
     const path = result.trim().split('\n')[0].trim()
@@ -195,10 +194,6 @@ function getBinarySource(binaryPath: string | null): 'bundled' | 'system' | null
   if (binaryPath.includes(join(app.getPath('userData'), 'bin'))) return 'bundled'
   // 内置二进制路径包含 resources/cua-driver
   if (binaryPath.includes(join('resources', 'cua-driver'))) return 'bundled'
-  if (
-    !app.isPackaged &&
-    binaryPath.includes(join('resources', 'cua-driver'))
-  ) return 'bundled'
   return 'system'
 }
 

@@ -533,6 +533,15 @@ function clearSessionContextGitStats() {
 // Git status is project-wide, but it is expensive and is not part of an empty
 // conversation's first paint. Initialize it when a session has real messages;
 // the SCM panel still refreshes independently when the user opens it.
+// 会话切换时清空 sessionContext，避免旧数据闪现（如 ComposerStatusBar 显示旧会话的任务/文件改动）
+watch(
+  () => paneSessionId.value,
+  () => {
+    if (props.compact) return
+    sessionContext.reset()
+  }
+)
+
 watch(
   () => [paneSessionId.value, paneMessages.value.length, paneWorkingDirectory.value] as const,
   ([sessionId, messageCount, workingDirectory]) => {

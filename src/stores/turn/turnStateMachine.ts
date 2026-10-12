@@ -77,7 +77,20 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
     loadingSessions.value.set(sessionId, true)
     streamingContents.value.set(sessionId, '')
     const s = sink.get(sessionId)
-    if (s) s.processStatus = 'active'
+    if (s) {
+      s.processStatus = 'active'
+      // ★ 清理历史助手消息上残留的 engine 重试状态：retryState 是 turn 级
+      // 瞬态，新 turn 开始即全部失效。前端 auto-retry 会保留带内容的失败
+      // 助手消息，其 metadata.retryState 若不清除，会被 AgentTimeline /
+      // MessageList 误读为仍在重试，让已完成或续跑中的会话显示幽灵
+      // "正在回复"指示。
+      for (const m of s.messages) {
+        if (m.role === 'assistant' && m.metadata?.retryState) {
+          const { retryState: _staleRetryState, ...rest } = m.metadata
+          m.metadata = rest
+        }
+      }
+    }
 
     traceEvent({
       sessionId,

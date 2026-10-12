@@ -82,6 +82,8 @@ export interface AuthSettings {
   modelCapabilities?: Record<string, ModelCapabilityOverride>
   /** 是否启用 RTK (Rust Token Killer) token 优化 */
   rtkEnabled?: boolean
+  /** 是否用 AI 总结首条消息生成会话标题；关闭时沿用截取命名 */
+  aiSessionTitleEnabled?: boolean
   /** 用户最近一次在输入框下拉中选择的模型（实际模型名，非别名）。
    *  持久化以避免 GUI 重启后回退到 sonnet 槽位。 */
   lastSelectedModel?: string
@@ -311,6 +313,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelContextWindows = ref<Record<string, number>>(saved.modelContextWindows || {})
   const modelCapabilities = ref<Record<string, ModelCapabilityOverride>>(saved.modelCapabilities || {})
   const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
+  const aiSessionTitleEnabled = ref<boolean>(saved.aiSessionTitleEnabled ?? false)
   const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
 
   // ── Profile 管理（多套模型配置切换）──
@@ -511,6 +514,7 @@ export const useSettingsStore = defineStore('settings', () => {
       modelContextWindows: { ...modelContextWindows.value },
       modelCapabilities: { ...modelCapabilities.value },
       rtkEnabled: rtkEnabled.value,
+      aiSessionTitleEnabled: aiSessionTitleEnabled.value,
       lastSelectedModel: lastSelectedModel.value || undefined
     }
 
@@ -715,6 +719,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.engineSource) engineSource.value = settings.engineSource
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
+    if (settings.aiSessionTitleEnabled !== undefined) aiSessionTitleEnabled.value = settings.aiSessionTitleEnabled
     saveSettings()
   }
 
@@ -737,6 +742,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.modelContextWindows !== undefined) modelContextWindows.value = { ...settings.modelContextWindows }
     if (settings.modelCapabilities !== undefined) modelCapabilities.value = { ...settings.modelCapabilities }
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
+    if (settings.aiSessionTitleEnabled !== undefined) aiSessionTitleEnabled.value = settings.aiSessionTitleEnabled
   }
 
   async function loadFromGuiSettingsFile() {
@@ -875,6 +881,7 @@ export const useSettingsStore = defineStore('settings', () => {
     modelCapabilities,
     getModelWith1mSuffix,
     rtkEnabled,
+    aiSessionTitleEnabled,
     lastSelectedModel,
     // Profile 管理
     profiles,

@@ -1,3 +1,33 @@
+## [0.8.8](https://github.com/hjdspace/SpaceCode/compare/v0.8.7...v0.8.8) (2026-10-12)
+
+### Features
+
+- **chatInput:** 支持待发送消息立即发送功能
+- **chatSession:** 支持 AI 自动生成会话标题（默认关闭）
+- **hooks:** 新增钩子存储模块及 LLM 重试参数支持
+
+### Bug Fixes
+
+- 清理历史助手消息残留的重试状态，避免显示幽灵加载
+- 过滤代码检查点时仅显示已完成的轮次
+- **cliDetector:** npm 全局回退按 bin 名找可执行文件
+
+### Performance Improvements
+
+- **DiffViewer:** 优化差异加载性能并修复会话切换竞态问题
+
+### Refactor
+
+- 拆分 main.ts 巨型文件并抽离 ChatInput.vue 逻辑
+- 重构打包排除规则脚本并精简依赖配置
+- cuaDriver、browser-use、officeCli 系统 PATH 探测改用静态导入
+- 摘除 computer-use 预打包解析残骸
+- 大量滚动区域统一 scrollbar-overlay 混入并优化滚动条样式
+
+### Tests
+
+- 大幅提升核心模块测试覆盖率并建立覆盖率棘轮机制
+
 ## [0.8.7](https://github.com/hjdspace/SpaceCode/compare/v0.8.6...v0.8.7) (2026-10-08)
 
 ### Features

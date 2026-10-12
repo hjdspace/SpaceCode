@@ -729,7 +729,7 @@ onUnmounted(() => {
   }
 
   &:hover {
-    background: var(--error-bg);
+    background: var(--error-glow);
     color: var(--error);
   }
 }
@@ -744,25 +744,31 @@ onUnmounted(() => {
   flex-shrink: 0;
 
   &.vertical {
-    width: 4px;
+    width: 5px;
     cursor: col-resize;
     background: transparent;
-    transition: background 0.2s;
+    transition: background var(--transition-fast);
 
-    &:hover,
+    &:hover {
+      background: var(--border-strong);
+    }
+
     &.active {
       background: var(--accent-primary);
     }
   }
 
   &.horizontal {
-    height: 4px;
+    height: 5px;
     cursor: row-resize;
     background: transparent;
-    transition: background 0.2s;
+    transition: background var(--transition-fast);
     flex-shrink: 0;
 
-    &:hover,
+    &:hover {
+      background: var(--border-strong);
+    }
+
     &.active {
       background: var(--accent-primary);
     }

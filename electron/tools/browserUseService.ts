@@ -11,9 +11,10 @@
  * 4. 提供健康检查、截图轮播、导航控制等能力
  */
 import { app, ipcMain, BrowserWindow } from 'electron'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
-import { spawn, execFile } from 'child_process'
+import { homedir } from 'os'
+import { spawn, execFile, execFileSync } from 'child_process'
 import { info, warn, error as logError } from '../infra/logger'
 import { BrowserUseMcpClient } from './browserUseMcpClient'
 import type {
@@ -158,7 +159,6 @@ export function findPython(): { path: string; version: string } | null {
 /** 在系统 PATH 中查找可执行文件 */
 function findInPath(binName: string): string | null {
   try {
-    const { execFileSync } = require('child_process')
     const cmd = process.platform === 'win32' ? 'where' : 'which'
     const result = execFileSync(cmd, [binName], { encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'] })
     const path = result.trim().split('\n')[0].trim()
@@ -172,15 +172,14 @@ function findInPath(binName: string): string | null {
 /** 获取已知 Python 安装位置 */
 function getKnownPythonPaths(): string[] {
   const paths: string[] = []
-  const home = require('os').homedir()
+  const home = homedir()
 
   if (process.platform === 'win32') {
     // python.org installer
     if (process.env.LOCALAPPDATA) {
       const pythonDir = join(process.env.LOCALAPPDATA, 'Programs', 'Python')
       try {
-        const fs = require('fs')
-        for (const entry of fs.readdirSync(pythonDir)) {
+        for (const entry of readdirSync(pythonDir)) {
           if (/^Python\d+/i.test(entry)) {
             paths.push(join(pythonDir, entry, 'python.exe'))
           }
@@ -206,7 +205,6 @@ function getKnownPythonPaths(): string[] {
 /** 获取 Python 版本号（调用 python --version） */
 function getPythonVersion(pythonPath: string): string | null {
   try {
-    const { execFileSync } = require('child_process')
     const result = execFileSync(pythonPath, ['--version'], { encoding: 'utf-8', timeout: 8_000 })
     const match = result.trim().match(/(\d+)\.(\d+)\.(\d+)/)
     return match ? `${match[1]}.${match[2]}.${match[3]}` : null
@@ -242,7 +240,7 @@ function findUv(): string | null {
   }
 
   // 3. 已知安装位置
-  const home = require('os').homedir()
+  const home = homedir()
   const knownPaths = process.platform === 'win32'
     ? [join(home, '.local', 'bin', 'uv.exe'), join(home, '.cargo', 'bin', 'uv.exe')]
     : [join(home, '.local', 'bin', 'uv'), join(home, '.cargo', 'bin', 'uv')]
@@ -259,7 +257,6 @@ function findUv(): string | null {
  */
 function isBrowserUseInstalled(pythonPath: string): boolean {
   try {
-    const { execFileSync } = require('child_process')
     execFileSync(pythonPath, ['-c', 'import browser_use'], {
       encoding: 'utf-8',
       timeout: 10_000,
@@ -274,7 +271,6 @@ function isBrowserUseInstalled(pythonPath: string): boolean {
 /** 检测 playwright Python 包是否已安装（browser-use 依赖，但某些环境下可能缺失） */
 function isPlaywrightPackageInstalled(pythonPath: string): boolean {
   try {
-    const { execFileSync } = require('child_process')
     execFileSync(pythonPath, ['-c', 'import playwright'], {
       encoding: 'utf-8',
       timeout: 10_000,
@@ -289,7 +285,6 @@ function isPlaywrightPackageInstalled(pythonPath: string): boolean {
 /** 获取 browser-use 已安装版本 */
 function getBrowserUseVersion(pythonPath: string): string | null {
   try {
-    const { execFileSync } = require('child_process')
     const result = execFileSync(pythonPath, [
       '-c', 'import browser_use; print(getattr(browser_use, "__version__", "unknown"))'
     ], { encoding: 'utf-8', timeout: 10_000 })
@@ -303,7 +298,6 @@ function getBrowserUseVersion(pythonPath: string): string | null {
 /** 检测 Playwright Chromium 是否已安装 */
 function isChromiumInstalled(pythonPath: string): boolean {
   try {
-    const { execFileSync } = require('child_process')
     execFileSync(pythonPath, [
       '-c', 'from playwright.sync_api import sync_playwright; sync_playwright().__enter__()'
     ], { encoding: 'utf-8', timeout: 15_000 })

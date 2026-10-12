@@ -174,13 +174,34 @@
         </div>
       </div>
     </div>
+
+    <!-- Session Panel -->
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine">
+            <MessageSquare :size="14" />
+          </div>
+          <span class="s-panel-title">{{ $t('settings.sessionPanel') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="s-toggle-wrapper">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ $t('settings.aiSessionTitle') }}</span>
+            <span class="s-toggle-description">{{ $t('settings.aiSessionTitleDesc') }}</span>
+          </div>
+          <input type="checkbox" class="s-toggle-switch" v-model="aiSessionTitleEnabled" />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  Check, FolderOpen, Globe, Zap
+  Check, FolderOpen, Globe, MessageSquare, Zap
 } from 'lucide-vue-next'
 import EngineSourceSettings from './EngineSourceSettings.vue'
 import { useI18n } from 'vue-i18n'
@@ -233,6 +254,15 @@ function selectLanguage(langId: Locale) {
   currentLanguage.value = langId
   showLangDropdown.value = false
 }
+
+const aiSessionTitleEnabled = computed({
+  get: () => settingsStore.aiSessionTitleEnabled,
+  set: (val: boolean) => {
+    settingsStore.aiSessionTitleEnabled = val
+    settingsStore.saveSettings()
+    emit('change')
+  }
+})
 
 const piAvailable = ref<boolean | null>(null)
 const piChecking = ref(true)

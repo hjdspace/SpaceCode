@@ -959,12 +959,18 @@ const isWaitingForLlm = computed(() => {
 // 通过 SystemAPIErrorMessage 将 retryState 写入助手消息的 metadata。
 // 这里读取该状态，展示"正在重连 (attempt/maxRetries)"提示。
 const engineRetryState = computed(() => {
+  // retryState 是 turn 级瞬态，只在 turn 进行中（loading）才有意义。
+  // 前端 auto-retry 会保留带内容的失败助手消息，其 metadata.retryState 可能
+  // 残留；若不加 loading 守卫，已完成的会话会因历史消息上的残留状态
+  // 永久显示"正在回复"等待指示。
+  if (!props.loading) return null
   const msgs = props.messages
+  // 只认当前 turn 的助手消息（组内最后一条 assistant）。更早消息上的
+  // retryState 属于已结算的旧 turn，一律忽略，避免旧重试状态在
+  // 续跑的新 turn 里伪装成"正在重连/正在回复"。
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i]
-    if (m.role === 'assistant' && m.metadata?.retryState) {
-      return m.metadata.retryState
-    }
+    if (m.role === 'assistant') return m.metadata?.retryState ?? null
   }
   return null
 })

@@ -123,8 +123,12 @@ const diffViewData = computed(() =>
   })
 )
 
-// Force the DiffView to rebuild when the target or view mode changes
-const diffKey = computed(() => `${target.value?.filePath ?? ''}:${target.value?.staged}:${diffMode.value}`)
+// Force the DiffView to rebuild when the target changes (the data watch
+// inside DiffView rebuilds its instance too; this key just guarantees it).
+// diffMode is intentionally NOT part of the key: split/unified lines are
+// both pre-built inside DiffView, so a mode toggle is a cheap child swap —
+// rebuilding here would re-run the full parse + highlight pipeline.
+const diffKey = computed(() => `${target.value?.filePath ?? ''}:${target.value?.staged}`)
 
 const emptyMessage = computed(() => {
   if (!target.value) return t('scm.diffSelectFile')

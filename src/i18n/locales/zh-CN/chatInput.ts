@@ -66,6 +66,7 @@ export default {
   promptStashed: '提示词已暂存 — 按 Ctrl+S 恢复，或等待回复后自动恢复',
   recallPending: '撤回到输入框',
   removePending: '移除',
+  sendPendingNow: '立即发送',
   pendingHint: '等待发送中...',
   priorityLater: '排队',
   priorityNow: '插队',

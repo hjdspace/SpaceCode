@@ -11,7 +11,7 @@
  */
 
 import { ipcMain, app, BrowserWindow } from 'electron'
-import { spawn, type ChildProcess } from 'child_process'
+import { spawn, spawnSync, type ChildProcess } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -108,7 +108,6 @@ export function resolveOfficeCliBinary(): string | null {
   if (!app.isPackaged) {
     const exe = process.platform === 'win32' ? 'officecli.exe' : 'officecli'
     try {
-      const { spawnSync } = require('child_process')
       const result = spawnSync(exe, ['--version'], {
         timeout: 5000,
         windowsHide: true,

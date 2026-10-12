@@ -66,6 +66,7 @@ export default {
   promptStashed: 'Prompt stashed — press Ctrl+S to restore, or auto-restores after response',
   recallPending: 'Recall to input',
   removePending: 'Remove',
+  sendPendingNow: 'Send now',
   pendingHint: 'Waiting to send...',
   priorityLater: 'Queue',
   priorityNow: 'Steer',

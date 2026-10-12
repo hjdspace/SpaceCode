@@ -27,15 +27,7 @@
     "src/**/*.tsx",
     "src/**/*.vue",
     "electron/**/*.ts",
-    "electron/__tests__/**/*.ts",
-    "tests/composables/**/*.ts",
-    "tests/components/**/*.ts",
-    "tests/lib/**/*.ts",
-    "tests/stores/**/*.ts",
-    "tests/im/**/*.ts",
-    "tests/i18n/**/*.ts",
-    "tests/integration/**/*.ts",
-    "tests/electron/**/*.ts"
+    "tests/**/*.ts"
   ],
   "exclude": [
     "engine/**/*"

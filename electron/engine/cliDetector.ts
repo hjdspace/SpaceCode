@@ -43,19 +43,24 @@ async function findInPath(cliName: string): Promise<string | null> {
   }
 }
 
-async function checkNpmGlobal(cliName: string): Promise<string | null> {
+/**
+ * 在 npm 全局安装里定位可执行文件。
+ *
+ * 包名与 bin 名是两个不同的命名空间：`@anthropic-ai/claude-code` 提供的命令是
+ * `claude`。把它们混成一个参数会让 bin 查找永远 miss，并把包目录本身（不可执行）
+ * 当成 CLI 返回 —— 版本探测随即失败，UI 显示"已找到"却给了个跑不了的路径。
+ * bin 找不到时返回 null，让调用方继续回退到常见 bin 目录扫描，而不是虚报可用。
+ */
+async function checkNpmGlobal(pkgName: string, binName: string): Promise<string | null> {
   try {
     const { stdout: npmRoot } = await execFileAsync('npm', ['root', '-g'])
-    const candidate = path.join(npmRoot, '@anthropic-ai', cliName)
-    if (fs.existsSync(candidate)) {
-      if (isWindows) {
-        const cmdFile = path.join(npmRoot, `${cliName}.cmd`)
-        if (fs.existsSync(cmdFile)) return cmdFile
-      }
-      const binFile = path.join(npmRoot, '.bin', cliName)
-      if (fs.existsSync(binFile)) return binFile
-      return candidate
+    if (!fs.existsSync(path.join(npmRoot, '@anthropic-ai', pkgName))) return null
+    if (isWindows) {
+      const cmdFile = path.join(npmRoot, `${binName}.cmd`)
+      if (fs.existsSync(cmdFile)) return cmdFile
     }
+    const binFile = path.join(npmRoot, '.bin', binName)
+    if (fs.existsSync(binFile)) return binFile
   } catch {}
   return null
 }
@@ -98,7 +103,7 @@ export async function detectInstalledCli(): Promise<CliDetectionResult> {
   debug(SCOPE, 'PATH lookup result', { cliPath })
 
   if (!cliPath) {
-    cliPath = await checkNpmGlobal('claude-code')
+    cliPath = await checkNpmGlobal('claude-code', 'claude')
     debug(SCOPE, 'npm global check result', { cliPath })
   }
 

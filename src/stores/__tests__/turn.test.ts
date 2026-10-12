@@ -202,6 +202,57 @@ describe('TurnState machine', () => {
     }
   })
 
+  // 用例 1a：beginTurn 清除历史助手消息上残留的 retryState。
+  // 前端 auto-retry 会保留带内容的失败助手消息，其 metadata.retryState 若
+  // 不随新 turn 清除，会被 AgentTimeline 误读为仍在重试，让已完成的会话
+  // 永久显示"正在回复"幽灵指示（2026-10 kimi-k3 会话实测）。
+  it('beginTurn 清除历史助手消息上残留的 retryState', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-stale-retry')
+
+    // 模拟上一轮失败后保留的助手消息（带内容 + 残留 retryState）
+    sessionStore.addMessage(
+      {
+        role: 'assistant',
+        content: '部分输出被中断',
+        metadata: {
+          model: 'kimi-k3',
+          retryState: {
+            attempt: 3,
+            maxRetries: 5,
+            errorCategory: ErrorCategory.RATE_LIMIT,
+            errorTitle: '请求过于频繁',
+            errorMessage: '429 rate limited',
+            delayMs: 8000,
+            startedAt: Date.now(),
+            aborted: false,
+          },
+        },
+      },
+      'sess-stale-retry',
+    )
+    sessionStore.addMessage({ role: 'user', content: '继续' }, 'sess-stale-retry')
+
+    const ts = (turn as any).beginTurn('sess-stale-retry', { isAutonomous: false })
+    try {
+      const session = sessionStore.sessions.find(s => s.id === 'sess-stale-retry')!
+      const preserved = session.messages.find(m => m.content === '部分输出被中断')!
+      // 消息本体保留，但 turn 级 retryState 已随新 turn 失效
+      expect(preserved.content).toBe('部分输出被中断')
+      expect(preserved.metadata?.retryState).toBeUndefined()
+      expect(preserved.metadata?.model).toBe('kimi-k3')
+      // 新 turn 自己的助手占位消息不受影响
+      const placeholder = session.messages[session.messages.length - 1]
+      expect(placeholder.role).toBe('assistant')
+      expect(placeholder.metadata?.retryState).toBeUndefined()
+    } finally {
+      ;(turn as any).endTurn('sess-stale-retry', ts)
+    }
+  })
+
   // 用例 2：ensureTurn 对无消息的空会话返回 settled（不创建 turn）
   it('ensureTurn 对无消息的空会话返回 settled，不创建 turn', async () => {
     const fake = makeFakeApi()

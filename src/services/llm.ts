@@ -129,7 +129,7 @@ function classifyAnthropicError(response: { ok: boolean; status?: number; data?:
 
 export async function sendMessage(
   messages: Array<{ role: string; content: string }>,
-  options?: { maxTokens?: number; system?: string; timeoutMs?: number },
+  options?: { maxTokens?: number; system?: string; timeoutMs?: number; maxRetries?: number },
 ): Promise<string> {
   if (!currentConfig?.apiKey) {
     throw new Error('LLM not configured')
@@ -220,6 +220,8 @@ export async function sendMessage(
     },
     {
       timeoutMs,
+      // undefined 时 withRetryAndTimeout 会用它自己的默认重试次数
+      maxRetries: options?.maxRetries,
       onRetry: (attempt, error, delayMs) => {
         console.log(`[LLM] 第 ${attempt} 次重试，等待 ${delayMs}ms，错误: ${error.message}`)
       }

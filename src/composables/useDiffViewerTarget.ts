@@ -58,6 +58,14 @@ export function useDiffViewerTarget() {
   const oldContent = ref<string | null>(null)
   const newContent = ref<string | null>(null)
 
+  // Load race guard: every load bumps the epoch; stale async results (older
+  // epoch) are discarded so a slow previous file can never clobber the
+  // current selection. `inFlightKey` de-duplicates concurrent loads for the
+  // same target (DiffViewer's tab + selection watchers can both fire for a
+  // single click), so the heavy DiffView pipeline runs once per file.
+  let loadEpoch = 0
+  let inFlightKey: string | null = null
+
   const stats = computed(() => computePatchStats(rawPatch.value))
 
   const hunkHeaders = computed(() =>
@@ -70,12 +78,20 @@ export function useDiffViewerTarget() {
     const t = target.value
     const cwd = appStore.projectRoot
     if (!t || !cwd) {
+      loadEpoch++
+      inFlightKey = null
       rawPatch.value = ''
       oldContent.value = null
       newContent.value = null
+      isLoading.value = false
       return
     }
 
+    const key = `${t.filePath}\u0000${t.staged}\u0000${t.commitHash ?? ''}`
+    if (inFlightKey === key) return // identical load already running
+
+    const epoch = ++loadEpoch
+    inFlightKey = key
     isLoading.value = true
     try {
       let patch: string | null = ''
@@ -92,27 +108,44 @@ export function useDiffViewerTarget() {
           if (content) patch = buildUntrackedPatch(t.filePath, content)
         }
       }
-      rawPatch.value = patch || ''
+      if (epoch !== loadEpoch) return
 
       // Best-effort side contents for syntax highlighting. Only exact sources
       // are used — approximations would corrupt the rendered lines.
       // `git diff` compares index ↔ worktree, `git diff --cached` HEAD ↔ index,
       // so the old side must come from the index (unstaged) or HEAD (staged).
-      oldContent.value = null
-      newContent.value = null
-      if (rawPatch.value && !isBinary.value && !isUntracked.value && !t.commitHash) {
-        const oldSide = await api.git.showFile(cwd, t.filePath, !t.staged)
-        if (oldSide !== null) oldContent.value = oldSide
-        const newSide = t.staged
-          ? await api.git.showFile(cwd, t.filePath, true)
-          : await api.readFile(cwd.replace(/[/\\]$/, '') + '/' + t.filePath)
-        if (newSide !== null) newContent.value = newSide
+      // Both sides are fetched in parallel; the refs are assigned in a single
+      // synchronous batch below — assigning them one-by-one across awaits
+      // makes @git-diff-view re-run its full synchronous pipeline (parse +
+      // full-file highlight + tree rebuild) once per intermediate state,
+      // which froze the UI for seconds on large files.
+      let oldSide: string | null = null
+      let newSide: string | null = null
+      if (patch && !patch.includes('Binary files') && !isUntracked.value && !t.commitHash) {
+        const newSidePromise = t.staged
+          ? api.git.showFile(cwd, t.filePath, true)
+          : api.readFile(cwd.replace(/[/\\]$/, '') + '/' + t.filePath)
+        oldSide = await api.git.showFile(cwd, t.filePath, !t.staged)
+        newSide = await newSidePromise
       }
+      if (epoch !== loadEpoch) return
+
+      // Single reactive flush: DiffView rebuilds exactly once per file.
+      rawPatch.value = patch || ''
+      oldContent.value = oldSide
+      newContent.value = newSide
     } catch (e) {
-      console.error('[useDiffViewerTarget] Failed to load diff:', e)
-      rawPatch.value = ''
+      if (epoch === loadEpoch) {
+        console.error('[useDiffViewerTarget] Failed to load diff:', e)
+        rawPatch.value = ''
+        oldContent.value = null
+        newContent.value = null
+      }
     } finally {
-      isLoading.value = false
+      if (epoch === loadEpoch) {
+        inFlightKey = null
+        isLoading.value = false
+      }
     }
   }
 

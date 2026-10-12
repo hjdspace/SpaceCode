@@ -1,23 +1,19 @@
 #!/usr/bin/env node
 /**
- * 重新生成 package.json 中 build.files 的依赖排除规则。
+ * 验证 package.json 中 build.files 的排除规则是否仍然正确。
  *
- * 背景：electron-builder 会把 package.json 里全部 production `dependencies` 强制打进
- * app.asar，`files` 只能对其追加 `!` 排除规则，无法做白名单。渲染进程依赖已被 vite
- * 打包进 dist/，但其 node_modules 副本仍会被重复打包 —— 本项目实测占 198 MB。
+ * 背景：经过打包优化，dependencies 已精简到只有运行时必需的原生模块和子进程依赖
+ *（node-pty / better-sqlite3 / @mariozechner/pi-coding-agent）。
+ * electron-builder 只打 dependencies（不含 devDependencies），因此不再需要
+ * 逐包排除渲染进程依赖的百行清单。
  *
- * 因此维护了一份「运行时必需包闭包」白名单，其余 root production 依赖全部排除：
- *   keep = node-pty + better-sqlite3 + @mariozechner/pi-coding-agent 的依赖闭包
- * 其中 @mariozechner/pi-coding-agent 是以独立子进程执行的，必须保留完整闭包。
+ * 本脚本现在的作用是验证：
+ *   1. dependencies 中没有不该出现的渲染进程依赖（防止误加回去）
+ *   2. build.files 中的排除规则与实际 dependencies 一致
  *
- * 用法（新增/移除依赖后手动执行一次）：
- *   node scripts/gen-bundle-excludes.cjs          # 写入 package.json
- *   node scripts/gen-bundle-excludes.cjs --dry    # 只打印，不写入
- *
- * 注意：所有规则必须写在同一个顶层 files 数组里，不要用 win.files / mac.files /
- * linux.files —— electron-builder 的 normalizeFiles() 会把顶层 files 整体折叠成一个
- * FileSet，此时平台级 files 会让主匹配器退化为「匹配任意文件」的通配模式，
- * 结果就是把整个工程目录打进 asar。
+ * 用法：
+ *   node scripts/gen-bundle-excludes.cjs          # 验证并打印结果
+ *   node scripts/gen-bundle-excludes.cjs --fix     # 自动修复 build.files
  */
 
 const fs = require('fs')
@@ -27,34 +23,58 @@ const ROOT = path.resolve(__dirname, '..')
 const NODE_MODULES = path.join(ROOT, 'node_modules')
 const PKG = path.join(ROOT, 'package.json')
 
-/** 主进程/子进程运行时真正需要的包（依赖闭包会被完整保留） */
-const RUNTIME_ROOTS = ['node-pty', 'better-sqlite3', '@mariozechner/pi-coding-agent']
+/**
+ * 运行时必须保留在 dependencies 中的包。
+ * electron-builder 会将这些包及其传递依赖打进 asar。
+ *
+ * 判定依据（详见 docs/desktop-bundle-optimization.md）：
+ * - node-pty / better-sqlite3：原生模块，vite-plugin-electron external，运行时从 node_modules 加载
+ * - @mariozechner/pi-coding-agent：以独立子进程执行（spawn node cli.js），需完整依赖闭包
+ */
+const EXPECTED_DEPS = new Set([
+  'node-pty',
+  'better-sqlite3',
+  '@mariozechner/pi-coding-agent',
+])
 
-/** 基础白名单：必须直接复制的产物 */
-const BASE_PATTERNS = [
+/**
+ * build.files 中必须包含的基础白名单和原生模块裁剪规则。
+ * 这些规则裁剪的是跨平台预编译产物和源码，不影响功能。
+ */
+const REQUIRED_FILE_PATTERNS = [
   'dist/**/*',
   'dist-electron/**/*',
   'node_modules/node-pty/**/*',
   'node_modules/@mariozechner/**/*',
 ]
 
-/** 跨平台通用的产物裁剪：只剔除 win/mac/linux 三个目标都用不到的预编译产物 */
+/** 跨平台通用的产物裁剪规则 */
 const PRUNE_PATTERNS = [
   '!**/node_modules/**/*.map',
   '!**/node_modules/better-sqlite3/deps/**/*',
   '!**/node_modules/better-sqlite3/prebuilds/win32-arm64*',
   '!**/node_modules/better-sqlite3/prebuilds/linuxmusl-*',
+  '!**/node_modules/better-sqlite3/src/**/*',
+  '!**/node_modules/better-sqlite3/build/**/*',
+  '!**/node_modules/node-pty/prebuilds/darwin-*',
+  '!**/node_modules/node-pty/prebuilds/linux-*',
   '!**/node_modules/node-pty/prebuilds/win32-arm64*',
+  '!**/node_modules/node-pty/prebuilds/**/*.pdb',
+  '!**/node_modules/node-pty/src/**/*',
+  '!**/node_modules/node-pty/deps/**/*',
   '!**/node_modules/node-pty/third_party/conpty/**/win10-arm64/**/*',
+  '!**/node_modules/@mariozechner/pi-coding-agent/docs/**/*',
+  '!**/node_modules/@mariozechner/pi-coding-agent/examples/**/*',
+  '!**/node_modules/@mariozechner/pi-ai/node_modules/**/*',
+  '!**/node_modules/koffi/build/koffi/darwin_*',
   '!**/node_modules/koffi/build/koffi/freebsd_*',
   '!**/node_modules/koffi/build/koffi/openbsd_*',
   '!**/node_modules/koffi/build/koffi/musl_*',
-  '!**/node_modules/koffi/build/koffi/linux_loong64',
-  '!**/node_modules/koffi/build/koffi/linux_riscv64d',
-  '!**/node_modules/koffi/build/koffi/linux_ia32',
-  '!**/node_modules/koffi/build/koffi/linux_armhf',
+  '!**/node_modules/koffi/build/koffi/linux_*',
   '!**/node_modules/koffi/build/koffi/win32_ia32',
   '!**/node_modules/koffi/build/koffi/win32_arm64',
+  '!**/node_modules/koffi/doc/**/*',
+  '!**/node_modules/koffi/vendor/**/*',
 ]
 
 function readPkgJson(name) {
@@ -94,32 +114,69 @@ function main() {
     process.exit(1)
   }
 
-  const production = dependencyClosure(Object.keys(pkg.dependencies || {}))
-  const keep = dependencyClosure(RUNTIME_ROOTS)
+  const actualDeps = Object.keys(pkg.dependencies || {})
+  const unexpected = actualDeps.filter(d => !EXPECTED_DEPS.has(d))
+  const missing = [...EXPECTED_DEPS].filter(d => !actualDeps.includes(d))
 
-  const excluded = [...production].filter(name => !keep.has(name)).sort()
+  console.log('=== 打包依赖验证 ===\n')
 
-  const patterns = [
-    ...BASE_PATTERNS,
-    // electron-builder 对 node_modules 的过滤使用绝对目标路径，
-    // 规则必须带上「双星号 + 斜杠」前缀才能命中
-    ...excluded.map(name => `!**/node_modules/${name}/**/*`),
-    ...PRUNE_PATTERNS,
-  ]
-
-  if (process.argv.includes('--dry')) {
-    console.log(JSON.stringify(patterns, null, 2))
-    console.log(`\n共 ${patterns.length} 条（排除 ${excluded.length} 个包）`)
-    return
+  if (unexpected.length > 0) {
+    console.warn('⚠️  dependencies 中有非预期包（可能需要移到 devDependencies）:')
+    for (const d of unexpected) {
+      console.warn(`   - ${d}`)
+    }
+    console.warn('')
+  } else {
+    console.log('✅ dependencies 只含运行时必需包')
   }
 
-  build.files = patterns
-  for (const platform of ['win', 'mac', 'linux']) {
-    if (build[platform] != null) delete build[platform].files
+  if (missing.length > 0) {
+    console.error('❌ dependencies 缺少运行时必需包:')
+    for (const d of missing) {
+      console.error(`   - ${d}`)
+    }
+    console.error('')
   }
 
-  fs.writeFileSync(PKG, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
-  console.log(`已更新 build.files：${patterns.length} 条规则，排除 ${excluded.length} 个包`)
+  // 验证 build.files
+  const expectedPatterns = [...REQUIRED_FILE_PATTERNS, ...PRUNE_PATTERNS]
+  const actualFiles = build.files || []
+  const missingPatterns = expectedPatterns.filter(p => !actualFiles.includes(p))
+  const extraPatterns = actualFiles.filter(p => !expectedPatterns.includes(p))
+
+  if (missingPatterns.length > 0) {
+    console.warn('⚠️  build.files 缺少必要规则:')
+    for (const p of missingPatterns) {
+      console.warn(`   - ${p}`)
+    }
+  }
+
+  if (extraPatterns.length > 0) {
+    console.warn('⚠️  build.files 有多余规则（可清理）:')
+    for (const p of extraPatterns) {
+      console.warn(`   - ${p}`)
+    }
+  }
+
+  if (missingPatterns.length === 0 && extraPatterns.length === 0) {
+    console.log('✅ build.files 规则正确')
+  }
+
+  // 计算依赖闭包以供参考
+  const keep = dependencyClosure([...EXPECTED_DEPS])
+  console.log(`\n运行时依赖闭包: ${keep.size} 个包`)
+
+  if (process.argv.includes('--fix')) {
+    const patterns = [...REQUIRED_FILE_PATTERNS, ...PRUNE_PATTERNS]
+    build.files = patterns
+    for (const platform of ['win', 'mac', 'linux']) {
+      if (build[platform] != null) delete build[platform].files
+    }
+    fs.writeFileSync(PKG, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
+    console.log(`\n已修复 build.files：${patterns.length} 条规则`)
+  } else if (missingPatterns.length > 0 || extraPatterns.length > 0) {
+    console.log('\n运行 --fix 以自动修复 build.files')
+  }
 }
 
 main()

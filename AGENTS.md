@@ -33,13 +33,17 @@
 
 - `tests/**/*.test.ts` — 单元与集成测试
 - `src/**/*.test.ts` — 与源码同处的单元测试
-- `electron/**/__tests__/**/*.test.ts` — 主进程测试
+- `electron/**/*.test.ts` — 主进程测试 (放在 `electron/<dir>/__tests__/` 下或直接同处, 两种都不被漏掉)
+
+新测试优先与被测源码同处 (`src/x/__tests__/` 或 `electron/x/__tests__/`); `tests/` 保留给跨模块的集成与场景测试。三条 pattern 刻意保持宽, 不要改成枚举子目录 —— 见 `docs/adr/0011-tests-must-cross-the-seam.md`。
 
 主进程测试在文件首行声明 `// @vitest-environment node`。
 
 **规则**: 测试文件必须 import 它被测的模块。若某模块在测试里 import 不进来, 就修那个缝 (注入依赖、把模块级读取挪到 getter 之后), 不要把手抄的实现放进测试里 —— 那种测试对模块是否可用零敏感。详见 `docs/adr/0011-tests-must-cross-the-seam.md`。
 
-CI: `.github/workflows/test.yml` 在 PR 与 push 到 `main` 时运行 `npm test`。
+覆盖率: `npm run test:coverage` (scope 与分路径阈值均在 `vitest.config.ts`). 阈值是棘轮 —— 只允许上调, 且必须与补测同一批提交; 想下调需在 PR 里说明理由. 语句率会被 mount-only 的测试刷高, 看分支/函数率判断覆盖是否真实。
+
+CI: `.github/workflows/test.yml` 在 PR 与 push 到 `main` 时运行 `npm run test:coverage` 并上传 `coverage/` 报告。
 
 ## Rules
 
