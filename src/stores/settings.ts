@@ -84,6 +84,8 @@ export interface AuthSettings {
   rtkEnabled?: boolean
   /** 是否用 AI 总结首条消息生成会话标题；关闭时沿用截取命名 */
   aiSessionTitleEnabled?: boolean
+  /** 是否在侧边栏显示技能管理器入口；默认隐藏 */
+  showSkillsManagerEntry?: boolean
   /** 用户最近一次在输入框下拉中选择的模型（实际模型名，非别名）。
    *  持久化以避免 GUI 重启后回退到 sonnet 槽位。 */
   lastSelectedModel?: string
@@ -314,6 +316,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelCapabilities = ref<Record<string, ModelCapabilityOverride>>(saved.modelCapabilities || {})
   const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
   const aiSessionTitleEnabled = ref<boolean>(saved.aiSessionTitleEnabled ?? false)
+  const showSkillsManagerEntry = ref<boolean>(saved.showSkillsManagerEntry ?? false)
   const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
 
   // ── Profile 管理（多套模型配置切换）──
@@ -515,6 +518,7 @@ export const useSettingsStore = defineStore('settings', () => {
       modelCapabilities: { ...modelCapabilities.value },
       rtkEnabled: rtkEnabled.value,
       aiSessionTitleEnabled: aiSessionTitleEnabled.value,
+      showSkillsManagerEntry: showSkillsManagerEntry.value,
       lastSelectedModel: lastSelectedModel.value || undefined
     }
 
@@ -720,6 +724,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.installedCliPath !== undefined) installedCliPath.value = settings.installedCliPath
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
     if (settings.aiSessionTitleEnabled !== undefined) aiSessionTitleEnabled.value = settings.aiSessionTitleEnabled
+    if (settings.showSkillsManagerEntry !== undefined) showSkillsManagerEntry.value = settings.showSkillsManagerEntry
     saveSettings()
   }
 
@@ -743,6 +748,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.modelCapabilities !== undefined) modelCapabilities.value = { ...settings.modelCapabilities }
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
     if (settings.aiSessionTitleEnabled !== undefined) aiSessionTitleEnabled.value = settings.aiSessionTitleEnabled
+    if (settings.showSkillsManagerEntry !== undefined) showSkillsManagerEntry.value = settings.showSkillsManagerEntry
   }
 
   async function loadFromGuiSettingsFile() {
@@ -882,6 +888,7 @@ export const useSettingsStore = defineStore('settings', () => {
     getModelWith1mSuffix,
     rtkEnabled,
     aiSessionTitleEnabled,
+    showSkillsManagerEntry,
     lastSelectedModel,
     // Profile 管理
     profiles,

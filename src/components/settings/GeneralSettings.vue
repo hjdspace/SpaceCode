@@ -193,6 +193,13 @@
           </div>
           <input type="checkbox" class="s-toggle-switch" v-model="aiSessionTitleEnabled" />
         </div>
+        <div class="s-toggle-wrapper">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ $t('settings.skillsManagerEntry') }}</span>
+            <span class="s-toggle-description">{{ $t('settings.skillsManagerEntryDesc') }}</span>
+          </div>
+          <input type="checkbox" class="s-toggle-switch" v-model="showSkillsManagerEntry" />
+        </div>
       </div>
     </div>
   </div>
@@ -259,6 +266,15 @@ const aiSessionTitleEnabled = computed({
   get: () => settingsStore.aiSessionTitleEnabled,
   set: (val: boolean) => {
     settingsStore.aiSessionTitleEnabled = val
+    settingsStore.saveSettings()
+    emit('change')
+  }
+})
+
+const showSkillsManagerEntry = computed({
+  get: () => settingsStore.showSkillsManagerEntry,
+  set: (val: boolean) => {
+    settingsStore.showSkillsManagerEntry = val
     settingsStore.saveSettings()
     emit('change')
   }

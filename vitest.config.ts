@@ -53,12 +53,14 @@ export default defineConfig({
       'electron/**/*.test.ts',
     ],
     coverage: {
-      // Files never imported still count as 0% — that is the point: this is the
-      // list of untested code, not a list of code the tests happened to reach.
-      all: true,
-      // Scope the denominator to shipped source only. Without this, `all: true`
-      // sweeps in assets and .d.ts as 0% files (the first report listed 418 of
-      // 633 entries as dead, most of them .svg/.woff2) and hides real gaps.
+      // Vitest 3+ removed `coverage.all`: files matching `include` are always
+      // counted, so files never imported still report as 0% — that is the
+      // point: this is the list of untested code, not a list of code the tests
+      // happened to reach.
+      // Scope the denominator to shipped source only. Otherwise the default
+      // include sweeps in assets and .d.ts as 0% files (the first report
+      // listed 418 of 633 entries as dead, most of them .svg/.woff2) and hides
+      // real gaps.
       include: ['src/**/*.{ts,vue}', 'electron/**/*.ts'],
       exclude: [
         '**/*.d.ts',

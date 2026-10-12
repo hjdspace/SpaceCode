@@ -177,6 +177,7 @@
           <!-- Feature Navigation (CodePilot-style) -->
           <div class="feature-nav">
             <button
+              v-if="settingsStore.showSkillsManagerEntry"
               class="feature-nav-item"
               :class="{ active: appStore.showSkillsManager }"
               @click="handleOpenSkillsManager"

@@ -52,6 +52,8 @@ export default {
   sessionPanel: '会话',
   aiSessionTitle: 'AI 自动生成会话标题',
   aiSessionTitleDesc: '开启后会把首条消息发给当前 API 配置里的模型生成标题，生成完成前仍按输入内容截断命名。需要填写 API Key；使用 Claude 账号或控制台 OAuth 登录时不生效。',
+  skillsManagerEntry: '技能管理器入口',
+  skillsManagerEntryDesc: '开启后在侧边栏新对话下方显示技能管理器按钮。关闭后按钮隐藏，输入 /skills 仍可打开技能管理器。',
   saving: '保存中...',
   confirmClose: '你有未保存的更改，确定要关闭吗？',
 }
