@@ -85,6 +85,48 @@ export function assignTurnCardsToGroups(
   return assigned
 }
 
+/**
+ * 在前端消息流里定位 checkpoint 对应的用户消息。
+ *
+ * 流式会话里前端 message.id 由渲染进程生成，与 engine 写进 JSONL 的 uuid 永不相等，
+ * hydrate 后才会换成 engine uuid，因此定位顺序与 assignTurnCardsToGroups 的归位
+ * 策略一致：id 精确匹配（hydrate 场景）→ turnStartedAt 时间锚点（活跃会话主路径）
+ * → userMessageIndex 序号兜底（JSONL 条目缺 timestamp 时）。
+ */
+export function findUserMessageForCheckpoint(
+  messages: Message[],
+  checkpoint: SessionTurnCheckpoint
+): Message | undefined {
+  const byId = messages.find(m => m.id === checkpoint.target.targetUserMessageId)
+  if (byId) return byId
+
+  const anchor = checkpoint.target.turnStartedAt
+  if (anchor) {
+    let best: Message | undefined
+    let bestDelta = Number.POSITIVE_INFINITY
+    for (const message of messages) {
+      if (message.role !== 'user' || isPendingMessage(message)) continue
+      // engine 记录用户消息的时刻通常晚于前端发送（排队时可达数分钟），
+      // 容差方向与 assignTurnCardsToGroups 相同：宽向后看、严向前看。
+      const delta = message.timestamp - anchor
+      const withinTolerance =
+        delta >= 0 ? delta <= ANCHOR_LOOKAHEAD_MS : -delta <= ANCHOR_LOOKBEHIND_MS
+      if (withinTolerance && Math.abs(delta) < bestDelta) {
+        best = message
+        bestDelta = Math.abs(delta)
+      }
+    }
+    if (best) return best
+  }
+
+  if (checkpoint.target.userMessageIndex >= 0) {
+    const userMessages = messages.filter(m => m.role === 'user' && !isPendingMessage(m))
+    return userMessages[checkpoint.target.userMessageIndex]
+  }
+
+  return undefined
+}
+
 export interface RewindTurnTarget {
   messageId: string
   userMessageIndex: number

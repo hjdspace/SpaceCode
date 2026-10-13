@@ -7,7 +7,7 @@ import { useRewindDialog } from '@/composables/useRewindDialog'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
-import { getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
+import { findUserMessageForCheckpoint, getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
 import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
@@ -1835,11 +1835,15 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       }
 
       // 只显示对应轮次已完成的卡片：找到 target user message 之后的第一条 assistant 消息，
-      // 如果该消息存在且有实质性内容（content 或 toolCalls），说明轮次已完成
-      const userMsgIndex = messages.findIndex(m => m.id === card.targetUserMessageId)
-      if (userMsgIndex === -1) return false
+      // 如果该消息存在且有实质性内容（content 或 toolCalls），说明轮次已完成。
+      // 流式会话中前端 message.id 由渲染进程生成，与 engine 写进 JSONL 的 uuid
+      // 不同（hydrate 后才一致），不能只按 id 定位，否则活跃会话的卡片会被整批
+      // 过滤掉 —— 沿用 MessageList 归位的定位策略（id → 时间锚点 → 序号）。
+      const userMsg = findUserMessageForCheckpoint(messages, card.checkpoint)
+      if (!userMsg) return false
 
       // 找到该 user 消息之后的第一条 assistant 消息
+      const userMsgIndex = messages.indexOf(userMsg)
       const assistantMsg = messages.slice(userMsgIndex + 1).find(m => m.role === 'assistant')
 
       // 如果没有 assistant 消息，说明轮次还没开始，不显示

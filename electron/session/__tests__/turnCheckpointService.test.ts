@@ -110,6 +110,22 @@ function snapshot(userMsgId: string, tracked: Record<string, ReturnType<typeof b
   }
 }
 
+/**
+ * 新版引擎的 trackEdit 条目：编辑前把原文件备份写进独立的 file-history-delta
+ * （不再写 isSnapshotUpdate=true 的 snapshot 条目）。snapshotMessageId 指向本轮
+ * user 消息 uuid；backup.backupFileName=null 表示编辑前文件不存在（新建）。
+ */
+function delta(userMsgId: string, trackingPath: string, backupFileName: string | null) {
+  return {
+    type: 'file-history-delta',
+    messageId: `tool-${userMsgId}`,
+    snapshotMessageId: userMsgId,
+    trackingPath,
+    backup: backup(backupFileName),
+    timestamp: '2026-01-01T00:00:01.000Z',
+  }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe('turnCheckpointService', () => {
@@ -146,6 +162,35 @@ describe('turnCheckpointService', () => {
 
       const result = await listSessionTurnCheckpoints('s1', projectDir)
       expect(result).toHaveLength(1)
+    })
+
+    it('CLAUDE_CONFIG_DIR 优先于 XDG_CONFIG_HOME（与引擎 envUtils.ts 对齐）', async () => {
+      const customDir = path.join(tmpRoot, 'custom-claude')
+      fs.mkdirSync(path.join(customDir, 'projects', projectSlug(projectDir)), { recursive: true })
+      fs.mkdirSync(path.join(customDir, 'file-history', 's1'), { recursive: true })
+      const file = path.join(customDir, 'projects', projectSlug(projectDir), 's1.jsonl')
+      fs.writeFileSync(
+        file,
+        [
+          JSON.stringify(userMsg('u1')),
+          JSON.stringify(assistantMsg('a1')),
+          JSON.stringify(snapshot('u1', { 'a.ts': backup('b1') })),
+        ].join('\n'),
+        'utf8'
+      )
+      fs.writeFileSync(path.join(customDir, 'file-history', 's1', 'b1'), 'x\n', 'utf8')
+      putWork('a.ts', 'x\ny\n')
+
+      const savedConfigDir = process.env.CLAUDE_CONFIG_DIR
+      process.env.CLAUDE_CONFIG_DIR = customDir
+      try {
+        // XDG_CONFIG_HOME 仍指向 configHome，但必须被 CLAUDE_CONFIG_DIR 覆盖
+        const result = await listSessionTurnCheckpoints('s1', projectDir)
+        expect(result).toHaveLength(1)
+      } finally {
+        if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
+        else process.env.CLAUDE_CONFIG_DIR = savedConfigDir
+      }
     })
 
     it('会话没有任何真实用户输入时返回空数组', async () => {
@@ -361,10 +406,10 @@ describe('turnCheckpointService', () => {
       expect(result[0].code.filesChanged[0].path).toBe(abs)
     })
 
-    it('DEFECT: 历史轮次的增删方向与最新轮次相反（撤销被计成新增）', async () => {
-      // 备份 = 本轮开始前的内容。u1 那轮把 a.ts 从 "x\n" 改成 "x\ny\n"。
-      // 正向 diff 应为 insertions=1 / deletions=0；buildTurnCodePreview 的历史分支
-      // 把 before 取成下一快照、after 取成本快照，于是得到反向结果。
+    it('DEFECT 修复回归：历史轮次的增删方向与最新轮次一致', async () => {
+      // 备份 = 本轮开始前的内容。u1 那轮把 a.ts 从 "x\n" 改成 "x\ny\n"（v1→v2 备份），
+      // u2 轮又加了一行（v2→磁盘）。两个轮次的 diff 都应是正向新增。
+      // 曾经的缺陷：历史分支把 before 取成下一快照、after 取成本快照，方向相反。
       writeSession([
         userMsg('u1'),
         assistantMsg('a1'),
@@ -380,8 +425,63 @@ describe('turnCheckpointService', () => {
       const result = await listSessionTurnCheckpoints('s1', projectDir)
       const historical = result.find((c) => c.target.targetUserMessageId === 'u1')
       const latest = result.find((c) => c.target.targetUserMessageId === 'u2')
-      expect(historical?.code).toMatchObject({ insertions: 0, deletions: 1 })
+      expect(historical?.code).toMatchObject({ insertions: 1, deletions: 0 })
       expect(latest?.code).toMatchObject({ insertions: 1, deletions: 0 })
+    })
+
+    it('新版引擎：file-history-delta 合并进对应轮次，开始快照为空也能产出检查点', async () => {
+      // 真实引擎数据形态（2026-10 实测）：轮次开始快照 trackedFileBackups 为空，
+      // 编辑前备份全部写在独立的 file-history-delta 条目里。若不合并 delta，
+      // 该轮 trackedPaths 为空 → filesChanged 恒为空 → 检查点不产出（卡片不显示）。
+      writeSession([
+        userMsg('u1', [{ type: 'text', text: 'edit readme' }], '2026-10-13T06:28:33.929Z'),
+        assistantMsg('a1'),
+        snapshot('u1', {}),
+        delta('u1', 'README.md', 'dc3dd03f1893a43f@v1'),
+      ])
+      putBackup('s1', 'dc3dd03f1893a43f@v1', 'old readme\n')
+      putWork('README.md', 'old readme\nnew line\n')
+
+      const result = await listSessionTurnCheckpoints('s1', projectDir)
+      expect(result).toHaveLength(1)
+      expect(result[0].code.filesChanged).toEqual([{ path: 'README.md', insertions: 1, deletions: 0 }])
+      expect(result[0].target.turnStartedAt).toBe(Date.parse('2026-10-13T06:28:33.929Z'))
+    })
+
+    it('新版引擎：delta 的 null 备份（编辑前文件不存在）整份算新增', async () => {
+      writeSession([
+        userMsg('u1'),
+        assistantMsg('a1'),
+        snapshot('u1', {}),
+        delta('u1', 'new.ts', null),
+      ])
+      putWork('new.ts', 'a\nb\n')
+
+      const result = await listSessionTurnCheckpoints('s1', projectDir)
+      expect(result).toHaveLength(1)
+      expect(result[0].code.filesChanged).toEqual([{ path: 'new.ts', insertions: 2, deletions: 0 }])
+    })
+
+    it('新版引擎：历史轮次的 delta 与下一轮快照备份对比出该轮改动', async () => {
+      // u1 轮新建 README（delta 备份为 null）并写入两行；u2 轮开始快照记录了
+      // u1 结束后的状态（v2 备份）。u1 的 diff 应为整份新增。
+      writeSession([
+        userMsg('u1'),
+        assistantMsg('a1'),
+        userMsg('u2'),
+        assistantMsg('a2'),
+        snapshot('u1', {}),
+        delta('u1', 'README.md', null),
+        snapshot('u2', { 'README.md': backup('readme@v2') }),
+      ])
+      putBackup('s1', 'readme@v2', 'line1\nline2\n')
+      putWork('README.md', 'line1\nline2\nline3\n')
+
+      const result = await listSessionTurnCheckpoints('s1', projectDir)
+      const turn1 = result.find((c) => c.target.targetUserMessageId === 'u1')
+      const turn2 = result.find((c) => c.target.targetUserMessageId === 'u2')
+      expect(turn1?.code).toMatchObject({ insertions: 2, deletions: 0 })
+      expect(turn2?.code).toMatchObject({ insertions: 1, deletions: 0 })
     })
   })
 
@@ -493,7 +593,8 @@ describe('turnCheckpointService', () => {
       expect(removedBody).toEqual([])
     })
 
-    it('历史轮次：对比下一快照备份与本快照备份', async () => {
+    it('历史轮次：本快照备份为 before、下一快照备份为 after', async () => {
+      // u1 轮把 a.ts 从 "x\n" 改成 "x\ny\n"，正向 diff 应包含 +y
       writeSession([
         userMsg('u1'),
         assistantMsg('a1'),
@@ -507,7 +608,7 @@ describe('turnCheckpointService', () => {
 
       const result = await getTurnCheckpointDiff('s1', projectDir, 'u1', 'a.ts')
       expect(result.state).toBe('ok')
-      expect(result.diff).toContain('-y')
+      expect(result.diff).toContain('+y')
     })
 
     it('上下文行数封顶 3 行', async () => {

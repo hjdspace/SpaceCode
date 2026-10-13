@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import {
   assignTurnCardsToGroups,
   findTurnCheckpointForMessage,
+  findUserMessageForCheckpoint,
   getCompletedTurnTargets,
   isTurnResponseMessage,
   type TurnGroupAnchor,
@@ -156,6 +157,90 @@ describe('assignTurnCardsToGroups', () => {
 
     assert.equal(assigned.get(0)?.checkpoint.target.targetUserMessageId, 'u1')
     assert.equal(assigned.get(1)?.checkpoint.target.targetUserMessageId, 'engine-2')
+  })
+})
+
+describe('findUserMessageForCheckpoint', () => {
+  const T0 = Date.parse('2026-10-13T10:00:00.000Z')
+  const MINUTE = 60_000
+
+  it('locates the user message by engine uuid after hydrate', () => {
+    const checkpoint = makeCheckpoint('engine-uuid-1', 1, ['a.ts'])
+    const messages = [
+      makeMessage({ id: 'engine-uuid-0', role: 'user', content: 'first', timestamp: T0 }),
+      makeMessage({ id: 'engine-uuid-1', role: 'user', content: 'second', timestamp: T0 + MINUTE }),
+    ]
+
+    const found = findUserMessageForCheckpoint(messages, checkpoint)
+
+    assert.equal(found?.id, 'engine-uuid-1')
+  })
+
+  it('locates the user message by timestamp anchor in an active streaming session', () => {
+    // 回归用例：流式会话中前端 message.id 由渲染进程生成，与 engine uuid 不同，
+    // 只按 id 定位会让轮次卡片整批被过滤（轮次完成后不显示）
+    const checkpoint = makeCheckpoint('engine-uuid-1', 1, ['a.ts'])
+    checkpoint.target.turnStartedAt = T0 + MINUTE + 4
+    const messages = [
+      makeMessage({ id: 'frontend-uuid-1', role: 'user', content: 'first', timestamp: T0 }),
+      makeMessage({ id: 'frontend-uuid-2', role: 'user', content: 'second', timestamp: T0 + MINUTE }),
+    ]
+
+    const found = findUserMessageForCheckpoint(messages, checkpoint)
+
+    assert.equal(found?.id, 'frontend-uuid-2')
+  })
+
+  it('matches a turn whose message was queued and recorded late by the engine', () => {
+    const checkpoint = makeCheckpoint('engine-uuid-1', 1, ['a.ts'])
+    // u2 在 u1 的运行中被发送，engine 直到 3 分钟后才把它写进 JSONL
+    checkpoint.target.turnStartedAt = T0 + 3 * MINUTE
+    const messages = [
+      makeMessage({ id: 'frontend-uuid-1', role: 'user', content: 'first', timestamp: T0 }),
+      makeMessage({ id: 'frontend-uuid-2', role: 'user', content: 'second', timestamp: T0 + 10_000 }),
+    ]
+
+    const found = findUserMessageForCheckpoint(messages, checkpoint)
+
+    assert.equal(found?.id, 'frontend-uuid-2')
+  })
+
+  it('falls back to userMessageIndex when the card has no timestamp anchor', () => {
+    const checkpoint = makeCheckpoint('engine-uuid-1', 1, ['a.ts'])
+    const messages = [
+      makeMessage({ id: 'frontend-uuid-1', role: 'user', content: 'first', timestamp: T0 }),
+      makeMessage({ id: 'assistant-1', role: 'assistant', content: 'ok', timestamp: T0 + 1_000 }),
+      makeMessage({ id: 'frontend-uuid-2', role: 'user', content: 'second', timestamp: T0 + MINUTE }),
+    ]
+
+    const found = findUserMessageForCheckpoint(messages, checkpoint)
+
+    assert.equal(found?.id, 'frontend-uuid-2')
+  })
+
+  it('ignores pending user placeholders when indexing by fallback', () => {
+    const checkpoint = makeCheckpoint('engine-uuid-1', 1, ['a.ts'])
+    const messages = [
+      // pending 占位消息（timestamp=0）不参与序号对位
+      makeMessage({ id: '', role: 'user', content: 'pending', timestamp: 0 }),
+      makeMessage({ id: 'frontend-uuid-1', role: 'user', content: 'first', timestamp: T0 }),
+      makeMessage({ id: 'frontend-uuid-2', role: 'user', content: 'second', timestamp: T0 + MINUTE }),
+    ]
+
+    const found = findUserMessageForCheckpoint(messages, checkpoint)
+
+    assert.equal(found?.id, 'frontend-uuid-2')
+  })
+
+  it('returns undefined when nothing matches', () => {
+    const checkpoint = makeCheckpoint('engine-uuid-9', 9, ['a.ts'])
+    const messages = [
+      makeMessage({ id: 'frontend-uuid-1', role: 'user', content: 'first', timestamp: T0 }),
+    ]
+
+    const found = findUserMessageForCheckpoint(messages, checkpoint)
+
+    assert.equal(found, undefined)
   })
 })
 

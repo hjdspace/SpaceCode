@@ -34,6 +34,10 @@ interface SessionMessage {
   messageId?: string
   snapshot?: FileHistorySnapshot
   timestamp?: string
+  // file-history-delta 条目（新版引擎 trackEdit 写入）
+  snapshotMessageId?: string
+  trackingPath?: string
+  backup?: FileHistoryBackup
 }
 
 /**
@@ -88,6 +92,12 @@ export interface TurnCheckpointDiffResult {
 }
 
 function getClaudeConfigHomeDir(): string {
+  // 与引擎 envUtils.ts 及 sessionHistoryManager.ts 对齐：CLAUDE_CONFIG_DIR 优先，
+  // 否则回退到 XDG_CONFIG_HOME/claude 或 ~/.claude —— 引擎按同样顺序定位
+  // projects/ 与 file-history/，这里不一致会导致找不到引擎写入的会话数据。
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    return process.env.CLAUDE_CONFIG_DIR
+  }
   const xdgConfigHome = process.env.XDG_CONFIG_HOME
   if (xdgConfigHome) {
     return path.join(xdgConfigHome, 'claude')
@@ -212,6 +222,34 @@ function extractFileHistorySnapshots(messages: SessionMessage[]): FileHistorySna
     if (!key) continue
     if (!latestByUserMsg.has(key)) order.push(key)
     latestByUserMsg.set(key, entry)
+  }
+
+  // 新版引擎：fileHistoryTrackEdit 改写独立的 file-history-delta 条目（不再写
+  // isSnapshotUpdate=true 的 snapshot 条目），snapshotMessageId 指向本轮 user 消息，
+  // backup 为编辑前状态（backupFileName=null 表示编辑前文件不存在）。轮次开始快照
+  // 不包含本轮新编辑的文件 —— 若不把 delta 合并进对应组，该轮 trackedPaths 为空，
+  // filesChanged 恒为空数组，检查点整轮不产出（轮次追踪卡片不显示）。
+  for (const msg of messages) {
+    if (msg.type !== 'file-history-delta') continue
+    const key = msg.snapshotMessageId
+    const deltaBackup = msg.backup
+    if (!key || !msg.trackingPath || !deltaBackup) continue
+
+    let entry = latestByUserMsg.get(key)
+    if (!entry) {
+      entry = {
+        type: 'file-history-snapshot',
+        messageId: key,
+        snapshot: { messageId: key, trackedFileBackups: {}, timestamp: '' },
+        isSnapshotUpdate: false,
+      }
+      latestByUserMsg.set(key, entry)
+      order.push(key)
+    }
+    entry.snapshot.trackedFileBackups = {
+      ...entry.snapshot.trackedFileBackups,
+      [msg.trackingPath]: deltaBackup,
+    }
   }
 
   return order.map(k => latestByUserMsg.get(k)!).filter(Boolean)
@@ -440,26 +478,22 @@ async function buildTurnCodePreview(
     let beforeContent: string | null = null
     let afterContent: string | null = null
 
-    // "Before" = the state before this turn's changes
-    // If there's a next snapshot, the "before" for this file is the backup in the next snapshot
-    // Otherwise, the "after" is the current file on disk
+    // 本轮快照的备份（开始快照的继承备份 + delta 合并的本轮编辑前备份）= 本轮
+    // 开始前的状态 → before；下一轮开始快照的备份 = 本轮结束后的状态 → after；
+    // 最新一轮的 after = 磁盘当前文件。
     if (nextSnapshot) {
       const nextBackup = nextSnapshot.snapshot.trackedFileBackups[trackingPath]
       if (nextBackup) {
-        beforeContent = await readBackupContent(sessionId, nextBackup.backupFileName)
+        afterContent = await readBackupContent(sessionId, nextBackup.backupFileName)
       } else {
         // File wasn't tracked in next snapshot, try reading from disk
-        beforeContent = await readFileContent(filePath)
+        afterContent = await readFileContent(filePath)
       }
+      beforeContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
     } else {
       // This is the latest snapshot — compare backup (before) with current file (after)
       beforeContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
       afterContent = await readFileContent(filePath)
-    }
-
-    if (nextSnapshot) {
-      // For historical turns: "after" = backup from target snapshot
-      afterContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
     }
 
     const { insertions, deletions } = await computeFileDiff(beforeContent, afterContent)
@@ -652,9 +686,11 @@ export async function getTurnCheckpointDiff(
   let afterContent: string | null = null
 
   if (nextSnapshot) {
+    // 与 buildTurnCodePreview 相同的方向：本轮备份 = before（轮次前状态），
+    // 下一轮快照备份 = after（本轮结束后状态）
     const nextBackup = nextSnapshot.snapshot.trackedFileBackups[trackingPath]
-    beforeContent = await readBackupContent(sessionId, nextBackup?.backupFileName ?? null)
-    afterContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
+    beforeContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
+    afterContent = await readBackupContent(sessionId, nextBackup?.backupFileName ?? null)
   } else {
     beforeContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
     afterContent = await readFileContent(expandedPath)
