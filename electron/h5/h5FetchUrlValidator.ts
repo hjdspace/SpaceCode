@@ -2,6 +2,14 @@
 // URL 安全校验：阻止代理接口访问内网与敏感资源
 
 import { isIP, isIPv4, isIPv6 } from 'net'
+import { promises as dns } from 'dns'
+
+export type HostResolver = (hostname: string) => Promise<string[]>
+
+const systemResolver: HostResolver = async (hostname) => {
+  const entries = await dns.lookup(hostname, { all: true, verbatim: true })
+  return entries.map((entry) => entry.address)
+}
 
 function ipv4MappedToIp(ip: string): string | null {
   const tail = ip.slice(7)
@@ -16,7 +24,7 @@ function ipv4MappedToIp(ip: string): string | null {
   return null
 }
 
-function isPrivateIp(ip: string): boolean {
+export function isPrivateIp(ip: string): boolean {
   if (isIPv4(ip)) {
     const [a, b, c] = ip.split('.').map(Number)
     if (a === 127) return true
@@ -77,4 +85,29 @@ export function isAllowedFetchUrl(targetUrl: string): boolean {
     return !isPrivateIp(hostname)
   }
   return !isInternalHostname(hostname)
+}
+
+/**
+ * The literal check above only sees the hostname as written; a public name can
+ * still point at an internal address (a crafted A record, or DNS rebinding), so
+ * the resolved addresses are vetted as well. A name that resolves to nothing is
+ * refused rather than handed to the upstream stack to resolve a second time.
+ */
+export async function isAllowedFetchUrlAfterResolution(
+  targetUrl: string,
+  resolveHost: HostResolver = systemResolver,
+): Promise<boolean> {
+  if (!isAllowedFetchUrl(targetUrl)) return false
+
+  const hostname = new URL(targetUrl).hostname.replace(/^\[|\]$/g, '')
+  if (isIP(hostname) !== 0) return true
+
+  let addresses: string[]
+  try {
+    addresses = await resolveHost(hostname)
+  } catch {
+    return false
+  }
+
+  return addresses.length > 0 && !addresses.some(isPrivateIp)
 }

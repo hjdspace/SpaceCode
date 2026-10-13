@@ -13,12 +13,20 @@ import type { H5ServerStatus, H5AccessSettings } from '../h5/h5Types'
 
 let h5Server: H5Server | null = null
 
+/** 桌面端最近打开过的项目 — 可信根的唯一来源，服务器实例更换时重放。 */
+let lastKnownProjectPath: string | null = null
+
+function applyProjectRoot(server: H5Server | null): void {
+  if (server) server.registerProjectRoot(lastKnownProjectPath)
+}
+
 export function getH5Server(): H5Server | null {
   return h5Server
 }
 
 export function setH5Server(server: H5Server | null): void {
   h5Server = server
+  applyProjectRoot(server)
 }
 
 export function getH5AuthService(): H5AuthService {
@@ -34,6 +42,7 @@ export function registerH5AccessIPCHandlers(): void {
     if (!h5Server) {
       h5Server = new H5Server(h5AuthService)
     }
+    applyProjectRoot(h5Server)
     const status = await h5Server.start(settings.fixedPort ?? undefined)
     info('H5Access', `H5 server enabled | port=${status.port} | ip=${status.ip} | url=${status.publicUrl}`)
     return { status, token }
@@ -52,6 +61,7 @@ export function registerH5AccessIPCHandlers(): void {
     if (h5Server) {
       h5Server.stop()
       h5Server = new H5Server(h5AuthService)
+      applyProjectRoot(h5Server)
       const status = await h5Server.start(settings.fixedPort ?? undefined)
       return { status, token }
     }
@@ -75,8 +85,10 @@ export function registerH5AccessIPCHandlers(): void {
   })
 
   ipcMain.handle('h5:setMirrorSession', (_, sessionId: string | null, projectPath: string | null) => {
+    if (projectPath) lastKnownProjectPath = projectPath
     if (h5Server) {
       h5Server.setMirrorSession(sessionId, projectPath)
+      applyProjectRoot(h5Server)
     }
   })
 

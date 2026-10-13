@@ -76,17 +76,21 @@ export default defineConfig({
       // brand-new module merged at 0%. Raise each in step with the coverage
       // plan; delete a floor only together with the tests that earned it.
       thresholds: {
-        statements: 31,
-        branches: 25,
+        statements: 38,
+        branches: 33,
         'src/lib/**': { statements: 80 }, // 83.9% (trace/sse + request 解析后)
         'src/utils/**': { statements: 65 }, // 67.2%
-        'src/stores/**': { statements: 44 }, // 45.9%
+        'src/stores/**': { statements: 55 }, // 59.1% (chatSession 会话/消息/rewind/teammate 四片)
         'src/services/**': { statements: 37 }, // 37.6% (teamTranscriptService 子代理转录归一化与轮询)
         'electron/cron/**': { statements: 70 }, // 72.7%
-        'electron/engine/**': { statements: 20 }, // 21.5% (cliDetector 探测层)
+        'electron/git/**': { statements: 85 }, // 91.9% (exec 传输/status/分支/argv/diff 合成/worker 降级)
+        'electron/h5/**': { statements: 64 }, // 67.3% (h5Server 从 0% 起：静态/API 门/ws/fs + fs 可信根闸门 + 凭据剥离 + SSRF 解析校验)
+        'electron/infra/**': { statements: 45 }, // 52.4% (proxyManager 配置映射/生命周期/脚本/健康阶梯)
+        'electron/engine/**': { statements: 48 }, // 52.0% (cliDetector 安装器 + PiSessionProcess 流协议)
+        'electron/skills/**': { statements: 55 }, // 60.3% (市场/扫描/本地库三片，skillsService 90.1%)
         'electron/im/**': { statements: 52 }, // 52.2% (feishuAdapter 事件链路补齐后的下界)
-        'electron/session/**': { statements: 42 }, // 42.2% (turnCheckpointService 检查点/rewind 全链路)
-        'electron/tools/**': { statements: 24 }, // 24.4% (探测/定位/RTK 统计与 hook 判定)
+        'electron/session/**': { statements: 80 }, // 85.6% (sessionProcess 分帧/spawn/argv/env/生命周期)
+        'electron/tools/**': { statements: 55 }, // 59.7% (browserUse 安装与健康 + rtk 下载/统计)
         'electron/skillManagerV2/**': { statements: 72 }, // 74.8%
       },
     },

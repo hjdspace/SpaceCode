@@ -6,7 +6,9 @@ import { existsSync, statSync, readFileSync, readdirSync } from 'fs'
 import { join, extname, normalize } from 'path'
 import { app, BrowserWindow, net } from 'electron'
 import { WebSocketServer, WebSocket } from 'ws'
-import { isAllowedFetchUrl } from './h5FetchUrlValidator'
+import { isAllowedFetchUrlAfterResolution } from './h5FetchUrlValidator'
+import { H5PathGuard } from './h5PathGuard'
+import { redactSecretsInJson } from './h5ConfigRedactor'
 import { H5AuthService } from './h5AuthService'
 import { engineGateway } from '../engine/engineGateway'
 import { EngineFactory } from '../engine/engines/EngineFactory'
@@ -40,6 +42,19 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
 }
 
+// 远端可以读整个项目，但不能把 Electron 主进程拖进一次巨型同步读。
+const MAX_TEXT_READ_BYTES = 2 * 1024 * 1024
+const MAX_BINARY_READ_BYTES = 8 * 1024 * 1024
+const MAX_SEARCH_RESULTS = 200
+
+const FS_READ_ROUTES = new Set([
+  '/api/fs/read-dir',
+  '/api/fs/read-file',
+  '/api/fs/read-file-base64',
+  '/api/fs/stat',
+  '/api/fs/search-files',
+])
+
 export class H5Server {
   private httpServer: ReturnType<typeof createServer> | null = null
   private wsServer: WebSocketServer | null = null
@@ -47,6 +62,7 @@ export class H5Server {
   private authService: H5AuthService
   private port: number = 0
   private unsubEngineEvents: (() => void) | null = null
+  private readonly pathGuard = new H5PathGuard()
 
   /** 镜像会话 — 桌面端当前活跃会话 */
   private mirrorSessionId: string | null = null
@@ -152,6 +168,15 @@ export class H5Server {
     info('H5Server', `Mirror session updated | sessionId=${sessionId?.slice(0, 8)} | projectPath=${projectPath}`)
   }
 
+  /**
+   * 把一个项目目录登记为 H5 可读根。**只能由主进程侧调用**（h5:setMirrorSession
+   * IPC）；远端通过 /api/mirror-session 或 /api/session/start 传的 cwd 一律不
+   * 登记，否则持 token 者可以自己把根扩大到 `/`。
+   */
+  registerProjectRoot(projectPath: string | null): void {
+    this.pathGuard.addRoot(projectPath)
+  }
+
   // ──────────────────────────────────────────────────
   // HTTP 处理
   // ──────────────────────────────────────────────────
@@ -160,10 +185,9 @@ export class H5Server {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
     const pathname = url.pathname
 
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    // 故意不发 Access-Control-Allow-Origin: H5 客户端与它所加载的页面同源
+    // (h5ApiClient 的 baseUrl 取自 window.location)，泛域 CORS 只会在 token
+    // 泄露之后把可读面放大到任意源。
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
       res.end()
@@ -273,13 +297,11 @@ export class H5Server {
   ): Promise<void> {
     const pathname = url.pathname
 
-    // Token 认证
+    // Token 认证 — 只认 Authorization 头。查询串会进入浏览器历史、代理与访问日志、
+    // Referer，而 /api/* 不存在需要它的调用方；唯一的 query token 豁免是 /ws
+    // (浏览器 WebSocket 无法自定义请求头，见 handleWsConnection)。
     const authHeader = req.headers['authorization']
-    const bearerToken = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : null
-    const queryToken = url.searchParams.get('token')
-    const token = bearerToken || queryToken
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
 
     if (!this.authService.validateToken(token)) {
       this.sendJson(res, 401, { error: 'Unauthorized' })
@@ -541,27 +563,11 @@ export class H5Server {
         return
 
       case '/api/fs/read-dir':
-        this.sendJson(res, 200, this.readDir(body.path as string))
-        return
-
       case '/api/fs/read-file':
-        this.sendJson(res, 200, this.readTextFile(body.path as string))
-        return
-
       case '/api/fs/read-file-base64':
-        this.sendJson(res, 200, this.readFileAsBase64(body.path as string))
-        return
-
       case '/api/fs/stat':
-        this.sendJson(res, 200, this.statFile(body.path as string))
-        return
-
       case '/api/fs/search-files':
-        this.sendJson(res, 200, this.searchFiles(
-          body.path as string,
-          body.query as string,
-          body.options as { maxResults?: number } | undefined,
-        ))
+        this.handleFsRoute(res, pathname, body)
         return
 
       default:
@@ -577,12 +583,13 @@ export class H5Server {
     mirrorProjectPath: string | null
     activeSessions: Array<{ sessionId: string; engineSessionId: string | null; status: string; isRunning: boolean }>
   } {
-    // 读取 ~/.claude/gui-settings.json
+    // 读取 ~/.claude/gui-settings.json —— 这份文件装着模型提供商的 apiKey，
+    // 所以外发前必须剥掉凭据字段；解析不动它的文件就一律不发。
     let guiSettings: string | null = null
     try {
       const settingsPath = join(app.getPath('home'), '.claude', 'gui-settings.json')
       if (existsSync(settingsPath)) {
-        guiSettings = readFileSync(settingsPath, 'utf-8')
+        guiSettings = redactSecretsInJson(readFileSync(settingsPath, 'utf-8'))
       }
     } catch (err) {
       warn('H5Server', `Failed to read gui-settings.json: ${err}`)
@@ -620,6 +627,62 @@ export class H5Server {
     })
   }
 
+  /**
+   * `/api/fs/*` 唯一的入口闸门：路径必须先落在桌面端登记过的项目根之内，
+   * 才交给具体的读取实现。
+   */
+  private handleFsRoute(
+    res: ServerResponse,
+    pathname: string,
+    body: Record<string, unknown>,
+  ): void {
+    if (!FS_READ_ROUTES.has(pathname)) {
+      this.sendJson(res, 404, { error: `Unknown API: ${pathname}` })
+      return
+    }
+
+    const rawPath = body.path
+    if (typeof rawPath !== 'string' || rawPath === '') {
+      // 没有可读路径：保持各路由既有的「空结果」契约，不判越权，也不碰磁盘。
+      const listRoute = pathname === '/api/fs/read-dir' || pathname === '/api/fs/search-files'
+      this.sendJson(res, 200, listRoute ? [] : null)
+      return
+    }
+
+    const decision = this.pathGuard.check(rawPath)
+    if (!decision.allowed) {
+      warn('H5Server', `fs route blocked | route=${pathname} | reason=${decision.reason} | path=${rawPath}`)
+      this.sendJson(res, 403, { error: 'Path is outside the registered project roots' })
+      return
+    }
+
+    // 读取时沿用调用方给的原串：越权判定已经按 realpath 校过，保留原写法才能让
+    // 客户端收到的路径与它自己发出去的一致（软链、macOS 的 /var → /private/var）。
+    switch (pathname) {
+      case '/api/fs/read-dir':
+        this.sendJson(res, 200, this.readDir(rawPath))
+        return
+      case '/api/fs/read-file':
+        this.sendJson(res, 200, this.readTextFile(rawPath))
+        return
+      case '/api/fs/read-file-base64':
+        this.sendJson(res, 200, this.readFileAsBase64(rawPath))
+        return
+      case '/api/fs/stat':
+        this.sendJson(res, 200, this.statFile(rawPath))
+        return
+      case '/api/fs/search-files':
+        this.sendJson(res, 200, this.searchFiles(
+          rawPath,
+          body.query as string,
+          body.options as { maxResults?: number } | undefined,
+        ))
+        return
+      default:
+        this.sendJson(res, 404, { error: `Unknown API: ${pathname}` })
+    }
+  }
+
   private readDir(dirPath: string): Array<{ name: string; path: string; isDirectory: boolean; isFile: boolean }> {
     if (!dirPath || typeof dirPath !== 'string') return []
     try {
@@ -639,6 +702,10 @@ export class H5Server {
   private readTextFile(filePath: string): string | null {
     if (!filePath || typeof filePath !== 'string') return null
     try {
+      if (statSync(filePath).size > MAX_TEXT_READ_BYTES) {
+        warn('H5Server', `readTextFile refused, oversized | path=${filePath}`)
+        return null
+      }
       return readFileSync(filePath, 'utf-8')
     } catch {
       return null
@@ -648,6 +715,10 @@ export class H5Server {
   private readFileAsBase64(filePath: string): string | null {
     if (!filePath || typeof filePath !== 'string') return null
     try {
+      if (statSync(filePath).size > MAX_BINARY_READ_BYTES) {
+        warn('H5Server', `readFileAsBase64 refused, oversized | path=${filePath}`)
+        return null
+      }
       return readFileSync(filePath).toString('base64')
     } catch {
       return null
@@ -676,7 +747,7 @@ export class H5Server {
   ): Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }> {
     if (!dirPath || typeof dirPath !== 'string') return []
     try {
-      const maxResults = options?.maxResults || 100
+      const maxResults = Math.min(options?.maxResults || 100, MAX_SEARCH_RESULTS)
       const results: Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }> = []
       const ignoreDirs = new Set(['node_modules', '.git', 'dist', 'dist-electron', '.next', '.nuxt', '.cache', '__pycache__', '.venv', 'vendor', 'build', 'out', '.tox', 'target'])
 
@@ -818,7 +889,7 @@ export class H5Server {
     if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
       return { ok: false, status: 0, error: 'Invalid URL' }
     }
-    if (!isAllowedFetchUrl(targetUrl)) {
+    if (!(await isAllowedFetchUrlAfterResolution(targetUrl))) {
       warn('H5Server', `http fetch blocked internal/private URL | url=${targetUrl}`)
       return { ok: false, status: 0, error: 'URL is not allowed' }
     }
@@ -831,8 +902,15 @@ export class H5Server {
         headers: options?.headers || {},
         body: options?.body || undefined,
         signal: controller.signal,
+        // 重定向会把一个刚通过校验的公网 URL 变成内网一跳，因此不跟随。
+        redirect: 'manual',
       })
       clearTimeout(timeout)
+
+      if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        warn('H5Server', `http fetch blocked redirect | url=${targetUrl} | status=${response.status}`)
+        return { ok: false, status: 0, error: 'Redirects are not allowed' }
+      }
 
       const text = await response.text()
       debug('H5Server', `http fetch response | status=${response.status} elapsed=${Date.now() - start}ms bodyLen=${text.length}`)
@@ -840,7 +918,11 @@ export class H5Server {
     } catch (err: any) {
       const errorMsg = err?.name === 'AbortError'
         ? `Request timed out (${Math.round(timeoutMs / 1000)}s)`
-        : (err instanceof Error ? err.message : String(err))
+        // redirect:'manual' 在 Electron 43 实测是直接抛错（"Redirect was cancelled"），
+        // 不会返回 3xx；上面的状态码分支是留给其他实现的纵深防御。
+        : /redirect/i.test(String(err?.message ?? err))
+          ? 'Redirects are not allowed'
+          : (err instanceof Error ? err.message : String(err))
       warn('H5Server', `http fetch failed | elapsed=${Date.now() - start}ms | url=${targetUrl} | error=${errorMsg}`)
       return { ok: false, status: 0, error: errorMsg }
     }
@@ -852,6 +934,8 @@ export class H5Server {
 
   private handleWsConnection(ws: WebSocket, req: IncomingMessage): void {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+    // 浏览器建 WebSocket 时无法带自定义请求头，所以 /ws 是 query token 的唯一豁免；
+    // 它只在这条路径上被接受，/api/* 一律只认 Authorization 头。
     const token = url.searchParams.get('token')
 
     if (!this.authService.validateToken(token)) {
