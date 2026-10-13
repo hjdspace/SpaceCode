@@ -5,7 +5,7 @@
  * - Attached files state
  * - Attachment menu state
  * - Duplicate detection
- * - File/folder attachment from dialogs
+ * - Native dialog fallback ("浏览文件...")
  */
 import { ref } from 'vue'
 import { api } from '@/services/electronAPI'
@@ -22,11 +22,6 @@ export function buildRelativePath(workingDirectory: string | undefined, filePath
 /** Check if file is already attached */
 export function isDuplicateAttachment(files: Attachment[], path: string): boolean {
   return files.some(f => f.path === path)
-}
-
-/** Extract display name from path */
-export function extractDisplayName(path: string): string {
-  return path.split(/[/\\]/).pop() || path
 }
 
 // ── Composable ─────────────────────────────────────────────────
@@ -57,35 +52,6 @@ export function useFileAttachments(options?: {
     showAttachmentMenu.value = false
   }
 
-  async function handleAttachFile() {
-    closeAttachmentMenu()
-    try {
-      const result = await api.selectFiles()
-      if (!result.canceled && result.filePaths.length > 0) {
-        for (const filePath of result.filePaths) {
-          const name = extractDisplayName(filePath)
-          addFile(name, filePath, false)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to select files:', error)
-    }
-  }
-
-  async function handleAttachFolder() {
-    closeAttachmentMenu()
-    try {
-      const result = await api.selectFolder()
-      if (!result.canceled && result.filePaths.length > 0) {
-        const folderPath = result.filePaths[0]
-        const name = extractDisplayName(folderPath)
-        addFile(name, folderPath, true)
-      }
-    } catch (error) {
-      console.error('Failed to select folder:', error)
-    }
-  }
-
   async function handleBrowseFiles() {
     try {
       const result = await api.selectFiles()
@@ -108,8 +74,6 @@ export function useFileAttachments(options?: {
     clearFiles,
     handleAddClick,
     closeAttachmentMenu,
-    handleAttachFile,
-    handleAttachFolder,
     handleBrowseFiles,
   }
 }

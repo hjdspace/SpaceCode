@@ -5,20 +5,38 @@
         <Image :size="16" />
         <span>添加图片</span>
       </button>
-      <button class="attachment-item" @click="$emit('attachFile')">
-        <FileText :size="16" />
-        <span>{{ t('chatInput.attachFiles') }}</span>
-      </button>
-      <button class="attachment-item" @click="$emit('attachFolder')">
-        <Folder :size="16" />
-        <span>{{ t('chatInput.addFolderContext') }}</span>
-      </button>
+      <!-- 工作区文件 - 点击展开二级目录树 -->
+      <div
+        class="attachment-item submenu-trigger"
+        :class="{ 'is-open': openSubmenu === 'workspace' }"
+        @click="toggleSubmenu('workspace')"
+      >
+        <FolderTree :size="16" />
+        <span>{{ t('chatInput.workspaceFiles') }}</span>
+        <ChevronRight :size="14" class="submenu-arrow" />
+
+        <Transition name="submenu">
+          <div
+            v-if="openSubmenu === 'workspace'"
+            class="workspace-submenu"
+            @click.stop
+          >
+            <WorkspaceFilePicker
+              :root-dir="rootDir"
+              @add="entry => $emit('addWorkspaceEntry', entry)"
+              @close="$emit('close')"
+            />
+          </div>
+        </Transition>
+      </div>
 
       <!-- 智能体入口 - hover 触发二级菜单 -->
       <div
-        class="attachment-item agent-trigger"
-        @mouseenter="handleAgentTriggerEnter"
-        @mouseleave="handleAgentTriggerLeave"
+        class="attachment-item submenu-trigger"
+        :class="{ 'is-open': openSubmenu === 'agent' }"
+        @mouseenter="showSubmenu('agent')"
+        @mouseleave="scheduleHideSubmenu"
+        @click="toggleSubmenu('agent')"
       >
         <Cpu :size="16" />
         <span>{{ t('chatInput.agent') }}</span>
@@ -28,10 +46,11 @@
         <!-- 二级子菜单 -->
         <Transition name="submenu">
           <div
-            v-if="showAgentSubmenu"
+            v-if="openSubmenu === 'agent'"
             class="agent-submenu"
-            @mouseenter="handleAgentSubmenuEnter"
-            @mouseleave="handleAgentSubmenuLeave"
+            @mouseenter="showSubmenu('agent')"
+            @mouseleave="scheduleHideSubmenu"
+            @click.stop
           >
             <div class="submenu-header">{{ t('chatInput.agent') }}</div>
             <div class="submenu-list">
@@ -91,25 +110,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
-import { Image, FileText, Folder, Cpu, ChevronRight, Check, FolderOpen } from 'lucide-vue-next'
+import { ref, watch, onUnmounted } from 'vue'
+import { Image, FolderTree, Cpu, ChevronRight, Check, FolderOpen } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { vClickOutside } from '@/components/common/vClickOutside'
+import WorkspaceFilePicker from './WorkspaceFilePicker.vue'
 import { getAgentName as getAgentNameLogic, getAgentDescription as getAgentDescriptionLogic } from '@/composables/useAgentSelector'
+import type { WorkspaceEntry } from '@/composables/useWorkspaceBrowser'
 import type { AgentInfo } from '@/types'
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
   selectedAgent: string
   builtInAgents: AgentInfo[]
   customAgents: AgentInfo[]
   showOpenProjectAction: boolean
+  rootDir: string
 }>()
 
 defineEmits<{
   attachImage: []
-  attachFile: []
-  attachFolder: []
+  addWorkspaceEntry: [entry: WorkspaceEntry]
   selectAgent: [agentType: string]
   openProjectFolder: []
   close: []
@@ -117,42 +138,45 @@ defineEmits<{
 
 const { t } = useI18n()
 
-// Internal state: agent submenu hover timer
-const showAgentSubmenu = ref(false)
-let agentSubmenuTimer: ReturnType<typeof setTimeout> | null = null
+type SubmenuKey = 'agent' | 'workspace'
 
-function handleAgentTriggerEnter() {
-  if (agentSubmenuTimer) {
-    clearTimeout(agentSubmenuTimer)
-    agentSubmenuTimer = null
+const openSubmenu = ref<SubmenuKey | null>(null)
+let submenuTimer: ReturnType<typeof setTimeout> | null = null
+
+function showSubmenu(key: SubmenuKey) {
+  if (submenuTimer) {
+    clearTimeout(submenuTimer)
+    submenuTimer = null
   }
-  showAgentSubmenu.value = true
+  openSubmenu.value = key
 }
 
-function handleAgentTriggerLeave() {
-  agentSubmenuTimer = setTimeout(() => {
-    showAgentSubmenu.value = false
+function scheduleHideSubmenu() {
+  submenuTimer = setTimeout(() => {
+    openSubmenu.value = null
   }, 150)
 }
 
-function handleAgentSubmenuEnter() {
-  if (agentSubmenuTimer) {
-    clearTimeout(agentSubmenuTimer)
-    agentSubmenuTimer = null
+function toggleSubmenu(key: SubmenuKey) {
+  if (openSubmenu.value === key) {
+    if (submenuTimer) {
+      clearTimeout(submenuTimer)
+      submenuTimer = null
+    }
+    openSubmenu.value = null
+  } else {
+    showSubmenu(key)
   }
-  showAgentSubmenu.value = true
 }
 
-function handleAgentSubmenuLeave() {
-  agentSubmenuTimer = setTimeout(() => {
-    showAgentSubmenu.value = false
-  }, 150)
-}
+watch(() => props.visible, visible => {
+  if (!visible) openSubmenu.value = null
+})
 
 onUnmounted(() => {
-  if (agentSubmenuTimer) {
-    clearTimeout(agentSubmenuTimer)
-    agentSubmenuTimer = null
+  if (submenuTimer) {
+    clearTimeout(submenuTimer)
+    submenuTimer = null
   }
 })
 
@@ -202,9 +226,9 @@ function getAgentDescription(agentType: string, originalDescription: string): st
   }
 }
 
-.agent-trigger {
+.submenu-trigger {
   position: relative;
-  cursor: default;
+  cursor: pointer;
 
   .submenu-arrow {
     margin-left: auto;
@@ -224,24 +248,29 @@ function getAgentDescription(agentType: string, originalDescription: string): st
     transform: translateY(-50%);
   }
 
-  &:hover .submenu-arrow {
+  &:hover .submenu-arrow,
+  &.is-open .submenu-arrow {
     color: var(--text-primary);
   }
 }
 
-.agent-submenu {
+.agent-submenu,
+.workspace-submenu {
   position: absolute;
   left: 100%;
   bottom: 0;
   margin-left: 4px;
-  min-width: 200px;
-  max-height: 340px;
   background: var(--bg-primary);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   z-index: 110;
   overflow: hidden;
+}
+
+.agent-submenu {
+  min-width: 200px;
+  max-height: 340px;
   display: flex;
   flex-direction: column;
 }

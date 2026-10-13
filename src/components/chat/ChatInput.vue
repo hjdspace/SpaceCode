@@ -347,9 +347,9 @@
       :built-in-agents="builtInAgents"
       :custom-agents="customAgents"
       :show-open-project-action="!!showOpenProjectAction"
+      :root-dir="workspaceRootDir"
       @attach-image="handleAttachImage"
-      @attach-file="handleAttachFile"
-      @attach-folder="handleAttachFolder"
+      @add-workspace-entry="handleWorkspaceEntry"
       @select-agent="selectAgentAndCloseMenu"
       @open-project-folder="handleOpenProjectFolder"
       @close="closeAttachmentMenu"
@@ -426,6 +426,7 @@ import { useDragDrop } from '@/composables/useDragDrop'
 import { useImageHandler } from '@/composables/useImageHandler'
 import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
+import type { WorkspaceEntry } from '@/composables/useWorkspaceBrowser'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
@@ -589,8 +590,18 @@ const {
   attachedFiles, showAttachmentMenu,
   addFile: addFileAttachment,
   clearFiles, handleAddClick, closeAttachmentMenu,
-  handleAttachFile, handleAttachFolder, handleBrowseFiles: handleBrowseFilesBase,
+  handleBrowseFiles: handleBrowseFilesBase,
 } = fileAttachments
+
+// 工作区文件选择器的根目录
+const workspaceRootDir = computed(() => props.workingDirectory || appStore.projectRoot || '')
+
+// 选择器里的搜索框会抢走编辑器选区，插入 chip 前先把光标放回末尾
+function handleWorkspaceEntry(entry: WorkspaceEntry) {
+  editorRef.value?.focus()
+  setCursorToEnd()
+  addFileAttachment(entry.relativePath || entry.name, entry.path, entry.isDirectory)
+}
 
 // Wrapper that also closes context menu (template compatibility)
 function handleBrowseFiles() {
