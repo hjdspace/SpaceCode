@@ -121,7 +121,7 @@ export interface ElectronMemoryAPI extends MemoryRendererApi {}
 export interface ElectronClaudeCodeAPI extends ClaudeCodeRendererApi, ClaudeCodeEventApi {}
 
 export interface ElectronArtifactsAPI {
-  list: (workingDir: string) => Promise<{ artifacts: ArtifactEntry[] }>
+  list: (workingDir: string, options?: { scanWorkspaceRoot?: boolean }) => Promise<{ artifacts: ArtifactEntry[] }>
   open: (filePath: string) => Promise<{ success: boolean; error?: string }>
   reveal: (filePath: string) => Promise<{ success: boolean }>
   startWatch: (artifactsDir: string) => Promise<boolean>

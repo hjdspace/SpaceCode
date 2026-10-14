@@ -14,6 +14,7 @@ import {
 import type { TurnStateMachine } from './turnStateMachine'
 import type { TimelineAssembler } from './timelineAssembler'
 import { createUuid } from '@/utils/uuid'
+import { needsWorkspaceRootScan } from '@/utils/artifactScope'
 import type { UseAutoRetryReturn } from '@/composables/useAutoRetry'
 import { extractErrorCode } from '@/composables/useAutoRetry'
 import { errorHandler as defaultErrorHandler } from '@/services/errorHandler'
@@ -57,7 +58,7 @@ interface ClaudeCodeApi {
 }
 
 interface ArtifactsApi {
-  list: (workingDir: string) => Promise<{ artifacts: any[] }>
+  list: (workingDir: string, options?: { scanWorkspaceRoot?: boolean }) => Promise<{ artifacts: any[] }>
 }
 
 /** Synthetic assistant records emitted by the engine for retryable API errors. */
@@ -1146,15 +1147,16 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
         sink.persist(sessionId)
 
-        if (s.mode === 'work' && s.workingDirectory) {
+        if (s.workingDirectory) {
           const workingDir = s.workingDirectory
+          const scanWorkspaceRoot = needsWorkspaceRootScan(s.mode)
           const turnStart = ts.sendStartTime
           const targetMsgId = ts.assistantMessageId
           void (async () => {
             try {
               const artifactsApi = getArtifactsApi()
               if (!artifactsApi?.list) return
-              const { artifacts } = await artifactsApi.list(workingDir)
+              const { artifacts } = await artifactsApi.list(workingDir, { scanWorkspaceRoot })
               const produced = (artifacts || []).filter((a: any) => a.mtime >= turnStart - 1000)
               if (produced.length === 0) return
               const sess = sink.get(sessionId)

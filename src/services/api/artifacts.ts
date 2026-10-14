@@ -2,8 +2,8 @@ import { electronAPI } from './_context'
 import type { ArtifactEntry } from '../electronAPI'
 
 export const artifacts = {
-  list: (workingDir: string): Promise<{ artifacts: ArtifactEntry[] }> =>
-    electronAPI?.artifacts?.list(workingDir) || Promise.resolve({ artifacts: [] }),
+  list: (workingDir: string, options?: { scanWorkspaceRoot?: boolean }): Promise<{ artifacts: ArtifactEntry[] }> =>
+    electronAPI?.artifacts?.list(workingDir, options) || Promise.resolve({ artifacts: [] }),
   open: (filePath: string): Promise<{ success: boolean; error?: string }> =>
     electronAPI?.artifacts?.open(filePath) || Promise.resolve({ success: false }),
   reveal: (filePath: string): Promise<{ success: boolean }> =>

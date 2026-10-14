@@ -17,6 +17,7 @@ import { useAppStore } from '@/stores/app'
 import { i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { escapeHtml, replaceMentionChipMarkers } from '@/utils/mention-chips'
+import { isOfficePreviewPath } from '@/utils/artifactFormat'
 import {
   generateMermaidId,
   createMermaidContainerHtml,
@@ -583,6 +584,12 @@ function handleLinkClick(event: MouseEvent) {
     const endLineNumber = endLineStr ? parseInt(endLineStr, 10) : undefined
 
     if (filePath) {
+      // 办公文档是二进制格式：按文本读到右侧面板只会是乱码，交给 officecli 渲染预览。
+      // 带行号的链接指向的是源码位置，不在此列。
+      if (!lineNumber && !endLineNumber && isOfficePreviewPath(filePath)) {
+        appStore.openOfficePreview(appStore.resolveSessionPath(filePath))
+        return
+      }
       appStore.openFile(filePath, lineNumber, endLineNumber)
       return
     }

@@ -47,8 +47,9 @@
             :card-data="item.card!"
             class="turn-change-card-wrapper"
           />
+          <!-- 本轮产物清单：三种模式都可能产出可打开的交付物 -->
           <ArtifactSummaryCard
-            v-else-if="mode !== 'design' && item.type === 'artifact-card'"
+            v-else-if="item.type === 'artifact-card'"
             :artifacts="item.artifacts!"
           />
       </template>
@@ -106,7 +107,8 @@ const props = defineProps<{
   loading: boolean
   /**
    * 渲染模式：
-   * - `design`：assistant 消息用 MessageItem(mode=design) 渲染 buildBlocks，跳过 turn-card / artifact-card
+   * - `design`：assistant 消息用 MessageItem(mode=design) 渲染 buildBlocks，跳过 turn-card；
+   *   产物汇总卡片仍显示
    * - 不传：走原 MessageItem + AgentTimeline 渲染
    */
   mode?: 'design'
@@ -235,9 +237,10 @@ const turnStartTime = computed(() => {
   return msgs[msgs.length - 1]?.timestamp || Date.now()
 })
 
-// 若某助手分组的回合产生了产物（仅办公模式），返回对应的产物卡片项，否则 null
+// 若某助手分组的回合产生了产物，返回对应的产物卡片项，否则 null。
+// 卡片是否出现只取决于本轮有没有收集到文件 —— 三种模式都可能有交付物
+// （例如 agent 用 python 脚本在工作区里写出的 xlsx）。
 function artifactCardItem(group: MessageGroup): DisplayItem | null {
-  if (sessionStore.currentSession?.mode !== 'work') return null
   const withArtifacts = group.messages.find(
     m => m.metadata?.artifacts && m.metadata.artifacts.length > 0
   )

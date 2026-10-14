@@ -264,7 +264,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Work artifacts (outputs/ folder)
   artifacts: {
-    list: (workingDir: string) => ipcRenderer.invoke('artifacts:list', workingDir),
+    list: (workingDir: string, options?: { scanWorkspaceRoot?: boolean }) =>
+      ipcRenderer.invoke('artifacts:list', workingDir, options),
     open: (filePath: string) => ipcRenderer.invoke('artifacts:open', filePath),
     reveal: (filePath: string) => ipcRenderer.invoke('artifacts:reveal', filePath),
     startWatch: (artifactsDir: string) => ipcRenderer.invoke('artifacts:startWatch', artifactsDir),

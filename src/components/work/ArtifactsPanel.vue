@@ -27,7 +27,7 @@
             <div class="file-sub">{{ formatSize(f.size) }} · {{ f.ext.toUpperCase() || 'FILE' }}</div>
           </div>
           <div class="file-actions">
-            <button v-if="isPreviewable(f.ext)" class="act-btn" :title="t('artifacts.preview')" @click.stop="open(f)">
+            <button v-if="isPreviewable(f.path)" class="act-btn" :title="t('artifacts.preview')" @click.stop="open(f)">
               <Eye :size="13" />
             </button>
             <button class="act-btn" :title="t('artifacts.open')" @click.stop="open(f)">
@@ -50,7 +50,7 @@ import { RotateCw, PackageOpen, ExternalLink, FolderOpen, Eye } from 'lucide-vue
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 import { api, type ArtifactEntry } from '@/services/electronAPI'
-import { iconFor, formatSize } from '@/utils/artifactFormat'
+import { iconFor, formatSize, isHtmlPreviewPath, isOfficePreviewPath } from '@/utils/artifactFormat'
 
 const { t } = useI18n()
 const sessionStore = useChatSessionStore()
@@ -63,12 +63,9 @@ let unsubscribe: (() => void) | null = null
 // 已见过的产物路径；用于检测"新生成"的可预览文件并自动打开
 const seenPaths = new Set<string>()
 let primed = false
-const PREVIEWABLE = new Set(['html', 'htm'])
-const OFFICE_EXTENSIONS = new Set(['pptx', 'docx', 'xlsx', 'pdf'])
 
-function isPreviewable(ext: string): boolean {
-  const e = ext.toLowerCase()
-  return PREVIEWABLE.has(e) || OFFICE_EXTENSIONS.has(e)
+function isPreviewable(path: string): boolean {
+  return isHtmlPreviewPath(path) || isOfficePreviewPath(path)
 }
 
 const workingDir = computed(() => sessionStore.workingDirectory || '')
@@ -96,14 +93,8 @@ async function refresh() {
     const fresh = list.filter(f => !seenPaths.has(f.path))
     list.forEach(f => seenPaths.add(f.path))
     if (primed) {
-      const preview = fresh.find(f => PREVIEWABLE.has(f.ext) || OFFICE_EXTENSIONS.has(f.ext))
-      if (preview) {
-        if (OFFICE_EXTENSIONS.has(preview.ext)) {
-          appStore.openOfficePreview(preview.path, 'html')
-        } else {
-          appStore.openFileInWebview(preview.path)
-        }
-      }
+      const preview = fresh.find(f => isPreviewable(f.path))
+      if (preview) open(preview)
     }
     primed = true
   } catch (err) {
@@ -113,14 +104,13 @@ async function refresh() {
   }
 }
 
-async function open(f: ArtifactEntry) {
-  const ext = f.ext.toLowerCase()
-  if (OFFICE_EXTENSIONS.has(ext)) {
+function open(f: ArtifactEntry) {
+  if (isOfficePreviewPath(f.path)) {
     appStore.openOfficePreview(f.path, 'html')
-  } else if (PREVIEWABLE.has(ext)) {
+  } else if (isHtmlPreviewPath(f.path)) {
     appStore.openFileInWebview(f.path)
   } else {
-    await api.artifacts.open(f.path)
+    void api.artifacts.open(f.path)
   }
 }
 

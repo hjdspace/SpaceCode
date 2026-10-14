@@ -4,6 +4,11 @@
  * Work-mode assistants write deliverables (.pptx/.docx/.xlsx/.pdf/…) into an
  * `outputs/` folder inside the session working directory. This service exposes
  * that folder to the renderer's Artifacts panel.
+ *
+ * Design and code sessions have no such convention — the agent writes straight
+ * into the workspace. `scanWorkspaceRoot` covers that for the turn summary card,
+ * restricted to deliverable file types, and callers keep it to files touched in
+ * the current turn.
  */
 
 import { ipcMain, shell, BrowserWindow } from 'electron'
@@ -33,11 +38,37 @@ const NOISE_FILES = new Set([
   '.gitignore', '.ds_store', 'thumbs.db',
 ])
 
-function listArtifacts(workingDir: string): ArtifactEntry[] {
+export interface ArtifactListOptions {
+  /**
+   * 除 `<workingDir>/outputs/` 外，还扫描工作区根目录（design / code 会话的 agent
+   * 直接把文件写在工作区里，没有 outputs/ 约定）。根目录里既有源码也有构建产物，
+   * 所以这一路只收交付物类型，避免把整棵项目树报成"本次产物"。
+   */
+  scanWorkspaceRoot?: boolean
+}
+
+/**
+ * 工作区根目录扫描深度：agent 常把交付物放进 `output/`、`pages/assets/` 这类
+ * 一二级子目录，取 3 层；再深就要付出遍历整棵仓库的代价（这里是同步 fs 调用）。
+ */
+const WORKSPACE_ROOT_SCAN_DEPTH = 3
+
+/** 工作区根目录里算作"交付物"的扩展名；outputs/ 下的文件不受此限制（目录约定本身就意味着成果）。 */
+const DELIVERABLE_EXTS = new Set([
+  // 办公文档
+  'pptx', 'ppt', 'docx', 'doc', 'xlsx', 'xls', 'csv', 'pdf',
+  // 网页与图片
+  'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp',
+])
+
+export function listArtifacts(
+  workingDir: string,
+  options?: ArtifactListOptions,
+): ArtifactEntry[] {
   if (!workingDir || typeof workingDir !== 'string') return []
 
   const results: ArtifactEntry[] = []
-  const walk = (dir: string, depth: number) => {
+  const walk = (dir: string, depth: number, deliverableOnly = false) => {
     let entries
     try {
       entries = readdirSync(dir, { withFileTypes: true })
@@ -51,16 +82,20 @@ function listArtifacts(workingDir: string): ArtifactEntry[] {
       const full = join(dir, entry.name)
       if (entry.isDirectory()) {
         if (NOISE_DIRS.has(lower) || depth <= 0) continue
-        walk(full, depth - 1)
+        walk(full, depth - 1, deliverableOnly)
       } else if (entry.isFile()) {
         if (NOISE_FILES.has(lower)) continue
+        const dot = entry.name.lastIndexOf('.')
+        const ext = dot >= 0 ? entry.name.slice(dot + 1).toLowerCase() : ''
+        // 扩展名过滤放在 stat 之前：根目录扫描要路过成千上万个文件，
+        // 先按名字淘汰非交付物可以省掉绝大部分同步 stat 开销。
+        if (deliverableOnly && !DELIVERABLE_EXTS.has(ext)) continue
         try {
           const st = statSync(full)
-          const dot = entry.name.lastIndexOf('.')
           results.push({
             name: entry.name,
             path: full,
-            ext: dot >= 0 ? entry.name.slice(dot + 1).toLowerCase() : '',
+            ext,
             size: st.size,
             mtime: st.mtimeMs,
           })
@@ -89,6 +124,21 @@ function listArtifacts(workingDir: string): ArtifactEntry[] {
         }
       }
     } catch { /* ignore */ }
+  }
+
+  // 工作区根目录扫描：design / code 会话的产物直接落在工作区里。
+  // 只收交付物类型，且根扫描会再次经过 outputs/，因此按路径去重，同一文件只入列一次。
+  if (options?.scanWorkspaceRoot) {
+    walk(workingDir, WORKSPACE_ROOT_SCAN_DEPTH, true)
+    const seen = new Set<string>()
+    const unique: ArtifactEntry[] = []
+    for (const a of results) {
+      if (seen.has(a.path)) continue
+      seen.add(a.path)
+      unique.push(a)
+    }
+    results.length = 0
+    results.push(...unique)
   }
 
   // 最近修改在前
@@ -201,8 +251,8 @@ export function stopArtifactsWatch(): void {
 }
 
 export function registerArtifactsIPCHandlers(): void {
-  ipcMain.handle('artifacts:list', async (_e, workingDir: string) => {
-    return { artifacts: listArtifacts(workingDir) }
+  ipcMain.handle('artifacts:list', async (_e, workingDir: string, options?: ArtifactListOptions) => {
+    return { artifacts: listArtifacts(workingDir, options) }
   })
 
   ipcMain.handle('artifacts:open', async (_e, filePath: string) => {

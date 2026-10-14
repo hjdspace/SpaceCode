@@ -176,7 +176,7 @@ export interface MessageMetadata {
   status?: TeammateStatus
   /** 技能调用消息：记录被调用的技能名 */
   skillName?: string
-  /** 办公模式：本回合新生成/修改的产物文件（仅 work 模式会话写入）。 */
+  /** 本回合新生成/修改的产物文件（回合结算时按会话工作目录收集，见 utils/artifactScope）。 */
   artifacts?: ArtifactSummaryEntry[]
   /** 自动重试状态：供内部重试流程跟踪，不直接展示给用户 */
   retryState?: RetryState

@@ -38,7 +38,7 @@ import { useI18n } from 'vue-i18n'
 import { PackageCheck, ExternalLink, FolderOpen } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
-import { iconFor, formatSize } from '@/utils/artifactFormat'
+import { iconFor, formatSize, isHtmlPreviewPath, isOfficePreviewPath } from '@/utils/artifactFormat'
 import type { ArtifactSummaryEntry } from '@/types'
 
 defineProps<{
@@ -48,14 +48,16 @@ defineProps<{
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const PREVIEWABLE = new Set(['html', 'htm'])
-
-async function openArtifact(f: ArtifactSummaryEntry) {
-  if (PREVIEWABLE.has(f.ext)) {
-    appStore.openFileInWebview(f.path)
-  } else {
-    await api.artifacts.open(f.path)
+function openArtifact(f: ArtifactSummaryEntry) {
+  if (isOfficePreviewPath(f.path)) {
+    appStore.openOfficePreview(f.path, 'html')
+    return
   }
+  if (isHtmlPreviewPath(f.path)) {
+    appStore.openFileInWebview(f.path)
+    return
+  }
+  void api.artifacts.open(f.path)
 }
 
 async function reveal(f: ArtifactSummaryEntry) {
