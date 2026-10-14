@@ -138,8 +138,17 @@ export class OpenAIToAnthropicStreamTransformer {
     // blocks so the desktop UI can display the model's reasoning process.
     // An empty string is a valid signal (DeepSeek v4 thinking mode), so we
     // check `!= null` rather than `!== ''` for the block-open decision.
+    //
+    // 例外：已有块打开时空 `reasoning_content` 不是信号，而是网关的回执残留。
+    // 部分兼容网关（本次实测 qwen3.8-max）在推理结束后仍随**每个** content
+    // 分片回传 `reasoning_content: ""`。若照常按边界处理，每一帧都会
+    // close(text) → open(空 thinking) → close → open(text)，一段连续答复被切成
+    // 几十个小 text 块并夹进等量的空 thinking 块，下游 timeline 于是把答复渲染成
+    // 一串碎片、粗体/列表/表格的语法边界全被截断，中间还插满空白折叠卡片。
     const reasoningContent = choice.delta?.reasoning_content
-    if (reasoningContent != null) {
+    const opensThinking = reasoningContent != null
+      && (reasoningContent !== '' || this.contentBlockType === ContentBlockType.None)
+    if (opensThinking) {
       if (this.contentBlockType !== ContentBlockType.Thinking) {
         // Close any open block (text or tool_use) before opening thinking
         if (this.contentBlockType !== ContentBlockType.None) {
@@ -204,7 +213,13 @@ export class OpenAIToAnthropicStreamTransformer {
     if (choice.delta?.tool_calls) {
       for (const tc of choice.delta.tool_calls) {
         if (tc.function?.name) {
-          if (this.contentBlockType === ContentBlockType.Text) {
+          // thinking 块也必须在此收口：漏掉它会让 tool_use 的
+          // content_block_start 复用同一个 index，thinking 永不闭合，
+          // 下游 timeline 于是多出一张卡在工具卡片前面的空白推理卡。
+          if (
+            this.contentBlockType === ContentBlockType.Text ||
+            this.contentBlockType === ContentBlockType.Thinking
+          ) {
             output.push(this.formatSSE('content_block_stop', {
               type: 'content_block_stop',
               index: this.contentBlockIndex,

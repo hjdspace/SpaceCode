@@ -72,6 +72,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSettingsStore } from '@/stores/settings'
 import {
   categoryColorToCss,
   formatNumber,
@@ -86,6 +87,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+const settingsStore = useSettingsStore()
 
 const DEMO_CATEGORIES = [
   { name: 'System prompt', labelKey: 'contextUsage.categorySystemPrompt', color: categoryColorToCss('promptBorder'), baseRatio: 0.12 },
@@ -100,19 +102,22 @@ const AUTOCOMPACT_BUFFER = 13_000
 const activePreset = ref('normal')
 const usedInput = ref(84_000)
 
-const contextWindow = computed(() => getContextWindowForModel(props.modelId || 'claude-sonnet-4-6'))
+const previewModel = computed(() => props.modelId || 'claude-sonnet-4-6')
+const userCtxOverride = computed(() => settingsStore.getContextWindowOverride(previewModel.value))
+
+const contextWindow = computed(() => getContextWindowForModel(previewModel.value, userCtxOverride.value))
 
 const usedPct = computed(() =>
   Math.min(100, Math.max(0, Math.round((usedInput.value / contextWindow.value) * 100))),
 )
 
-const warnMarkerPct = computed(() => (getWarningThreshold(props.modelId || '') / contextWindow.value) * 100)
-const compactMarkerPct = computed(() => (getAutoCompactThreshold(props.modelId || '') / contextWindow.value) * 100)
+const warnMarkerPct = computed(() => (getWarningThreshold(previewModel.value, userCtxOverride.value) / contextWindow.value) * 100)
+const compactMarkerPct = computed(() => (getAutoCompactThreshold(previewModel.value, userCtxOverride.value) / contextWindow.value) * 100)
 
 const thresholdStyle = computed(() => ({
   width: `${usedPct.value}%`,
   background:
-    usedInput.value >= getWarningThreshold(props.modelId || '')
+    usedInput.value >= getWarningThreshold(previewModel.value, userCtxOverride.value)
       ? 'var(--warning)'
       : usedPct.value > 75
         ? 'var(--accent-primary)'
@@ -163,7 +168,7 @@ const presets = computed(() => {
     { id: 'fresh', labelKey: 'contextUsage.previewFresh', value: Math.round(ctx * 0.04) },
     { id: 'normal', labelKey: 'contextUsage.previewNormal', value: Math.round(ctx * 0.42) },
     { id: 'warning', labelKey: 'contextUsage.previewWarning', value: Math.round(ctx * 0.78) },
-    { id: 'compact', labelKey: 'contextUsage.previewCompact', value: Math.round(getAutoCompactThreshold(props.modelId || '') - 5000) },
+    { id: 'compact', labelKey: 'contextUsage.previewCompact', value: Math.round(getAutoCompactThreshold(previewModel.value, userCtxOverride.value) - 5000) },
   ]
 })
 
@@ -177,7 +182,7 @@ function applyPreset(preset: { id: string; value: number }) {
 }
 
 watch(
-  () => props.modelId,
+  () => [props.modelId, userCtxOverride.value] as const,
   () => {
     activePreset.value = 'normal'
     usedInput.value = Math.round(contextWindow.value * 0.42)

@@ -593,7 +593,7 @@ onMounted(() => {
         engineType: settingsStore.engineType,
         engineSource: settingsStore.engineSource,
         installedCliPath: settingsStore.installedCliPath ?? undefined,
-        modelContextWindows: { ...settingsStore.modelContextWindows },
+        modelContextWindows: { ...settingsStore.contextWindowOverrides },
         rtkEnabled: settingsStore.rtkEnabled,
       }
     },

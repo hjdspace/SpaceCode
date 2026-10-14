@@ -5,6 +5,7 @@ import {
   buildSnapshotFromEngineData,
   calculateTokenWarningState,
   getContextFillFromApiUsage,
+  resolveContextWindowOverrides,
 } from '@/utils/contextUsage'
 import type { ContextUsageData } from '@/types/contextUsage'
 
@@ -26,6 +27,22 @@ function createEngineData(overrides: Partial<ContextUsageData> = {}): ContextUsa
     ...overrides,
   }
 }
+
+describe('resolveContextWindowOverrides', () => {
+  it('设置页写入的 modelCapabilities 覆盖旧版 modelContextWindows', () => {
+    const overrides = resolveContextWindowOverrides(
+      { 'glm-5.3-flash': { contextWindow: 200_000 } },
+      { 'glm-5.3-flash': 1_000_000, 'glm-5.3': 1_000_000 },
+    )
+
+    expect(overrides).toEqual({ 'glm-5.3-flash': 200_000, 'glm-5.3': 1_000_000 })
+  })
+
+  it('只有 capabilities 里非正数的清空值时不产出覆盖', () => {
+    expect(resolveContextWindowOverrides({ 'glm-5.3': { contextWindow: 0 } }, {})).toEqual({})
+    expect(resolveContextWindowOverrides(undefined, undefined)).toEqual({})
+  })
+})
 
 describe('buildSnapshotFromEngineData', () => {
   it('uses the configured context window when the engine reports its default window', () => {

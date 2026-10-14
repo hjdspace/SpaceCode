@@ -104,4 +104,25 @@ describe('loadEngineSessionConfig', () => {
   it('读不到设置文件时只返回 cwd', () => {
     expect(loadEngineSessionConfig('/w')).toEqual({ cwd: '/w' })
   })
+
+  it('设置页的 modelCapabilities.contextWindow 是后台会话的上下文窗口来源', () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { sonnetModel: 'kimi-k3' },
+      modelCapabilities: { 'kimi-k3': { contextWindow: 200_000 } },
+      modelContextWindows: { 'kimi-k3': 1_000_000 },
+    })
+
+    expect(loadEngineSessionConfig('/w').modelContextWindows).toEqual({ 'kimi-k3': 200_000 })
+  })
+
+  it('只有旧版 modelContextWindows 时仍然带上，不丢历史配置', () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { sonnetModel: 'kimi-k3' },
+      modelContextWindows: { 'kimi-k3': 400_000 },
+    })
+
+    expect(loadEngineSessionConfig('/w').modelContextWindows).toEqual({ 'kimi-k3': 400_000 })
+  })
 })

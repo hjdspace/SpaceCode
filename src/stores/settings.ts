@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { type Locale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
+import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import type { ModelProfile, ModelCapabilityOverride, ProfilesFile } from '@/types/profile'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
@@ -426,6 +427,30 @@ export const useSettingsStore = defineStore('settings', () => {
     return getSonnetModel()
   }
 
+  /** 用户配置的各模型上下文窗口（模型 id → tokens），用量展示与引擎派发共用。 */
+  const contextWindowOverrides = computed(() =>
+    resolveContextWindowOverrides(modelCapabilities.value, modelContextWindows.value),
+  )
+
+  /**
+   * 取用户为某模型配置的上下文窗口覆盖，未配置返回 undefined。
+   * 入参可以是实际模型名，也可以是引擎别名 haiku/sonnet/opus（按当前槽位反查），
+   * 并容忍 --model 用的 [1m] 后缀。
+   */
+  function getContextWindowOverride(model: string | undefined): number | undefined {
+    if (!model) return undefined
+    const overrides = contextWindowOverrides.value
+    const modelId = model.replace(/\[1m\]/i, '')
+    if (overrides[modelId] !== undefined) return overrides[modelId]
+
+    const slotModel =
+      modelId === 'haiku' ? getHaikuModel()
+        : modelId === 'sonnet' ? getSonnetModel()
+          : modelId === 'opus' ? getOpusModel()
+            : undefined
+    return slotModel ? overrides[slotModel] : undefined
+  }
+
   // Build environment variables for the CLI process
   // NOTE: We intentionally do NOT set OPENAI_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL,
   // ANTHROPIC_MODEL, etc. Those env vars are used by the CLI's getDefaultSonnetModel() as the
@@ -473,8 +498,9 @@ export const useSettingsStore = defineStore('settings', () => {
     // expands the engine's context window to 1M first; this env var then
     // shrinks it to the exact desired value via Math.min.
     const primaryModel = getSonnetModel()
-    if (primaryModel && modelContextWindows.value[primaryModel]) {
-      env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(modelContextWindows.value[primaryModel])
+    const primaryContextWindow = getContextWindowOverride(primaryModel)
+    if (primaryContextWindow) {
+      env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(primaryContextWindow)
     }
 
     return env
@@ -490,7 +516,7 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function getModelWith1mSuffix(model: string | undefined): string | undefined {
     if (!model) return model
-    const ctxSize = modelContextWindows.value[model]
+    const ctxSize = getContextWindowOverride(model)
     if (ctxSize && ctxSize > 200_000 && !/\[1m\]/i.test(model)) {
       return model + '[1m]'
     }
@@ -885,6 +911,8 @@ export const useSettingsStore = defineStore('settings', () => {
     lastViewedChangelogVersion,
     modelContextWindows,
     modelCapabilities,
+    contextWindowOverrides,
+    getContextWindowOverride,
     getModelWith1mSuffix,
     rtkEnabled,
     aiSessionTitleEnabled,

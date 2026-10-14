@@ -194,8 +194,11 @@ function handleCompact() {
   contextStore.startCompact()
 }
 
-const model = computed(() => settingsStore.config.model || 'claude-sonnet-4-6')
-const userCtxOverride = computed(() => settingsStore.modelContextWindows[model.value])
+// 阈值标记必须与快照同一模型计算，否则会拿 sonnet 槽位的窗口去量当前会话的模型
+const model = computed(
+  () => snapshot.value?.data?.model || settingsStore.config.model || 'claude-sonnet-4-6',
+)
+const userCtxOverride = computed(() => settingsStore.getContextWindowOverride(model.value))
 const circumference = 2 * Math.PI * 52
 
 const rawMax = computed(() => snapshot.value?.data?.rawMaxTokens ?? getContextWindowForModel(model.value, userCtxOverride.value))

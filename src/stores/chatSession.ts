@@ -866,7 +866,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       // modelContextWindows 以实际模型名（如 kimi-k3）为键，而 effectiveModel 是别名。
       // sessionProcess 用 config.model 查 [1m] 后缀与 CLAUDE_CODE_AUTO_COMPACT_WINDOW，
       // 别名查不到会导致槽位模型的自定义上下文窗口不生效。这里为别名补一份同值键。
-      const modelContextWindowsForEngine: Record<string, number> = { ...settingsStore.modelContextWindows }
+      const modelContextWindowsForEngine: Record<string, number> = { ...settingsStore.contextWindowOverrides }
       const actualModel = actualModelForAlias(effectiveModel)
       if (effectiveModel && actualModel && modelContextWindowsForEngine[actualModel] !== undefined) {
         modelContextWindowsForEngine[effectiveModel] = modelContextWindowsForEngine[actualModel]

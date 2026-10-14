@@ -189,4 +189,23 @@ describe('chat session startup', () => {
       modelContextWindows: { 'kimi-k3': 400_000, sonnet: 400_000 },
     }))
   })
+
+  it('设置页高级配置里的上下文窗口（modelCapabilities）同样送达引擎', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: 'https://api.example/v1', apiKey: 'test-key', haikuModel: 'kimi-k3-flash', sonnetModel: 'kimi-k3', opusModel: 'kimi-k3-pro' }
+    settings.modelCapabilities = { 'kimi-k3': { contextWindow: 200_000 } }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Test', 'D:/repo', 'ctx-capability')
+    mocks.getSessionStatus.mockResolvedValue({ isRunning: false })
+
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.startSession).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      model: 'sonnet',
+      modelContextWindows: { 'kimi-k3': 200_000, sonnet: 200_000 },
+    }))
+  })
 })

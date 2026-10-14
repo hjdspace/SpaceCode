@@ -152,16 +152,32 @@ function selectNext(prompt: string) {
   onSend(prompt, { files: [], images: [] })
 }
 
-function handleToolSubmit(messageId: string, toolId: string, updatedInput: Record<string, unknown>) {
+// AskUserQuestion 在引擎侧是 requiresUserInteraction 工具：它阻塞在 can_use_tool 的
+// control_request 上，只有 allowPermission/denyPermission 能解除阻塞。
+// submitToolAnswer 是另一条通道（把 tool_result 写回 stdin），对它应答不会让引擎继续。
+async function handleToolSubmit(messageId: string, toolId: string, updatedInput: Record<string, unknown>) {
   const sid = activeSessionId.value
   if (!sid) return
-  turnStore.submitToolAnswer(sid, messageId, toolId, updatedInput as Record<string, string>)
+
+  if (turnStore.hasPendingPermissionForToolUse(toolId, sid)) {
+    await turnStore.allowPermission(messageId, toolId, updatedInput, undefined, sid)
+    return
+  }
+
+  const answers = (updatedInput?.answers as Record<string, string> | undefined) ?? {}
+  await turnStore.submitToolAnswer(sid, messageId, toolId, answers)
 }
 
-function handleToolSkip(messageId: string, toolId: string) {
+async function handleToolSkip(messageId: string, toolId: string) {
   const sid = activeSessionId.value
   if (!sid) return
-  turnStore.skipToolAnswer(sid, messageId, toolId)
+
+  if (turnStore.hasPendingPermissionForToolUse(toolId, sid)) {
+    await turnStore.denyPermission(messageId, toolId, t('chatPanel.userSkippedQuestions'), {}, sid)
+    return
+  }
+
+  await turnStore.skipToolAnswer(sid, messageId, toolId)
 }
 
 function onDesignSystemChange(systemId: string | null) {
@@ -181,6 +197,8 @@ function onDesignSystemChange(systemId: string | null) {
 .chat-body {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 

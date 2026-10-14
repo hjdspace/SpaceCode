@@ -101,7 +101,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
 
     const session = sessionStore.sessions.find(s => s.id === sid)
     const model = session?.model || settingsStore.config.model || 'claude-sonnet-4-6'
-    const userCtxOverride = settingsStore.modelContextWindows[model]
+    const userCtxOverride = settingsStore.getContextWindowOverride(model)
     const messages = session?.messages ?? []
 
     if (lastFetchedSessionId.value !== sid) {
@@ -162,7 +162,7 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     const session = sessionStore.sessions.find(s => s.id === sid)
     const messages = session?.messages ?? []
     const model = session?.model || settingsStore.config.model || 'claude-sonnet-4-6'
-    const userCtxOverride = settingsStore.modelContextWindows[model]
+    const userCtxOverride = settingsStore.getContextWindowOverride(model)
     snapshot.value = buildFallbackSnapshot(messages, model, userCtxOverride)
     lastFetchedSessionId.value = sid
   }

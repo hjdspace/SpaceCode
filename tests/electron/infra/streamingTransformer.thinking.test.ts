@@ -147,9 +147,103 @@ describe('streamingTransformer thinking/reasoning', () => {
     assert.equal(blockStarts[0].content_block.type, 'thinking')
     assert.equal(blockStarts[1].content_block.type, 'tool_use')
 
-    // Thinking block must be closed before tool_use block starts
+    // Thinking block must be closed before tool_use block starts, and tool_use
+    // must get its own index — reusing the thinking index leaves the thinking
+    // block permanently open.
     const blockStops = parsed.filter(e => e.type === 'content_block_stop')
-    assert.ok(blockStops.some(s => s.index === 0))
+    assert.equal(blockStops[0].index, 0)
+    assert.equal(blockStarts[1].index, 1)
+  })
+
+  it('keeps one text block open when the gateway echoes empty reasoning_content per chunk', () => {
+    // Regression: qwen/DeepSeek-style gateways keep sending
+    // `reasoning_content: ""` on every content chunk after reasoning ends.
+    // Treating that as a block boundary chopped one answer into one text block
+    // per chunk with an empty thinking block in between, which the timeline
+    // rendered as interleaved fragments and blank reasoning cards.
+    const events = [
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: { reasoning_content: 'Thinking hard.' } }],
+      }),
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: { reasoning_content: '', content: '"做一个考勤表"' } }],
+      }),
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: { reasoning_content: '', content: ' 有几种可能的' } }],
+      }),
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: { reasoning_content: '', content: '理解，我需要确认一下再动手。' } }],
+      }),
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+      { data: '[DONE]' },
+    ]
+    const parsed = collect(events)
+
+    const blockStarts = parsed.filter(e => e.type === 'content_block_start')
+    assert.deepEqual(
+      blockStarts.map(e => e.content_block.type),
+      ['thinking', 'text'],
+    )
+
+    const textDeltas = parsed.filter(
+      e => e.type === 'content_block_delta' && e.delta?.type === 'text_delta',
+    )
+    assert.equal(textDeltas.length, 3)
+    assert.ok(textDeltas.every(e => e.index === blockStarts[1].index))
+    assert.equal(
+      textDeltas.map(e => e.delta.text).join(''),
+      '"做一个考勤表" 有几种可能的理解，我需要确认一下再动手。',
+    )
+
+    const thinkingDeltas = parsed.filter(
+      e => e.type === 'content_block_delta' && e.delta?.type === 'thinking_delta',
+    )
+    assert.equal(thinkingDeltas.length, 1)
+  })
+
+  it('still opens a thinking block for genuinely interleaved reasoning', () => {
+    const events = [
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: { content: 'First part. ' } }],
+      }),
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: { reasoning_content: 'Wait, let me reconsider.' } }],
+      }),
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: { content: 'Second part.' } }],
+      }),
+      sse({
+        id: 'chatcmpl-1',
+        model: 'qwen3.8-max',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+      { data: '[DONE]' },
+    ]
+    const parsed = collect(events)
+
+    const blockStarts = parsed.filter(e => e.type === 'content_block_start')
+    assert.deepEqual(
+      blockStarts.map(e => e.content_block.type),
+      ['text', 'thinking', 'text'],
+    )
   })
 })
 

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { warn } from '../infra/logger'
+import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import type { EngineSessionConfig } from './engines/types'
 
 interface PersistedProviderConfig {
@@ -10,6 +11,10 @@ interface PersistedProviderConfig {
   haikuModel?: string
   sonnetModel?: string
   opusModel?: string
+}
+
+interface PersistedModelCapability {
+  contextWindow?: number
 }
 
 interface PersistedGuiSettings {
@@ -22,7 +27,10 @@ interface PersistedGuiSettings {
   engineType?: EngineSessionConfig['engineType']
   engineSource?: EngineSessionConfig['engineSource']
   installedCliPath?: string
+  /** 旧版载体，仅可能来自历史持久化数据 */
   modelContextWindows?: Record<string, number>
+  /** 设置页当前写入的模型能力覆盖，contextWindow 以此为准 */
+  modelCapabilities?: Record<string, PersistedModelCapability>
   rtkEnabled?: boolean
 }
 
@@ -93,7 +101,11 @@ export function loadEngineSessionConfig(cwd: string): EngineSessionConfig {
   if (settings.engineType) config.engineType = settings.engineType
   if (settings.engineSource) config.engineSource = settings.engineSource
   if (settings.installedCliPath) config.installedCliPath = settings.installedCliPath
-  if (settings.modelContextWindows) config.modelContextWindows = settings.modelContextWindows
+  const contextWindowOverrides = resolveContextWindowOverrides(
+    settings.modelCapabilities,
+    settings.modelContextWindows,
+  )
+  if (Object.keys(contextWindowOverrides).length > 0) config.modelContextWindows = contextWindowOverrides
   if (typeof settings.rtkEnabled === 'boolean') config.rtkEnabled = settings.rtkEnabled
 
   return config

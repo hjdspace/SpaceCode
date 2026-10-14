@@ -559,6 +559,51 @@ watch(specialToolNames, loadVisibleSpecialComponents)
 let _cachedTimelineEvents: TimelineEvent[] | null = null
 let _cachedTimelineKey = ''
 
+/**
+ * 就地归一化 events[from..] —— 一个 assistant 轮次产出的事件片段。
+ *
+ * 1. 丢弃已收口的空 reasoning 事件。上游兼容层会在 text 块之间夹入没有
+ *    任何 thinking_delta 的占位 thinking 块，渲染出来是一行空白折叠卡片，
+ *    把答复切成一段段插在中间。运行中的空块保留 —— 那是"思考中"动画的首帧。
+ * 2. 把相邻的 text 事件合并成一个 Markdown 文档。Anthropic 一轮内只会有一个
+ *    连续 text 块，多个相邻 text 事件是兼容层按帧切块的产物；逐块渲染会把
+ *    `**粗体**`、列表、表格的语法边界截断成互不相干的碎片。
+ * 3. 合并之后才剥离设计专用标签，保证跨帧的 <od-card> 仍能整体匹配。
+ */
+function normalizeMessageEvents(events: TimelineEvent[], from: number, designMode: boolean): void {
+  const normalized: TimelineEvent[] = []
+  let textRun: TimelineEvent[] = []
+
+  const flushTextRun = () => {
+    if (!textRun.length) return
+    const raw = textRun.map(event => event.content).join('')
+    const content = designMode ? stripDesignTags(raw) : raw
+    if (content.trim()) {
+      normalized.push({
+        ...textRun[0],
+        content,
+        status: textRun.some(event => event.status === 'running') ? 'running' : 'completed',
+      })
+    }
+    textRun = []
+  }
+
+  for (const event of events.slice(from)) {
+    if (event.type === 'text') {
+      textRun.push(event)
+      continue
+    }
+    // 先判丢弃再 flush：空占位块被打断的正是同一段答复，若先 flush 就会把
+    // 一个 text run 拆成多块，合并等于没做。
+    if (event.type === 'reasoning' && event.status !== 'running' && !event.content.trim()) continue
+    flushTextRun()
+    normalized.push(event)
+  }
+  flushTextRun()
+
+  events.splice(from, events.length - from, ...normalized)
+}
+
 function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
   const toolStateKey = msgs
     .flatMap(msg => (msg.toolCalls || []).map(tool => [
@@ -615,6 +660,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
   const timelineToolCallIds = new Set<string>()
 
   for (const msg of msgs) {
+    const msgEventsStart = events.length
     const hasTimeline = msg.timelineEvents?.length
 
     if (hasTimeline) {
@@ -660,7 +706,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             status: event.status,
             icon: markRaw(MessageCircle),
             label: t('timeline.response'),
-            content: props.mode === 'design' ? stripDesignTags(event.content || '') : (event.content || ''),
+            content: event.content || '',
           })
           continue
         }
@@ -705,19 +751,18 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
       }
 
       if (msg.content) {
-        const textContent = props.mode === 'design' ? stripDesignTags(msg.content) : msg.content
-        if (textContent?.trim()) {
-          events.push({
-            id: `${msg.id}-text`,
-            type: 'text',
-            status: 'completed',
-            icon: markRaw(MessageCircle),
-            label: t('timeline.response'),
-            content: textContent,
-          })
-        }
+        events.push({
+          id: `${msg.id}-text`,
+          type: 'text',
+          status: 'completed',
+          icon: markRaw(MessageCircle),
+          label: t('timeline.response'),
+          content: msg.content,
+        })
       }
     }
+
+    normalizeMessageEvents(events, msgEventsStart, props.mode === 'design')
 
     if (msg.id === finalMetadataMessageId && hasFinalMetadata(msg.metadata)) {
       events.push({

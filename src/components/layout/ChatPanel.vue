@@ -1060,6 +1060,15 @@ watch(
   },
 )
 
+// 设置页改上下文窗口后，当前会话的用量芯片要立刻按新窗口重算，
+// 而不是等到下次会话切换/回合结束才刷新。
+watch(
+  () => settingsStore.contextWindowOverrides,
+  () => {
+    if (paneSessionId.value) void contextUsageStore.refresh(paneSessionId.value, true)
+  },
+)
+
 // AI 回复完成后，自动发送 pending 队列中的消息
 watch(() => paneIsLoading.value, async (loading, prevLoading) => {
   if (prevLoading && !loading) {

@@ -6,6 +6,7 @@ import type {
   ContextUsageSnapshot,
   ContextWarningLevel,
 } from '@/types/contextUsage'
+import type { ModelCapabilityOverride } from '@/types/profile'
 
 const MODEL_CONTEXT_DEFAULT = 200_000
 const AUTOCOMPACT_BUFFER = 13_000
@@ -300,6 +301,29 @@ export function getVisibleContextCategories(
         !category.isDeferred,
     ),
   )
+}
+
+/**
+ * 用户为各模型设定的上下文窗口（模型 id → tokens），引擎侧与用量展示共用这一份。
+ *
+ * 设置页写入的是 modelCapabilities（带 contextWindow 的能力覆盖）；
+ * modelContextWindows 是它之前的载体，只可能来自旧版持久化数据与 Profile。
+ * 两者冲突时以 modelCapabilities 为准 —— 那里才是用户当前编辑的字段。
+ */
+export function resolveContextWindowOverrides(
+  modelCapabilities?: Record<string, ModelCapabilityOverride>,
+  legacyModelContextWindows?: Record<string, number>,
+): Record<string, number> {
+  const overrides: Record<string, number> = {}
+  for (const [model, window] of Object.entries(legacyModelContextWindows ?? {})) {
+    if (window > 0) overrides[model] = window
+  }
+  for (const [model, capability] of Object.entries(modelCapabilities ?? {})) {
+    if (capability?.contextWindow && capability.contextWindow > 0) {
+      overrides[model] = capability.contextWindow
+    }
+  }
+  return overrides
 }
 
 /** Client-side context window resolution (mirrors engine getContextWindowForModel). */
