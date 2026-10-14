@@ -233,10 +233,8 @@ class _PermissionSheet extends ConsumerWidget {
 
     return PermissionCard(
       request: request,
-      onAllow: () =>
-          ref.read(chatProvider.notifier).allowPermission(request.toolUseId),
-      onDeny: () =>
-          ref.read(chatProvider.notifier).denyPermission(request.toolUseId),
+      onAllow: () => ref.read(chatProvider.notifier).allowPermission(request),
+      onDeny: () => ref.read(chatProvider.notifier).denyPermission(request),
     );
   }
 }

@@ -134,19 +134,27 @@ export function registerMobileIPCHandlers(): void {
       }
     })
 
-    mobileServer.on('allow_permission', async ({ sessionId, toolUseId }: any) => {
+    mobileServer.on('allow_permission', async ({ sessionId, requestId }: any) => {
       try {
-        await engineGateway.allowPermission(sessionId, toolUseId)
+        await engineGateway.allowPermission(sessionId, requestId)
       } catch (err) {
         error('MobileServer', 'allow_permission failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
+        mobileServer?.sendToClient({
+          type: 'error',
+          data: { message: err instanceof Error ? err.message : 'Failed to allow permission' },
+        })
       }
     })
 
-    mobileServer.on('deny_permission', async ({ sessionId, toolUseId }: any) => {
+    mobileServer.on('deny_permission', async ({ sessionId, requestId }: any) => {
       try {
-        await engineGateway.denyPermission(sessionId, toolUseId)
+        await engineGateway.denyPermission(sessionId, requestId)
       } catch (err) {
         error('MobileServer', 'deny_permission failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
+        mobileServer?.sendToClient({
+          type: 'error',
+          data: { message: err instanceof Error ? err.message : 'Failed to deny permission' },
+        })
       }
     })
 
@@ -193,7 +201,16 @@ export function registerMobileIPCHandlers(): void {
     })
 
     mobileServer.on('list_agents', async () => {
-      mobileServer?.sendToClient({ type: 'agents_list', data: { agents: [] } })
+      try {
+        const config = await getMainWindow()?.webContents.executeJavaScript(
+          `window.__spacecode_api__?.getActiveSessionConfig?.() || null`
+        )
+        const agents = await engineGateway.listAgents(config?.cwd, config?.engineType)
+        mobileServer?.sendToClient({ type: 'agents_list', data: { agents } })
+      } catch (err) {
+        warn('MobileServer', 'list_agents failed', { error: String(err) })
+        mobileServer?.sendToClient({ type: 'agents_list', data: { agents: [] } })
+      }
     })
 
     mobileServer.on('set_permission_mode', async ({ sessionId, mode }: any) => {

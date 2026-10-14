@@ -58,10 +58,16 @@ function isSameProxyConfig(a: ProxyConfig, b: ProxyConfig): boolean {
     && a.modelMapping.defaultModel === b.modelMapping.defaultModel
 }
 
+/** 保存后代理与配置的对照结果，回给渲染端，"已保存"才等于"代理真的对齐了"。 */
+export interface ProxyReconcileResult {
+  state: 'not-needed' | 'unchanged' | 'aligned' | 'failed'
+  error?: string
+}
+
 /**
  * 设置保存后将本地代理与最新 GUI 配置对齐。
  */
-async function reconcileProxyWithSettings(guiSettings: Record<string, any>): Promise<void> {
+async function reconcileProxyWithSettings(guiSettings: Record<string, any>): Promise<ProxyReconcileResult> {
   const authMethod = guiSettings?.authMethod
   const needsProxy = !!authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)
 
@@ -72,26 +78,28 @@ async function reconcileProxyWithSettings(guiSettings: Record<string, any>): Pro
         info('Settings', 'Proxy stopped after settings save (current provider does not need proxy)')
       } catch (err) {
         warn('Settings', 'Failed to stop proxy after settings save', { error: String(err) })
+        return { state: 'failed', error: String(err) }
       }
     }
-    return
+    return { state: 'not-needed' }
   }
 
   const newConfig = buildProxyConfigFromSettings(guiSettings)
-  if (!newConfig) return
+  if (!newConfig) return { state: 'not-needed' }
 
   if (!proxyManager.isRunning()) {
     try {
       await proxyManager.start(newConfig)
       info('Settings', 'Proxy started after settings save')
+      return { state: 'aligned' }
     } catch (err) {
       warn('Settings', 'Failed to start proxy after settings save', { error: String(err) })
+      return { state: 'failed', error: String(err) }
     }
-    return
   }
 
   const current = proxyManager.getConfig()
-  if (current && isSameProxyConfig(current, newConfig)) return
+  if (current && isSameProxyConfig(current, newConfig)) return { state: 'unchanged' }
 
   newConfig.port = current?.port ?? newConfig.port
   try {
@@ -100,8 +108,10 @@ async function reconcileProxyWithSettings(guiSettings: Record<string, any>): Pro
       port: newConfig.port,
       upstreamBaseUrl: newConfig.upstreamBaseUrl,
     })
+    return { state: 'aligned' }
   } catch (err) {
     warn('Settings', 'Failed to restart proxy after provider config change', { error: String(err) })
+    return { state: 'failed', error: String(err) }
   }
 }
 
@@ -219,11 +229,12 @@ export function registerSettingsIPCHandlers(): void {
       try {
         parsedGuiSettings = JSON.parse(data)
       } catch {}
+      let proxy: ProxyReconcileResult = { state: 'not-needed' }
       if (parsedGuiSettings && typeof parsedGuiSettings === 'object') {
-        await reconcileProxyWithSettings(parsedGuiSettings)
+        proxy = await reconcileProxyWithSettings(parsedGuiSettings)
       }
 
-      return { success: true }
+      return { success: true, proxy }
     } catch (err: any) {
       error('Settings', 'Failed to save GUI settings', err)
       return { success: false, error: String(err) }

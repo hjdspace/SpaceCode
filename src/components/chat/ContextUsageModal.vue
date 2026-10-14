@@ -26,11 +26,6 @@
             </div>
           </header>
 
-          <div v-if="loading && !snapshot" class="modal-loading">
-            <Loader2 :size="20" class="spin" />
-            <span>{{ t('common.loading') }}</span>
-          </div>
-
           <div v-if="isCompacting" class="compact-banner">
             <Loader2 :size="14" class="spin" />
             <span>{{ t('contextUsage.compactingHint') }}</span>
@@ -188,7 +183,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const contextStore = useContextUsageStore()
 const settingsStore = useSettingsStore()
-const { snapshot, loading, isCompacting } = storeToRefs(contextStore)
+const { snapshot, isCompacting } = storeToRefs(contextStore)
 
 function handleCompact() {
   contextStore.startCompact()
@@ -300,7 +295,7 @@ function close() {
 watch(
   () => props.show,
   open => {
-    if (open) void contextStore.refresh(undefined, true)
+    if (open) contextStore.refresh()
   },
   { immediate: true },
 )
@@ -418,7 +413,6 @@ watch(
   border-bottom: 1px solid var(--surface-border);
 }
 
-.modal-loading,
 .modal-empty {
   padding: 48px 24px;
   text-align: center;

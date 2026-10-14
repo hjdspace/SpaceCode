@@ -19,6 +19,8 @@ let logFilePath: string
 let traceDir: string
 const sessionLogFiles = new Map<string, string>()
 let _debugMode = false
+/** stdio 写坏过一次就永久停用 console 镜像，只留文件日志（见 safeConsoleWrite） */
+let consoleMirrorBroken = false
 
 export type AgentTraceEvent = {
   id?: string
@@ -82,6 +84,13 @@ export function initLogger(): void {
 
   // 清理旧日志
   cleanOldLogs()
+
+  // stdio 管道可能已经坏掉（macOS 从 Finder 启动、或退出阶段管道先于进程关闭）。
+  // 'error' 事件没人接就会变成 uncaughtException，把 before-quit 的清理链打断 ——
+  // 这里接住它，之后由 consoleMirrorBroken 停止写 console。
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on('error', () => { consoleMirrorBroken = true })
+  }
 
   // 检测 --debug 启动参数
   _debugMode = app.commandLine.hasSwitch('debug') || process.argv.includes('--debug')
@@ -311,15 +320,29 @@ function writeLog(level: LogLevel, scope: string, message: string, data: any, wr
   const line = formatLine(level, scope, `${message}${dataStr}`)
 
   // 始终输出到 console
-  switch (level) {
-    case 'ERROR': console.error(line); break
-    case 'WARN':  console.warn(line); break
-    default:      console.log(line); break
-  }
+  safeConsoleWrite(level, line)
 
   // 按需写文件
   if (writeFile) {
     writeLine(line, true)
+  }
+}
+
+/**
+ * console 输出绝不能抛：日志器在 before-quit 的清理链上被调用，而 stdio 管道那时
+ * 可能已经关闭，`console.log` 会抛 `write EIO`。没有 uncaughtException 兜底的话
+ * Electron 会弹原生异常框并把退出流程卡住（Dock 图标残留 = 进程还活着）。
+ */
+function safeConsoleWrite(level: LogLevel, line: string): void {
+  if (consoleMirrorBroken) return
+  try {
+    switch (level) {
+      case 'ERROR': console.error(line); break
+      case 'WARN':  console.warn(line); break
+      default:      console.log(line); break
+    }
+  } catch {
+    consoleMirrorBroken = true
   }
 }
 

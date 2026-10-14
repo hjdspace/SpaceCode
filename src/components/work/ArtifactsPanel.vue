@@ -51,6 +51,7 @@ import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 import { api, type ArtifactEntry } from '@/services/electronAPI'
 import { iconFor, formatSize, isHtmlPreviewPath, isOfficePreviewPath } from '@/utils/artifactFormat'
+import { needsWorkspaceRootScan } from '@/utils/artifactScope'
 
 const { t } = useI18n()
 const sessionStore = useChatSessionStore()
@@ -59,10 +60,6 @@ const appStore = useAppStore()
 const files = ref<ArtifactEntry[]>([])
 const loading = ref(false)
 let unsubscribe: (() => void) | null = null
-
-// 已见过的产物路径；用于检测"新生成"的可预览文件并自动打开
-const seenPaths = new Set<string>()
-let primed = false
 
 function isPreviewable(path: string): boolean {
   return isHtmlPreviewPath(path) || isOfficePreviewPath(path)
@@ -83,20 +80,15 @@ async function refresh() {
   }
   loading.value = true
   try {
-    const res = await api.artifacts.list(dir)
+    // 与本轮产物卡片同一套扫描口径：work 只看 outputs/，design/code 还要看工作区根目录，
+    // 否则 agent 写在 outputs/ 之外的交付物在这个列表里根本不会出现。
+    const res = await api.artifacts.list(dir, {
+      scanWorkspaceRoot: needsWorkspaceRootScan(sessionStore.currentSession?.mode),
+    })
     // 只显示当前会话创建之后生成的产物（容差 1s 处理时钟精度边界）
     const cutoff = sessionCreatedAt.value - 1000
     const list = (res.artifacts || []).filter(f => f.mtime >= cutoff)
     files.value = list
-
-    // 检测新出现的可预览文件（如 .html / .pptx 等），自动在内置浏览器/预览面板打开（每个文件仅一次）
-    const fresh = list.filter(f => !seenPaths.has(f.path))
-    list.forEach(f => seenPaths.add(f.path))
-    if (primed) {
-      const preview = fresh.find(f => isPreviewable(f.path))
-      if (preview) open(preview)
-    }
-    primed = true
   } catch (err) {
     console.error('[Artifacts] list failed:', err)
   } finally {
@@ -119,17 +111,12 @@ async function reveal(f: ArtifactEntry) {
 }
 
 watch(currentSessionId, () => {
-  // 切换会话：重置去重状态和列表，避免显示上一个会话的产物
-  seenPaths.clear()
-  primed = false
+  // 切换会话：清空列表，避免显示上一个会话的产物
   files.value = []
   refresh()
 })
 
 watch(workingDir, () => {
-  // 切换工作目录：重置去重状态，避免把既有文件当成新生成
-  seenPaths.clear()
-  primed = false
   refresh()
   // 重启 watcher 以监听新目录
   if (workingDir.value) {

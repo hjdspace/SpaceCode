@@ -23,6 +23,16 @@ export function isOfficePreviewPath(filePath: string): boolean {
   return OFFICE_PREVIEW_EXTS.has(extOfPath(filePath))
 }
 
+/**
+ * 新生成的交付物里值得自动打开右侧预览的那些。
+ *
+ * 只算办公文档与 HTML：文本/代码/图片在会话里点卡片再看更符合习惯，
+ * 每写一个 .ts 就抢走右面板只会变成噪音。
+ */
+export function isAutoPreviewPath(filePath: string): boolean {
+  return isOfficePreviewPath(filePath) || isHtmlPreviewPath(filePath)
+}
+
 export function iconFor(ext: string): string {
   const map: Record<string, string> = {
     pptx: '📊', ppt: '📊',

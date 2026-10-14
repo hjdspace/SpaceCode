@@ -1,3 +1,5 @@
+import { resolveThinkingParams } from './thinkingParams'
+
 /**
  * Rough input-token estimate (~chars/4) over the full Anthropic request body:
  * system prompt, messages, and tool definitions. Used to seed message_start's
@@ -99,21 +101,12 @@ export function anthropicToOpenAIRequest(body: Record<string, any>): Record<stri
 
   // ── thinking / extended thinking → OpenAI-compatible chain-of-thought ──
   //
-  // Anthropic sends `thinking: { type: 'enabled' | 'adaptive' | 'disabled' }`
-  // to control extended thinking. OpenAI-compatible endpoints (DeepSeek, MiMo)
-  // use different parameter names. We emit all known formats simultaneously;
-  // each endpoint uses the one it recognizes and ignores the rest.
-  //   Official DeepSeek API:  `thinking: { type: 'enabled' }`
-  //   Self-hosted DeepSeek:   `enable_thinking: true`
-  //   MiMo (Xiaomi):          `chat_template_kwargs: { enable_thinking: true }`
+  // `body.model` 此刻已经被 applyModelMapping 换成上游真实模型名（server.ts 先映射
+  // 再转换），所以这里能按模型族挑出那一家认得的思考写法。
   const thinkingEnabled = body.thinking && (
     body.thinking.type === 'enabled' || body.thinking.type === 'adaptive'
   )
-  if (thinkingEnabled) {
-    result.thinking = { type: 'enabled' }
-    result.enable_thinking = true
-    result.chat_template_kwargs = { thinking: true, enable_thinking: true }
-  }
+  Object.assign(result, resolveThinkingParams(body.model, Boolean(thinkingEnabled)))
 
   return result
 }

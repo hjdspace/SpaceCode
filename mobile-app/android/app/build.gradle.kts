@@ -60,6 +60,13 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // 收缩保持关闭：打开后 R8 会裁掉 ML Kit 反射加载的组件注册类，
+            // 扫码页起不来。规则已备在 proguard-rules.pro，要收缩就开着它一起测相机。
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

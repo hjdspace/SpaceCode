@@ -126,6 +126,11 @@ export class ClaudeCodeEngine implements IEngine {
     return this.pool.setModel(sessionId, model)
   }
 
+  updateThinkingLevel(sessionId: string, enabled: boolean): Promise<void> {
+    this.pool.updateThinkingLevel(sessionId, enabled)
+    return Promise.resolve()
+  }
+
   getMcpStatus(sessionId: string) {
     return this.pool.getMcpStatus(sessionId)
   }

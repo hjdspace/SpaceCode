@@ -8,6 +8,7 @@
 import { BrowserWindow, app, net } from 'electron'
 import { join } from 'path'
 import { info, warn, error, debug, isDebugMode } from '../infra/logger'
+import { isQuitting, shouldHideOnWindowClose } from '../infra/appLifecycle'
 import { getWindowIconPath, loadIconImage } from './iconUtils'
 import { setMainWindow } from '../engine/claudeCodeIPC'
 import { TerminalManager } from '../infra/terminalManager'
@@ -241,7 +242,7 @@ export function createWindow(
   })
 
   mainWindow.on('close', (event) => {
-    if (process.platform === 'darwin') {
+    if (shouldHideOnWindowClose(process.platform, isQuitting())) {
       event.preventDefault()
       mainWindow?.hide()
     }

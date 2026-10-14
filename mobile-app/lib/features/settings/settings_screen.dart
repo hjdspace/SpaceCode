@@ -1494,6 +1494,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             Icons.architecture_rounded,
             Color(0xff5db8a6)
           ),
+          (
+            'review',
+            'Review Agent',
+            '代码审查与质量检查',
+            Icons.rate_review_rounded,
+            Color(0xffe8a55a)
+          ),
         ];
         return Padding(
           padding: const EdgeInsets.all(16),

@@ -3,7 +3,7 @@
     v-if="visible"
     type="button"
     class="context-chip"
-    :class="[`level-${warningLevel}`, { loading }]"
+    :class="`level-${warningLevel}`"
     :title="tooltip"
     @click="$emit('open')"
   >
@@ -33,7 +33,7 @@ defineEmits<{
 const { t } = useI18n()
 const contextStore = useContextUsageStore()
 const settingsStore = useSettingsStore()
-const { snapshot, loading } = storeToRefs(contextStore)
+const { snapshot } = storeToRefs(contextStore)
 
 const visible = computed(() => settingsStore.appearance?.showContextUsage !== false)
 
@@ -75,10 +75,6 @@ const tooltip = computed(() => {
     border-color: var(--surface-border-strong);
     background: var(--surface-glass-hover);
     color: var(--text-primary);
-  }
-
-  &.loading {
-    opacity: 0.6;
   }
 
   &.level-warn {

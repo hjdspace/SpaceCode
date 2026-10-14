@@ -46,10 +46,28 @@ function extractRetryAfter(msg: string, error: unknown): number | undefined {
   return undefined
 }
 
+/**
+ * 网关报"不支持某参数"时，把参数名原样挑出来告诉用户 —— 否则用户只看到一句
+ * 400，不知道该去关哪个开关（思考模式就是最常见的那个）。
+ */
+function extractUnsupportedParamsHint(msg: string): string {
+  const match = msg.match(/does not support parameters?:\s*\[([^\]]*)\]/i)
+  if (!match) return ''
+  const names = match[1]
+    .split(',')
+    .map(part => part.trim().replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean)
+  if (names.length === 0) return ''
+  return ` 该服务不接受参数 ${names.map(n => `「${n}」`).join('、')}，请在设置里关闭对应能力或换一个支持它的接口。`
+}
+
 function classifyError(error: unknown, context?: ErrorContext): ClassifiedError {
   const msg = error instanceof Error ? error.message : String(error)
   const lowerMsg = msg.toLowerCase()
   const timestamp = Date.now()
+  // 调用方已经判过可否重试的错误（例如上游失败后回空时合成的那条）带着标记，
+  // 不要再靠文本猜一遍。
+  const flaggedRetryable = (error as { retryable?: boolean } | null | undefined)?.retryable
 
   const make = (category: ErrorCategory, overrides?: Partial<ClassifiedError>): ClassifiedError => ({
     category,
@@ -63,6 +81,8 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
     originalError: error,
     timestamp,
     ...overrides,
+    // 调用方判定过就以此为准 —— 它比任何按文本猜出来的分支都清楚这次失败能不能靠重发恢复。
+    ...(flaggedRetryable !== undefined ? { retryable: flaggedRetryable } : {}),
   })
 
   // 400 = 服务端拒绝了请求体，重发同一份历史必然复现（例如含 tool_calls 的消息格式
@@ -74,12 +94,17 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
     /\bAPI Error: 400\b/i.test(msg) ||
     /\b400 Bad Request\b/i.test(msg) ||
     lowerMsg.includes('invalid_request_error') ||
-    lowerMsg.includes('badrequesterror')
+    lowerMsg.includes('badrequesterror') ||
+    // 网关拒绝某个参数（LiteLLM: UnsupportedParamsError: openai does not support
+    // parameters: ['thinking']）—— 参数是谁发出去的很清楚，重发只会再吃一次 400。
+    lowerMsg.includes('unsupportedparamserror') ||
+    lowerMsg.includes('does not support parameters') ||
+    lowerMsg.includes('unsupported_params')
   )
   if (isRequestRejected) {
     return make(ErrorCategory.DATA_ERROR, {
       retryable: false,
-      message: '服务端拒绝了本次请求的数据格式（400），重发无法恢复，请联系网关/模型服务确认对该请求的兼容性。',
+      message: `服务端拒绝了本次请求的数据格式（400），重发无法恢复，请联系网关/模型服务确认对该请求的兼容性。${extractUnsupportedParamsHint(msg)}`,
     })
   }
 
@@ -106,7 +131,10 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
       technicalDetail,
     })
   }
-  if (/5\d{2}/.test(lowerMsg) || lowerMsg.includes('server error') || lowerMsg.includes('internal server')) {
+  // 只认带上下文的 5xx：裸 /5\d{2}/ 会把 token 数（15000）、模型名里的数字之类
+  // 判成服务器错误，于是确定性的失败被自动重发 5 次。
+  const isServerErrorStatus = /\b(?:api error|status(?: code)?|http(?: error)?|error code)[\s:=]*['"]?5\d{2}\b/i.test(msg)
+  if (isServerErrorStatus || lowerMsg.includes('server error') || lowerMsg.includes('internal server')) {
     return make(ErrorCategory.SERVER_ERROR, { retryable: true })
   }
   if (lowerMsg.includes('401') || lowerMsg.includes('403') || lowerMsg.includes('unauthorized') || lowerMsg.includes('forbidden') || lowerMsg.includes('invalid api key') || lowerMsg.includes('authentication')) {

@@ -118,7 +118,7 @@ export interface IEngine {
   getSettings?(sessionId: string): Promise<Record<string, unknown> | undefined>
   stopEngineTask?(sessionId: string, taskId: string): Promise<void>
   getPendingPermissionRequestIds?(sessionId: string): string[]
-  /** 切换思考等级（可选；目前仅 Pi 引擎实现） */
+  /** 切换思考等级（可选；Pi 直接下发给进程，Claude 侧等下次 spawn 生效） */
   updateThinkingLevel?(sessionId: string, enabled: boolean): Promise<void>
 }
 

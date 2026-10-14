@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { iconFor, formatSize, isOfficePreviewPath, isHtmlPreviewPath } from '@/utils/artifactFormat'
+import { iconFor, formatSize, isAutoPreviewPath, isOfficePreviewPath, isHtmlPreviewPath } from '@/utils/artifactFormat'
 
 describe('iconFor', () => {
   it('maps known extensions to emoji', () => {
@@ -48,6 +48,23 @@ describe('isOfficePreviewPath', () => {
     expect(isOfficePreviewPath('/ws/data.csv')).toBe(false)
     expect(isOfficePreviewPath('/ws/LICENSE')).toBe(false)
     expect(isOfficePreviewPath('')).toBe(false)
+  })
+})
+
+describe('isAutoPreviewPath', () => {
+  // 新生成的交付物自动进右面板 —— 范围要与两个预览器一致，
+  // 且不能把 main.ts / 图片之类的每一次写入都变成弹窗。
+  it('covers office deliverables and web pages', () => {
+    expect(isAutoPreviewPath('/ws/outputs/考勤表.xlsx')).toBe(true)
+    expect(isAutoPreviewPath('/ws/outputs/deck.pptx')).toBe(true)
+    expect(isAutoPreviewPath('/ws/index.html')).toBe(true)
+  })
+
+  it('leaves source and media files out of auto-preview', () => {
+    expect(isAutoPreviewPath('/ws/main.ts')).toBe(false)
+    expect(isAutoPreviewPath('/ws/data.csv')).toBe(false)
+    expect(isAutoPreviewPath('/ws/shot.png')).toBe(false)
+    expect(isAutoPreviewPath('')).toBe(false)
   })
 })
 

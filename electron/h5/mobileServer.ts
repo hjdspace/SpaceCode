@@ -96,14 +96,15 @@ export class MobileServer extends EventEmitter {
       }
 
       case 'allow_permission': {
-        const { sessionId, toolUseId } = message.data as { sessionId: string; toolUseId: string }
-        this.emit('allow_permission', { sessionId, toolUseId })
+        // 授权接口按 requestId 认 pending 请求，toolUseId 只是工具调用自身的 id
+        const { sessionId, requestId } = message.data as { sessionId: string; requestId: string }
+        this.emit('allow_permission', { sessionId, requestId })
         return { status: 'ok' }
       }
 
       case 'deny_permission': {
-        const { sessionId, toolUseId } = message.data as { sessionId: string; toolUseId: string }
-        this.emit('deny_permission', { sessionId, toolUseId })
+        const { sessionId, requestId } = message.data as { sessionId: string; requestId: string }
+        this.emit('deny_permission', { sessionId, requestId })
         return { status: 'ok' }
       }
 

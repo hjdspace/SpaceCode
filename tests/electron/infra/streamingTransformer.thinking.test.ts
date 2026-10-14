@@ -329,6 +329,40 @@ describe('anthropicToOpenAIRequest thinking', () => {
     assert.deepEqual(openaiBody.chat_template_kwargs, { thinking: true, enable_thinking: true })
   })
 
+  it('omits the Anthropic-style thinking param for chat-template families', () => {
+    // Qwen behind LiteLLM/vLLM validates parameters: sending `thinking` there is
+    // a deterministic 400 UnsupportedParamsError, so the model name decides
+    // which spelling goes out.
+    const anthropicBody = {
+      model: 'qwen3.8-27b',
+      messages: [{ role: 'user', content: 'hello' }],
+      stream: true,
+      thinking: { type: 'enabled' },
+    }
+
+    const openaiBody = anthropicToOpenAIRequest(anthropicBody)
+
+    assert.equal(openaiBody.thinking, undefined)
+    assert.equal(openaiBody.enable_thinking, true)
+    assert.deepEqual(openaiBody.chat_template_kwargs, { thinking: true, enable_thinking: true })
+  })
+
+  it('keeps every known spelling for unrecognised models', () => {
+    // Narrowing the default would break the gateways that historically ignore
+    // unknown parameters; only recognised chat-template families get trimmed.
+    const anthropicBody = {
+      model: 'some-alias-not-in-the-table',
+      messages: [{ role: 'user', content: 'hello' }],
+      stream: true,
+      thinking: { type: 'enabled' },
+    }
+
+    const openaiBody = anthropicToOpenAIRequest(anthropicBody)
+
+    assert.deepEqual(openaiBody.thinking, { type: 'enabled' })
+    assert.equal(openaiBody.enable_thinking, true)
+  })
+
   it('does not add thinking params when thinking is disabled', () => {
     const anthropicBody = {
       model: 'claude-sonnet-4-20250514',

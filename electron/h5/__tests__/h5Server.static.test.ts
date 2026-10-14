@@ -41,40 +41,47 @@ const dist = vi.hoisted(() => ({
   touched: [] as string[],
 }))
 
-vi.mock('fs', () => ({
-  existsSync: (p: string) => {
-    dist.touched.push(p)
-    return dist.files.has(p) || dist.sensitive.has(p) || dist.unstatable.has(p)
-  },
-  statSync: (p: string) => {
-    dist.touched.push(p)
-    const calls = (dist.statCalls.get(p) ?? 0) + 1
-    dist.statCalls.set(p, calls)
-    if (dist.unstatable.has(p) && calls > 1) {
-      throw Object.assign(new Error(`EBUSY: resource busy or locked, stat '${p}'`), { code: 'EBUSY' })
-    }
-    const content = dist.files.get(p) ?? dist.sensitive.get(p)
-    if (content === undefined) {
-      throw Object.assign(new Error(`ENOENT: no such file or directory, stat '${p}'`), { code: 'ENOENT' })
-    }
-    return {
-      isFile: () => true,
-      isDirectory: () => false,
-      size: Buffer.byteLength(content),
-      mtime: new Date(0),
-    }
-  },
-  readFileSync: (p: string) => {
-    dist.touched.push(p)
-    const content = dist.files.get(p) ?? dist.sensitive.get(p)
-    if (content === undefined) throw new Error(`ENOENT: open '${p}'`)
-    return content
-  },
-  readdirSync: (p: string) => {
-    dist.touched.push(p)
-    return []
-  },
-}))
+// Partial mock: only the four fs functions h5Server imports are replaced. The
+// rest of the module must stay real because h5TestKit's top-level CAN_SYMLINK
+// probe runs genuine mkdtemp/write/symlink/rm while this module graph loads.
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>()
+  return {
+    ...actual,
+    existsSync: (p: string) => {
+      dist.touched.push(p)
+      return dist.files.has(p) || dist.sensitive.has(p) || dist.unstatable.has(p)
+    },
+    statSync: (p: string) => {
+      dist.touched.push(p)
+      const calls = (dist.statCalls.get(p) ?? 0) + 1
+      dist.statCalls.set(p, calls)
+      if (dist.unstatable.has(p) && calls > 1) {
+        throw Object.assign(new Error(`EBUSY: resource busy or locked, stat '${p}'`), { code: 'EBUSY' })
+      }
+      const content = dist.files.get(p) ?? dist.sensitive.get(p)
+      if (content === undefined) {
+        throw Object.assign(new Error(`ENOENT: no such file or directory, stat '${p}'`), { code: 'ENOENT' })
+      }
+      return {
+        isFile: () => true,
+        isDirectory: () => false,
+        size: Buffer.byteLength(content),
+        mtime: new Date(0),
+      }
+    },
+    readFileSync: (p: string) => {
+      dist.touched.push(p)
+      const content = dist.files.get(p) ?? dist.sensitive.get(p)
+      if (content === undefined) throw new Error(`ENOENT: open '${p}'`)
+      return content
+    },
+    readdirSync: (p: string) => {
+      dist.touched.push(p)
+      return []
+    },
+  }
+})
 
 vi.mock('electron', async () => {
   const { electronMock } = await import('./h5TestKit')

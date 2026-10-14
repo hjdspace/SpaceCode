@@ -249,6 +249,30 @@ export class ClaudeCodeProcessPool {
     return proc.setModel(model)
   }
 
+  /**
+   * 切换会话的思考开关。
+   *
+   * CLI 没有 set_thinking 控制请求，`--thinking` 只在 spawn 时读一次，所以这里改的是
+   * 会话配置本身：正在跑的那一轮不打断（历史靠 --resume 保住），进程下一次起来就用新参数。
+   * 空闲时立即挂起，用户下一条消息就以新配置恢复 —— 否则开关要等到 idle 回收才生效，
+   * 表现就是"点了没反应"。
+   */
+  updateThinkingLevel(sessionId: string, enabled: boolean): void {
+    const proc = this.processes.get(sessionId)
+    if (!proc) {
+      debug('ProcessPool', `[${sessionId.slice(0, 8)}] updateThinkingLevel: no session entry | enabled=${enabled}`)
+      return
+    }
+    proc.config.thinkingEnabled = enabled
+    if (!proc.isRunning()) return
+    if (proc.canSafelySuspend()) {
+      info('ProcessPool', `[${sessionId.slice(0, 8)}] updateThinkingLevel=${enabled} | suspending so the next send respawns with it`)
+      this.suspendSession(sessionId)
+      return
+    }
+    info('ProcessPool', `[${sessionId.slice(0, 8)}] updateThinkingLevel=${enabled} | turn in flight, applies when the process next starts`)
+  }
+
   getMcpStatus(sessionId: string): Promise<Record<string, unknown> | undefined> {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {

@@ -205,7 +205,10 @@ void main() {
   test('parses the final SSE event without a trailing newline', () async {
     final client = MockClient.streaming((request, bodyStream) async {
       await bodyStream.drain<void>();
-      final event = 'data: ${jsonEncode({
+      // 最后一行没有换行符也要被解析；[DONE] 作为终止标记不能少 ——
+      // 缺了它算中断（见下面"marks a stream truncated"那条），不能当成功回复。
+      final event =
+          'data: ${jsonEncode({
             'choices': [
               {
                 'delta': {
@@ -221,7 +224,7 @@ void main() {
                 },
               },
             ],
-          })}';
+          })}\n\ndata: [DONE]';
       return http.StreamedResponse(
         Stream.value(utf8.encode(event)),
         200,
@@ -246,5 +249,83 @@ void main() {
     expect(result.toolCalls.single.name, 'read_file');
     expect(result.toolCalls.single.arguments, {'path': 'a.txt'});
     model.dispose();
+  });
+
+  // issue #40 问题 7：HTTP 200 的 SSE 里回报失败或半截断流，过去都被当成
+  // 正常完成 —— 用户看到的是半句话，且没有任何错误提示。
+  group('stream failure detection on an HTTP 200 SSE', () {
+    Future<AgentModelResponse> runStream(List<String> events) {
+      final bytes = <int>[];
+      for (final event in events) {
+        bytes.addAll(utf8.encode(event));
+      }
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        return http.StreamedResponse(
+          Stream.value(bytes),
+          200,
+          headers: {'content-type': 'text/event-stream'},
+        );
+      });
+      return OpenAiCompatibleModel(client: client).complete(
+        config: const AgentModelConfig(
+          apiKey: 'k',
+          baseUrl: 'https://example.test/v1',
+          model: 'm',
+        ),
+        systemPrompt: 'agent',
+        messages: const [AgentMessage.user('hi')],
+        tools: const [],
+        cancellationToken: AgentCancellationToken(),
+        onDelta: (_) {},
+      );
+    }
+
+    String deltaChunk(String content) => jsonEncode({
+          'choices': [
+            {'delta': {'content': content}}
+          ]
+        });
+
+    test('throws instead of returning the partial answer when truncated',
+        () async {
+      await expectLater(
+        runStream(['data: ${deltaChunk('partial answer')}\n\n']),
+        throwsA(isA<StateError>().having(
+            (e) => e.message, 'message', contains('中途断开'))),
+      );
+    });
+
+    test('throws the server message when an error event follows the text',
+        () async {
+      final events = [
+        'data: ${deltaChunk('partial answer')}\n\n',
+        'event: error\ndata: ${jsonEncode({
+              'error': {'message': 'context length exceeded'}
+            })}\n\n',
+      ];
+
+      await expectLater(
+        runStream(events),
+        throwsA(isA<StateError>().having((e) => e.message, 'message',
+            contains('context length exceeded'))),
+      );
+    });
+
+    test('accepts a stream that ends on finish_reason without [DONE]',
+        () async {
+      final result = await runStream([
+        'data: ${jsonEncode({
+          'choices': [
+            {
+              'delta': {'content': 'full answer'},
+              'finish_reason': 'stop'
+            }
+          ]
+        })}\n\n',
+      ]);
+
+      expect(result.text, 'full answer');
+    });
   });
 }

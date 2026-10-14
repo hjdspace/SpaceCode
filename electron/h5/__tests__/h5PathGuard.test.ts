@@ -24,7 +24,6 @@ describe('H5PathGuard', () => {
     root = join(box, 'project')
     outside = join(box, 'elsewhere')
     mkdirSync(join(root, 'src'), { recursive: true })
-    mkdirSync(join(root, 'Mixed'), { recursive: true })
     mkdirSync(outside, { recursive: true })
     writeFileSync(join(root, 'src', 'file.ts'), 'x', 'utf-8')
     writeFileSync(join(outside, 'id_rsa'), 'private', 'utf-8')
@@ -130,6 +129,9 @@ describe('H5PathGuard', () => {
   it.skipIf(IS_WIN)('stays case-sensitive elsewhere', () => {
     const guard = guardWith(root)
 
-    expect(guard.check(join(root, 'mixed')).allowed).toBe(false)
+    // A case-variant of the registered root itself: unresolvable by realpath,
+    // so the string comparison is what is tested — it must not fold case the
+    // way the Windows branch does.
+    expect(guard.check(root.replace(/project$/, 'PROJECT')).allowed).toBe(false)
   })
 })

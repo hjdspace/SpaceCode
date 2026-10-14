@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from '../chatSession'
+import { useAppStore } from '../app'
+import { isHtmlPreviewPath, isOfficePreviewPath } from '@/utils/artifactFormat'
 import { useSettingsStore } from '../settings'
 import { useContextUsageStore } from '../contextUsage'
 import type { SessionSink } from '../turnSink'
@@ -341,6 +343,11 @@ export function useTurnStore(injectedApi?: any) {
       errorHandler,
       getClaudeCode: () => resolvedApi.claudeCode ?? null,
       getArtifactsApi: () => resolvedApi.artifacts ?? null,
+      openArtifactPreview: (filePath: string) => {
+        const appStore = useAppStore()
+        if (isOfficePreviewPath(filePath)) appStore.openOfficePreview(filePath, 'html')
+        else if (isHtmlPreviewPath(filePath)) appStore.openFileInWebview(filePath)
+      },
       isSoundOnTaskComplete: () => !!settingsStore.appearance?.soundOnTaskComplete,
       // 旧存档 appearance 无此键 → 视为默认开启（与 UI 默认值一致），仅显式 false 才关闭
       isDesktopNotifyOnTaskComplete: () => settingsStore.appearance?.desktopNotifyOnTaskComplete !== false,

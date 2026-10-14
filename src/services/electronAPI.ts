@@ -484,7 +484,11 @@ export const api = {
     }
     return Promise.resolve({ success: false, error: 'injectGuiModelsToSettings not available' })
   },
-  saveGuiSettings: (data: string): Promise<{ success: boolean; error?: string }> => {
+  saveGuiSettings: (data: string): Promise<{
+    success: boolean
+    error?: string
+    proxy?: { state: 'not-needed' | 'unchanged' | 'aligned' | 'failed'; error?: string }
+  }> => {
     if (electronAPI?.saveGuiSettings) {
       return electronAPI.saveGuiSettings(data)
     }

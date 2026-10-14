@@ -169,5 +169,12 @@
   "filePreview.fileTooLarge": "文件过大，已截断显示前 {lines} 行",
   "filePreview.notFound": "文件不存在或已被删除",
   "filePreview.copyPath": "复制路径",
-  "filePreview.pathCopied": "路径已复制"
+  "filePreview.pathCopied": "路径已复制",
+  "scanner.title": "扫描二维码",
+  "scanner.permissionDeniedTitle": "需要相机权限",
+  "scanner.permissionDeniedMessage": "扫码连接桌面端需要相机权限。请在系统设置中为 SpaceCode 开启相机权限后返回重试。",
+  "scanner.cameraUnavailableTitle": "相机初始化失败",
+  "scanner.cameraUnavailableMessage": "相机组件未能启动。请重试；若仍然失败，可关闭本页并在连接地址栏手动填写桌面端给出的 ws:// 地址。",
+  "scanner.retry": "重试",
+  "scanner.openSettings": "打开系统设置"
 }

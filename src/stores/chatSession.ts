@@ -2073,19 +2073,25 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
 
     currentAgent.value = assistant.name
-    if (assistant.permission) {
-      const { usePermissionPolicyStore } = await import('./permissionPolicy')
-      const policyStore = usePermissionPolicyStore()
-      policyStore.setPermissionMode(assistant.permission as any)
-    }
 
     const session = createSession(assistant.name, cwd)
     session.assistantId = assistant.name
     saveToStorage()
 
+    // 模式要在 createSession 之后下发: 那时 currentSessionId 才指向新会话. 否则控制请求
+    // 打到上一个会话的进程上, 超时后 permissionPolicy 还会把 UI 模式回滚.
+    if (assistant.permission) {
+      const { usePermissionPolicyStore } = await import('./permissionPolicy')
+      const policyStore = usePermissionPolicyStore()
+      await policyStore.setPermissionMode(assistant.permission as any)
+    }
+
     // 不在此处立即展开 Artifacts 面板：用户尚未发送消息、LLM 尚未生成产物。
     // 改为在 ChatPanel.handleSend 中，用户首次发送消息时再展开。
-    await initClaudeCodeSession(session.id)
+    //
+    // 也不在这里起 CLI 进程, 留到首次发送时由 turn store 兜底 initClaudeCodeSession.
+    // 提前起进程会让控制请求抢在首条消息之前进入 CLI 的串行 stdin 循环, 用户消息只能
+    // 排在它后面 —— 而 get_context_usage 这类请求可能占住循环好几分钟.
     return session
   }
 
@@ -2145,27 +2151,30 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
 
     currentAgent.value = assistant.name
-    if (assistant.permission) {
-      const { usePermissionPolicyStore } = await import('./permissionPolicy')
-      const policyStore = usePermissionPolicyStore()
-      policyStore.setPermissionMode(assistant.permission as any)
-    }
 
     // 绑定助手到当前会话
     session.assistantId = assistant.name
     session.title = assistant.name
     saveToStorage()
 
-    // 如果已有 CLI 进程在运行，需要停止后用新 agent 重新初始化
+    // 换助手等于换 --agent, 旧进程必须停掉. 不再就地重启: 与
+    // startWorkAssistantSession 一致, 留到首次发送时再起.
     const claudeCode = api.claudeCode
     if (claudeCode) {
       try {
         const status = await claudeCode.getSessionStatus(session.id)
         if (status?.isRunning) {
           await claudeCode.stop(session.id)
+          session.processStatus = 'none'
         }
       } catch { /* ignore */ }
-      await initClaudeCodeSession(session.id)
+    }
+
+    // 停掉进程之后再下发模式: 此时会话无进程, pool 把它存成 pending, 启动时应用.
+    if (assistant.permission) {
+      const { usePermissionPolicyStore } = await import('./permissionPolicy')
+      const policyStore = usePermissionPolicyStore()
+      await policyStore.setPermissionMode(assistant.permission as any)
     }
   }
 

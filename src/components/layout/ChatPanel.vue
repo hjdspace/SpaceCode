@@ -1023,7 +1023,7 @@ onMounted(async () => {
   await initLLMService()
   currentModel.value = settingsStore.lastSelectedModel || settingsStore.config.model || ''
   if (paneSessionId.value) {
-    void contextUsageStore.refresh(paneSessionId.value)
+    contextUsageStore.refresh(paneSessionId.value)
   }
 
   // chat-main width is observed by the watchEffect above (reactive to chatMainRef)
@@ -1055,7 +1055,7 @@ watch(
     }
     if (loading) return
     if (!prev || prev[0] !== sid || prev[1] === true) {
-      void contextUsageStore.refresh(sid, prev?.[1] === true)
+      contextUsageStore.refresh(sid)
     }
   },
 )
@@ -1065,7 +1065,7 @@ watch(
 watch(
   () => settingsStore.contextWindowOverrides,
   () => {
-    if (paneSessionId.value) void contextUsageStore.refresh(paneSessionId.value, true)
+    if (paneSessionId.value) contextUsageStore.refresh(paneSessionId.value)
   },
 )
 

@@ -15,6 +15,7 @@ import type { TurnStateMachine } from './turnStateMachine'
 import type { TimelineAssembler } from './timelineAssembler'
 import { createUuid } from '@/utils/uuid'
 import { needsWorkspaceRootScan } from '@/utils/artifactScope'
+import { isAutoPreviewPath } from '@/utils/artifactFormat'
 import type { UseAutoRetryReturn } from '@/composables/useAutoRetry'
 import { extractErrorCode } from '@/composables/useAutoRetry'
 import { errorHandler as defaultErrorHandler } from '@/services/errorHandler'
@@ -100,11 +101,16 @@ export interface EventReducerOptions {
   ) => Promise<void>
   contextUsage: {
     applyFallback: (sessionId: string) => void
-    refresh: (sessionId: string, force: boolean) => void
+    refresh: (sessionId: string) => void
   }
   errorHandler: typeof defaultErrorHandler
   getClaudeCode: () => ClaudeCodeApi | null
   getArtifactsApi: () => ArtifactsApi | null
+  /**
+   * 把新生成的交付物送进右侧预览（办公文档走 officecli，HTML 走内置浏览器）。
+   * 由调用方注入，因为这住在 turn store 里，而面板状态归 appStore。
+   */
+  openArtifactPreview?: (filePath: string) => void
   /** Returns true if task-complete notification sound is enabled. */
   isSoundOnTaskComplete: () => boolean
   /** Returns true if desktop system notification on task-complete is enabled. */
@@ -239,6 +245,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     errorHandler,
     getClaudeCode,
     getArtifactsApi,
+    openArtifactPreview,
     isSoundOnTaskComplete,
     isDesktopNotifyOnTaskComplete,
     getSessionTitle,
@@ -247,6 +254,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   } = opts
 
   const { turnStates, beginTurn, endTurn } = stateMachine
+  /** 已经自动预览过的交付物，避免每轮结束都把同一个文件重新弹一次。 */
+  const autoPreviewedPaths = new Set<string>()
   const {
     getAssistantMessage,
     addTimelineEvent,
@@ -1011,8 +1020,13 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       assistantMessageForEmptyCheck?.reasoning,
     )
     if (!isError && !looksLikeApiError && typeof result?.result === 'string' && !hasVisibleOutput) {
-      const emptyResponseError = new Error(
-        'LLM returned an empty response after the upstream request failed. Please check the API configuration and try again.',
+      // 上游请求失败后引擎回了个"成功"的空结果。重发同一份历史只会再失败一次，
+      // 所以标成不可重试 —— 否则按文本分类会落到 UNKNOWN，自动重发 5 次。
+      const emptyResponseError = Object.assign(
+        new Error(
+          'LLM returned an empty response after the upstream request failed. Please check the API configuration and try again.',
+        ),
+        { retryable: false },
       )
       logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] empty successful result treated as error`)
       handleError(sessionId, ts, emptyResponseError)
@@ -1083,7 +1097,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               : undefined
         }
 
-        void contextUsage.refresh(sessionId, true)
+        contextUsage.refresh(sessionId)
         traceEvent({
           sessionId,
           messageId: ts.assistantMessageId,
@@ -1165,6 +1179,20 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               target.metadata = { ...(target.metadata || {}), artifacts: produced }
               sess.messages = [...sess.messages]
               sink.persist(sessionId)
+
+              // 交付物一出现就送进右侧预览。这段逻辑过去住在 ArtifactsPanel 里，
+              // 而那个组件只有产物 tab 挂着时才存在 —— 没挂载就永远不自动预览，
+              // 正是 issue #40 问题 4 报的"生成的 Excel 看不到实时预览"。
+              // design 模式跳过：它有 DesignFileWorkspace 自己的预览区，不去抢。
+              if (s.mode !== 'design' && openArtifactPreview) {
+                const previewable = produced
+                  .filter((a: any) => isAutoPreviewPath(a.path) && !autoPreviewedPaths.has(a.path))
+                  .sort((a: any, b: any) => b.mtime - a.mtime)
+                if (previewable.length > 0) {
+                  autoPreviewedPaths.add(previewable[0].path)
+                  openArtifactPreview(previewable[0].path)
+                }
+              }
             } catch (err) {
               console.error('[Artifacts] turn summary collect failed:', err)
             }

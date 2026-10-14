@@ -15,7 +15,7 @@ import {
   resolveBuiltinMcp,
 } from '../tools/mcpConfigResolver'
 import { installPiSdk } from './piInstaller'
-import { engineGateway, findEngineForSession } from './engineGateway'
+import { engineGateway } from './engineGateway'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { channelNames, eventChannels } from '@/shared/channelMap'
 
@@ -57,10 +57,7 @@ export function registerClaudeCodeIPC() {
   ipcMain.handle(CLAUDE_CODE_CHANNELS.updateThinkingLevel, async (_, sessionId: string, enabled: boolean) => {
     info('ClaudeCodeIPC', `→ updateThinkingLevel | sessionId=${sessionId.slice(0, 8)} | enabled=${enabled}`)
     try {
-      const engine = findEngineForSession(sessionId)
-      if (engine.type === 'pi' && typeof (engine as any).updateThinkingLevel === 'function') {
-        ;(engine as any).updateThinkingLevel(sessionId, enabled)
-      }
+      await engineGateway.updateThinkingLevel(sessionId, enabled)
     } catch (err) {
       error('ClaudeCodeIPC', `✗ updateThinkingLevel | sessionId=${sessionId.slice(0, 8)}`, { error: String(err) })
     }

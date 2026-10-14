@@ -1415,6 +1415,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     if (data == null) return;
     final request = PermissionRequest(
       sessionId: data['sessionId'] as String? ?? '',
+      requestId: data['requestId'] as String? ?? '',
       toolUseId: data['toolUseId'] as String? ?? '',
       toolName: data['toolName'] as String? ?? '',
       input: _encodeToolInput(data['input']),
@@ -1474,59 +1475,36 @@ class ChatNotifier extends StateNotifier<ChatState> {
         );
   }
 
-  void allowPermission(String toolUseId) {
-    final sessionId = state.currentSessionId;
-    // 桌面协同模式：通过 WS 发送 allowPermission
+  /// 回应一张权限请求卡。桌面协同走 requestId、本地 Agent 走 toolUseId，
+  /// sessionId 一律取请求自带的（用 currentSessionId 会在并发会话时投错会话）。
+  void _resolvePermission(PermissionRequest request, {required bool allowed}) {
     final connection = _ref.read(connectionProvider);
-    if (connection.state == conn.ConnectionState.connected && sessionId != null) {
+    if (connection.state == conn.ConnectionState.connected) {
       _ref.read(connectionProvider.notifier).send(MobileRequest(
-            type: RequestType.allowPermission,
-            data: {
-              'sessionId': sessionId,
-              'toolUseId': toolUseId,
-            },
+            type: allowed ? RequestType.allowPermission : RequestType.denyPermission,
+            data: request.desktopResponse,
           ));
-    } else if (sessionId != null) {
-      // 本地 Agent 模式：通过 LocalAgentService 注入 decision
+    } else {
       _localAgent.resolvePermission(
-        sessionId,
-        toolUseId,
-        const AgentToolDecision.allow(),
+        request.sessionId,
+        request.localResponseKey,
+        allowed
+            ? const AgentToolDecision.allow()
+            : const AgentToolDecision.deny('用户拒绝'),
       );
     }
     state = state.copyWith(
       pendingPermissions: state.pendingPermissions
-          .where((p) => p.toolUseId != toolUseId)
+          .where((p) => p.toolUseId != request.toolUseId)
           .toList(),
     );
   }
 
-  void denyPermission(String toolUseId) {
-    final sessionId = state.currentSessionId;
-    // 桌面协同模式：通过 WS 发送 denyPermission
-    final connection = _ref.read(connectionProvider);
-    if (connection.state == conn.ConnectionState.connected && sessionId != null) {
-      _ref.read(connectionProvider.notifier).send(MobileRequest(
-            type: RequestType.denyPermission,
-            data: {
-              'sessionId': sessionId,
-              'toolUseId': toolUseId,
-            },
-          ));
-    } else if (sessionId != null) {
-      // 本地 Agent 模式：通过 LocalAgentService 注入 decision
-      _localAgent.resolvePermission(
-        sessionId,
-        toolUseId,
-        const AgentToolDecision.deny('用户拒绝'),
-      );
-    }
-    state = state.copyWith(
-      pendingPermissions: state.pendingPermissions
-          .where((p) => p.toolUseId != toolUseId)
-          .toList(),
-    );
-  }
+  void allowPermission(PermissionRequest request) =>
+      _resolvePermission(request, allowed: true);
+
+  void denyPermission(PermissionRequest request) =>
+      _resolvePermission(request, allowed: false);
 
   /// 新建会话：仅切换 currentSessionId，不清空其他会话缓存
   /// 旧会话的 engine 子进程仍在运行，事件继续累积到对应缓存

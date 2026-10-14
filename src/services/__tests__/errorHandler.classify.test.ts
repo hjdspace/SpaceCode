@@ -56,3 +56,50 @@ describe('classifyError 400', () => {
     assert.equal(classified.retryable, true)
   })
 })
+
+describe('classifyError 网关拒绝参数（issue #40 问题 2）', () => {
+  it('LiteLLM 原文的 UnsupportedParamsError 不可重试', () => {
+    const classified = classify(
+      'API Error: 400 litellm.UnsupportedParamsError: openai does not support parameters: '
+        + "['thinking'], for model=qwen3.8-27b",
+    )
+
+    assert.equal(classified.retryable, false)
+    assert.equal(classified.category, ErrorCategory.DATA_ERROR)
+    assert.match(classified.message, /「thinking」/)
+  })
+
+  it('提示里点出被拒绝的多个参数名', () => {
+    const classified = classify(
+      'litellm.UnsupportedParamsError: openai does not support parameters: ["thinking", "chat_template_kwargs"], for model=qwen3.8-27b',
+    )
+
+    assert.equal(classified.retryable, false)
+    assert.match(classified.message, /「thinking」/)
+    assert.match(classified.message, /「chat_template_kwargs」/)
+  })
+
+  it('正文里的数字不会被当成 5xx 服务器错误', () => {
+    // 旧规则裸 /5\d{2}/ 会命中 "15000"，把确定性的失败判成可重试。
+    const classified = classify('Upstream replied 15000 for a field we never expected')
+
+    assert.equal(classified.category, ErrorCategory.UNKNOWN)
+  })
+
+  it('5xx 带状态码上下文时仍可重试', () => {
+    assert.equal(classify('API Error: 503 Service Unavailable').retryable, true)
+    assert.equal(classify('status code: 500').retryable, true)
+    assert.equal(classify('API Error: 503 Service Unavailable').category, ErrorCategory.SERVER_ERROR)
+  })
+
+  it('调用方标了 retryable 就按标记走，不再猜文本', () => {
+    const flagged = Object.assign(
+      new Error('LLM returned an empty response after the upstream request failed.'),
+      { retryable: false },
+    )
+    const classified = errorHandler.classifyError(flagged)
+
+    assert.equal(classified.category, ErrorCategory.UNKNOWN)
+    assert.equal(classified.retryable, false)
+  })
+})

@@ -131,3 +131,43 @@ describe('回合产物收集', () => {
     expect(assistantOf('sess-code')?.metadata?.artifacts).toBeUndefined()
   })
 })
+
+// issue #40 问题 4：办公模式生成的 Excel 看不到右侧实时预览。
+// 自动预览原来住在 ArtifactsPanel 里，而它只在产物 tab 挂载时存在 —— 没挂载就永远不打开。
+describe('交付物自动进入右侧预览', () => {
+  it('work 会话生成 xlsx 后直接开预览，不等用户点卡片', async () => {
+    const xlsx = artifact('考勤表.xlsx', Date.now())
+    const list = vi.fn().mockResolvedValue({ artifacts: [xlsx] })
+    const fake = await setupSession('work', list)
+    const { useAppStore } = await import('@/stores/app')
+
+    settleTurn('sess-work', fake)
+    await vi.waitFor(() => expect(useAppStore().officePreviewFile).toBe(xlsx.path))
+
+    expect(useAppStore().officePreviewFile).toBe(xlsx.path)
+  })
+
+  it('一轮写出多个交付物时预览最新的那一个', async () => {
+    const older = artifact('draft.xlsx', Date.now() - 5_000)
+    const newer = artifact('final.xlsx', Date.now())
+    const list = vi.fn().mockResolvedValue({ artifacts: [older, newer] })
+    const fake = await setupSession('work', list)
+    const { useAppStore } = await import('@/stores/app')
+
+    settleTurn('sess-work', fake)
+    await vi.waitFor(() => expect(useAppStore().officePreviewFile).toBe(newer.path))
+  })
+
+  it('design 会话不抢 DesignFileWorkspace 自己的预览区', async () => {
+    const xlsx = artifact('spec.xlsx', Date.now())
+    const list = vi.fn().mockResolvedValue({ artifacts: [xlsx] })
+    const fake = await setupSession('design', list)
+    const { useAppStore } = await import('@/stores/app')
+
+    settleTurn('sess-design', fake)
+    await waitForArtifacts('sess-design')
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    expect(useAppStore().officePreviewFile).toBe('')
+  })
+})

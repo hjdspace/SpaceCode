@@ -241,32 +241,52 @@ class OpenAiCompatibleModel implements AgentModel {
       onToolCallStop: onToolCallStop,
     );
     final lineBuffer = StringBuffer();
+    var sawDone = false;
+    var sawFinishReason = false;
+    String? eventName;
     void processLine(String rawLine) {
       final line = rawLine.trim();
-      if (line.isEmpty || !line.startsWith('data:')) return;
+      // 空行分隔一个 SSE 事件，事件名不能带到下一个事件
+      if (line.isEmpty) {
+        eventName = null;
+        return;
+      }
+      if (line.startsWith('event:')) {
+        eventName = line.substring(6).trim();
+        return;
+      }
+      if (!line.startsWith('data:')) return;
       final data = line.substring(5).trim();
       if (data == '[DONE]') {
+        sawDone = true;
         toolCallBuilder.markDone();
         return;
       }
+      Object? decoded;
       try {
-        final decoded = jsonDecode(data);
-        if (decoded is! Map<String, dynamic>) return;
-        final choices = decoded['choices'];
-        if (choices is! List || choices.isEmpty) return;
-        final choice = choices.first;
-        if (choice is! Map<String, dynamic>) return;
-        final delta = choice['delta'];
-        if (delta is! Map<String, dynamic>) return;
-        final content = delta['content'];
-        if (content is String && content.isNotEmpty) {
-          buffer.write(content);
-          onDelta(content);
-        }
-        toolCallBuilder.consumeDelta(delta);
+        decoded = jsonDecode(data);
       } catch (_) {
-        // 忽略解析错误的事件
+        return;
       }
+      if (decoded is! Map<String, dynamic>) return;
+      final streamError = _extractStreamError(decoded, eventName);
+      if (streamError != null) throw StateError(streamError);
+      final choices = decoded['choices'];
+      if (choices is! List || choices.isEmpty) return;
+      final choice = choices.first;
+      if (choice is! Map<String, dynamic>) return;
+      if (choice['error'] != null) {
+        throw StateError(_extractStreamError(choice, eventName) ?? '模型返回了错误');
+      }
+      if (choice['finish_reason'] is String) sawFinishReason = true;
+      final delta = choice['delta'];
+      if (delta is! Map<String, dynamic>) return;
+      final content = delta['content'];
+      if (content is String && content.isNotEmpty) {
+        buffer.write(content);
+        onDelta(content);
+      }
+      toolCallBuilder.consumeDelta(delta);
     }
 
     try {
@@ -284,11 +304,28 @@ class OpenAiCompatibleModel implements AgentModel {
       throw const AgentCancelledException();
     }
     processLine(lineBuffer.toString());
+    // 连接被切断时 await for 也正常结束 —— 没有结束标记就是中断，
+    // 半截正文不能当成成功回复（正文已经通过 onDelta 流给 UI 了）。
+    if (!sawDone && !sawFinishReason) {
+      throw StateError(buffer.isEmpty
+          ? '模型连接在中途断开，没有收到任何内容'
+          : '模型回复在中途断开（未收到结束标记）');
+    }
     toolCallBuilder.markDone();
     return AgentModelResponse(
       text: buffer.toString(),
       toolCalls: toolCallBuilder.buildToolCalls(),
     );
+  }
+
+  /// 服务端在 HTTP 200 的流里回报失败有三种形态：`event: error`、chunk 顶层
+  /// `error`/`errorMessage`，以及 choice 里的 `error`。返回 null 表示不是错误。
+  static String? _extractStreamError(Map<String, dynamic> map, String? eventName) {
+    final raw = map['error'] ?? map['errorMessage'];
+    if (eventName != 'error' && raw == null) return null;
+    if (raw is Map) return raw['message']?.toString() ?? '模型返回了错误事件';
+    if (raw is String && raw.isNotEmpty) return raw;
+    return '模型返回了错误事件';
   }
 
   Map<String, dynamic> _messageToJson(AgentMessage message) {

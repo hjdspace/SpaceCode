@@ -79,6 +79,9 @@ export class ProxyServer {
       case '/v1/messages':
         this.handleMessages(req, res)
         break
+      case '/v1/messages/count_tokens':
+        this.handleCountTokens(req, res)
+        break
       case '/v1/chat/completions':
         this.handleChatCompletions(req, res)
         break
@@ -138,6 +141,29 @@ export class ProxyServer {
       } else {
         this.forwardWithTransform(parsed, res)
       }
+    }).catch(err => {
+      this.sendError(err, res)
+    })
+  }
+
+  /**
+   * claude-code 的 /context 与 get_context_usage 会 POST 这里数 token。上游网关没有这个
+   * 端点，让它落到 default 分支只会被 CLI 退化成"每个分类发一次带全量 tools 的真实请求"，
+   * 从而占住它的串行 stdin 循环几分钟。这里按与合成 usage 同口径的 estimateInputTokens 直接答。
+   */
+  private handleCountTokens(req: http.IncomingMessage, res: http.ServerResponse): void {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ type: 'error', error: { type: 'method_not_allowed', message: 'Method not allowed' } }))
+      return
+    }
+
+    this.readBody(req).then(body => {
+      const parsed = JSON.parse(body)
+      this.requestsProcessed++
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ input_tokens: estimateInputTokens(parsed) }))
     }).catch(err => {
       this.sendError(err, res)
     })

@@ -44,6 +44,7 @@ import { PetWindowController } from './pet/petWindowManager'
 import { registerPetIpcHandlers } from './pet/petIpcHandlers'
 import { setupLinuxPlatform } from './infra/platformSetup'
 import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
+import { installProcessErrorGuards, markQuitting, hideDockIcon } from './infra/appLifecycle'
 
 // ── Split modules ───────────────────────────────────────────────
 import { createWindow, createSplashScreen, closeSplashScreen, getMainWindow } from './windows/mainWindow'
@@ -64,6 +65,9 @@ const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-
 // App Startup
 // ============================================================
 const startTime = Date.now()
+
+// 必须在任何日志调用之前注册：earlyLog 走 console.log，stdio 已坏时它会抛 write EIO
+installProcessErrorGuards()
 
 const earlyLogs: string[] = []
 function earlyLog(msg: string) {
@@ -374,40 +378,51 @@ app.on('window-all-closed', () => {
   app.quit()
 })
 
+/**
+ * 单步清理：任何一步抛错都只记日志并继续。
+ * 旧写法是一条直线，第一个异常（一次 write EIO 就够了）就把后面的清理全跳过，
+ * 子进程与服务器留在后台 —— 用户看到的正是「点了退出，图标还在转」。
+ */
+async function runQuitStep(name: string, step: () => unknown): Promise<void> {
+  debug('App', `Quit step: ${name}`)
+  try {
+    await step()
+  } catch (err) {
+    warn('App', `Quit step failed | ${name}`, err)
+  }
+}
+
 app.on('before-quit', async () => {
+  markQuitting()
   info('App', 'App quitting')
-  installUpdateOnQuit()
-  cleanupPreviewServer()
-  cleanupOfficeCli()
-  await cleanupCuaDriverMcp()
-  await cleanupBrowserUseMcp()
-  stopArtifactsWatch()
-  destroyTray()
-  destroyAutoUpdater()
-  try { globalShortcut.unregisterAll() } catch {}
-  try {
-    await proxyManager.stop()
-  } catch {}
-  try {
+  await runQuitStep('hideDockIcon', hideDockIcon)
+  await runQuitStep('installUpdateOnQuit', installUpdateOnQuit)
+  await runQuitStep('cleanupPreviewServer', cleanupPreviewServer)
+  await runQuitStep('cleanupOfficeCli', cleanupOfficeCli)
+  await runQuitStep('cleanupCuaDriverMcp', cleanupCuaDriverMcp)
+  await runQuitStep('cleanupBrowserUseMcp', cleanupBrowserUseMcp)
+  await runQuitStep('stopArtifactsWatch', stopArtifactsWatch)
+  await runQuitStep('destroyTray', destroyTray)
+  await runQuitStep('destroyAutoUpdater', destroyAutoUpdater)
+  await runQuitStep('globalShortcut.unregisterAll', () => globalShortcut.unregisterAll())
+  await runQuitStep('proxyManager.stop', () => proxyManager.stop())
+  await runQuitStep('terminalManager.killAll', () => {
     info('App', 'Killing all terminal processes')
     terminalManager.killAll()
-  } catch (err) {
-    warn('App', 'Error killing terminal processes', err)
-  }
-  try {
+  })
+  await runQuitStep('claudeCodePool.killAll', async () => {
     info('App', 'Killing all Claude Code sessions')
     const { getPool } = await import('./engine/claudeCodeIPC')
-    const pool = getPool()
-    if (pool) {
-      pool.killAll()
-    }
-  } catch (err) {
-    warn('App', 'Error killing Claude Code sessions', err)
-  }
-  const ms = getMobileServer()
-  if (ms) { await ms.stop(); setMobileServer(null) }
-  getMobileUnsubscribe()?.()
-  setMobileUnsubscribe(null)
-  const h5 = getH5Server()
-  if (h5) { h5.stop(); setH5Server(null) }
+    getPool()?.killAll()
+  })
+  await runQuitStep('mobileServer.stop', async () => {
+    const ms = getMobileServer()
+    if (ms) { await ms.stop(); setMobileServer(null) }
+    getMobileUnsubscribe()?.()
+    setMobileUnsubscribe(null)
+  })
+  await runQuitStep('h5Server.stop', () => {
+    const h5 = getH5Server()
+    if (h5) { h5.stop(); setH5Server(null) }
+  })
 })

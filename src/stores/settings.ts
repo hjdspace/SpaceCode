@@ -523,7 +523,14 @@ export const useSettingsStore = defineStore('settings', () => {
     return model
   }
 
-  function saveSettings() {
+  /**
+   * 保存 GUI 设置。
+   *
+   * localStorage 是同步写完的（界面渲染靠它），但主进程那一份要等 IPC 回来才算生效 ——
+   * 本地代理的启动/重启/停止全在那一边。返回这条 Promise，"保存完成"才不是抢跑的结果。
+   * 内部不会 reject：多数调用点是同步上下文，不能给他们留未处理的 rejection。
+   */
+  function saveSettings(): Promise<{ success: boolean; proxyState?: string; error?: string }> {
     const data: AuthSettings = {
       authMethod: authMethod.value,
       anthropicConfig: { ...anthropicConfig.value },
@@ -550,7 +557,6 @@ export const useSettingsStore = defineStore('settings', () => {
 
     const serialized = JSON.stringify(data, null, 2)
     localStorage.setItem(SETTINGS_STORAGE_KEY, serialized)
-    api.saveGuiSettings(serialized).catch(() => {})
 
     // Also save legacy format for backward compatibility
     const legacyConfig = config.value
@@ -561,6 +567,24 @@ export const useSettingsStore = defineStore('settings', () => {
       model: legacyConfig.model || '',
       projectRoot: projectRoot.value
     }))
+
+    return api.saveGuiSettings(serialized)
+      .then(result => {
+        if (!result?.success) {
+          console.error('[Settings] Failed to sync GUI settings to main:', result?.error)
+        } else if (result.proxy?.state === 'failed') {
+          console.error('[Settings] Local proxy not aligned after save:', result.proxy.error)
+        }
+        return {
+          success: !!result?.success,
+          proxyState: result?.proxy?.state,
+          error: result?.error,
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('[Settings] Failed to sync GUI settings to main:', err)
+        return { success: false, error: String(err) }
+      })
   }
 
   // ── Profile actions ──────────────────────────────────────────

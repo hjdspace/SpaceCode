@@ -739,14 +739,16 @@ function sendPendingNow(msgId: string) {
 }
 
 // ── Thinking toggle ──────────────────────────────────────────────
-function toggleThinking() {
+async function toggleThinking() {
   thinkingEnabled.value = !thinkingEnabled.value
   settingsStore.thinkingEnabled = thinkingEnabled.value
-  settingsStore.saveSettings()
 
+  // 两条都要等：主进程的配置（代理对齐在它后面）和正在跑的引擎会话。
+  // 之前都是 fire-and-forget，界面显示"已开"时这两边可能还是旧值。
+  await settingsStore.saveSettings()
   const sid = editorSessionId.value
   if (sid) {
-    api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
+    await api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
   }
 }
 

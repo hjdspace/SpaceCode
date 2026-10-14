@@ -169,5 +169,12 @@
   "filePreview.fileTooLarge": "File too large, showing first {lines} lines",
   "filePreview.notFound": "File not found or deleted",
   "filePreview.copyPath": "Copy path",
-  "filePreview.pathCopied": "Path copied"
+  "filePreview.pathCopied": "Path copied",
+  "scanner.title": "Scan QR Code",
+  "scanner.permissionDeniedTitle": "Camera Permission Required",
+  "scanner.permissionDeniedMessage": "Scanning to connect to the desktop app requires camera access. Enable it for SpaceCode in system settings, then retry.",
+  "scanner.cameraUnavailableTitle": "Camera Failed to Start",
+  "scanner.cameraUnavailableMessage": "The camera component could not start. Retry; if it keeps failing, close this page and type the ws:// address shown by the desktop app into the connection field.",
+  "scanner.retry": "Retry",
+  "scanner.openSettings": "Open Settings"
 }

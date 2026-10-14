@@ -195,7 +195,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('settings:injectGuiModels', models),
 
   // GUI Settings persistence (file-based, ~/.claude/gui-settings.json)
-  saveGuiSettings: (data: string): Promise<{ success: boolean; error?: string }> =>
+  saveGuiSettings: (data: string): Promise<{
+    success: boolean
+    error?: string
+    proxy?: { state: 'not-needed' | 'unchanged' | 'aligned' | 'failed'; error?: string }
+  }> =>
     ipcRenderer.invoke('settings:saveGuiSettings', data),
   loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
     ipcRenderer.invoke('settings:loadGuiSettings'),
