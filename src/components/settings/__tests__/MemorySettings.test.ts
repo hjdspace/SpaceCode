@@ -177,7 +177,8 @@ describe('MemorySettings', () => {
     })
     expect(editor(wrapper).exists()).toBe(false)
     expect(previewText(wrapper)).toContain('Prefer small diffs')
-  })
+    // mountPage 冷启动重，全量并发跑时 5s 余量不足
+  }, 15_000)
 
   it('does not select a missing current project with no memory files', async () => {
     memoryApiMock.listProjects.mockResolvedValue({

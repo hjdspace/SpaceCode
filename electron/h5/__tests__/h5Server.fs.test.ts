@@ -51,6 +51,7 @@ vi.mock('../../session/sessionHistoryManager', async () => {
 
 import { H5Server } from '../h5Server'
 import {
+  CAN_SYMLINK,
   TEST_TOKEN,
   auth,
   jsonOf,
@@ -181,7 +182,7 @@ describe('H5Server filesystem routes', () => {
       expect(await payload('/api/fs/read-dir', { path: 42 })).toEqual([])
     })
 
-    it('reports a symlink as neither file nor directory', async () => {
+    it.skipIf(!CAN_SYMLINK)('reports a symlink as neither file nor directory', async () => {
       symlinkSync(pathIn('alpha.txt'), pathIn('link-to-alpha'))
 
       const entries = (await payload('/api/fs/read-dir', { path: root })) as DirEntry[]
@@ -230,13 +231,13 @@ describe('H5Server filesystem routes', () => {
       expect(text.endsWith('AB')).toBe(true)
     })
 
-    it('follows a symlink to its target', async () => {
+    it.skipIf(!CAN_SYMLINK)('follows a symlink to its target', async () => {
       symlinkSync(pathIn('alpha.txt'), pathIn('link.txt'))
 
       expect(await payload('/api/fs/read-file', { path: pathIn('link.txt') })).toBe('alpha content')
     })
 
-    it('answers null for a dangling symlink', async () => {
+    it.skipIf(!CAN_SYMLINK)('answers null for a dangling symlink', async () => {
       symlinkSync(pathIn('nowhere'), pathIn('broken-link.txt'))
 
       expect(await payload('/api/fs/read-file', { path: pathIn('broken-link.txt') })).toBeNull()
@@ -294,7 +295,7 @@ describe('H5Server filesystem routes', () => {
       expect(await payload('/api/fs/stat', {})).toBeNull()
     })
 
-    it('stats the symlink target rather than the link itself', async () => {
+    it.skipIf(!CAN_SYMLINK)('stats the symlink target rather than the link itself', async () => {
       symlinkSync(pathIn('alpha.txt'), pathIn('link2.txt'))
 
       const stat = (await payload('/api/fs/stat', { path: pathIn('link2.txt') })) as StatResult
@@ -499,7 +500,7 @@ describe('H5Server filesystem routes', () => {
       }
     })
 
-    it('refuses a symlink whose target leaves the root', async () => {
+    it.skipIf(!CAN_SYMLINK)('refuses a symlink whose target leaves the root', async () => {
       const outside = pathIn('..', 'spacecode-link-target.txt')
       writeFileSync(outside, 'secret outside the root', 'utf-8')
       symlinkSync(outside, pathIn('sneaky.txt'))

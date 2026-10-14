@@ -15,6 +15,9 @@
  */
 import { request as httpRequest } from 'http'
 import type { IncomingHttpHeaders } from 'http'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { vi } from 'vitest'
 import type { Mock } from 'vitest'
 import type { WebSocket } from 'ws'
@@ -23,6 +26,29 @@ import type { H5AccessSettings } from '../h5Types'
 
 export const TEST_TOKEN = 'h5_testtoken0123456789abcdef'
 export const LAN_IP = '192.168.7.20'
+
+// ──────────────────────────────────────────────────
+// environment capability: symlink creation
+// ──────────────────────────────────────────────────
+
+/**
+ * Windows refuses `symlinkSync` unless the process is elevated or Developer
+ * Mode is on (EPERM), while linux — what CI runs — always allows it. Probe
+ * once so the symlink-based cases can skip on machines that cannot create
+ * links instead of failing for an environment reason.
+ */
+export const CAN_SYMLINK = (() => {
+  const probe = mkdtempSync(join(tmpdir(), 'spacecode-symlink-probe-'))
+  try {
+    writeFileSync(join(probe, 'target.txt'), 'x', 'utf-8')
+    symlinkSync(join(probe, 'target.txt'), join(probe, 'link.txt'))
+    return true
+  } catch {
+    return false
+  } finally {
+    rmSync(probe, { recursive: true, force: true })
+  }
+})()
 
 // ──────────────────────────────────────────────────
 // raw HTTP client

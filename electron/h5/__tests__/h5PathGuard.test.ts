@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { H5PathGuard } from '../h5PathGuard'
+import { CAN_SYMLINK } from './h5TestKit'
 
 const IS_WIN = process.platform === 'win32'
 
@@ -89,7 +90,7 @@ describe('H5PathGuard', () => {
     expect(guard.check('src').allowed).toBe(false)
   })
 
-  it('registers a symlinked root as its target', () => {
+  it.skipIf(!CAN_SYMLINK)('registers a symlinked root as its target', () => {
     const link = join(root, 'linked')
     symlinkSync(join(root, 'src'), link)
     const guard = guardWith(link)
@@ -98,7 +99,7 @@ describe('H5PathGuard', () => {
     expect(guard.check(outside).allowed).toBe(false)
   })
 
-  it('judges a symlink by its target, in both directions', () => {
+  it.skipIf(!CAN_SYMLINK)('judges a symlink by its target, in both directions', () => {
     const escape = join(root, 'escape')
     const inner = join(root, 'inner-link')
     symlinkSync(join(outside, 'id_rsa'), escape)

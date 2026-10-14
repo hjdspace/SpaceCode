@@ -128,7 +128,8 @@ describe('DesignChatPane 提问工具答复通道', () => {
       'sess-design', 'req-ask-1', UPDATED_INPUT, undefined,
     )
     expect(fake.claudeCode.submitToolAnswer).not.toHaveBeenCalled()
-  })
+    // 首个用例承担 setup 的冷启动（动态 import + mount），全量并发跑时 5s 不够
+  }, 15_000)
 
   it('跳过时走 denyPermission', async () => {
     const { wrapper, message } = await setup()
