@@ -189,9 +189,10 @@ const fileIcon = computed(() => {
   return icons[ext || ''] || '\u{1F4C4}'
 })
 
+const isPdfFile = computed(() => fileName.value.split('.').pop()?.toLowerCase() === 'pdf')
+
 const availableModes = computed(() => {
-  const ext = fileName.value.split('.').pop()?.toLowerCase()
-  if (ext === 'pdf') {
+  if (isPdfFile.value) {
     return [{ id: 'html' as const, label: t('officePreview.htmlMode') }]
   }
   return [
@@ -251,6 +252,11 @@ async function startWatch() {
 }
 
 async function switchMode(mode: 'html' | 'screenshots' | 'watch') {
+  // pdf 不在 officecli watch 的支持范围内：强制回退 html，
+  // 防止上一个 office 文档的 watch 模式经 props.filePath 切换残留到 pdf 上。
+  if (isPdfFile.value && mode !== 'html') {
+    mode = 'html'
+  }
   // Stop previous watch
   if (watchId.value) {
     try {

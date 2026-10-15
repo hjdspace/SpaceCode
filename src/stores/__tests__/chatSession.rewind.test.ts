@@ -169,10 +169,57 @@ describe('chatSession loadTurnCheckpoints', () => {
     expect(store.turnCheckpoints).toEqual([])
     expect(store.turnCardsError).toBeNull()
   })
+
+  it('ignores a late checkpoint response from a session left during mode switching', async () => {
+    let resolveWorkFirst!: (value: unknown) => void
+    let resolveCode!: (value: unknown) => void
+    let resolveWorkSecond!: (value: unknown) => void
+    mocks.getTurnCheckpoints.mockImplementation((sessionId: string) => {
+      if (sessionId === 'work') {
+        return new Promise(resolve => {
+          if (!resolveWorkFirst) resolveWorkFirst = resolve
+          else resolveWorkSecond = resolve
+        })
+      }
+      return new Promise(resolve => { resolveCode = resolve })
+    })
+    localStorage.setItem('chat_sessions_v2', JSON.stringify([
+      {
+        id: 'work', title: 'Work', messages: [user('work-u', 'work', 1), assistant('work-a', 'done', 2)],
+        createdAt: 1, updatedAt: 2, lastActivityAt: 2, workingDirectory: '/work', processStatus: 'none', isTabOpen: true, mode: 'work',
+      },
+      {
+        id: 'code', title: 'Code', messages: [user('code-u', 'code', 3), assistant('code-a', 'done', 4)],
+        createdAt: 3, updatedAt: 4, lastActivityAt: 4, workingDirectory: '/code', processStatus: 'none', isTabOpen: true, mode: 'code',
+      },
+    ]))
+    const store = await loadStore()
+
+    await store.selectSession('work')
+    await store.selectSession('code')
+    await store.selectSession('work')
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+    resolveWorkSecond({ ok: true, checkpoints: [checkpoint('work-u', 0, ['new.ts'])], error: null })
+    await flush()
+    resolveCode({ ok: true, checkpoints: [checkpoint('code-u', 0, ['wrong.ts'])], error: null })
+    await flush()
+
+    expect(store.currentSessionId).toBe('work')
+    expect(store.turnCheckpoints.map(c => c.target.targetUserMessageId)).toEqual(['work-u'])
+
+    resolveWorkFirst({ ok: true, checkpoints: [checkpoint('work-u', 0, ['stale.ts'])], error: null })
+    await Promise.resolve()
+    expect(store.turnCheckpoints.map(c => c.code.filesChanged[0].path)).toEqual(['new.ts'])
+    await flush()
+  })
 })
 
 describe('chatSession turnChangeCards filtering', () => {
-  async function buildStore(messages: Message[], cps: SessionTurnCheckpoint[]) {
+  async function buildStore(
+    messages: Message[],
+    cps: SessionTurnCheckpoint[],
+  ) {
     seedCurrentSession(messages)
     // 持久 mock：selectSession 内部会 fire-and-forget 触发一次 loadTurnCheckpoints，
     // 用 mockResolvedValue 保证两次加载都落到同一份 checkpoints，不与之竞态。
@@ -233,6 +280,22 @@ describe('chatSession turnChangeCards filtering', () => {
     )
 
     expect(store.turnChangeCards.map(c => c.targetUserMessageId)).toEqual(['u1'])
+  })
+
+  it('hides the latest checkpoint while the current session turn is still active', async () => {
+    const store = await buildStore(
+      [
+        user('u1', 'first', 1),
+        assistant('a1', 'completed response', 2),
+        user('u2', 'second', 3),
+        assistant('a2', 'partial response', 4),
+      ],
+      [checkpoint('u1', 0, ['completed.ts']), checkpoint('u2', 1, ['in-progress.ts'])],
+    )
+
+    store.getSession('sess-rw')!.processStatus = 'active'
+
+    expect(store.turnChangeCards.map(card => card.targetUserMessageId)).toEqual(['u1'])
   })
 })
 

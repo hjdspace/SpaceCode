@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { iconFor, formatSize, isAutoPreviewPath, isOfficePreviewPath, isHtmlPreviewPath } from '@/utils/artifactFormat'
+import { iconFor, formatSize, isAutoPreviewPath, isOfficePreviewPath, isHtmlPreviewPath, resolveOfficePreviewMode } from '@/utils/artifactFormat'
 
 describe('iconFor', () => {
   it('maps known extensions to emoji', () => {
@@ -77,5 +77,18 @@ describe('isHtmlPreviewPath', () => {
   it('rejects everything else', () => {
     expect(isHtmlPreviewPath('/ws/outputs/考勤表.xlsx')).toBe(false)
     expect(isHtmlPreviewPath('/ws/page.tsx')).toBe(false)
+  })
+})
+
+describe('resolveOfficePreviewMode', () => {
+  it('office 文档默认走 watch 实时预览', () => {
+    expect(resolveOfficePreviewMode('/ws/outputs/考勤表.xlsx')).toBe('watch')
+    expect(resolveOfficePreviewMode('C:\\ws\\report.docx')).toBe('watch')
+    expect(resolveOfficePreviewMode('deck.pptx')).toBe('watch')
+  })
+
+  it('pdf 不支持 watch，回退一次性 HTML 渲染', () => {
+    expect(resolveOfficePreviewMode('/ws/outputs/简历.pdf')).toBe('html')
+    expect(resolveOfficePreviewMode('C:\\ws\\DOC.PDF')).toBe('html')
   })
 })

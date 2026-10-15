@@ -49,6 +49,12 @@ export default {
     html: '导出 HTML',
     zip: '导出 ZIP',
     pdf: '导出 PDF',
+    htmlOnly: '仅 HTML 产物支持导出',
+    working: '导出中…',
+    exported: '已导出：{path}',
+    opened: '已打开产物所在目录：{path}',
+    failed: '导出失败：{error}',
+    unavailable: '当前环境不支持导出，请使用桌面端',
   },
   templatePicker: {
     label: '模板',

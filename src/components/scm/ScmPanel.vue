@@ -25,10 +25,19 @@
       <p>{{ t('scm.scmOpenFolder') }}</p>
     </div>
 
-    <!-- Error -->
-    <div v-if="scmStore.error" class="scm-error">
+    <!-- Error. Discard failures live in their own ref because `error` is cleared
+         by every refresh, including the one the file watcher fires right after. -->
+    <div v-if="scmStore.error || scmStore.discardError" class="scm-error">
       <AlertCircle :size="14" />
-      <span>{{ scmStore.error }}</span>
+      <span>{{ scmStore.discardError ?? scmStore.error }}</span>
+      <button
+        v-if="scmStore.discardError"
+        type="button"
+        class="scm-error-close"
+        :title="t('common.close')"
+        :aria-label="t('common.close')"
+        @click="scmStore.discardError = null"
+      >×</button>
     </div>
   </div>
 </template>
@@ -166,5 +175,9 @@ onUnmounted(() => {
   color: var(--error);
   font-size: 10px;
   span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scm-error-close {
+    flex: none; padding: 0 2px; border: none; background: none;
+    color: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+  }
 }
 </style>

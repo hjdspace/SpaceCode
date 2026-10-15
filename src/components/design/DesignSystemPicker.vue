@@ -11,7 +11,14 @@
       <ChevronDown :size="11" />
     </button>
 
-    <div v-if="open" class="ds-picker-menu" data-testid="ds-picker-menu">
+    <Teleport to="body">
+    <div
+      v-if="open"
+      ref="menuRef"
+      class="ds-picker-menu"
+      data-testid="ds-picker-menu"
+      :style="menuStyle"
+    >
       <div class="ds-picker-search">
         <Search :size="14" />
         <input
@@ -126,6 +133,7 @@
         </div>
       </div>
     </div>
+    </Teleport>
 
     <DesignSystemPreviewModal
       v-if="previewModalSystem"
@@ -141,6 +149,7 @@ import { useI18n } from 'vue-i18n'
 import { Palette, ChevronDown, Search, Plus, Check, Eye } from 'lucide-vue-next'
 import type { DesignSystemSummary } from '@/services/electronAPI'
 import { api } from '@/services/electronAPI'
+import { useAnchoredMenu } from '@/composables/useAnchoredMenu'
 import DesignSystemPreviewModal from './DesignSystemPreviewModal.vue'
 
 const props = defineProps<{
@@ -160,6 +169,9 @@ const previewHtml = ref('')
 const previewLoading = ref(false)
 const previewModalSystem = ref<DesignSystemSummary | null>(null)
 let previewRequestId = 0
+
+// 菜单 Teleport 到 body 后按视口定位，避免被右侧设计产物面板裁掉/压住
+const { menuRef, menuStyle } = useAnchoredMenu(wrapRef, open, { width: 560, gap: 14, maxHeight: 400 })
 
 const selected = computed(() => props.systems.find((s) => s.id === props.modelValue) || null)
 const selectedName = computed(() => selected.value?.name || t('design.designSystemPicker.none'))
@@ -227,7 +239,9 @@ function closePreviewModal() {
 }
 
 function onPointer(event: MouseEvent) {
-  if (wrapRef.value?.contains(event.target as Node)) return
+  const target = event.target as Node
+  // 菜单在 body 下，不在 wrapRef 子树内，需单独放过
+  if (wrapRef.value?.contains(target) || menuRef.value?.contains(target)) return
   open.value = false
 }
 
@@ -303,16 +317,13 @@ onUnmounted(() => {
 }
 
 .ds-picker-menu {
-  position: absolute;
-  bottom: calc(100% + 14px);
-  left: 0;
-  width: min(560px, calc(100vw - 36px));
-  max-height: min(400px, calc(100vh - 160px));
+  /* 视口坐标 (left / bottom / width / max-height) 由 useAnchoredMenu 算好后内联 */
+  position: fixed;
   background: #fff;
   border: 1px solid #d8e0eb;
   border-radius: 14px;
   box-shadow: 0 22px 56px rgba(24, 25, 31, 0.18);
-  z-index: 130;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -576,11 +587,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 760px) {
-  .ds-picker-menu {
-    width: calc(100vw - 24px);
-    left: auto;
-    right: 0;
-  }
   .ds-picker-body {
     grid-template-columns: 1fr;
   }

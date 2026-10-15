@@ -9,7 +9,6 @@ import type {
   TaskNode,
   Edge,
   NodeStatus,
-  NodeRunState,
   RunState,
   TurnOutcome,
   CycleDetectionResult,
@@ -91,18 +90,36 @@ export function createOrchestrationEngine(opts: OrchestrationEngineOptions): Orc
     return count
   }
 
+  /** 启动异常收口 — 节点转 failed，下游 skipped 由 tryStartReadyNodes 的失败传播完成 */
+  function failNodeOnStartup(nodeId: string, stage: 'createSession' | 'sendDraft', error: unknown): void {
+    const state = runState.nodeStates.get(nodeId)
+    if (state) state.status = 'failed'
+    // 半启动的会话可能仍会发出结局信号，留着反查表会左右该节点重试后的状态
+    if (state?.sessionId) sessionToNode.delete(state.sessionId)
+    console.error(`[OrchestrationEngine] Node ${nodeId} startup failed at ${stage}:`, error)
+  }
+
   /** 启动一个节点 */
   async function startNode(nodeId: string): Promise<void> {
     const node = nodes.get(nodeId)
     if (!node) return
 
-    const sessionId = await sessionLauncher.createSession(nodeId)
+    let sessionId: string
+    try {
+      sessionId = await sessionLauncher.createSession(nodeId)
+    } catch (error) {
+      failNodeOnStartup(nodeId, 'createSession', error)
+      return
+    }
+
     sessionToNode.set(sessionId, nodeId)
+    runState.nodeStates.set(nodeId, { nodeId, status: 'running', sessionId })
 
-    const state: NodeRunState = { nodeId, status: 'running', sessionId }
-    runState.nodeStates.set(nodeId, state)
-
-    await sessionLauncher.sendDraft(sessionId, node.draft)
+    try {
+      await sessionLauncher.sendDraft(sessionId, node.draft)
+    } catch (error) {
+      failNodeOnStartup(nodeId, 'sendDraft', error)
+    }
   }
 
   /** 尝试启动所有就绪的 pending/queued 节点（受并发闸门约束） */
@@ -337,6 +354,9 @@ export function createOrchestrationEngine(opts: OrchestrationEngineOptions): Orc
 
     // 尝试启动（该节点可能需要等上游，但 retry 要求上游已 settled）
     await tryStartReadyNodes()
+
+    // 重试的节点可能在启动阶段就 failed，此时没有结局信号再来收口，必须就地检查
+    checkRunComplete()
   }
 
   async function stopNode(nodeId: string): Promise<void> {

@@ -56,6 +56,8 @@ export default {
   createAndSwitch: 'Create & Switch',
   confirmDiscard: 'Are you sure you want to discard changes in {count} files? This cannot be undone.',
   confirmDiscardFile: 'Are you sure you want to discard changes in "{name}"? This cannot be undone.',
+  discardPartialFailed: '{count} file(s) could not be discarded: {paths}',
+  discardFailed: 'Failed to discard changes',
   graph: 'Graph',
   viewModeList: 'View as List',
   viewModeTree: 'View as Tree',

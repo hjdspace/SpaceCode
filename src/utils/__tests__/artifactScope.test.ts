@@ -2,18 +2,17 @@
 /**
  * artifactScope 测试 — 产物发现的位置策略。
  *
- * work 助手约定把交付物写进 `<工作目录>/outputs/`；design / code 会话的 agent
- * 直接写在工作区里。判断写成一处，避免各调用点各猜一遍"这个模式算不算有产物"。
+ * 曾经只有 design / code 扫工作区根（work 走 outputs/ 约定）。但 officecli 技能族
+ * （xlsx / docx / pptx 助手）没有 outputs/ 约定，LLM 按用户语义把交付物写在工作
+ * 目录任意位置 —— issue #40 问题 4 复测时表格落在了工作目录根，turn 结束收集扫
+ * 不到，自动预览从不触发。现在所有模式都扫工作区根（根扫描只收交付物扩展名）。
  */
 import { describe, it, expect } from 'vitest'
 import { needsWorkspaceRootScan } from '@/utils/artifactScope'
 
 describe('needsWorkspaceRootScan', () => {
-  it('keeps work sessions on the outputs/ convention', () => {
-    expect(needsWorkspaceRootScan('work')).toBe(false)
-  })
-
-  it('scans the workspace for design and code sessions', () => {
+  it('scans the workspace root for every mode — officecli skills have no outputs/ convention', () => {
+    expect(needsWorkspaceRootScan('work')).toBe(true)
     expect(needsWorkspaceRootScan('design')).toBe(true)
     expect(needsWorkspaceRootScan('code')).toBe(true)
   })
@@ -23,4 +22,3 @@ describe('needsWorkspaceRootScan', () => {
     expect(needsWorkspaceRootScan(undefined)).toBe(true)
   })
 })
-

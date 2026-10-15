@@ -49,6 +49,12 @@ export default {
     html: 'Export HTML',
     zip: 'Export ZIP',
     pdf: 'Export PDF',
+    htmlOnly: 'Only HTML artifacts can be exported',
+    working: 'Exporting…',
+    exported: 'Exported: {path}',
+    opened: 'Opened artifact folder: {path}',
+    failed: 'Export failed: {error}',
+    unavailable: 'Export is available in the desktop app only',
   },
   templatePicker: {
     label: 'Template',

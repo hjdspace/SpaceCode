@@ -98,7 +98,7 @@ class _QRScannerPageState extends ConsumerState<QRScannerPage> {
               : MobileScanner(
                   controller: _scannerController,
                   onDetect: _onDetect,
-                  errorBuilder: (context, error) => _QrScannerErrorView(
+                  errorBuilder: (context, error, child) => _QrScannerErrorView(
                     failure: classifyQrScannerFailure(error.errorCode.name),
                     onRetry: _retry,
                     onOpenSettings: openAppSettings,

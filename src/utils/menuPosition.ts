@@ -40,3 +40,66 @@ export function clampMenuPosition(
 
   return { left, top }
 }
+
+/**
+ * 锚定式浮层定位: 供 Teleport 到 body 的下拉菜单用视口坐标摆放.
+ *
+ * 这类菜单原先是宿主内的 absolute 元素, 会被中心栏的 overflow: hidden 裁掉、
+ * 并被右侧面板 (backdrop-filter 自成层叠上下文) 压在下面, 所以挪到 body 后
+ * 只能按视口算, 不再受宿主容器裁剪.
+ *
+ * 约定: 优先向上展开 (底边锚在触发元素上沿), 上方空间不够时翻到下方;
+ * 左右收进视口边距内, 高度按可用空间收缩.
+ */
+export const OVERLAY_EDGE_MARGIN = 12
+/** 可用空间再小也保留这个高度, 避免菜单被压成看不见的一条. */
+export const MIN_OVERLAY_MAX_HEIGHT = 160
+
+export interface MenuAnchorRect {
+  left: number
+  top: number
+  bottom: number
+}
+
+export interface MenuDesiredSize {
+  width: number
+  gap: number
+  maxHeight: number
+}
+
+export interface AnchoredMenuPlacement {
+  left: number
+  width: number
+  /** CSS 属性名: 向上展开是 bottom (距视口底), 向下展开是 top */
+  side: 'top' | 'bottom'
+  /** side 对应的偏移值 (px) */
+  offset: number
+  maxHeight: number
+}
+
+export function placeAnchoredMenu(
+  anchor: MenuAnchorRect,
+  desired: MenuDesiredSize,
+  viewport: { width: number; height: number }
+): AnchoredMenuPlacement {
+  const margin = OVERLAY_EDGE_MARGIN
+  const width = Math.max(0, Math.min(desired.width, viewport.width - 2 * margin))
+  const left = Math.min(
+    Math.max(anchor.left, margin),
+    Math.max(margin, viewport.width - width - margin)
+  )
+
+  const spaceAbove = anchor.top - desired.gap - margin
+  const spaceBelow = viewport.height - anchor.bottom - desired.gap - margin
+  const openUpwards = spaceAbove >= Math.min(spaceBelow, desired.maxHeight)
+  const available = openUpwards ? spaceAbove : spaceBelow
+
+  return {
+    left,
+    width,
+    side: openUpwards ? 'bottom' : 'top',
+    offset: openUpwards ? viewport.height - anchor.top + desired.gap : anchor.bottom + desired.gap,
+    maxHeight: Math.max(MIN_OVERLAY_MAX_HEIGHT, Math.min(desired.maxHeight, available)),
+  }
+}
+

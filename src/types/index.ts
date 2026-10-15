@@ -232,8 +232,20 @@ export interface Session {
   /** Provider/base URL used by the live engine process for this session. */
   provider?: string
   baseUrl?: string
+  /**
+   * 上次 startSession 实际下发的启动配置指纹（systemPrompt / agent / 凭据）。
+   * 只存哈希，不存提示词栈原文与 API Key 明文；运行中会话据此判断是否需要重启。
+   */
+  startupFingerprint?: SessionStartupFingerprint
   /** 侧边任务会话：不落盘、不出现在会话列表，关闭应用即消失。 */
   ephemeral?: boolean
+}
+
+export interface SessionStartupFingerprint {
+  systemPrompt: string
+  agent: string
+  /** 代理模式下引擎侧是占位 Key，凭据由本地代理层对账，故为 undefined。 */
+  credential?: string
 }
 
 export interface FileNode {

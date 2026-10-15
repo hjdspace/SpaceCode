@@ -27,6 +27,7 @@ import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/te
 import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
+import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
 import type {
 SkillManagerOverview,
 SkillManagerSettings,
@@ -511,7 +512,7 @@ export interface ElectronAPI {
   showNotification: (options: { title: string; message: string }) => void
 
   preview: {
-    getUrl: (filePath: string) => Promise<string | null>
+    getUrl: (filePath: string, workspaceRoot?: string) => Promise<string | null>
   }
 
   design: {
@@ -528,7 +529,7 @@ export interface ElectronAPI {
     }) => Promise<string>
     startFileWatcher: (sessionId: string, workspacePath: string) => Promise<void>
     stopFileWatcher: () => Promise<void>
-    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }) => Promise<void>
+    exportArtifact: (options: DesignExportRequest) => Promise<DesignExportResult>
     onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void) => () => void
   }
 

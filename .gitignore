@@ -77,3 +77,5 @@ _temp/
 .superpowers/
 
 *.exe*
+
+.scratch/

@@ -33,6 +33,16 @@ export function isAutoPreviewPath(filePath: string): boolean {
   return isOfficePreviewPath(filePath) || isHtmlPreviewPath(filePath)
 }
 
+/**
+ * 打开 Office 预览时默认进哪种模式。
+ *
+ * watch 模式由 officecli 起本地实时服务器，LLM 编辑文档过程中右侧预览自动刷新；
+ * pdf 不在 officecli watch 的支持范围内，回退到一次性 HTML 渲染。
+ */
+export function resolveOfficePreviewMode(filePath: string): 'html' | 'watch' {
+  return extOfPath(filePath) === 'pdf' ? 'html' : 'watch'
+}
+
 export function iconFor(ext: string): string {
   const map: Record<string, string> = {
     pptx: '📊', ppt: '📊',

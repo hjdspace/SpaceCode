@@ -120,6 +120,13 @@ const PROXY_DEFAULT_MODEL = 'claude-sonnet-4-20250514'
 const PROXY_OPUS_MODEL = 'claude-opus-4-8'
 const PROXY_HAIKU_MODEL = 'claude-haiku-4-8'
 
+// Windows CreateProcess 把整条命令行限制在 32,767 个 UTF-16 字符内，超限时 libuv 直接报
+// `spawn ENAMETOOLONG`，引擎根本没起来。设计模式的 system prompt 会把整份 DESIGN.md +
+// tokens.css 拼进来（resources/design-systems-lib 实测最长 53,465 字符，150 个系统里
+// 34 个超过 32,767），超过此预算就改用 --system-prompt-file 传参。预算低于 32,767 是给
+// 引号转义和 launch.args 留余量，同时也远低于 Linux 单个 argv 参数的 131,072 字节上限。
+const MAX_INLINE_ARGS_LENGTH = 24_000
+
 export interface SessionConfig {
   cwd: string
   model?: string
@@ -1211,6 +1218,33 @@ export class SessionProcess extends EventEmitter {
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Added --session-id flag | sessionId=${this.sessionId}`)
     }
 
+    return this.externalizeLongSystemPrompt(args)
+  }
+
+  /**
+   * 命令行超过 MAX_INLINE_ARGS_LENGTH 时，把 --system-prompt 的正文落成文件并改用
+   * --system-prompt-file 传路径 —— 引擎在同一个变量里读取两者（main.tsx 的
+   * options.systemPromptFile 分支），语义完全一致。文件名按 sessionId 固定，
+   * 同一会话重启时覆盖而不是不断累积。
+   */
+  private externalizeLongSystemPrompt(args: string[]): string[] {
+    const i = args.indexOf('--system-prompt')
+    if (i < 0) return args
+
+    // 每个参数 +3 近似 Node 在 Windows 上加的引号与空格
+    const commandLineLength = args.reduce((sum, a) => sum + a.length + 3, 0)
+    if (commandLineLength <= MAX_INLINE_ARGS_LENGTH) return args
+
+    const prompt = args[i + 1]
+    const promptDir = path.join(os.tmpdir(), 'SpaceCode')
+    try { fs.mkdirSync(promptDir, { recursive: true }) } catch {}
+    const promptPath = path.join(promptDir, `system-prompt-${this.sessionId}.txt`)
+    fs.writeFileSync(promptPath, prompt, 'utf8')
+    args.splice(i, 2, '--system-prompt-file', promptPath)
+    debug(
+      'SessionProcess',
+      `[${this.sessionId.slice(0, 8)}] System prompt moved to file | promptLen=${prompt.length} | commandLineLength=${commandLineLength} | path=${promptPath}`,
+    )
     return args
   }
 

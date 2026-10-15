@@ -43,6 +43,10 @@ const props = defineProps<{
   html: string;
   title: string;
   sessionId: string;
+  /** 已登记预览工作区的 HTML 文件 URL（Electron 主进程 preview 服务器）；为空时回退 srcdoc */
+  previewUrl?: string | null;
+  /** 递增即强制重新导航：CSS/JS 变更后 HTML 内容没变，只有换 rev 才会重取兄弟资源 */
+  reloadToken?: number;
 }>();
 
 const iframeRef = ref<HTMLIFrameElement>();
@@ -53,6 +57,8 @@ let iframeReady = false;
 // DesignPreview 仅负责 iframe 渲染与沙箱消息桥接。
 onMounted(() => {
   window.addEventListener('message', handleIframeMessage);
+  // 条件渲染（source/preview 切换）后重挂载时 props 已有值，watch 不会再触发
+  renderPreview();
 });
 
 onUnmounted(() => {
@@ -84,7 +90,7 @@ function handleIframeMessage(event: MessageEvent) {
   }
 }
 
-// 无闪烁更新 iframe 内容
+/** 回退路径：无预览服务器时把 HTML 灌进 srcdoc，并尽量无闪烁地更新 */
 function updateIframeContent(rawHtml: string) {
   const iframe = iframeRef.value;
   if (!iframe) return;
@@ -107,21 +113,38 @@ function updateIframeContent(rawHtml: string) {
   }
 }
 
-// 监听属性中的直接 HTML 传参 (作为 Fallback)
-watch(() => props.html, (newHtml) => {
-  if (newHtml) {
-    updateIframeContent(newHtml);
+/**
+ * srcdoc 文档里相对 URL 相对宿主页面解析，多文件设计的 ./style.css 命不中产物目录；
+ * 宿主 index.html 的 CSP 还会继承进 srcdoc 文档，`base-uri 'self'` 直接拦掉补 <base> 的路子。
+ * 所以预览走本地预览服务器登记的真实 URL：相对资源天然同源命中同一工作区。
+ */
+function renderPreview() {
+  const iframe = iframeRef.value;
+  if (!iframe) return;
+
+  if (!props.previewUrl) {
+    if (props.html) updateIframeContent(props.html);
+    return;
   }
-});
+
+  iframeReady = false;
+  iframe.removeAttribute('srcdoc');
+  // 同一 URL 重复赋值不会重新导航，先清空属性才强制重载
+  iframe.removeAttribute('src');
+  iframe.setAttribute('src', `${props.previewUrl}?rev=${props.reloadToken ?? 0}`);
+}
+
+watch(
+  [() => props.previewUrl, () => props.reloadToken, () => props.html],
+  renderPreview
+);
 
 function onIframeLoaded() {
   iframeReady = true;
 }
 
 function handleManualRefresh() {
-  if (props.html) {
-    updateIframeContent(props.html);
-  }
+  renderPreview();
 }
 
 function toggleViewSource() {

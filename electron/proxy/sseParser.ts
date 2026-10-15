@@ -10,6 +10,13 @@ export class SSEParser {
 
   feed(chunk: string): SSEEvent[] {
     this.buffer += chunk
+    // 按 SSE 规范归一化行结束符（CRLF / CR → LF），事件边界于是统一成 '\n\n'。
+    // 缓冲区末尾的裸 '\r' 先不转换：它可能是下个分块 CRLF 的前半，提前换成 '\n'
+    // 会凭空多出一个空行，把一条事件切成两条。
+    const holdback = this.buffer.endsWith('\r') ? 1 : 0
+    const headEnd = this.buffer.length - holdback
+    this.buffer = this.buffer.slice(0, headEnd).replace(/\r\n|\r/g, '\n') + this.buffer.slice(headEnd)
+
     const events: SSEEvent[] = []
 
     while (true) {

@@ -1,7 +1,7 @@
 // tests/composables/useOrchestrationRun.test.ts
 // 编排运行链路 composable 测试 — 验证引擎接线、空草稿校验、运行中锁结构、进度追踪。
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 
 // ── Mock 依赖 (vi.hoisted 保证 vi.mock 中可引用) ──
@@ -157,6 +157,39 @@ describe('useOrchestrationRun — 运行中锁结构', () => {
     await runPromise
 
     expect(run.isRunning.value).toBe(false)
+  })
+})
+
+describe('useOrchestrationRun — 节点启动异常收口', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const canvas = useOrchestrationCanvas()
+    canvas._resetState()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('会话创建抛错时 startRun 正常结束，isRunning 复位并解锁画布', async () => {
+    // sessionId 为空 → 引擎会走 sessionStore.createSession 分支
+    const canvas = setupCanvas(
+      [{ ...makeNode('A', 'task A'), sessionId: '' }, makeNode('B', 'task B')],
+      [makeEdge('A', 'B')],
+    )
+
+    hoisted.mockSessionStore.createSession.mockImplementationOnce(() => {
+      throw new Error('fixture startup failure')
+    })
+
+    const run = useOrchestrationRun()
+    await run.startRun()
+
+    expect(run.getNodeStatus('A')).toBe('failed')
+    expect(run.getNodeStatus('B')).toBe('skipped')
+    expect(run.isRunning.value).toBe(false)
+    expect(canvas.taskNodes.value.find(n => n.id === 'A')!.runStatus).toBe('failed')
   })
 })
 

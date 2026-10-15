@@ -1,3 +1,53 @@
+## [0.8.9](https://github.com/hjdspace/SpaceCode/compare/v0.8.8...v0.8.9) (2026-10-15)
+
+### Features
+
+- **artifacts:** 产物创建即自动预览，Office 文档内嵌渲染（PDF 回退 HTML，其余默认 watch 实时模式）
+- **artifacts:** 产物列表支持工作区根扫描与 options 参数（新增 artifactScope 工具模块）
+- **thinking:** 扩展思考参数按网关族自动映射，并支持运行时切换思考等级
+- **settings:** 新增模型上下文窗口覆盖（contextWindowOverrides），上下文用量随设置实时刷新
+- **chatInput:** 新增工作区文件选择器（WorkspaceFilePicker + useWorkspaceBrowser），附件可直接选取工作区文件
+- **h5:** 权限请求引入 requestId 与 extensions 贯穿全链路，移动端支持授权/拒绝处理
+- **h5:** 新增安全防护机制，阻止敏感数据泄露与 SSRF 攻击
+- **proxy:** 实现 /v1/messages/count_tokens 端点
+- **settings:** 新增技能管理入口开关与 Review Agent 选项
+- **electron:** 应用退出流程与窗口关闭行为按生命周期调整
+
+### Bug Fixes
+
+- 运行中会话对账启动配置，设计系统/技能与 API Key 变更真正生效
+- 超长 system prompt 改走 --system-prompt-file，不再 spawn ENAMETOOLONG
+- 设计导出 ZIP/PDF 真实产出产物，失败不再假装成功
+- 设计预览改走预览服务器 URL，多文件设计的相对 CSS/JS 生效
+- 本地预览服务只服务登记过的工作区，去掉通配 CORS
+- 设计模式两个下拉浮层改到 body 定位，不再被右侧产物面板遮挡
+- 代理流式 UTF-8 跨分块解码，中文正文不再碎成替换字符
+- 代理 SSE 解析器支持 CRLF 事件边界，标准网关流不再被吞空
+- 修复流式响应错误处理与活跃轮次检查逻辑
+- 修复会话切换时旧检查点响应覆盖新状态的问题
+- 办公文档创建即自动预览，修复 watch 残留进程导致的启动超时
+- 编排节点启动异常收口为 failed，释放画布结构锁
+- 丢弃更改按 HEAD/索引/未跟踪三组分别执行并如实上报失败
+- 修复上下文用量大小显示与引擎侧模型上下文窗口赋值错误
+- tool_calls 函数参数支持 JSON 对象解析
+- QR 扫码补充相机权限检查与中文化文案
+
+### Refactor
+
+- 上下文用量 store、Modal、Chip 移除多余 loading 状态，窗口计算统一走设置 store
+- ArtifactsPanel 文件跟踪与可预览判断逻辑精简
+- H5PathGuard 抽离路径归一化函数并增加符号链接能力检测
+- 权限处理统一收敛到 requestId
+- saveSettings 重构并补充文档与错误处理，代理保存返回真实状态
+- 日志新增 safeConsoleWrite 控制台守卫
+- 删除移动端冗余 agents 目录
+
+### Tests
+
+- 补齐 10+ 低覆盖模块单元测试（错误分类、SSE 解析、产物作用域、上下文窗口、轮次检查点、应用生命周期等）并同批上调覆盖率地板
+
+---
+
 ## [0.8.8](https://github.com/hjdspace/SpaceCode/compare/v0.8.7...v0.8.8) (2026-10-12)
 
 ### Features

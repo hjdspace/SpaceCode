@@ -8,8 +8,8 @@
  * entirely in (a) the exact argv they build — a wrong flag silently stages the
  * wrong thing or reverts nothing — and (b) how they translate a non-zero exit into
  * a boolean/{success,error} shape the renderer can act on. The tests pin both, and
- * exercise the fallback paths (discard→clean, for-each-ref→none) that only fire on
- * failure.
+ * exercise the paths that only fire on or around failure (discard grouping per
+ * tracked/untracked, for-each-ref→none).
  *
  * No real git is ever executed: child_process is mocked so push/pull/reset/checkout
  * are asserted at the argv level only.
@@ -60,7 +60,7 @@ vi.mock('@/shared/handlerRegistry', () => ({
   ),
 }))
 
-import { registerGitIPCHandlers } from '../gitService'
+import { registerGitIPCHandlers, type GitDiscardResult } from '../gitService'
 
 function seed(...results: Array<{ stdout?: string; stderr?: string; code?: number | string }>) {
   probe.queue.push(
@@ -228,25 +228,66 @@ describe('showFile / raw diff readers', () => {
   })
 })
 
-describe('discardChanges fallback', () => {
-  it('restores tracked files via checkout HEAD and reports success', async () => {
-    seed({ code: 0 })
-    await expect(call('discardChanges', '/repo', ['a.ts'])).resolves.toBe(true)
-    expect(lastArgs()).toEqual(['checkout', 'HEAD', '--', 'a.ts'])
+describe('discardChanges', () => {
+  it('classifies every path with git, then discards each group with its own command', async () => {
+    seed({ stdout: 'a.ts\0staged.txt\0', code: 0 }) // ls-files: in the index
+    seed({ stdout: 'a.ts\0', code: 0 })             // ls-tree HEAD: also in HEAD
+    seed({ code: 0 })                               // checkout HEAD
+    seed({ code: 0 })                               // rm
+    seed({ code: 0 })                               // clean
+
+    await expect(call('discardChanges', '/repo', ['a.ts', 'staged.txt', 'new.txt']))
+      .resolves.toEqual({ success: true, failedPaths: [] })
+    expect(probe.calls.map(c => c.args)).toEqual([
+      ['ls-files', '-z', '--', 'a.ts', 'staged.txt', 'new.txt'],
+      ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', 'a.ts', 'staged.txt', 'new.txt'],
+      ['checkout', 'HEAD', '--', 'a.ts'],
+      ['rm', '-f', '--', 'staged.txt'],
+      ['clean', '-f', '--', 'new.txt'],
+    ])
   })
 
-  it('falls back to git clean for untracked files when checkout HEAD fails', async () => {
-    seed({ stderr: 'not tracked', code: 1 }) // checkout HEAD fails
-    seed({ code: 0 }) // clean succeeds
+  it('reports the failed group while the surviving groups still get discarded', async () => {
+    seed({ stdout: 'a.ts\0', code: 0 })
+    seed({ stdout: 'a.ts\0', code: 0 })
+    seed({ stderr: "error: pathspec 'a.ts' did not match", code: 1 }) // checkout fails
+    seed({ code: 0 })                                                 // clean succeeds
 
-    await expect(call('discardChanges', '/repo', ['new.ts'])).resolves.toBe(true)
+    const res = await call('discardChanges', '/repo', ['a.ts', 'new.ts']) as GitDiscardResult
+    expect(res.success).toBe(false)
+    expect(res.failedPaths).toEqual(['a.ts'])
+    expect(res.error).toBe("error: pathspec 'a.ts' did not match")
     expect(lastArgs()).toEqual(['clean', '-f', '--', 'new.ts'])
   })
 
-  it('reports failure when neither checkout nor clean succeeds', async () => {
-    seed({ code: 1 })
-    seed({ code: 1 })
-    await expect(call('discardChanges', '/repo', ['x'])).resolves.toBe(false)
+  it('never reaches for `git rm` when HEAD cannot be listed', async () => {
+    seed({ stdout: 'staged.txt\0', code: 0 })
+    seed({ stderr: 'fatal: not a valid object name HEAD', code: 128 }) // unborn HEAD
+    seed({ code: 0 })
+    seed({ code: 0 })
+
+    await expect(call('discardChanges', '/repo', ['staged.txt', 'new.txt']))
+      .resolves.toEqual({ success: true, failedPaths: [] })
+    expect(probe.calls.map(c => c.args)).toEqual([
+      ['ls-files', '-z', '--', 'staged.txt', 'new.txt'],
+      ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', 'staged.txt', 'new.txt'],
+      ['checkout', 'HEAD', '--', 'staged.txt'],
+      ['clean', '-f', '--', 'new.txt'],
+    ])
+  })
+
+  it('reports every path as failed, without running anything destructive, when the index cannot be read', async () => {
+    seed({ stderr: 'not a git repository', code: 128 })
+
+    await expect(call('discardChanges', '/repo', ['a.ts', 'new.ts'])).resolves.toEqual({
+      success: false, failedPaths: ['a.ts', 'new.ts'], error: 'not a git repository',
+    })
+    expect(probe.calls).toHaveLength(1)
+  })
+
+  it('short-circuits an empty request before touching git', async () => {
+    await expect(call('discardChanges', '/repo', [])).resolves.toEqual({ success: true, failedPaths: [] })
+    expect(probe.calls).toEqual([])
   })
 })
 

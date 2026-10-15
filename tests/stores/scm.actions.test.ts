@@ -332,10 +332,50 @@ describe('scm store — discard, pull, push, stash', () => {
   })
 
   it('discardFileChanges calls api.git.discardChanges and refreshes', async () => {
-    apiMocks.git.discardChanges.mockResolvedValue(true)
+    apiMocks.git.discardChanges.mockResolvedValue({ success: true, failedPaths: [] })
     const store = useScmStore()
     await store.discardFileChanges(['a.ts'])
     expect(apiMocks.git.discardChanges).toHaveBeenCalledWith('/repo', ['a.ts'])
+    expect(store.discardError).toBeNull()
+  })
+
+  it('discardFileChanges names the files git refused to discard', async () => {
+    apiMocks.git.discardChanges.mockResolvedValue({
+      success: false,
+      failedPaths: ['a.ts'],
+      error: "error: pathspec 'a.ts' did not match any file(s) known to git",
+    })
+    const store = useScmStore()
+    await store.discardFileChanges(['a.ts', 'new.ts'])
+    expect(store.discardError).toContain('a.ts')
+    expect(store.discardError).not.toContain('new.ts')
+  })
+
+  it('the discard failure banner survives the refresh that git:statusChanged triggers', async () => {
+    apiMocks.git.discardChanges.mockResolvedValue({ success: false, failedPaths: ['a.ts'] })
+    const store = useScmStore()
+    await store.discardFileChanges(['a.ts'])
+    await store.refresh()
+    expect(store.error).toBeNull()
+    expect(store.discardError).toContain('a.ts')
+  })
+
+  it('a fresh discard clears the previous failure banner', async () => {
+    apiMocks.git.discardChanges
+      .mockResolvedValueOnce({ success: false, failedPaths: ['a.ts'] })
+      .mockResolvedValueOnce({ success: true, failedPaths: [] })
+    const store = useScmStore()
+    await store.discardFileChanges(['a.ts'])
+    await store.discardFileChanges(['a.ts'])
+    expect(store.discardError).toBeNull()
+  })
+
+  it('discardFileChanges still reports a failure that carries no path list', async () => {
+    apiMocks.git.discardChanges.mockResolvedValue({ success: false, failedPaths: [] })
+    const store = useScmStore()
+    await store.discardFileChanges(['a.ts'])
+    expect(store.discardError).toBeTruthy()
+    expect(store.discardError).not.toContain('undefined')
   })
 
   it('pull succeeds and refreshes', async () => {

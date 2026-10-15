@@ -17,6 +17,7 @@ import type {
   GitBranch,
   GitLogEntry,
   GitCommitFileStat,
+  GitDiscardResult,
 } from '@/services/electronAPI'
 import { defineChannels } from '@/shared/channelMap'
 
@@ -115,7 +116,7 @@ export const gitChannels = defineChannels({
   },
   discardChanges: {
     req: [] as unknown as [cwd: string, paths: string[]],
-    res: null as unknown as boolean,
+    res: null as unknown as GitDiscardResult,
   },
   pull: {
     req: [] as unknown as [cwd: string],

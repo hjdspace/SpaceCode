@@ -97,8 +97,8 @@ export function useDesignSession() {
     chatSessionStore.currentProjectRoot = path
     const sid = designStore.activeSessionId
     if (!sid) return
-    // 会话已在运行时，initClaudeCodeSession 不会自动重启；
-    // 需先停止当前会话，再以新的 cwd 重新初始化。
+    // cwd 不在 initClaudeCodeSession 的启动配置对账范围内（只对比 systemPrompt / agent / 凭据），
+    // 换工作目录必须显式先停止会话，再以新 cwd 重新初始化。
     if (api.claudeCode) {
       try {
         const status = await api.claudeCode.getSessionStatus(sid)

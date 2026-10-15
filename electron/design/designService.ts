@@ -3,6 +3,9 @@ import { app } from 'electron';
 import * as path from 'path';
 import { startDesignFileWatcher, stopDesignFileWatcher } from './fileWatcher';
 import { registerPromptStackHandlers } from './promptStack';
+import { exportZip } from './artifactExport';
+import { exportPdf } from './pdfExport';
+import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -31,15 +34,29 @@ export function registerDesignIPCHandlers(
     stopDesignFileWatcher();
   });
 
-  // 产物导出（当前仅打开外部浏览器/文件夹，后续可扩展为 zip/pdf 生成）
+  // 产物导出：html 打开所在目录，zip/pdf 真实生成文件后定位产物
   ipcMain.handle(
     'design:export-artifact',
-    async (_event, options: { filePath: string; format: 'html' | 'zip' | 'pdf' }) => {
-      if (options.format === 'html') {
-        await shell.openPath(path.dirname(options.filePath));
-      } else {
-        // TODO: 实现 zip / pdf 导出
-        await shell.openPath(path.dirname(options.filePath));
+    async (
+      _event,
+      options: DesignExportRequest,
+    ): Promise<DesignExportResult> => {
+      try {
+        if (options.format === 'html') {
+          const dir = path.dirname(options.filePath);
+          // openPath 用返回的字符串报错：空串才是成功，否则是失败，不能当成功报回去
+          const openError = await shell.openPath(dir);
+          if (openError) return { ok: false, error: openError };
+          return { ok: true, path: dir };
+        }
+        const output =
+          options.format === 'zip'
+            ? exportZip(options.filePath, options.workspaceRoot)
+            : await exportPdf(options.filePath, options.workspaceRoot);
+        shell.showItemInFolder(output);
+        return { ok: true, path: output };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     }
   );

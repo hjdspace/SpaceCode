@@ -43,6 +43,25 @@ const ContentBlockType = {
 } as const
 type ContentBlockType = (typeof ContentBlockType)[keyof typeof ContentBlockType]
 
+interface UpstreamStreamError {
+  type: string
+  message: string
+}
+
+/**
+ * 网关把上游失败塞进 HTTP 200 之后的 SSE data 里：`{"error":{...}}`，少数只回字符串。
+ * Anthropic 的 error 事件只认 {type, message}，缺字段时兜底成 api_error，
+ * 保证客户端至少能显示一条可辨识的错误。
+ */
+function toStreamError(raw: unknown): UpstreamStreamError {
+  if (typeof raw === 'string') return { type: 'api_error', message: raw }
+  const obj = raw as Record<string, unknown>
+  const message =
+    typeof obj.message === 'string' && obj.message !== '' ? obj.message : 'Upstream error without a message'
+  const type = typeof obj.type === 'string' && obj.type !== '' ? obj.type : 'api_error'
+  return { type, message }
+}
+
 export class OpenAIToAnthropicStreamTransformer {
   private messageStarted = false
   private contentBlockType: ContentBlockType = ContentBlockType.None
@@ -76,11 +95,12 @@ export class OpenAIToAnthropicStreamTransformer {
   private pendingFinishReason: string | null = null
 
   transform(event: { data: string }): string[] {
+    // 错误/收尾之后本流已终止：后续分片（含 [DONE]）一律丢弃，
+    // 否则会在 message_stop 或 error 之后再吐出半截消息。
+    if (this.finished) return []
+
     if (event.data === '[DONE]') {
-      if (!this.finished) {
-        return this.emitClosingEvents(this.pendingFinishReason ?? undefined)
-      }
-      return []
+      return this.emitClosingEvents(this.pendingFinishReason ?? undefined)
     }
 
     let chunk: Record<string, any>
@@ -88,6 +108,12 @@ export class OpenAIToAnthropicStreamTransformer {
       chunk = JSON.parse(event.data)
     } catch {
       return []
+    }
+
+    // 上游已回 200，失败只能在流里说。转成 error 事件并终止本流，
+    // 否则它会走到收尾逻辑、被补成一次 stop_reason="end_turn" 的"成功空回复"。
+    if (chunk.error) {
+      return this.terminateWithError(toStreamError(chunk.error))
     }
 
     const output: string[] = []
@@ -322,6 +348,17 @@ export class OpenAIToAnthropicStreamTransformer {
 
   private emitClosingEvents(finishReason?: string): string[] {
     if (this.finished) return []
+
+    const stopReason = this.mapFinishReason(finishReason)
+
+    if (stopReason === null) {
+      // 上游没给过任何结束原因就断流，这条答复是被截断的，不能补成"正常完成"。
+      return this.terminateWithError({
+        type: 'api_error',
+        message: 'Upstream stream ended without a finish_reason; the response is incomplete',
+      })
+    }
+
     this.finished = true
 
     const output: string[] = []
@@ -339,7 +376,7 @@ export class OpenAIToAnthropicStreamTransformer {
     output.push(this.formatSSE('message_delta', {
       type: 'message_delta',
       delta: {
-        stop_reason: this.mapFinishReason(finishReason),
+        stop_reason: stopReason,
         stop_sequence: null,
       },
       usage: {
@@ -357,6 +394,17 @@ export class OpenAIToAnthropicStreamTransformer {
     return output
   }
 
+  /**
+   * 异常终止本流：收口未闭合的内容块，下发 Anthropic 的 error 事件。
+   * finished 置位后 [DONE] 与 finish() 都不再补 message_delta/message_stop。
+   */
+  private terminateWithError(error: UpstreamStreamError): string[] {
+    this.finished = true
+    const output = this.closeContentBlocks()
+    output.push(this.formatSSE('error', { type: 'error', error }))
+    return output
+  }
+
   /** Close any open content block without emitting message_delta/message_stop. */
   private closeContentBlocks(): string[] {
     const output: string[] = []
@@ -370,7 +418,13 @@ export class OpenAIToAnthropicStreamTransformer {
     return output
   }
 
-  private mapFinishReason(reason?: string): string {
+  /**
+   * null = 异常终止：上游从未给出 finish_reason，流是被截断的，不能映射成任何
+   * 表示"正常完成"的 stop_reason。非标准但存在的 finish_reason 仍按正常完成收尾，
+   * 否则兼容网关的自定义结束原因会全线报错。
+   */
+  private mapFinishReason(reason?: string): string | null {
+    if (reason === undefined) return null
     switch (reason) {
       case 'stop': return 'end_turn'
       case 'length': return 'max_tokens'

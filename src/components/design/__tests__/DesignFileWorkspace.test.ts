@@ -4,14 +4,21 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useDesignStore } from '@/stores/design'
 
 // ── Hoisted spies: accessible both in mock factory and test body ──
-const { onFileChangedSpy, readFileSpy, fileChangedCallback } = vi.hoisted(() => {
+const { onFileChangedSpy, readFileSpy, getUrlSpy, urlFor, fileChangedCallback } = vi.hoisted(() => {
   let cb: ((event: { sessionId: string; filepath: string }) => void) | null = null
+  // 模拟票 06 的 preview:getUrl：返回带 token 的、已登记工作区的预览 URL
+  const urlFor = (filePath: string): string | null =>
+    `http://127.0.0.1:9999/TOKEN/${filePath.split(/[\\/]/).pop()}`
   return {
     onFileChangedSpy: vi.fn((callback: (event: { sessionId: string; filepath: string }) => void) => {
       cb = callback
       return () => { cb = null }
     }),
     readFileSpy: vi.fn().mockResolvedValue('<html><body>mock</body></html>'),
+    getUrlSpy: vi.fn(async (filePath: string, _workspaceRoot?: string): Promise<string | null> =>
+      urlFor(filePath),
+    ),
+    urlFor,
     fileChangedCallback: {
       get current() { return cb },
       trigger(event: { sessionId: string; filepath: string }) {
@@ -28,6 +35,7 @@ vi.mock('@/services/electronAPI', () => ({
       exportArtifact: vi.fn(),
     },
     readFile: readFileSpy,
+    preview: { getUrl: getUrlSpy },
   },
 }))
 
@@ -37,7 +45,17 @@ vi.mock('vue-i18n', () => ({
 
 // Stub child components to avoid mounting their dependencies
 vi.mock('../DesignPreview.vue', () => ({
-  default: { template: '<div class="design-preview-stub" />' },
+  default: {
+    name: 'DesignPreviewStub',
+    props: {
+      html: { type: String, default: '' },
+      title: { type: String, default: '' },
+      sessionId: { type: String, default: '' },
+      previewUrl: { type: String, default: null as unknown as string | null },
+      reloadToken: { type: Number, default: 0 },
+    },
+    template: '<div class="design-preview-stub" />',
+  },
 }))
 vi.mock('../WorkspaceTabsBar.vue', () => ({
   default: { template: '<div class="tabs-bar-stub" />' },
@@ -45,12 +63,19 @@ vi.mock('../WorkspaceTabsBar.vue', () => ({
 
 import DesignFileWorkspace from '../DesignFileWorkspace.vue'
 
+/** 读取当前渲染中的预览组件入参；未渲染时返回 null */
+function previewProps(wrapper: ReturnType<typeof mount>) {
+  const stub = wrapper.findComponent({ name: 'DesignPreviewStub' })
+  return stub.exists() ? (stub.props() as Record<string, unknown>) : null
+}
+
 describe('DesignFileWorkspace — onFileChanged regression', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
-    // Reset readFileSpy default
+    // Reset spy defaults (clearAllMocks 只清调用记录，不清 mockResolvedValue)
     readFileSpy.mockResolvedValue('<html><body>mock</body></html>')
+    getUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
   })
 
   it('挂载时注册 onFileChanged 监听器', () => {
@@ -137,5 +162,169 @@ describe('DesignFileWorkspace — onFileChanged regression', () => {
 
     wrapper.unmount()
     expect(fileChangedCallback.current).toBeNull()
+  })
+})
+
+describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    readFileSpy.mockResolvedValue('<html><body>mock</body></html>')
+    getUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
+  })
+
+  it('活动 HTML tab 以工作区根登记预览 URL 并交给预览组件', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    const wrapper = mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+
+    await vi.waitFor(() => {
+      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    })
+    expect(getUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
+  })
+
+  it('CSS 变更后活动 HTML 预览自动重载：reloadToken 递增且 URL 不变', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    const wrapper = mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await vi.waitFor(() => {
+      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    })
+    const before = Number(previewProps(wrapper)?.reloadToken)
+
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/style.css' })
+    await vi.waitFor(() => {
+      expect(Number(previewProps(wrapper)?.reloadToken)).toBe(before + 1)
+    })
+
+    expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+  })
+
+  it('JS 变更后同样重载，并且不重复读取 HTML 内容', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    const wrapper = mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await vi.waitFor(() => {
+      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    })
+    readFileSpy.mockClear()
+
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/app.js' })
+    await vi.waitFor(() => {
+      expect(Number(previewProps(wrapper)?.reloadToken)).toBe(1)
+    })
+
+    expect(readFileSpy).not.toHaveBeenCalled()
+  })
+
+  it('HTML 自身变更既刷新内容也触发重新导航（src 需要换 rev 才会重载）', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    const wrapper = mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await vi.waitFor(() => {
+      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    })
+
+    readFileSpy.mockResolvedValue('<html><body>v2</body></html>')
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await vi.waitFor(() => {
+      expect(store.previewHtml).toBe('<html><body>v2</body></html>')
+    })
+
+    expect(Number(previewProps(wrapper)?.reloadToken)).toBe(1)
+  })
+
+  it('激活的是 CSS tab 时，其他资源变更不触发预览重载', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    const wrapper = mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/style.css' })
+    await vi.waitFor(() => {
+      expect(store.artifactFiles).toHaveLength(1)
+    })
+
+    // 用户手动打开 CSS 文件（源码视图），预览组件未渲染
+    store.addTab({ name: 'style.css', path: '/workspace/style.css', updatedAt: 0 })
+    await wrapper.vm.$nextTick()
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/app.js' })
+    await new Promise(r => setTimeout(r, 30))
+
+    expect(getUrlSpy).not.toHaveBeenCalled()
+    expect(previewProps(wrapper)).toBeNull()
+  })
+
+  it('InfoPanel 重挂载后已有活动 tab 也会登记预览 URL', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+    store.addTab({ name: 'index.html', path: '/workspace/index.html', updatedAt: 0 })
+
+    mount(DesignFileWorkspace)
+
+    await vi.waitFor(() => {
+      expect(getUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
+    })
+  })
+
+  it('快速连续切 tab 时，晚到的旧读取不覆盖新文件的预览状态', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    let releaseStale: ((v: string) => void) | null = null
+    readFileSpy.mockImplementation((filePath: string) => {
+      if (filePath === '/workspace/index.html') {
+        return new Promise<string>((resolve) => { releaseStale = resolve })
+      }
+      return Promise.resolve(`<html><body>${filePath}</body></html>`)
+    })
+
+    const wrapper = mount(DesignFileWorkspace)
+    // 第一个文件的读取挂起，待它真的在途之后再切到第二个（快速返回）
+    store.addTab({ name: 'index.html', path: '/workspace/index.html', updatedAt: 0 })
+    await vi.waitFor(() => {
+      expect(releaseStale).not.toBeNull()
+    })
+    store.addTab({ name: 'second.html', path: '/workspace/second.html', updatedAt: 0 })
+    await vi.waitFor(() => {
+      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/second.html')
+    })
+
+    releaseStale!('<html><body>stale</body></html>')
+    await new Promise(r => setTimeout(r, 30))
+
+    expect(store.previewHtml).toBe('<html><body>/workspace/second.html</body></html>')
+    expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/second.html')
+  })
+
+  it('非 Electron 环境拿不到预览 URL 时回退到原有 srcdoc 管线', async () => {
+    getUrlSpy.mockResolvedValue(null)
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    const wrapper = mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+
+    await vi.waitFor(() => {
+      expect(previewProps(wrapper)).not.toBeNull()
+    })
+    expect(previewProps(wrapper)?.previewUrl).toBeFalsy()
+    expect(store.previewHtml).toBe('<html><body>mock</body></html>')
   })
 })

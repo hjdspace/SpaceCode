@@ -304,6 +304,33 @@ describe('buildArgs — resume vs fresh session-id', () => {
   })
 })
 
+describe('buildArgs — oversized system prompt goes through a file', () => {
+  // Design mode embeds a whole DESIGN.md + tokens.css in the system prompt; 34 of the
+  // 150 shipped design systems exceed Windows' 32,767-char command-line limit.
+  const longPrompt = 'x'.repeat(30_000)
+
+  it('externalizes a prompt that would overflow the command line', () => {
+    const args = buildArgs({ systemPrompt: longPrompt }, 'sess-longprompt-1')
+    expect(args).not.toContain('--system-prompt')
+    const expected = '/tmp/SpaceCode/system-prompt-sess-longprompt-1.txt'
+    expect(norm(flag(args, '--system-prompt-file')!)).toBe(expected)
+    expect(fsp.writes.find(w => norm(w.path) === expected)?.content).toBe(longPrompt)
+  })
+
+  it('keeps a short prompt inline — installed CLIs are not required to read the file flag', () => {
+    const args = buildArgs({ systemPrompt: 'be terse' })
+    expect(flag(args, '--system-prompt')).toBe('be terse')
+    expect(args).not.toContain('--system-prompt-file')
+    expect(fsp.writes.some(w => norm(w.path).includes('system-prompt-'))).toBe(false)
+  })
+
+  it('still passes the append-system-prompt inline when the main prompt moves to a file', () => {
+    mcp.config = { mcpServers: { 'browser-use': { command: 'python' } } }
+    const args = buildArgs({ systemPrompt: longPrompt })
+    expect(flag(args, '--append-system-prompt')).toContain('mcp__browser-use__')
+  })
+})
+
 describe('buildArgs — working directory add-on', () => {
   it('grants the engine access to ~/.claude when it exists', () => {
     fsp.exists = (p) => norm(p) === '/home/u/.claude'

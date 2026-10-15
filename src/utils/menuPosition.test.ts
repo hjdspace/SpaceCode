@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { clampMenuPosition, MENU_WIDTH, VIEWPORT_MARGIN } from './menuPosition'
+import {
+  clampMenuPosition,
+  MENU_WIDTH,
+  VIEWPORT_MARGIN,
+  MIN_OVERLAY_MAX_HEIGHT,
+  OVERLAY_EDGE_MARGIN,
+  placeAnchoredMenu,
+} from './menuPosition'
 
 describe('clampMenuPosition', () => {
   const VW = 1920
@@ -58,5 +65,49 @@ describe('clampMenuPosition', () => {
     // 视口宽 150 < 菜单宽 200 + 边距
     const pos = clampMenuPosition(100, 500, W, H, 150, VH)
     expect(pos.left).toBe(VIEWPORT_MARGIN)
+  })
+})
+
+describe('placeAnchoredMenu', () => {
+  const VP = { width: 1440, height: 900 }
+  const DESIRED = { width: 560, gap: 14, maxHeight: 400 }
+  // 触发元素在中心栏底部（输入框下方/内部的下拉）
+  const BOTTOM_ANCHOR = { left: 320, top: 760, bottom: 790 }
+
+  it('向上展开: 底边锚在触发元素上沿的 gap 处', () => {
+    const p = placeAnchoredMenu(BOTTOM_ANCHOR, DESIRED, VP)
+    expect(p.side).toBe('bottom')
+    expect(p.offset).toBe(VP.height - BOTTOM_ANCHOR.top + DESIRED.gap)
+    expect(p.left).toBe(320)
+    expect(p.width).toBe(560)
+    expect(p.maxHeight).toBe(400)
+  })
+
+  it('菜单右沿越过视口: 整块收进右边距内, 右侧面板盖不到', () => {
+    const p = placeAnchoredMenu({ left: 1200, top: 760, bottom: 790 }, DESIRED, VP)
+    expect(p.left + p.width).toBe(VP.width - OVERLAY_EDGE_MARGIN)
+  })
+
+  it('触发元素贴左沿: 不越过左边距', () => {
+    const p = placeAnchoredMenu({ left: 0, top: 760, bottom: 790 }, DESIRED, VP)
+    expect(p.left).toBe(OVERLAY_EDGE_MARGIN)
+  })
+
+  it('上方放不下: 翻到下方, 顶边锚在触发元素下沿的 gap 处', () => {
+    const p = placeAnchoredMenu({ left: 320, top: 60, bottom: 90 }, DESIRED, VP)
+    expect(p.side).toBe('top')
+    expect(p.offset).toBe(90 + DESIRED.gap)
+    expect(p.maxHeight).toBe(400)
+  })
+
+  it('上下都放不下: 保留最小可用高度, 不压成看不见的一条', () => {
+    const p = placeAnchoredMenu({ left: 320, top: 140, bottom: 170 }, DESIRED, { width: 1440, height: 300 })
+    expect(p.maxHeight).toBe(MIN_OVERLAY_MAX_HEIGHT)
+  })
+
+  it('窄视口: 宽度按视口收窄且 left 不为负', () => {
+    const p = placeAnchoredMenu({ left: 300, top: 700, bottom: 730 }, DESIRED, { width: 400, height: 900 })
+    expect(p.width).toBe(400 - 2 * OVERLAY_EDGE_MARGIN)
+    expect(p.left).toBe(OVERLAY_EDGE_MARGIN)
   })
 })

@@ -345,7 +345,7 @@ export function useTurnStore(injectedApi?: any) {
       getArtifactsApi: () => resolvedApi.artifacts ?? null,
       openArtifactPreview: (filePath: string) => {
         const appStore = useAppStore()
-        if (isOfficePreviewPath(filePath)) appStore.openOfficePreview(filePath, 'html')
+        if (isOfficePreviewPath(filePath)) appStore.openOfficePreview(filePath)
         else if (isHtmlPreviewPath(filePath)) appStore.openFileInWebview(filePath)
       },
       isSoundOnTaskComplete: () => !!settingsStore.appearance?.soundOnTaskComplete,

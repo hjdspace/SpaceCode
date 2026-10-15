@@ -1,6 +1,7 @@
 import * as http from 'http'
 import * as https from 'https'
 import { URL } from 'url'
+import { StringDecoder } from 'string_decoder'
 import { ProxyConfig, AdapterStatus } from './types'
 import { anthropicToOpenAIRequest, openAIToAnthropicResponse, estimateInputTokens } from './transformer'
 import { OpenAIToAnthropicStreamTransformer } from './streamingTransformer'
@@ -250,13 +251,13 @@ export class ProxyServer {
         return
       }
 
-      let data = ''
+      const chunks: Buffer[] = []
       upstreamRes.on('data', (chunk: Buffer) => {
-        data += chunk.toString()
+        chunks.push(chunk)
       })
       upstreamRes.on('end', () => {
         try {
-          const response = JSON.parse(data)
+          const response = JSON.parse(Buffer.concat(chunks).toString('utf8'))
           const finalResponse = transformResponse ? openAIToAnthropicResponse(response) : response
           clientRes.writeHead(200, { 'Content-Type': 'application/json' })
           clientRes.end(JSON.stringify(finalResponse))
@@ -309,18 +310,25 @@ export class ProxyServer {
 
         const parser = new SSEParser()
         const transformer = new OpenAIToAnthropicStreamTransformer(estimatedInputTokens)
+        // TCP 分块可能把一个多字节 UTF-8 字符拦腰切断，逐块 toString() 是无状态解码，
+        // 边界字符会碎成 ；解码状态必须跨块保持，且在 SSE 切分之前完成。
+        const decoder = new StringDecoder('utf8')
 
-        upstreamRes.on('data', (chunk: Buffer) => {
-          const events = parser.feed(chunk.toString())
-          for (const event of events) {
+        const feed = (text: string): void => {
+          for (const event of parser.feed(text)) {
             const output = transformer.transform(event)
             for (const sse of output) {
               clientRes.write(sse)
             }
           }
+        }
+
+        upstreamRes.on('data', (chunk: Buffer) => {
+          feed(decoder.write(chunk))
         })
 
         upstreamRes.on('end', () => {
+          feed(decoder.end())
           const remaining = transformer.finish()
           for (const sse of remaining) {
             clientRes.write(sse)
@@ -347,11 +355,12 @@ export class ProxyServer {
 
   private forwardErrorResponse(upstreamRes: http.IncomingMessage, clientRes: http.ServerResponse): void {
     this.errorsCount++
-    let data = ''
+    const chunks: Buffer[] = []
     upstreamRes.on('data', (chunk: Buffer) => {
-      data += chunk.toString()
+      chunks.push(chunk)
     })
     upstreamRes.on('end', () => {
+      const data = Buffer.concat(chunks).toString('utf8')
       this.lastError = `Upstream error: ${upstreamRes.statusCode}`
       clientRes.writeHead(upstreamRes.statusCode!, { 'Content-Type': 'application/json' })
       clientRes.end(data)

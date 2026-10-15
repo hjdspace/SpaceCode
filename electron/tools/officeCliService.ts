@@ -564,6 +564,19 @@ if (!binaryPath) {
 throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or install OfficeCLI globally.')
 }
 
+    // 清掉同文件的残留 watch：officecli watch 是独立常驻进程，应用异常退出后
+    // 依然存活；残留进程会让新的 watch 立即退出并报 "Another watch process is
+    // already running"。unwatch 幂等，无残留时是 no-op。
+    try {
+      spawnSync(binaryPath, ['unwatch', filePath], {
+        cwd: path.dirname(filePath),
+        windowsHide: true,
+        timeout: 5000,
+      })
+    } catch {
+      // 清理失败不阻塞启动 —— 后续 close 监听会把真实错误带出来
+    }
+
     const args = ['watch', filePath]
     if (port) {
       args.push('--port', String(port))
@@ -579,15 +592,21 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
       const id = `watch-${Date.now()}`
       let resolvedPort = port || 26315
       let outputBuffer = ''
+      let stderrBuffer = ''
+      let settled = false
 
       const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        if (child.pid) killProcessTree(child.pid)
         reject(new Error('watch startup timeout'))
       }, 10000)
 
       child.stdout?.on('data', (data: Buffer) => {
         outputBuffer += data.toString()
         const urlMatch = outputBuffer.match(/http:\/\/localhost:(\d+)/)
-        if (urlMatch) {
+        if (urlMatch && !settled) {
+          settled = true
           resolvedPort = parseInt(urlMatch[1])
           clearTimeout(timer)
           const handle: OfficeCliWatchHandle = {
@@ -602,13 +621,26 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
         }
       })
 
+      child.stderr?.on('data', (data: Buffer) => {
+        stderrBuffer += data.toString()
+      })
+
       child.on('error', (err: Error) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
         reject(new Error(`watch start failed: ${err.message}`))
       })
 
-      child.on('close', () => {
+      // officecli 自身退出（同文件已有 watch、文件被锁、参数错误）会立刻 close。
+      // 带上 stderr reject，不要傻等超时把真实原因吞成 "watch startup timeout"。
+      child.on('close', (code: number | null) => {
         watchProcesses.delete(id)
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        const detail = stderrBuffer.trim() || outputBuffer.trim()
+        reject(new Error(`watch process exited (code ${code})${detail ? `: ${detail}` : ''}`))
       })
     })
   })
@@ -619,6 +651,16 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
     if (!handle) return false
     if (handle.process.pid) killProcessTree(handle.process.pid)
     watchProcesses.delete(watchId)
+    // kill 后补一刀 unwatch：若 officecli 侧留有同文件的 watch 注册状态，
+    // 下次对同一文件 watch 会因 "already running" 立即失败。
+    const binaryPath = resolveOfficeCliBinary()
+    if (binaryPath) {
+      try {
+        spawnSync(binaryPath, ['unwatch', handle.filePath], { windowsHide: true, timeout: 5000 })
+      } catch {
+        // ignore
+      }
+    }
     return true
   })
 

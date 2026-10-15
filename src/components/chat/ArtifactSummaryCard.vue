@@ -50,7 +50,7 @@ const appStore = useAppStore()
 
 function openArtifact(f: ArtifactSummaryEntry) {
   if (isOfficePreviewPath(f.path)) {
-    appStore.openOfficePreview(f.path, 'html')
+    appStore.openOfficePreview(f.path)
     return
   }
   if (isHtmlPreviewPath(f.path)) {

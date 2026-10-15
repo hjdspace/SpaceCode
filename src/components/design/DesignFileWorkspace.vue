@@ -12,7 +12,7 @@
         <h2>{{ t('design.emptyPreviewTitle') }}</h2>
         <p>{{ t('design.emptyPreviewHint') }}</p>
       </div>
-      <DesignPreview v-else-if="viewMode === 'preview'" :html="previewHtml" :title="previewTitle" :session-id="activeSessionId || ''" />
+      <DesignPreview v-else-if="viewMode === 'preview'" :html="previewHtml" :title="previewTitle" :session-id="activeSessionId || ''" :preview-url="previewResourceUrl" :reload-token="previewReloadToken" />
       <div v-else class="code-viewer"><pre><code>{{ sourceCode }}</code></pre></div>
     </div>
     <div class="artifact-list">
@@ -22,15 +22,22 @@
       </div>
     </div>
     <div v-if="activeTabPath" class="export-bar">
-      <button @click="exportFile('html')">{{ t('design.export.html') }}</button>
-      <button @click="exportFile('zip')">{{ t('design.export.zip') }}</button>
-      <button @click="exportFile('pdf')">{{ t('design.export.pdf') }}</button>
+      <div class="export-actions">
+        <button
+          v-for="fmt in exportFormats"
+          :key="fmt"
+          :disabled="!activeIsHtml || exporting"
+          :title="activeIsHtml ? '' : t('design.export.htmlOnly')"
+          @click="exportFile(fmt)"
+        >{{ t(`design.export.${fmt}`) }}</button>
+      </div>
+      <p v-if="exportStatus" class="export-status" :class="exportStatus.kind">{{ exportStatus.text }}</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { FileText, FileCode } from 'lucide-vue-next'
@@ -41,10 +48,19 @@ import WorkspaceTabsBar from './WorkspaceTabsBar.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()
-const { openTabs, activeTabPath, previewHtml, previewTitle, artifactFiles, activeSessionId } = storeToRefs(designStore)
+const { openTabs, activeTabPath, previewHtml, previewTitle, artifactFiles, activeSessionId, designWorkspace } = storeToRefs(designStore)
 const { addTab, removeTab, setActiveTab } = designStore
 const viewMode = ref<'preview' | 'source'>('preview')
 const sourceCode = ref('')
+/** 活动 HTML 在本地预览服务器上的登记 URL；null 表示不可用（H5 模式等），预览回退 srcdoc */
+const previewResourceUrl = ref<string | null>(null)
+/** 递增即强制重新导航，用于 HTML 之外的 CSS/JS 变更后重取兄弟资源 */
+const previewReloadToken = ref(0)
+
+type ExportFormat = 'html' | 'zip' | 'pdf'
+const exportFormats: ExportFormat[] = ['html', 'zip', 'pdf']
+const exporting = ref(false)
+const exportStatus = ref<{ kind: 'working' | 'success' | 'error'; text: string } | null>(null)
 
 /** 从完整路径中提取文件名（兼容 Windows 反斜杠与 POSIX 正斜杠） */
 function basename(filepath: string): string {
@@ -57,14 +73,30 @@ function isHtmlFile(filepath: string): boolean {
   return ext === 'html' || ext === 'htm'
 }
 
+/** 只有 HTML 产物有可导出的形态；CSS/JS tab 上导出条整体禁用 */
+const activeIsHtml = computed(() => !!activeTabPath.value && isHtmlFile(activeTabPath.value))
+
 watch(activeTabPath, async (p) => {
-  if (!p) { previewHtml.value = ''; return }
-  const content = await api.readFile(p)
+  exportStatus.value = null
+  if (!p) {
+    previewResourceUrl.value = null
+    previewHtml.value = ''
+    return
+  }
+  const isHtml = isHtmlFile(p)
+  const [content, url] = await Promise.all([
+    api.readFile(p),
+    isHtml ? api.preview.getUrl(p, designWorkspace.value || undefined) : Promise.resolve(null),
+  ])
+  // 连续切 tab 时慢的那次读取会晚到，不能用它覆盖已经切过去的文件
+  if (activeTabPath.value !== p) return
+  // URL 先于内容写入：子组件在同一批更新里拿到配套的两个值，避免用旧文件的 URL 导航新内容
+  previewResourceUrl.value = url
   previewHtml.value = content || ''
   previewTitle.value = basename(p)
   sourceCode.value = content || ''
-  viewMode.value = isHtmlFile(p) ? 'preview' : 'source'
-})
+  viewMode.value = isHtml ? 'preview' : 'source'
+}, { immediate: true })
 
 // ── 文件监听：接收 Electron 主进程 chokidar 推送的文件变更事件 ──
 // 监听器注册在 DesignFileWorkspace（始终挂载的右侧面板），
@@ -102,8 +134,13 @@ onMounted(() => {
           previewHtml.value = content
           previewTitle.value = filename
           sourceCode.value = content
+          // 内容可能逐字相同（如仅格式化），换 rev 才保证预览真的重新导航
+          previewReloadToken.value++
         }
       }
+    } else if (activeTabPath.value && isHtmlFile(activeTabPath.value)) {
+      // 兄弟 CSS/JS 变更：HTML 文本没动，预览必须重新导航才会再取一次这些资源
+      previewReloadToken.value++
     }
   })
 })
@@ -121,12 +158,42 @@ async function refresh() {
   if (content !== null) {
     previewHtml.value = content
     sourceCode.value = content
+    previewReloadToken.value++
   }
 }
 
-async function exportFile(format: 'html' | 'zip' | 'pdf') {
-  if (!activeTabPath.value) return
-  api.design.exportArtifact({ filePath: activeTabPath.value, format })
+async function exportFile(format: ExportFormat) {
+  const filePath = activeTabPath.value
+  if (!filePath || !activeIsHtml.value || exporting.value) return
+
+  exporting.value = true
+  exportStatus.value = { kind: 'working', text: t('design.export.working') }
+  try {
+    const result = await api.design.exportArtifact({
+      filePath,
+      format,
+      workspaceRoot: designWorkspace.value || undefined,
+    })
+    if (result.ok) {
+      // html 打开的是产物所在目录，zip/pdf 是新生成的文件
+      exportStatus.value = {
+        kind: 'success',
+        text: format === 'html'
+          ? t('design.export.opened', { path: result.path })
+          : t('design.export.exported', { path: result.path }),
+      }
+    } else {
+      // api 层在拿不到 preload 时回 'unsupported:' 哨兵：细节不外露，只说未支持
+      exportStatus.value = {
+        kind: 'error',
+        text: result.error.startsWith('unsupported:')
+          ? t('design.export.unavailable')
+          : t('design.export.failed', { error: result.error }),
+      }
+    }
+  } finally {
+    exporting.value = false
+  }
 }
 </script>
 
@@ -139,5 +206,7 @@ async function exportFile(format: 'html' | 'zip' | 'pdf') {
 .artifact-list { border-top: 1px solid var(--surface-border); padding: 8px; max-height: 200px; overflow-y: auto; @include scrollbar-overlay; background: var(--bg-secondary); }
 .al-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
 .al-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; &:hover { background: var(--surface-hover); } &.active { background: var(--accent-primary-glow); } }
-.export-bar { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--surface-border); button { flex: 1; background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 6px; font-size: 11px; cursor: pointer; } }
+.export-bar { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-top: 1px solid var(--surface-border); }
+.export-actions { display: flex; gap: 6px; button { flex: 1; background: var(--bg-secondary); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 6px; font-size: 11px; cursor: pointer; &:disabled { opacity: .45; cursor: not-allowed; } } }
+.export-status { font-size: 11px; line-height: 1.4; color: var(--text-muted); word-break: break-all; &.success { color: var(--success); } &.error { color: var(--error); } }
 </style>

@@ -6,6 +6,7 @@ import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { memoryChannels } from '@/shared/channels/memory'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
+import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
 
 export interface FileEntry {
   name: string
@@ -580,8 +581,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Preview Server API — 获取本地 HTTP 预览 URL（替代 file:// 协议）
   preview: {
-    getUrl: (filePath: string): Promise<string | null> =>
-      ipcRenderer.invoke('preview:getUrl', filePath),
+    getUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> =>
+      ipcRenderer.invoke('preview:getUrl', filePath, workspaceRoot),
   },
 
   // Design API
@@ -616,7 +617,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('design:start-file-watcher', sessionId, workspacePath),
     stopFileWatcher: (): Promise<void> =>
       ipcRenderer.invoke('design:stop-file-watcher'),
-    exportArtifact: (options: { filePath: string; format: 'html' | 'zip' | 'pdf' }): Promise<void> =>
+    exportArtifact: (options: DesignExportRequest): Promise<DesignExportResult> =>
       ipcRenderer.invoke('design:export-artifact', options),
     onFileChanged: (callback: (event: { sessionId: string; filepath: string }) => void): (() => void) => {
       const wrapper = (_: any, event: any) => callback(event)

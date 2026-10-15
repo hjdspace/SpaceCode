@@ -16,6 +16,7 @@ import type { TimelineAssembler } from './timelineAssembler'
 import { createUuid } from '@/utils/uuid'
 import { needsWorkspaceRootScan } from '@/utils/artifactScope'
 import { isAutoPreviewPath } from '@/utils/artifactFormat'
+import { normalizeAbsolutePath } from '@/utils/normalizePath'
 import type { UseAutoRetryReturn } from '@/composables/useAutoRetry'
 import { extractErrorCode } from '@/composables/useAutoRetry'
 import { errorHandler as defaultErrorHandler } from '@/services/errorHandler'
@@ -221,6 +222,40 @@ function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | nu
   return found ? result : null
 }
 
+/**
+ * 从工具输入里提取值得自动预览的交付物绝对路径（无则 null）。
+ *
+ * Write/Edit 看 file_path / path；Bash 解析 officecli 命令的目标文档
+ * （`officecli <verb> <file>`，路径允许带引号）。相对路径按会话工作目录补全。
+ * 只有命中 isAutoPreviewPath（office 四件套 + html）的路径才算交付物。
+ */
+const OFFICE_CMD_TARGET_RE =
+  /officecli(?:\.exe)?\s+[a-z-]+\s+"?([^"\n]+?\.(?:xlsx|docx|pptx|pdf|html?))"?/i
+
+export function extractAutoPreviewTarget(
+  toolName: string,
+  input: any,
+  workingDir?: string
+): string | null {
+  if (!input) return null
+  let raw: string | undefined
+  if (FILE_TOOLS.has(toolName)) {
+    raw = typeof input.file_path === 'string' ? input.file_path : undefined
+    if (!raw && typeof input.path === 'string') raw = input.path
+  } else if (COMMAND_TOOLS.has(toolName) && typeof input.command === 'string') {
+    raw = input.command.match(OFFICE_CMD_TARGET_RE)?.[1]
+  }
+  if (!raw) return null
+
+  const target = raw.trim().replace(/^["']|["']$/g, '')
+  if (!target || !isAutoPreviewPath(target)) return null
+
+  const isAbsolute = /^[a-zA-Z]:[/\\]/.test(target) || target.startsWith('\\\\') || target.startsWith('/')
+  const fullPath = isAbsolute ? target : workingDir ? `${workingDir}/${target}` : null
+  if (!fullPath) return null
+  return normalizeAbsolutePath(fullPath)
+}
+
 export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const {
     sink,
@@ -256,6 +291,21 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const { turnStates, beginTurn, endTurn } = stateMachine
   /** 已经自动预览过的交付物，避免每轮结束都把同一个文件重新弹一次。 */
   const autoPreviewedPaths = new Set<string>()
+
+  /**
+   * 工具成功完成后，若产出值得预览的交付物，立即送右侧预览 —— 不等 turn 结束。
+   * officecli 技能没有输出目录约定，且 watch 模式能读到 officecli resident 的
+   * 内存态，创建即打开的时机比 turn 结束的产物扫描更贴近"实时预览"。
+   * design 模式有自己的预览区，不抢。
+   */
+  function maybeAutoPreviewArtifact(sessionId: string, toolName: string, toolInput: any): void {
+    const s = sink.get(sessionId)
+    if (!s || s.mode === 'design' || !openArtifactPreview) return
+    const target = extractAutoPreviewTarget(toolName, toolInput, s.workingDirectory)
+    if (!target || autoPreviewedPaths.has(target)) return
+    autoPreviewedPaths.add(target)
+    openArtifactPreview(target)
+  }
   const {
     getAssistantMessage,
     addTimelineEvent,
@@ -940,6 +990,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
             window.dispatchEvent(new CustomEvent('scm:refresh'))
             window.dispatchEvent(new CustomEvent('refresh-file-tree'))
           }
+
+          // 工具刚产出交付物（Write 了 xlsx / 跑了 officecli 命令）→ 创建即打开预览
+          if (!resultIsError && toolCallIndex >= 0) {
+            maybeAutoPreviewArtifact(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
+          }
         }
       }
     }
@@ -979,6 +1034,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                 status: isAsyncLaunch ? 'running' : (toolResult.is_error ? 'error' : 'completed')
               })
               sink.persist(sessionId)
+
+              // 工具刚产出交付物（Write 了 xlsx / 跑了 officecli 命令）→ 创建即打开预览
+              if (!toolResult.is_error) {
+                maybeAutoPreviewArtifact(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
+              }
             }
           }
         }

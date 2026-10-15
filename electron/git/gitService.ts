@@ -1048,16 +1048,59 @@ async function showFile(cwd: string, path: string, fromIndex = false): Promise<s
   return result.stdout
 }
 
-async function discardChanges(cwd: string, paths: string[]): Promise<boolean> {
-  // For tracked files, checkout HEAD version
-  // For untracked files, clean them
-  const result = await gitExec(['checkout', 'HEAD', '--', ...paths], cwd)
-  if (result.code !== 0) {
-    // Try clean for untracked
-    const cleanResult = await gitExec(['clean', '-f', '--', ...paths], cwd)
-    return cleanResult.code === 0
+export interface GitDiscardResult {
+  success: boolean
+  /** Requested paths git refused to discard; the rest of the request went through. */
+  failedPaths: string[]
+  error?: string
+}
+
+async function discardChanges(cwd: string, paths: string[]): Promise<GitDiscardResult> {
+  if (paths.length === 0) return { success: true, failedPaths: [] }
+
+  const listed = await gitExec(['ls-files', '-z', '--', ...paths], cwd)
+  if (listed.code !== 0) {
+    return { success: false, failedPaths: [...paths], error: listed.stderr.trim() }
   }
-  return true
+  const inIndex = new Set(listed.stdout.split('\0').filter(Boolean))
+
+  const committed = await gitExec(['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', ...paths], cwd)
+  // A failing `ls-tree` means HEAD is unborn (`git init` + `add`, no commit yet),
+  // so nothing can be restored from it — and `git rm` must not be allowed to
+  // delete worktree files on that guess. Fall back to asking HEAD per path and
+  // let the honest failure report what is left.
+  const inHead = committed.code === 0 ? new Set(committed.stdout.split('\0').filter(Boolean)) : null
+
+  // Splitting per path is the point: `checkout HEAD -- <mixed paths>` aborts on
+  // the first path git cannot match (untracked, or staged-but-not-committed) and
+  // then restores *nothing* — while the old `clean` fallback still exited 0, so a
+  // half-discarded worktree was reported as a complete success.
+  const groups: Array<{ args: string[]; paths: string[] }> = [
+    {
+      args: ['checkout', 'HEAD', '--'],
+      paths: paths.filter(p => (inHead ? inHead.has(p) : inIndex.has(p))),
+    },
+    // Staged additions exist in the index but not in HEAD; only `git rm` undoes both.
+    {
+      args: ['rm', '-f', '--'],
+      paths: inHead ? paths.filter(p => inIndex.has(p) && !inHead.has(p)) : [],
+    },
+    { args: ['clean', '-f', '--'], paths: paths.filter(p => !inIndex.has(p)) },
+  ]
+
+  const failedPaths: string[] = []
+  const errors: string[] = []
+  for (const group of groups) {
+    if (group.paths.length === 0) continue
+    const result = await gitExec([...group.args, ...group.paths], cwd)
+    if (result.code !== 0) {
+      failedPaths.push(...group.paths)
+      errors.push(result.stderr.trim())
+    }
+  }
+
+  const error = errors.filter(Boolean).join('\n')
+  return { success: failedPaths.length === 0, failedPaths, error: error || undefined }
 }
 
 async function pull(cwd: string): Promise<{ success: boolean; error?: string }> {

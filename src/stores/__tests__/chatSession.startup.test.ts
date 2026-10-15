@@ -208,4 +208,100 @@ describe('chat session startup', () => {
       modelContextWindows: { 'kimi-k3': 200_000, sonnet: 200_000 },
     }))
   })
+
+  // ── 运行中会话的启动配置对账（issue #41 第 10 票）──
+
+  it('切换设计系统/技能时对运行中的会话下发新 systemPrompt 与 agent', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'direct-key', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Design', 'D:/design', 'design-reconcile')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id, {
+      systemPrompt: 'OLD-DESIGN-SYSTEM',
+      agent: 'OLD-SKILL',
+    })
+    expect(mocks.startSession).toHaveBeenCalledTimes(1)
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: true, engineSessionId: 'engine-1' })
+    await store.initClaudeCodeSession(session.id, {
+      systemPrompt: 'NEW-DESIGN-SYSTEM',
+      agent: 'NEW-SKILL',
+    })
+
+    expect(mocks.stop).toHaveBeenCalledWith(session.id)
+    expect(mocks.startSession).toHaveBeenCalledTimes(2)
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({
+      systemPrompt: 'NEW-DESIGN-SYSTEM',
+      agent: 'NEW-SKILL',
+      resumeSessionId: 'engine-1',
+    }))
+  })
+
+  it('只更换 API Key 时直连模式重启会话以注入新凭据，且密钥不落盘明文', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Test', 'D:/repo', 'key-rotate-direct')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id)
+    expect(mocks.startSession).toHaveBeenCalledWith(session.id, expect.objectContaining({ apiKey: 'key-A' }))
+
+    settings.anthropicConfig = { ...settings.anthropicConfig, apiKey: 'key-B' }
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: true, engineSessionId: 'engine-2' })
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.stop).toHaveBeenCalledTimes(1)
+    expect(mocks.startSession).toHaveBeenCalledTimes(2)
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({ apiKey: 'key-B' }))
+    // 会话存储（会写入 localStorage）只保存指纹，不保存 Key 明文
+    expect(JSON.stringify(session)).not.toContain('key-B')
+  })
+
+  it('代理模式只换 Key 时不重启引擎：凭据由本地代理层对账', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'openai_compatible'
+    settings.openaiConfig = { baseUrl: 'https://upstream.example/v1', apiKey: 'key-A', haikuModel: '', sonnetModel: 'gpt-x', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Test', 'D:/repo', 'key-rotate-proxy')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id)
+
+    settings.openaiConfig = { ...settings.openaiConfig, apiKey: 'key-B' }
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: true, permissionMode: 'default' })
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.stop).not.toHaveBeenCalled()
+    expect(mocks.startSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('启动配置未变化时复用运行中的进程，不重启', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Design', 'D:/design', 'startup-unchanged')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id, { systemPrompt: 'SAME-PROMPT', agent: 'SAME-SKILL' })
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: true, permissionMode: 'default' })
+    await store.initClaudeCodeSession(session.id, { systemPrompt: 'SAME-PROMPT', agent: 'SAME-SKILL' })
+
+    expect(mocks.stop).not.toHaveBeenCalled()
+    expect(mocks.startSession).toHaveBeenCalledTimes(1)
+  })
 })

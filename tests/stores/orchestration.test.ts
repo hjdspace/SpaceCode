@@ -2,7 +2,7 @@
 // 编排引擎 DAG 状态机测试 — 纯逻辑层，注入 fake 驱动全部语义。
 // 术语遵循 CONTEXT.md 的 Session Orchestration 词汇表。
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createOrchestrationEngine } from '@/stores/orchestration'
 import type {
   OrchestrationEngine,
@@ -446,6 +446,196 @@ describe('编排引擎 — 单节点停止', () => {
     fakes.signalOutcome('session-B', 'settled')
     await flushMicrotasks()
     await runPromise
+  })
+})
+
+// ── 节点启动异常收口 ──
+
+describe('编排引擎 — 节点启动异常收口', () => {
+  let fakes: ReturnType<typeof makeFakes>
+  let engine: OrchestrationEngine
+
+  beforeEach(() => {
+    fakes = makeFakes()
+    engine = createOrchestrationEngine(fakes.engineOpts)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('createSession 抛错 → 节点 failed、下游 skipped、Run 结束、结构锁解除', async () => {
+    vi.mocked(fakes.launcher.createSession).mockRejectedValueOnce(new Error('fixture startup failure'))
+
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addNode({ id: 'C', draft: 'task C' })
+    engine.addEdge({ source: 'A', target: 'B' })
+    engine.addEdge({ source: 'B', target: 'C' })
+
+    await engine.run()
+
+    expect(engine.getNodeStatus('A')).toBe('failed')
+    expect(engine.getNodeStatus('B')).toBe('skipped')
+    expect(engine.getNodeStatus('C')).toBe('skipped')
+    expect(engine.getRunState().status).toBe('idle')
+    // 结构锁已解除
+    expect(() => engine.addNode({ id: 'D', draft: 'task D' })).not.toThrow()
+  })
+
+  it('sendDraft 抛错 → 节点 failed、下游 skipped、Run 结束', async () => {
+    vi.mocked(fakes.launcher.sendDraft).mockRejectedValueOnce(new Error('fixture draft failure'))
+
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addEdge({ source: 'A', target: 'B' })
+
+    await engine.run()
+
+    expect(engine.getNodeStatus('A')).toBe('failed')
+    expect(engine.getNodeStatus('B')).toBe('skipped')
+    expect(engine.getRunState().status).toBe('idle')
+  })
+
+  it('启动异常只收口该闭包，旁支照常运行到结束', async () => {
+    vi.mocked(fakes.launcher.createSession).mockRejectedValueOnce(new Error('fixture startup failure'))
+
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addNode({ id: 'D', draft: 'task D' })
+    engine.addEdge({ source: 'A', target: 'B' })
+
+    const runPromise = engine.run()
+    await flushMicrotasks()
+
+    expect(engine.getNodeStatus('A')).toBe('failed')
+    expect(engine.getNodeStatus('B')).toBe('skipped')
+    expect(engine.getNodeStatus('D')).toBe('running')
+    expect(engine.getRunState().status).toBe('running')
+
+    fakes.signalOutcome('session-D', 'settled')
+    await flushMicrotasks()
+    await runPromise
+
+    expect(engine.getRunState().status).toBe('idle')
+  })
+
+  it('Run 中途启动下游节点时抛错 → 同样收口，Run 不卡在 running', async () => {
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addNode({ id: 'C', draft: 'task C' })
+    engine.addEdge({ source: 'A', target: 'B' })
+    engine.addEdge({ source: 'B', target: 'C' })
+
+    const runPromise = engine.run()
+    await flushMicrotasks()
+
+    // A 正常启动后 settle，此时才注入启动异常给 B
+    vi.mocked(fakes.launcher.createSession).mockRejectedValueOnce(new Error('fixture startup failure'))
+    fakes.signalOutcome('session-A', 'settled')
+    await flushMicrotasks()
+    await runPromise
+
+    expect(engine.getNodeStatus('A')).toBe('settled')
+    expect(engine.getNodeStatus('B')).toBe('failed')
+    expect(engine.getNodeStatus('C')).toBe('skipped')
+    expect(engine.getRunState().status).toBe('idle')
+  })
+
+  it('并发闸门下补位启动时抛错 → 同样收口，不留 pending/queued 残余', async () => {
+    const gated = makeFakes({ maxConcurrency: 1 })
+    vi.mocked(gated.launcher.createSession).mockImplementation(async (nodeId: string) => {
+      if (nodeId === 'B') throw new Error('fixture startup failure')
+      return `session-${nodeId}`
+    })
+    const gatedEngine = createOrchestrationEngine(gated.engineOpts)
+
+    gatedEngine.addNode({ id: 'A', draft: 'task A' })
+    gatedEngine.addNode({ id: 'B', draft: 'task B' })
+    gatedEngine.addNode({ id: 'C', draft: 'task C' })
+    gatedEngine.addEdge({ source: 'B', target: 'C' })
+
+    const runPromise = gatedEngine.run()
+    await flushMicrotasks()
+
+    // 闸门只放一个：A running，B 排队
+    expect(gatedEngine.getNodeStatus('A')).toBe('running')
+    expect(gatedEngine.getNodeStatus('B')).toBe('queued')
+
+    // A settle 后 B 补位启动并抛错
+    gated.signalOutcome('session-A', 'settled')
+    await flushMicrotasks()
+    await runPromise
+
+    expect(gatedEngine.getNodeStatus('B')).toBe('failed')
+    expect(gatedEngine.getNodeStatus('C')).toBe('skipped')
+    expect(gatedEngine.getRunState().status).toBe('idle')
+  })
+
+  it('启动失败的节点可 retry：重试成功后下游续跑', async () => {
+    vi.mocked(fakes.launcher.createSession).mockRejectedValueOnce(new Error('fixture startup failure'))
+
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addEdge({ source: 'A', target: 'B' })
+
+    await engine.run()
+    expect(engine.getNodeStatus('A')).toBe('failed')
+    expect(engine.getNodeStatus('B')).toBe('skipped')
+
+    const retryPromise = engine.retryNode('A')
+    await flushMicrotasks()
+
+    expect(engine.getNodeStatus('A')).toBe('running')
+
+    fakes.signalOutcome('session-A', 'settled')
+    await flushMicrotasks()
+    await retryPromise
+
+    expect(engine.getNodeStatus('B')).toBe('running')
+  })
+
+  it('重试的节点再次启动失败 → Run 结束而不是复活结构锁', async () => {
+    vi.mocked(fakes.launcher.createSession).mockRejectedValue(new Error('fixture startup failure'))
+
+    engine.addNode({ id: 'A', draft: 'task A' })
+    engine.addNode({ id: 'B', draft: 'task B' })
+    engine.addEdge({ source: 'A', target: 'B' })
+
+    await engine.run()
+    expect(engine.getRunState().status).toBe('idle')
+
+    await engine.retryNode('A')
+
+    expect(engine.getNodeStatus('A')).toBe('failed')
+    expect(engine.getNodeStatus('B')).toBe('skipped')
+    expect(engine.getRunState().status).toBe('idle')
+    expect(() => engine.addNode({ id: 'C', draft: 'task C' })).not.toThrow()
+  })
+
+  it('sendDraft 失败留下的会话，不能左右该节点重试后的结局', async () => {
+    vi.mocked(fakes.launcher.sendDraft).mockRejectedValueOnce(new Error('fixture draft failure'))
+
+    engine.addNode({ id: 'A', draft: 'task A' })
+
+    await engine.run()
+    expect(engine.getNodeStatus('A')).toBe('failed')
+
+    // 重试换新 session，节点重新 running
+    vi.mocked(fakes.launcher.createSession).mockResolvedValueOnce('session-A-retry')
+    await engine.retryNode('A')
+    await flushMicrotasks()
+    expect(engine.getNodeStatus('A')).toBe('running')
+
+    // 旧会话迟到的结局信号不该改动重试中的节点
+    fakes.signalOutcome('session-A', 'settled')
+    await flushMicrotasks()
+    expect(engine.getNodeStatus('A')).toBe('running')
+
+    fakes.signalOutcome('session-A-retry', 'settled')
+    await flushMicrotasks()
+    expect(engine.getNodeStatus('A')).toBe('settled')
   })
 })
 

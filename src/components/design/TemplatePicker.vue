@@ -26,7 +26,15 @@
       <ChevronDown v-else :size="12" />
     </button>
 
-    <div v-if="open" class="template-picker-menu" data-testid="template-picker-menu" role="listbox">
+    <Teleport to="body">
+    <div
+      v-if="open"
+      ref="menuRef"
+      class="template-picker-menu"
+      data-testid="template-picker-menu"
+      role="listbox"
+      :style="menuStyle"
+    >
       <div class="template-picker-head">
         <div class="template-picker-search">
           <Search :size="12" />
@@ -65,6 +73,7 @@
         </button>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -75,6 +84,7 @@ import { Grid3x3, ChevronDown, X, Search } from 'lucide-vue-next'
 import { DESIGN_TEMPLATES, getTemplateById } from '@/lib/design/templates'
 import { useDesignStore } from '@/stores/design'
 import { useDesignSession } from '@/composables/useDesignSession'
+import { useAnchoredMenu } from '@/composables/useAnchoredMenu'
 import TemplateScenarioArt from './TemplateScenarioArt.vue'
 
 const props = defineProps<{
@@ -90,6 +100,9 @@ const open = ref(false)
 const query = ref('')
 const wrapRef = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLInputElement | null>(null)
+
+// 菜单 Teleport 到 body 后按视口定位，避免被右侧设计产物面板裁掉/压住
+const { menuRef, menuStyle } = useAnchoredMenu(wrapRef, open, { width: 420, gap: 8, maxHeight: 480 })
 
 const active = computed(() => getTemplateById(props.modelValue))
 
@@ -130,7 +143,9 @@ function clearQuery() {
 }
 
 function onPointer(event: MouseEvent) {
-  if (wrapRef.value?.contains(event.target as Node)) return
+  const target = event.target as Node
+  // 菜单在 body 下，不在 wrapRef 子树内，需单独放过
+  if (wrapRef.value?.contains(target) || menuRef.value?.contains(target)) return
   open.value = false
 }
 
@@ -234,16 +249,16 @@ onUnmounted(() => {
 }
 
 .template-picker-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: 420px;
+  /* 视口坐标 (left / bottom / width / max-height) 由 useAnchoredMenu 算好后内联 */
+  position: fixed;
   background: var(--bg-secondary);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
   padding: 14px;
-  z-index: 100;
+  z-index: 1000;
+  overflow-y: auto;
+  @include scrollbar-overlay;
   animation: scaleIn 120ms ease-out;
   transform-origin: bottom left;
 }

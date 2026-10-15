@@ -10,6 +10,7 @@ import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from './app'
 import { generateAiCommitMessage } from '@/services/aiCommitMessage'
+import { i18n } from '@/i18n'
 import { useI18n } from 'vue-i18n'
 
 export interface ScmFile {
@@ -72,6 +73,9 @@ export const useScmStore = defineStore('scm', () => {
   const log = ref<ScmLogEntry[]>([])
   const commitMessage = ref('')
   const error = ref<string | null>(null)
+  // Discard failures outlive `error`, which every refresh clears — including the
+  // one the main-process watcher fires ~300ms after the discard itself.
+  const discardError = ref<string | null>(null)
 
   // Selected file for diff viewing
   const selectedFile = ref<ScmFile | null>(null)
@@ -194,7 +198,17 @@ export const useScmStore = defineStore('scm', () => {
   async function discardFileChanges(paths: string[]) {
     const cwd = appStore.projectRoot
     if (!cwd) return
-    await api.git.discardChanges(cwd, paths)
+    discardError.value = null
+    const result = await api.git.discardChanges(cwd, paths)
+    if (!result.success) {
+      discardError.value = result.failedPaths.length
+        ? i18n.global.t('scm.discardPartialFailed', {
+            count: result.failedPaths.length,
+            paths: result.failedPaths.join(', '),
+          })
+        : i18n.global.t('scm.discardFailed')
+      console.error('[SCM] discardChanges rejected:', result.failedPaths, result.error)
+    }
     await refresh()
   }
 
@@ -495,6 +509,7 @@ export const useScmStore = defineStore('scm', () => {
     log,
     commitMessage,
     error,
+    discardError,
     selectedFile,
     selectedFileStaged,
     viewMode,

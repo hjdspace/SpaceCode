@@ -265,6 +265,13 @@ export interface GitCommitFileStat {
   [key: string]: unknown
 }
 
+export interface GitDiscardResult {
+  success: boolean
+  /** Requested paths git refused to discard; the rest of the request went through. */
+  failedPaths: string[]
+  error?: string
+}
+
 export interface CronAttachment {
   id: string
   name: string
@@ -706,9 +713,9 @@ export const api = {
 
   // Preview Server API — 获取本地 HTTP 预览 URL（替代 file:// 协议）
   preview: {
-    getUrl: (filePath: string): Promise<string | null> => {
+    getUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> => {
       if (electronAPI?.preview?.getUrl) {
-        return electronAPI.preview.getUrl(filePath)
+        return electronAPI.preview.getUrl(filePath, workspaceRoot)
       }
       return Promise.resolve(null)
     },

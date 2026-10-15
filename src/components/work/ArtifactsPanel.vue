@@ -98,7 +98,7 @@ async function refresh() {
 
 function open(f: ArtifactEntry) {
   if (isOfficePreviewPath(f.path)) {
-    appStore.openOfficePreview(f.path, 'html')
+    appStore.openOfficePreview(f.path)
   } else if (isHtmlPreviewPath(f.path)) {
     appStore.openFileInWebview(f.path)
   } else {
