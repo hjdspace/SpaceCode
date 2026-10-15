@@ -10,6 +10,9 @@ function dispatchSessionCreated() {
   window.dispatchEvent(new CustomEvent('session-created'))
 }
 
+/** openDefaultProject 的 in-flight 去重：连发消息时避免并发创建多个默认项目会话 */
+let defaultProjectInFlight: Promise<boolean> | null = null
+
 export type OpenProjectByPathOptions = {
   /** When true (e.g. app menu Open Folder), always start a new session like the legacy menu handler. */
   forceNewSession?: boolean
@@ -84,8 +87,45 @@ export function useOpenProjectWorkflow() {
     }
   }
 
+  /**
+   * Open the default workspace (文档/SpaceCode) without a picker:
+   * used when the user sends a message before selecting any project folder.
+   * Returns false when the default workspace is unavailable (caller should abort the send).
+   */
+  function openDefaultProject(): Promise<boolean> {
+    if (defaultProjectInFlight) return defaultProjectInFlight
+
+    defaultProjectInFlight = (async () => {
+      try {
+        const dir = await api.ensureDefaultWorkspace()
+        if (!dir) {
+          await showAlert(t('welcomeNoProject.defaultWorkspaceFailed'))
+          return false
+        }
+
+        appStore.setProjectRoot(dir)
+        recordRecentProjectRoot(dir)
+        sessionStore.addProject(dir)
+        sessionStore.switchProject(dir)
+        syncProjectRootToSettings(dir)
+        sessionStore.createSession(t('common.newChat'), dir)
+        dispatchSessionCreated()
+        return true
+      } catch (error) {
+        console.error('[useOpenProjectWorkflow] openDefaultProject failed:', error)
+        await showAlert(t('welcomeNoProject.defaultWorkspaceFailed'))
+        return false
+      } finally {
+        defaultProjectInFlight = null
+      }
+    })()
+
+    return defaultProjectInFlight
+  }
+
   return {
     openProjectFromPicker,
     openProjectByPath,
+    openDefaultProject,
   }
 }

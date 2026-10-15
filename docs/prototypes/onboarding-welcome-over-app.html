@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首次引导 - V4 Welcome over App</title>
+<!--
+  PROTOTYPE (throwaway). V1 的方向修正版.
+  改动: 不再全屏接管. 背景是真实应用外壳 (TitleBar 44px + Sidebar 350px + 中间欢迎区, 默认窗口 1400x900,
+  最小 1000x700), 引导是一张居中的卡片, 沿用应用已有弹窗语汇 (WorkspaceOnboarding.vue 的 overlay + card).
+  关键收益: 主题/强调色/密度/语言一改, 卡片后面的真界面立刻跟着变, 所见即所得; 走完卡片收掉直接就是可用 IDE.
+  节奏参考 Cursor: 欢迎页 -> 逐项设置 (语言/外观/引擎/模型/工作区) -> 进入.
+  跳过 -> 卡片收掉, 中间区顶部留一条常驻提示, 点它回到第一个未完成项.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+ --font-body:'Inter','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+ --font-serif:'Source Serif 4',Georgia,'Times New Roman',serif;
+ --font-mono:'JetBrains Mono','SF Mono','Consolas','Noto Sans SC',monospace;
+ --fs:1;
+ --text-2xs:calc(11px*var(--fs));--text-sm:calc(12px*var(--fs));--text-md:calc(13px*var(--fs));
+ --text-base:calc(14px*var(--fs));--text-lg:calc(16px*var(--fs));--text-xl:calc(20px*var(--fs));
+ --r-xs:4px;--r-sm:6px;--r-md:8px;--r-lg:12px;--r-xl:16px;--r-full:9999px;
+ --t-fast:150ms cubic-bezier(.4,0,.2,1);--t-normal:250ms cubic-bezier(.4,0,.2,1);--t-spring:500ms cubic-bezier(.34,1.56,.64,1);
+}
+:root,[data-theme='light']{color-scheme:light;
+ --bg-primary:#f8f9fb;--bg-secondary:#f0f1f5;--bg-tertiary:#e7e9ef;--bg-elevated:#fff;--bg-hover:#e4e6ec;
+ --surface-soft:#f3f4f8;--surface-card:#ecedf2;
+ --text-primary:#18191f;--text-secondary:#44475a;--text-muted:#5c5f7a;--text-disabled:#9da1b8;
+ --accent:#0d9488;--accent-hover:#14b8a6;--accent-glow:rgba(13,148,136,.12);--accent-2:#6366f1;--accent-2-glow:rgba(99,102,241,.12);
+ --success:#059669;--warning:#d97706;--error:#dc2626;
+ --b-subtle:rgba(24,25,31,.05);--b-default:rgba(24,25,31,.09);--b-strong:rgba(24,25,31,.15);
+ --sh-sm:0 1px 2px rgba(24,25,31,.06);--sh-md:0 4px 12px rgba(24,25,31,.08);--sh-lg:0 8px 24px rgba(24,25,31,.11);
+ --sh-card:0 24px 70px rgba(10,12,20,.24),0 2px 8px rgba(10,12,20,.10);--scrim:rgba(16,18,26,.30);}
+[data-theme='dark']{color-scheme:dark;
+ --bg-primary:#0d0d0d;--bg-secondary:#141414;--bg-tertiary:#1a1a1a;--bg-elevated:#1f1f1f;--bg-hover:#262626;
+ --surface-soft:#121212;--surface-card:#141414;
+ --text-primary:#f5f5f5;--text-secondary:#a3a3a3;--text-muted:#8a8a8a;--text-disabled:#5c5c5c;
+ --accent:#3b82f6;--accent-hover:#60a5fa;--accent-glow:rgba(59,130,246,.15);--accent-2:#818cf8;--accent-2-glow:rgba(129,140,248,.15);
+ --success:#10b981;--warning:#f59e0b;--error:#ef4444;
+ --b-subtle:rgba(255,255,255,.04);--b-default:rgba(255,255,255,.08);--b-strong:rgba(255,255,255,.14);
+ --sh-sm:0 1px 2px rgba(0,0,0,.4);--sh-md:0 4px 12px rgba(0,0,0,.5);--sh-lg:0 8px 24px rgba(0,0,0,.6);
+ --sh-card:0 24px 70px rgba(0,0,0,.62),0 2px 8px rgba(0,0,0,.4);--scrim:rgba(0,0,0,.46);}
+[data-theme='anthropic']{color-scheme:light;
+ --bg-primary:#faf9f5;--bg-secondary:#efe9de;--bg-tertiary:#e8e0d2;--bg-elevated:#faf9f5;--bg-hover:#e5e0d5;
+ --surface-soft:#f5f0e8;--surface-card:#efe9de;
+ --text-primary:#141413;--text-secondary:#3d3d3a;--text-muted:#6b6a64;--text-disabled:#a09d96;
+ --accent:#cc785c;--accent-hover:#b5654a;--accent-glow:rgba(204,120,92,.14);--accent-2:#5db8a6;--accent-2-glow:rgba(93,184,166,.16);
+ --success:#4a7c59;--warning:#b07d2e;--error:#b0413e;
+ --b-subtle:rgba(20,20,19,.06);--b-default:rgba(20,20,19,.10);--b-strong:rgba(20,20,19,.18);
+ --sh-sm:0 1px 2px rgba(20,20,19,.05);--sh-md:0 4px 12px rgba(20,20,19,.07);--sh-lg:0 8px 24px rgba(20,20,19,.09);
+ --sh-card:0 24px 70px rgba(60,48,32,.22),0 2px 8px rgba(60,48,32,.10);--scrim:rgba(60,48,32,.22);}
+[data-theme='anthropic-dark']{color-scheme:dark;
+ --bg-primary:#181715;--bg-secondary:#1c1b1a;--bg-tertiary:#1f1e1b;--bg-elevated:#252320;--bg-hover:#2e2c28;
+ --surface-soft:#1a1918;--surface-card:#1c1b1a;
+ --text-primary:#faf9f5;--text-secondary:#a09d96;--text-muted:#7d7a73;--text-disabled:#595751;
+ --accent:#cc785c;--accent-hover:#e08a6d;--accent-glow:rgba(204,120,92,.18);--accent-2:#5db8a6;--accent-2-glow:rgba(93,184,166,.18);
+ --success:#7fb08a;--warning:#d0a35c;--error:#d9736f;
+ --b-subtle:rgba(250,249,245,.05);--b-default:rgba(250,249,245,.09);--b-strong:rgba(250,249,245,.16);
+ --sh-sm:0 1px 2px rgba(0,0,0,.4);--sh-md:0 4px 12px rgba(0,0,0,.5);--sh-lg:0 8px 24px rgba(0,0,0,.6);
+ --sh-card:0 24px 70px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.4);--scrim:rgba(8,7,6,.5);}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;font-family:var(--font-body);font-size:var(--text-base);color:var(--text-primary);background:var(--bg-secondary);line-height:1.45;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,select{font:inherit;color:inherit}svg{display:block}
+.mono{font-family:var(--font-mono)}
+
+/* ══ 背景: 应用外壳 ══ */
+.win{height:100dvh;display:flex;flex-direction:column;background:var(--bg-primary)}
+.tbar{flex:none;height:44px;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--bg-secondary);border-bottom:1px solid var(--b-subtle);-webkit-app-region:drag}
+.tbar .mk{width:20px;height:20px;border-radius:6px;background:linear-gradient(140deg,var(--accent),var(--accent-2));display:grid;place-items:center;color:#fff;font-family:var(--font-serif);font-weight:700;font-size:11px;flex:none}
+.tbar .tt{font-size:var(--text-md);color:var(--text-secondary)}
+.tbar .sp{flex:1}
+.wctl{display:flex;-webkit-app-region:no-drag}
+.wctl button{width:44px;height:44px;display:grid;place-items:center;color:var(--text-muted)}
+.wctl button:hover{background:var(--bg-hover);color:var(--text-primary)}
+.wctl button.x:hover{background:#e81123;color:#fff}
+.shell{flex:1;display:flex;min-height:0}
+.side{flex:none;width:350px;background:var(--bg-secondary);border-right:1px solid var(--b-subtle);display:flex;flex-direction:column;padding:14px 12px;gap:12px}
+.side .new{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--r-md);background:var(--bg-elevated);border:1px solid var(--b-default);font-size:var(--text-md);font-weight:600;box-shadow:var(--sh-sm)}
+.side .srch{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:var(--r-sm);background:transparent;border:1px solid var(--b-subtle);color:var(--text-disabled);font-size:var(--text-md)}
+.side .grp{font-size:var(--text-2xs);text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:6px 4px 0}
+.side .empty{font-size:var(--text-md);color:var(--text-disabled);padding:18px 6px;text-align:center;border:1px dashed var(--b-default);border-radius:var(--r-md)}
+.side .foot{margin-top:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.mode{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--r-full);font-size:var(--text-md);color:var(--text-muted);border:1px solid var(--b-subtle)}
+.mode.on{background:var(--accent-glow);color:var(--accent);border-color:transparent;font-weight:600}
+.center{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;background:var(--bg-primary)}
+.banner{flex:none;display:flex;align-items:center;gap:10px;margin:14px 22px 0;padding:11px 14px;border-radius:var(--r-md);
+ background:color-mix(in srgb,var(--warning) 12%,transparent);border:1px solid color-mix(in srgb,var(--warning) 34%,transparent);font-size:var(--text-md)}
+.banner b{font-weight:600}
+.banner .go{margin-left:auto;color:var(--accent);font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:5px}
+.hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center}
+.hero .hi{font-family:var(--font-serif);font-size:calc(26px*var(--fs));font-weight:700;letter-spacing:-.02em}
+.hero .hs{font-size:var(--text-base);color:var(--text-muted);max-width:44ch}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:560px;margin-top:8px}
+.tile{text-align:left;padding:12px 14px;border:1px solid var(--b-subtle);border-radius:var(--r-md);background:var(--bg-elevated);transition:all var(--t-fast)}
+.tile:hover{border-color:var(--b-strong);transform:translateY(-1px);box-shadow:var(--sh-md)}
+.tile .t{font-size:var(--text-md);font-weight:600}
+.tile .d{font-size:var(--text-2xs);color:var(--text-muted);margin-top:3px}
+.comp{flex:none;margin:0 22px 20px;padding:12px 14px;border:1.5px solid var(--b-default);border-radius:var(--r-lg);background:var(--bg-elevated);box-shadow:var(--sh-sm)}
+.comp .ph{font-size:var(--text-md);color:var(--text-disabled)}
+.comp .row{display:flex;align-items:center;gap:8px;margin-top:12px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:var(--r-full);background:var(--surface-card);font-size:var(--text-2xs);color:var(--text-secondary)}
+.pill.warn{background:color-mix(in srgb,var(--warning) 16%,transparent);color:var(--warning);font-weight:600}
+.pill.ok{background:var(--accent-glow);color:var(--accent);font-weight:600}
+
+/* ══ 引导卡 ══ */
+.scrim{position:fixed;inset:0;z-index:1000;background:var(--scrim);backdrop-filter:blur(2px);
+ display:grid;place-items:center;transition:opacity 200ms ease}
+.scrim.gone{opacity:0;pointer-events:none}
+.dlg{width:min(880px,calc(100vw - 64px));height:min(580px,calc(100vh - 64px));display:grid;grid-template-columns:212px 1fr;
+ background:var(--bg-elevated);border:1px solid var(--b-default);border-radius:var(--r-xl);box-shadow:var(--sh-card);overflow:hidden;
+ animation:pop 340ms cubic-bezier(.16,1,.3,1) both}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+.dlg.intro{grid-template-columns:1fr}
+.dlg.intro .rail{display:none}
+
+/* rail */
+.rail{border-right:1px solid var(--b-subtle);background:var(--surface-soft);padding:18px 14px;display:flex;flex-direction:column;gap:16px}
+.rail .brand{display:flex;align-items:center;gap:9px;padding:0 4px}
+.rail .mk{width:24px;height:24px;border-radius:7px;background:linear-gradient(140deg,var(--accent),var(--accent-2));display:grid;place-items:center;color:#fff;font-family:var(--font-serif);font-weight:700;font-size:12px}
+.rail .bn{font-family:var(--font-serif);font-size:var(--text-base);font-weight:700}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+.st{display:grid;grid-template-columns:20px 1fr;gap:9px;align-items:center;padding:8px 6px;border-radius:var(--r-sm);text-align:left;width:100%;transition:background var(--t-fast)}
+.st:hover{background:var(--bg-hover)}
+.st .n{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--b-strong);
+ font-size:10.5px;font-weight:600;color:var(--text-disabled);flex:none}
+.st .nm{font-size:var(--text-md);color:var(--text-muted)}
+.st.cur{background:var(--accent-glow)}
+.st.cur .n{border-color:var(--accent);color:var(--accent)}
+.st.cur .nm{color:var(--text-primary);font-weight:600}
+.st.done .n{background:var(--accent);border-color:var(--accent);color:#fff}
+.st.done .nm{color:var(--text-secondary)}
+.rail .footr{margin-top:auto;display:grid;gap:8px}
+.prog{height:3px;border-radius:var(--r-full);background:var(--surface-card);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent);transition:width var(--t-spring)}
+.pnum{font-size:var(--text-2xs);color:var(--text-muted);display:flex;justify-content:space-between}
+.later{font-size:var(--text-md);color:var(--text-muted);padding:4px 2px;text-align:left}
+.later:hover{color:var(--text-primary)}
+
+/* main */
+.mn{display:flex;flex-direction:column;min-width:0}
+.hd{flex:none;padding:22px 26px 0}
+.hd .ey{font-family:var(--font-serif);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);margin-bottom:6px}
+.hd h1{font-family:var(--font-serif);font-size:22px;font-weight:700;letter-spacing:-.02em;margin:0;line-height:1.25}
+.hd p{margin:7px 0 0;font-size:var(--text-md);color:var(--text-muted);line-height:1.55;max-width:56ch}
+.bd{flex:1;overflow-y:auto;padding:18px 26px 8px}
+.bd::-webkit-scrollbar{width:10px}
+.bd::-webkit-scrollbar-thumb{background:var(--b-strong);border-radius:var(--r-full);border:3px solid var(--bg-elevated)}
+.ft{flex:none;display:flex;align-items:center;gap:12px;padding:13px 26px;border-top:1px solid var(--b-subtle);background:var(--surface-soft)}
+.ft .kbd{font-size:var(--text-2xs);color:var(--text-disabled);display:flex;align-items:center;gap:5px}
+.ft .acts{margin-left:auto;display:flex;gap:9px}
+
+/* intro */
+.intro-bd{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 40px;gap:0}
+.big{width:52px;height:52px;border-radius:15px;background:linear-gradient(140deg,var(--accent),var(--accent-2));display:grid;place-items:center;color:#fff;font-family:var(--font-serif);font-weight:700;font-size:25px;box-shadow:var(--sh-md)}
+.intro-bd h1{font-family:var(--font-serif);font-size:29px;font-weight:700;letter-spacing:-.025em;margin:20px 0 0}
+.intro-bd .sub{font-size:var(--text-lg);color:var(--text-secondary);margin-top:9px;max-width:46ch;line-height:1.5}
+.prep{display:flex;gap:7px;margin-top:22px;flex-wrap:wrap;justify-content:center}
+.prep span{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:var(--r-full);border:1px solid var(--b-default);font-size:var(--text-md);color:var(--text-secondary)}
+.prep i{width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:.7}
+.intro-acts{display:flex;gap:10px;margin-top:26px}
+
+/* controls */
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.c2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.opt{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--b-default);border-radius:var(--r-md);background:var(--bg-elevated);text-align:left;width:100%;transition:all var(--t-fast)}
+.opt:hover{border-color:var(--b-strong);background:var(--surface-soft)}
+.opt.active{border-color:var(--accent);background:var(--accent-glow)}
+.opt.disabled{opacity:.5;cursor:not-allowed}
+.opt .ic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:#fff;flex:none}
+.opt .tx{min-width:0;flex:1}
+.opt .t{font-size:var(--text-base);font-weight:600;display:flex;align-items:center;gap:7px}
+.opt .d{font-size:var(--text-sm);color:var(--text-muted);margin-top:2px;line-height:1.4}
+.opt .tag{margin-left:auto;font-size:var(--text-2xs);color:var(--text-muted);flex:none}
+.opt.active .tag{color:var(--accent)}
+.themes{display:grid;grid-template-columns:repeat(5,1fr);gap:9px}
+.tp{border:1.5px solid var(--b-default);border-radius:var(--r-md);overflow:hidden;transition:all var(--t-fast)}
+.tp:hover{transform:translateY(-2px);border-color:var(--b-strong)}
+.tp.active{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.tp .sw{height:38px;display:flex}
+.tp .sw i{flex:1}
+.tp .cap{font-size:var(--text-2xs);padding:6px 7px;text-align:left;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tp.active .cap{color:var(--text-primary);font-weight:600}
+.dots{display:flex;gap:8px;flex-wrap:wrap}
+.dot{width:24px;height:24px;border-radius:50%;border:3px solid transparent;transition:transform var(--t-fast)}
+.dot:hover{transform:scale(1.12)}
+.dot.active{border-color:var(--text-primary);box-shadow:0 0 0 2px var(--bg-elevated),0 0 0 3px var(--text-primary)}
+.seg{display:inline-flex;background:var(--surface-card);border-radius:var(--r-sm);padding:3px;gap:2px}
+.seg button{padding:5px 11px;border-radius:var(--r-xs);font-size:var(--text-md);color:var(--text-muted)}
+.seg button.active{background:var(--bg-elevated);color:var(--text-primary);font-weight:600;box-shadow:var(--sh-sm)}
+.lbl{display:block;font-size:var(--text-md);font-weight:600;margin-bottom:6px}
+.grp-t{font-size:var(--text-2xs);text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin:18px 0 8px}
+.grp-t:first-child{margin-top:0}
+.hint{font-size:var(--text-sm);color:var(--text-muted);line-height:1.5;margin-top:8px}
+.inp{width:100%;padding:9px 12px;border:1.5px solid var(--b-default);border-radius:var(--r-sm);background:var(--bg-elevated);font-size:var(--text-md);transition:all var(--t-fast)}
+.inp:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.inp.mono{font-family:var(--font-mono);font-size:var(--text-sm)}
+select.inp{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235c5f7a' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px}
+.keyw{position:relative}.keyw .inp{padding-right:34px}
+.eye{position:absolute;right:3px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--text-muted)}
+.eye:hover{background:var(--surface-card);color:var(--text-primary)}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:var(--r-full);border:1.5px solid var(--b-default);font-size:var(--text-md);font-weight:500;background:var(--bg-elevated);transition:all var(--t-fast)}
+.chip:hover{border-color:var(--b-strong);transform:translateY(-1px)}
+.chip.active{border-color:var(--accent);background:var(--accent-glow);font-weight:600}
+.chip .sw{width:8px;height:8px;border-radius:2px;flex:none}
+.chip .tg{font-size:10px;color:var(--text-muted)}
+.btn{padding:9px 16px;border-radius:var(--r-md);font-size:13.5px;font-weight:600;white-space:nowrap;transition:all var(--t-fast);border:1.5px solid transparent}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-hover);box-shadow:var(--sh-md);transform:translateY(-1px)}
+.btn.ghost{border-color:var(--b-default);background:var(--bg-elevated);color:var(--text-secondary)}
+.btn.ghost:hover{border-color:var(--b-strong);background:var(--surface-soft)}
+.btn.small{padding:7px 12px;font-size:var(--text-md)}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important;box-shadow:none!important}
+.sbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--r-sm);font-size:var(--text-md);margin-top:10px}
+.sbar.ok{background:color-mix(in srgb,var(--success) 12%,transparent);color:var(--success)}
+.sbar.err{background:color-mix(in srgb,var(--error) 12%,transparent);color:var(--error)}
+.sbar.load{background:var(--surface-soft);color:var(--text-muted)}
+.slot{display:grid;grid-template-columns:66px 1fr;gap:9px;align-items:center;margin-top:8px}
+.slot>span{font-size:var(--text-md);color:var(--text-secondary)}
+.bar{height:5px;border-radius:var(--r-full);background:var(--surface-card);overflow:hidden;margin-top:9px}
+.bar i{display:block;height:100%;background:var(--accent);transition:width 200ms linear}
+.rec{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--b-subtle);font-size:var(--text-md)}
+.rec:last-child{border-bottom:none}
+.rec .k{color:var(--text-muted);width:70px;flex:none;font-size:var(--text-sm)}
+.rec .v{font-family:var(--font-serif);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rec .miss{margin-left:auto;flex:none;font-size:var(--text-2xs);color:var(--warning)}
+.envl{display:grid;gap:6px;font-size:var(--text-md);margin-top:10px}
+.envl div{display:flex;gap:8px;align-items:center}
+.envl .p{font-family:var(--font-mono);font-size:var(--text-sm);color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.envl .s{margin-left:auto;font-size:var(--text-2xs)}
+
+/* proto bar */
+.proto{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:1200;display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:var(--r-full);background:#18191f;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:11.5px;border:1px solid rgba(255,255,255,.14)}
+.proto button{color:#fff;padding:5px 8px;border-radius:var(--r-full);font-size:11.5px}
+.proto button:hover{background:rgba(255,255,255,.14)}
+.proto .cur{font-weight:700;padding:5px 9px;background:rgba(255,255,255,.14);border-radius:var(--r-full);white-space:nowrap}
+.proto select{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:var(--r-full);padding:4px 6px;font-size:11.5px}
+.proto select option{color:#18191f}
+.proto .sep{width:1px;height:16px;background:rgba(255,255,255,.18)}
+.variant-label{position:fixed;top:12px;right:150px;z-index:1100;font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted);background:var(--bg-elevated);border:1px solid var(--b-default);padding:3px 8px;border-radius:var(--r-full)}
+@media (prefers-reduced-motion:reduce){.dlg{animation:none}*{transition-duration:1ms!important}}
+@media (max-width:860px){.side{display:none}.dlg{grid-template-columns:1fr}.dlg .rail{display:none}.themes{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<div class="variant-label">V4 · Welcome over App</div>
+
+<!-- ══ 应用外壳 ══ -->
+<div class="win">
+  <div class="tbar"><span class="mk">S</span><span class="tt" id="tTitle"></span><span class="sp"></span>
+    <div class="wctl"><button>&#8211;</button><button>&#9633;</button><button class="x">&#10005;</button></div></div>
+  <div class="shell">
+    <aside class="side">
+      <button class="new" id="sNew"></button>
+      <div class="srch" id="sSrch"></div>
+      <div class="grp" id="sGrp"></div>
+      <div class="empty" id="sEmpty"></div>
+      <div class="foot" id="sFoot"></div>
+    </aside>
+    <main class="center">
+      <div class="banner" id="banner" hidden></div>
+      <div class="hero">
+        <div class="hi" id="hHi"></div>
+        <div class="hs" id="hSub"></div>
+        <div class="tiles" id="hTiles"></div>
+      </div>
+      <div class="comp">
+        <div class="ph" id="cPh"></div>
+        <div class="row" id="cRow"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ══ 引导卡 ══ -->
+<div class="scrim" id="scrim"><div class="dlg intro" id="dlg">
+  <aside class="rail">
+    <div class="brand"><span class="mk">S</span><span class="bn">SpaceCode</span></div>
+    <ul class="steps" id="steps"></ul>
+    <div class="footr">
+      <div class="pnum"><span id="pn"></span><span id="pct"></span></div>
+      <div class="prog"><i id="pf" style="width:0%"></i></div>
+      <button class="later" id="later"></button>
+    </div>
+  </aside>
+  <div class="mn">
+    <div class="hd" id="hd"></div>
+    <div class="bd" id="bd"></div>
+    <div class="ft" id="ft"></div>
+  </div>
+</div></div>
+
+<div class="proto">
+  <button id="pl">&#8592;</button><span class="cur">V4 Welcome over App</span><button id="pr">&#8594;</button><span class="sep"></span>
+  <a href="onboarding-v1-rail-stepper.html" style="color:#fff;text-decoration:none"><button>V1</button></a>
+  <a href="onboarding-v2-readiness-board.html" style="color:#fff;text-decoration:none"><button>V2</button></a>
+  <a href="onboarding-v3-conversational.html" style="color:#fff;text-decoration:none"><button>V3</button></a>
+  <span class="sep"></span><button id="replay">重播引导</button>
+  <span class="sep"></span>
+  <select id="ptheme"><option value="light">light</option><option value="dark">dark</option><option value="anthropic">anthropic</option><option value="anthropic-dark">anthropic-dark</option></select>
+  <select id="tlocale"><option value="zh-CN">中文</option><option value="en-US">English</option></select>
+</div>
+
+<script>
+/* ── 真实数据：抄自 stores/settings.ts, AppearanceSettings.vue, GeneralSettings.vue,
+      ModelSettings.vue, lib/providerPresets.ts ── */
+const THEMES=[['system',['#e7e9ef','#f0f1f5','#ffffff']],['light',['#ffffff','#f0f1f5','#e7e9ef']],
+ ['dark',['#0d0d0d','#141414','#1f1f1f']],['anthropic',['#faf9f5','#efe9de','#e8e0d2']],['anthropic-dark',['#181715','#1c1b1a','#252320']]];
+const ACCENTS=[['blue','#3b82f6'],['purple','#8b5cf6'],['green','#22c55e'],['orange','#f97316'],['pink','#ec4899'],['cyan','#06b6d4'],
+ ['anthropic-orange','#d97757'],['anthropic-blue','#6a9bcc'],['anthropic-green','#788c5d']];
+const METHODS=[['anthropic_compatible','Anthropic','#d97757'],['openai_compatible','OpenAI','#10a37f'],['gemini_api','Gemini','#4285f4'],
+ ['claudeai','Claude','#cc785c',1],['console','Console','#5c5f7a',1]];
+const PRESETS={
+ anthropic_compatible:[['Anthropic','https://api.anthropic.com','official'],['智谱 GLM','https://open.zhipuai.cn/anthropic','recommended'],['Kimi K2','https://api.moonshot.cn/anthropic',''],['小米 MiMo','https://api.xiaomimimo.com/anthropic','']],
+ openai_compatible:[['OpenAI','https://api.openai.com/v1','recommended'],['DeepSeek','https://api.deepseek.com/v1','recommended'],['智谱 GLM','https://open.bigmodel.cn/api/paas/v4',''],['MiniMax','https://api.minimax.chat/v1',''],['Kimi 月之暗面','https://api.moonshot.cn/v1',''],['商汤日日新','https://token.sensenova.cn/v1',''],['小米 MiMo','https://api.xiaomimimo.com/v1',''],['Grok (xAI)','https://api.x.ai/v1',''],['火山引擎 豆包','https://ark.cn-beijing.volces.com/api/v3',''],['通义千问','https://dashscope.aliyuncs.com/compatible-mode/v1','']],
+ gemini_api:[['Google Gemini','https://generativelanguage.googleapis.com/v1beta','official']]};
+const MODEL_BASE={anthropic_compatible:['claude-sonnet-4-5','claude-opus-4-1','claude-haiku-4-5'],
+ openai_compatible:['gpt-5.1','gpt-5.1-pro','gpt-5-mini'],gemini_api:['gemini-2.5-pro','gemini-2.5-pro','gemini-2.5-flash']};
+
+const L={'zh-CN':{
+ tTitle:'SpaceCode', sNew:'新建对话', sSrch:'搜索对话', sGrp:'对话', sEmpty:'还没有对话，配置好模型后从这里开始',
+ modes:['代码','办公','设计'], sSet:'设置',
+ cPh:'描述一个任务，我来动手',
+ hi:['今天想做点什么？','开始你的第一个任务'], hs:'配置好模型供应商后，这里就是正常的对话界面。',
+ tiles:[['读代码','解释一个模块的调用链'],['改代码','带着测试重构一个函数'],['查问题','从一条报错定位根因'],['跑命令','批量执行并汇总结果']],
+ banner:'模型尚未配置，现在还不能发任务。', bannerGo:'继续配置', bannerDone:'设置已完成',
+ intro:{ey:'首次启动',h:'欢迎使用 SpaceCode',
+   sub:'花大概一分钟，把四件事定下来。选主题和语言时，后面的界面会实时跟着变。',
+   prep:'这次会一起定下来', go:'开始设置', later:'稍后再配置', skipWarn:'跳过也可以，主界面会一直留着提示，点它随时回来。'},
+ steps:['语言','外观','引擎','模型','工作区'],
+ ey:['语言','外观','引擎','模型','工作区','完成'],
+ h1:['用哪种语言？','选一个外观','谁来执行代码','接一个大模型','代码放在哪','都配好了'],
+ p1:['决定之后所有界面文案。切换即时生效，不需要重启应用。',
+     '点了就应用到整个应用，不只是这张卡片。强调色和密度在下面。',
+     '决定用哪个编码代理跑任务。切换会停掉当前所有活动会话。',
+     '这一步是必须的，没有模型应用还干不了活。填完可以直接测一下。',
+     '文件读写和办公模式以这个目录为根，不存在会自动创建。',
+     '下面是我收到的配置。进入后这些都还能在设置页里改。'],
+ kA:['简体中文','English'], kA2:['系统检测到中文，已默认选中。','Defaulted from your system language.'],
+ follow:['跟随系统','浅色','深色','Anthropic','Anthropic 暗色'],
+ accent:'强调色',dens:'密度',densO:['紧凑','默认','舒适'],fsz:'字号',
+ eg:[['Claude Code','Anthropic 官方编码引擎，内置集成，开箱即用','内置 · v2.1.227'],
+     ['Pi','极简编码代理，需要先装 Pi SDK','']],
+ pi:['检测 SDK 中','未检测到，可一键安装','安装中','已安装 v0.4.2'],
+ srcRow:'引擎来源',bundled:'内置',installed:'已安装 CLI',
+ srcTip:'已安装 CLI 会调用你本机 npm 全局装的 claude，可自己升级。',
+ envT:'环境依赖',adapt:'本地 API 适配器',
+ pick:'接入方式',oauthTip:'Claude 与 Console 要靠 CLI 自身登录，应用内还没接通。先选前面三种。',
+ vendor:'服务商',base:'接口地址',key:'API Key',keyTip:'只存本机，作为引擎子进程的环境变量注入。',
+ test:'测试连接',testing:'请求 /models 中',ok:'能用，拿到 %n 个模型',err:'不通，检查地址或 Key',nokey:'先填 API Key',
+ slots:'模型档位',slotK:['均衡','强大','快速'],
+ wsPath:'工作区目录',browse:'浏览',wsDef:'用默认目录',recent:'最近使用',
+ doneK:['语言','主题','引擎','供应商','工作区'],notset:'未设置',
+ enter:'进入 SpaceCode',next:'下一步',prev:'上一步',back:'返回',
+ foot:['随时可改','即时应用到整个应用','默认 Claude Code 最稳','这一步不能跳过','跳过用默认目录','确认后这个界面不再出现'],
+ sidenote:'写进 ~/.claude/gui-settings.json，标记 hasCompletedOnboarding。',
+},
+'en-US':{
+ tTitle:'SpaceCode', sNew:'New chat', sSrch:'Search chats', sGrp:'Chats', sEmpty:'No conversations yet. Set up a model to start.',
+ modes:['Code','Work','Design'], sSet:'Settings',
+ cPh:'Describe a task and I will take it from there',
+ hi:['What are we building?','Start your first task'], hs:'Once a model provider is set this becomes the normal chat screen.',
+ tiles:[['Read code','Explain a module’s call chain'],['Change code','Refactor a function, tests included'],['Debug','Trace one error to its root cause'],['Run commands','Batch them and summarise']],
+ banner:'No model configured. Tasks will not run.', bannerGo:'Continue setup', bannerDone:'Setup complete',
+ intro:{ey:'First run',h:'Welcome to SpaceCode',
+   sub:'About a minute to settle four things. Theme and language apply to the whole app as you pick them.',
+   prep:'We will set', go:'Start setup', later:'Skip for now', skipWarn:'Skipping is fine. The main screen keeps a banner that brings you back.'},
+ steps:['Language','Appearance','Engine','Model','Workspace'],
+ ey:['Language','Appearance','Engine','Model','Workspace','Done'],
+ h1:['Which language?','Pick an appearance','Who runs your code','Connect a model','Where does code live','All set'],
+ p1:['It drives every label from here on. Instant, no restart.',
+     'Applied to the whole app behind this card, not just the card. Accent and density below.',
+     'Decides which coding agent runs your tasks. Switching stops every active session.',
+     'This one is required. Without a model the app cannot work. Test it right here.',
+     'File access and Work mode take this folder as their root. Created if missing.',
+     'Here is what I collected. Everything stays editable in Settings.'],
+ kA:['简体中文','English'], kA2:['System language detected as zh-CN.','Defaulted from your system language.'],
+ follow:['System','Light','Dark','Anthropic','Anthropic Dark'],
+ accent:'Accent',dens:'Density',densO:['Compact','Default','Comfortable'],fsz:'Font size',
+ eg:[['Claude Code','Anthropic’s official engine, bundled and ready','Bundled · v2.1.227'],
+     ['Pi','Minimalist agent, needs its Pi SDK first','']],
+ pi:['Checking SDK','Not found, install in one click','Installing','Installed v0.4.2'],
+ srcRow:'Engine source',bundled:'Bundled',installed:'Installed CLI',
+ srcTip:'Installed CLI drives the claude you installed globally via npm, so you upgrade it yourself.',
+ envT:'Prerequisites',adapt:'Local API adapter',
+ pick:'Connection method',oauthTip:'Claude and Console use the CLI’s own login, not wired into the app yet. Use one of the first three.',
+ vendor:'Vendor',base:'Base URL',key:'API Key',keyTip:'Stored on this machine only, injected as env vars into the engine.',
+ test:'Test connection',testing:'Requesting /models',ok:'Working. %n models returned',err:'Not working. Check URL or key',nokey:'Add a key first',
+ slots:'Model slots',slotK:['balanced','powerful','fast'],
+ wsPath:'Workspace folder',browse:'Browse',wsDef:'Use default',recent:'Recently used',
+ doneK:['Language','Theme','Engine','Provider','Workspace'],notset:'Not set',
+ enter:'Enter SpaceCode',next:'Next',prev:'Back',back:'Back',
+ foot:['Changeable any time','Applies to the whole app','Claude Code is the safe default','This step is required','Skip keeps the default','This screen will not return'],
+ sidenote:'Written to ~/.claude/gui-settings.json with hasCompletedOnboarding set.',
+}};
+const ACC=Object.fromEntries(ACCENTS);
+const S={view:'intro',step:0,locale:'zh-CN',theme:'system',accent:'blue',density:'default',fontSize:15,
+ engine:'claude-code',showSrc:false,source:'bundled',pi:0,piPct:0,
+ method:'',preset:0,baseUrl:'',apiKey:'',showKey:false,test:'',modelCount:0,slots:['','',''],
+ workspace:'',open:false,skipped:false,seen:{}};
+const t=k=>L[S.locale][k];
+const $$=s=>[...document.querySelectorAll(s)];const $=s=>document.querySelector(s);
+const I={check:'<polyline points="20 6 9 17 4 12"/>',cpu:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
+ bot:'<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/>',
+ eye:'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+ eyeoff:'<path d="M17.9 17.9A10.1 10.1 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.1-5.9M9.9 4.2A9.1 9.1 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><line x1="1" y1="1" x2="23" y2="23"/>',
+ alert:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+ spin:'<path d="M21 12a9 9 0 1 1-6.2-8.6"/>',folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+ plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+ search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+ arr:'<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>'};
+const svg=(k,s=13,w=2)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+const ready=()=>!!S.method&&S.test==='ok';
+// 步骤算“过完”= 用户按过下一步（接受当前值，包括保持默认），不是改过才算
+const done=()=>[!!S.seen[0],!!S.seen[1],!!S.seen[2],ready(),!!S.seen[4]];
+
+function skin(){
+ const eff=S.theme==='system'?'light':S.theme;
+ document.documentElement.setAttribute('data-theme',eff);
+ document.documentElement.style.setProperty('--accent',ACC[S.accent]);
+ const n=parseInt(ACC[S.accent].slice(1),16);
+ document.documentElement.style.setProperty('--accent-glow',`rgba(${n>>16&255},${n>>8&255},${n&255},.14)`);
+ document.documentElement.style.setProperty('--fs',(S.fontSize/14).toFixed(3));
+ $('#ptheme').value=eff;
+}
+
+/* ── 背景应用外壳 ── */
+function renderShell(){
+ $('#tTitle').textContent=t('tTitle');
+ $('#sNew').innerHTML=`${svg('plus',14,2.2)} ${t('sNew')}`;
+ $('#sSrch').innerHTML=`${svg('search',13)} ${t('sSrch')}`;
+ $('#sGrp').textContent=t('sGrp');
+ $('#sEmpty').textContent=t('sEmpty');
+ $('#sFoot').innerHTML=t('modes').map((m,i)=>`<span class="mode ${i===0?'on':''}">${m}</span>`).join('')
+   +`<span class="mode" style="margin-left:auto">${svg('gear',13)}</span>`;
+ $('#hHi').textContent=ready()?t('hi')[1]:t('hi')[0];
+ $('#hSub').textContent=t('hs');
+ $('#hTiles').innerHTML=t('tiles').map(x=>`<div class="tile"><div class="t">${x[0]}</div><div class="d">${x[1]}</div></div>`).join('');
+ $('#cPh').textContent=ready()?t('cPh'):t('sEmpty');
+ const m=METHODS.find(x=>x[0]===S.method);
+ $('#cRow').innerHTML=`<span class="pill ${ready()?'ok':'warn'}">${ready()?(m?m[1]:'')+' · '+(S.slots[0]||''):svg('alert',11)+' '+(S.locale==='zh-CN'?'未配置模型':'No model')}</span>
+   <span class="pill">${S.engine==='pi'?'Pi':'Claude Code'}</span>
+   <span class="pill">${S.workspace||(S.locale==='zh-CN'?'~/Documents/SpaceCode':'~/Documents/SpaceCode')}</span>
+   <span style="flex:1"></span><span class="pill">${svg('plus',11)}</span>`;
+ const b=$('#banner');
+ if(S.skipped||(!S.open&&ready())){
+   b.hidden=ready();
+   b.innerHTML=ready()?'' :`${svg('alert',14)}<b>${t('banner')}</b><button class="go" id="bannerGo">${t('bannerGo')} &rsaquo;</button>`;
+   const g=$('#bannerGo'); if(g) g.onclick=()=>{S.skipped=false;S.open=true;S.view='step';render();};
+ } else { b.hidden=true; }
+}
+
+/* ── 引导卡 ── */
+function render(){
+ skin(); renderShell();
+ $('#dlg').className='dlg'+(S.view==='intro'?' intro':'');
+ $('#scrim').classList.toggle('gone',!S.open);
+ if(!S.open) return;
+ if(S.view==='intro') return renderIntro();
+ renderRail();
+ $('#hd').style.display=''; $('#ft').style.display='';
+ $('#bd').style.paddingTop='14px';
+ const i=S.step;
+ $('#hd').innerHTML=`<div class="ey">${t('ey')[i]}</div><h1>${t('h1')[i]}</h1><p>${t('p1')[i]}</p>`;
+ $('#bd').innerHTML=[bodyLang,bodyTheme,bodyEngine,bodyProvider,bodyWorkspace,bodyDone][i]();
+ const last=i===5;
+ $('#ft').innerHTML=`<span class="kbd">${t('foot')[i]}${S.view==='step'?' <span style="opacity:.55">· Enter 继续</span>':''}</span>
+   <div class="acts">${i>0?`<button class="btn ghost" id="prev">${t('prev')}</button>`:''}
+   <button class="btn primary" id="next">${last?t('enter'):t('next')} ${last?'':'&rarr;'}</button></div>`;
+ const p=$('#prev'); if(p) p.onclick=()=>{S.step--;render();};
+ $('#next').onclick=advance;
+ bindBody();
+ $('#bd').scrollTop=0;
+}
+function renderIntro(){
+ $('#hd').style.display='none'; $('#ft').style.display='none'; $('#bd').style.paddingTop='0';
+ $('#bd').innerHTML=`<div class="intro-bd"><span class="big">S</span>
+   <h1>${t('intro').h}</h1><p class="sub">${t('intro').sub}</p>
+   <div class="prep"><span style="border:none;color:var(--text-muted);padding-left:0">${t('intro').prep}:</span>
+     ${t('steps').map(s=>`<span><i></i>${s}</span>`).join('')}</div>
+   <div class="intro-acts"><button class="btn ghost" id="laterBtn">${t('intro').later}</button>
+     <button class="btn primary" id="goBtn">${t('intro').go} &rarr;</button></div>
+   <p class="hint" style="max-width:40ch">${t('intro').skipWarn}</p></div>`;
+ $('#ft').innerHTML='';
+ $('#goBtn').onclick=()=>{S.view='step';S.step=0;render();};
+ $('#laterBtn').onclick=doSkip;
+ $('#bd').scrollTop=0;
+}
+function renderRail(){
+ const d=done();
+ $('#steps').innerHTML=t('steps').map((n,i)=>`<li><button class="st ${i===S.step?'cur':''} ${d[i]?'done':''}" data-jump="${i}">
+   <span class="n">${d[i]&&i!==S.step?svg('check',11,3.4):i+1}</span><span class="nm">${n}</span></button></li>`).join('');
+ $$('#steps [data-jump]').forEach(b=>b.onclick=()=>{S.step=+b.dataset.jump;render();});
+ const c=d.filter(Boolean).length;
+ $('#pn').textContent=`${c} / 5`; $('#pct').textContent=t('steps')[Math.min(S.step,4)];
+ $('#pf').style.width=(c/5*100)+'%';
+ $('#later').textContent=t('intro').later;
+ $('#later').onclick=doSkip;
+}
+function doSkip(){ S.open=false; S.skipped=true; S.view='intro'; render(); }
+function advance(){
+ if(S.step===3&&!ready()){ S.test=S.apiKey?'err':'nokey'; render(); return; }
+ S.seen[S.step]=true;
+ if(S.step===5){ S.open=false; S.skipped=false; render(); $('#banner').hidden=true; return; }
+ S.step++; render();
+}
+
+/* ── 步骤内容 ── */
+function bodyLang(){
+ return `<div class="c2">${[['zh-CN','🇨🇳',0],['en-US','🇺🇸',1]].map(x=>`
+   <button class="opt ${S.locale===x[0]?'active':''}" data-lang="${x[0]}">
+     <span style="font-size:21px;line-height:1">${x[1]}</span>
+     <span class="tx"><span class="t">${t('kA')[x[2]]}</span><span class="d">${t('kA2')[x[2]]}</span></span>
+     ${S.locale===x[0]?`<span class="tag">${svg('check',14,2.6)}</span>`:''}</button>`).join('')}</div>
+   <p class="hint">i18n/index.ts › locale · 写入 claude_desktop_settings.language 与 gui-settings.json，不需要重启。</p>`;
+}
+function bodyTheme(){
+ return `<div class="themes">${THEMES.map((x,i)=>`
+   <button class="tp ${S.theme===x[0]?'active':''}" data-th="${x[0]}">
+     <span class="sw">${x[1].map(c=>`<i style="background:${c}"></i>`).join('')}</span>
+     <span class="cap">${t('follow')[i]}</span></button>`).join('')}</div>
+   <div class="grp-t">${t('accent')}</div>
+   <div class="dots">${ACCENTS.map(a=>`<button class="dot ${S.accent===a[0]?'active':''}" title="${a[0]}" style="background:${a[1]}" data-acc="${a[0]}"></button>`).join('')}</div>
+   <div class="grp-t">${t('dens')} / ${t('fsz')}</div>
+   <div class="row" style="gap:14px">
+     <div class="seg">${['compact','default','comfortable'].map((d,i)=>`<button class="${S.density===d?'active':''}" data-dens="${d}">${t('densO')[i]}</button>`).join('')}</div>
+     <div class="seg">${[13,14,15,16,17].map(n=>`<button class="${S.fontSize===n?'active':''}" data-fs="${n}">${n}</button>`).join('')}</div></div>
+   <p class="hint">${S.locale==='zh-CN'?'注意：卡片后面的侧栏、标题栏、任务卡片都跟着变了。':'Note the sidebar, title bar and task tiles behind this card all followed.'}</p>`;
+}
+function piState(){return [t('pi')[0],t('pi')[1],t('pi')[2],t('pi')[3]][S.pi];}
+function bodyEngine(){
+ return `<div style="display:grid;gap:9px">${t('eg').map((e,i)=>`
+   <button class="opt ${S.engine===['claude-code','pi'][i]?'active':''} ${i===1&&S.pi!==3?'disabled':''}" data-eng="${['claude-code','pi'][i]}">
+     <span class="ic" style="background:${i===0?'linear-gradient(140deg,#d97706,#f59e0b)':'linear-gradient(140deg,var(--accent-2),var(--accent))'}">${svg(i?'cpu':'bot',15,2)}</span>
+     <span class="tx"><span class="t">${e[0]}</span><span class="d">${e[1]}</span></span>
+     <span class="tag" style="color:${i===1&&S.pi!==3?'var(--warning)':'var(--text-muted)'}">${i===0?e[2]:piState()}</span></button>`).join('')}</div>
+   ${S.pi===2?`<div class="bar"><i style="width:${S.piPct}%"></i></div>`:''}
+   ${S.pi===1?`<button class="btn ghost small" data-pi style="margin-top:10px">${svg('spin',12)} ${t('pi')[1]}</button>`:''}
+   <div class="grp-t">${t('srcRow')}</div>
+   <div class="row">${['bundled','installed'].map(s=>`<button class="chip ${S.source===s?'active':''}" data-src="${s}">
+     <span class="sw" style="background:var(--accent);opacity:${S.source===s?1:.3}"></span>${s==='bundled'?t('bundled'):t('installed')}</button>`).join('')}</div>
+   <p class="hint">${t('srcTip')}</p>
+   ${S.source==='installed'?`<div class="envl"><span class="lbl" style="margin-bottom:2px">${t('envT')}</span>
+     <div><span>Node.js</span><span class="p">C:\\Program Files\\nodejs\\node.exe</span><span class="s" style="color:var(--success)">v22.14.0</span></div>
+     <div><span>npm</span><span class="p">C:\\Program Files\\nodejs\\npm.cmd</span><span class="s" style="color:var(--success)">10.9.2</span></div>
+     <div><span>Git</span><span class="p">not found</span><span class="s" style="color:var(--error)">-</span></div>
+     <div style="margin-top:6px"><span class="pill ok" style="background:color-mix(in srgb,var(--success) 14%,transparent);color:var(--success)">${t('adapt')} · 127.0.0.1:53128</span></div></div>`:''}`;
+}
+function bodyProvider(){
+ const m=METHODS.find(x=>x[0]===S.method); const list=m?PRESETS[S.method]||[]:[];
+ return `<div class="row">${METHODS.map(x=>`<button class="chip ${S.method===x[0]?'active':''}" data-m="${x[0]}">
+     <span class="sw" style="background:${x[2]}"></span>${x[1]}${x[3]?`<span class="tg">OAuth</span>`:''}</button>`).join('')}</div>
+   ${m&&m[3]?`<p class="hint" style="color:var(--warning)">${t('oauthTip')}</p>`:''}
+   ${m&&!m[3]?`
+   <div class="grp-t">${t('pick')}</div>
+   <div class="c2"><div><span class="lbl">${t('vendor')}</span>
+     <select class="inp" data-preset>${list.map((p,i)=>`<option value="${i}" ${S.preset===i?'selected':''}>${p[0]}${p[2]?' · '+(p[2]==='official'?(S.locale==='zh-CN'?'官方':'official'):(S.locale==='zh-CN'?'推荐':'recommended')):''}</option>`).join('')}</select></div>
+     <div><span class="lbl">${t('base')}</span><input class="inp mono" data-base value="${S.baseUrl}" spellcheck="false"></div></div>
+   <div style="margin-top:12px"><span class="lbl">${t('key')}</span>
+     <div class="keyw"><input class="inp mono" type="${S.showKey?'text':'password'}" data-key value="${S.apiKey}" spellcheck="false"
+       placeholder="${S.method==='anthropic_compatible'?'sk-ant-…':S.method==='openai_compatible'?'sk-…':'AIza…'}">
+       <button class="eye" data-eye>${svg(S.showKey?'eyeoff':'eye',13)}</button></div>
+     <p class="hint">${t('keyTip')}</p></div>
+   <div class="row" style="margin-top:12px"><button class="btn ghost small" data-test>${t('test')}</button>
+     <span class="mono" style="font-size:var(--text-sm);color:var(--text-disabled)">GET ${(S.baseUrl||'').replace(/\/$/,'')}/models</span></div>
+   ${S.test==='load'?`<div class="sbar load">${svg('spin',13)}${t('testing')}</div>`:''}
+   ${S.test==='ok'?`<div class="sbar ok">${svg('check',13,2.6)}${t('ok').replace('%n',S.modelCount)}</div>`:''}
+   ${S.test==='err'||S.test==='nokey'?`<div class="sbar err">${svg('alert',13)}${S.test==='nokey'?t('nokey'):t('err')}</div>`:''}
+   ${S.test==='ok'?`<div class="grp-t">${t('slots')}</div>${t('slotK').map((k,i)=>`
+     <div class="slot"><span>${k}</span><input class="inp mono" data-slot="${i}" value="${S.slots[i]}"></div>`).join('')}`:''}`:''}`;
+}
+function bodyWorkspace(){
+ const recent=['D:\\code\\gateway','D:\\doc\\AI','~/repos/vla-verify'];
+ return `<span class="lbl">${t('wsPath')}</span>
+   <div class="row"><input class="inp mono" data-ws value="${S.workspace}" placeholder="~/Documents/SpaceCode" style="flex:1;min-width:200px">
+     <button class="btn ghost small" data-browse>${svg('folder',12)} ${t('browse')}</button></div>
+   <div class="grp-t">${t('recent')}</div>
+   <div class="row">${recent.map(r=>`<button class="chip" data-rec="${r}"><span class="mono" style="font-size:var(--text-sm)">${r}</span></button>`).join('')}
+     <button class="chip" data-wsdef>${t('wsDef')}</button></div>
+   <p class="hint">${S.locale==='zh-CN'?'办公模式首次进入还会再单独确认一次工作区，这里设的是全局 projectRoot。':'Work mode confirms its own folder once more on entry. This one is the global projectRoot.'}</p>`;
+}
+function bodyDone(){
+ const d=done();
+ const v=[t('kA')[S.locale==='zh-CN'?0:1],t('follow')[THEMES.findIndex(x=>x[0]===S.theme)],
+   (S.engine==='pi'?'Pi':'Claude Code')+' · '+(S.source==='bundled'?t('bundled'):t('installed')),
+   d[3]?METHODS.find(x=>x[0]===S.method)[1]+' · '+S.slots[0]:t('notset'),
+   S.workspace||(S.locale==='zh-CN'?'默认目录（未改）':'Default folder (unchanged)')];
+ return `<div>${t('doneK').map((k,i)=>`<div class="rec"><span class="k">${k}</span><span class="v">${v[i]}</span>
+   ${d[i]?'':`<span class="miss">${svg('alert',12)} ${t('notset')}</span>`}</div>`).join('')}</div>
+   <p class="hint">${t('sidenote')}</p>`;
+}
+function bindBody(){
+ $$('[data-lang]').forEach(b=>b.onclick=()=>{S.locale=b.dataset.lang;render();});
+ $$('[data-th]').forEach(b=>b.onclick=()=>{S.theme=b.dataset.th;S.touchedTheme=true;render();});
+ $$('[data-acc]').forEach(b=>b.onclick=()=>{S.accent=b.dataset.acc;render();});
+ $$('[data-dens]').forEach(b=>b.onclick=()=>{S.density=b.dataset.dens;render();});
+ $$('[data-fs]').forEach(b=>b.onclick=()=>{S.fontSize=+b.dataset.fs;render();});
+ $$('[data-eng]').forEach(b=>b.onclick=()=>{if(b.classList.contains('disabled'))return;S.engine=b.dataset.eng;render();});
+ $$('[data-src]').forEach(b=>b.onclick=()=>{S.source=b.dataset.src;render();});
+ const pi=$('[data-pi]'); if(pi) pi.onclick=runPi;
+ $$('[data-m]').forEach(b=>b.onclick=()=>{S.method=b.dataset.m;const m=METHODS.find(x=>x[0]===S.method);
+   const l=PRESETS[S.method]||[];S.preset=0;S.baseUrl=l[0]?l[0][1]:'';S.slots=m[3]?['','','']:(MODEL_BASE[S.method]||['','','']);S.test='';render();});
+ const ps=$('[data-preset]'); if(ps) ps.onchange=()=>{S.preset=+ps.value;S.baseUrl=PRESETS[S.method][S.preset][1];render();};
+ const bs=$('[data-base]'); if(bs) bs.oninput=()=>S.baseUrl=bs.value;
+ const ky=$('[data-key]'); if(ky){ky.oninput=()=>S.apiKey=ky.value;ky.onkeydown=e=>{if(e.key==='Enter')runTest();};}
+ const ey=$('[data-eye]'); if(ey) ey.onclick=()=>{S.showKey=!S.showKey;render();};
+ const te=$('[data-test]'); if(te) te.onclick=runTest;
+ $$('[data-slot]').forEach((el,i)=>el.oninput=()=>S.slots[i]=el.value);
+ const ws=$('[data-ws]'); if(ws) ws.oninput=()=>S.workspace=ws.value;
+ $$('[data-rec]').forEach(b=>b.onclick=()=>{S.workspace=b.dataset.rec;render();});
+ const wd=$('[data-wsdef]'); if(wd) wd.onclick=()=>{S.workspace='~/Documents/SpaceCode';render();};
+ const br=$('[data-browse]'); if(br) br.onclick=()=>{S.workspace='D:\\code\\gateway';render();};
+}
+let piTimer;
+function runPi(){S.pi=2;S.piPct=0;render();clearInterval(piTimer);
+ piTimer=setInterval(()=>{S.piPct+=Math.random()*17;if(S.piPct>=100){S.piPct=100;clearInterval(piTimer);S.pi=3;S.engine='pi';}render();},230);}
+function runTest(){if(!S.apiKey){S.test='nokey';render();return;}S.test='load';render();
+ setTimeout(()=>{S.test='ok';S.modelCount=Math.floor(Math.random()*40)+28;render();},950);}
+
+/* ── 键盘 ── */
+addEventListener('keydown',e=>{
+ if(/input|textarea|select/i.test(e.target.tagName)){ if(e.key==='Enter'&&e.target.dataset.key) runTest(); return; }
+ if(!S.open) return;
+ if(e.key==='Enter'){e.preventDefault();S.view==='intro'?$('#goBtn').click():advance();}
+ if(e.key==='Escape') doSkip();
+});
+
+/* ── proto 控制 ── */
+const V=['onboarding-v1-rail-stepper.html','onboarding-v2-readiness-board.html','onboarding-v3-conversational.html','onboarding-v4-welcome-over-app.html'];
+const here=()=>V.indexOf(location.pathname.split('/').pop());
+$('#pl').onclick=()=>location.href=V[(here()+3)%4];
+$('#pr').onclick=()=>location.href=V[(here()+1)%4];
+$('#replay').onclick=()=>{S.open=true;S.view='intro';render();};
+$('#ptheme').onchange=e=>{S.theme=e.target.value;S.touchedTheme=true;render();};
+$('#tlocale').onchange=e=>{S.locale=e.target.value;render();};
+S.open=true;
+render();
+setTimeout(()=>{if(S.pi===0){S.pi=1;render();}},1200);
+</script>
+</body>
+</html>

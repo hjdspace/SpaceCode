@@ -5,4 +5,5 @@ export default {
   hint: '项目对话在代码目录中工作。',
   recentHeading: '最近的项目',
   recentEmpty: '暂无记录。打开过项目后会显示在这里，方便下次进入。',
+  defaultWorkspaceFailed: '默认工作区不可用，请先选择项目文件夹',
 }

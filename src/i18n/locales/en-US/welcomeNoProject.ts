@@ -5,4 +5,5 @@ export default {
   hint: 'Project chat runs inside your code folder.',
   recentHeading: 'Recent projects',
   recentEmpty: 'No recent folders yet. They appear here after you open a project.',
+  defaultWorkspaceFailed: 'Default workspace is unavailable. Please select a project folder.',
 }

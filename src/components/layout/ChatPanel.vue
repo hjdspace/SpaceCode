@@ -309,6 +309,7 @@ import { initLLMService, llmState } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { useChatCommands } from '@/composables/useChatCommands'
 import { useWorkRouter } from '@/composables/useWorkRouter'
+import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
@@ -338,6 +339,7 @@ const appStore = useAppStore()
 const splitLayout = useSplitLayoutStore()
 const agentsStore = useAgentsStore()
 const { t, locale, tm } = useI18n()
+const { openDefaultProject } = useOpenProjectWorkflow()
 
 // ── Pane props（分屏多 pane 时由 SplitContainer 传入；未传入 = 单屏，行为
 //    与改造前完全一致：所有 pane-scoped 计算回退到全局 current*） ──
@@ -1232,6 +1234,14 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   const hasContent = content.trim().length > 0 || attachments.files.length > 0 || attachments.images.length > 0
   if (!hasContent) return
 
+  // 未选择项目文件夹就直接发送：回退到默认工作区目录发起会话，
+  // 使 hasWorkspaceContext 生效，"无项目"欢迎页自动让位给聊天界面。
+  // 引导失败（如默认工作区不可用）时中止本次发送，避免消息发进不可见会话
+  if (!props.sessionId && showNoProjectWelcome.value) {
+    const ok = await openDefaultProject()
+    if (!ok) return
+  }
+
   // Work 模式自动路由：空会话且未选助手时，根据输入匹配专业助手。
   // 单命中 → 直接创建助手会话；多命中/模糊 → 弹出选择；无匹配 → 透传到当前会话。
   if (
@@ -1324,6 +1334,12 @@ async function handleStop() {
 // 处理斜杠命令
 async function handleSlashCommand(command: string, args: string, attachments: AllAttachments, displayLabel?: string) {
   console.log('[ChatPanel] Slash command:', command, args, attachments)
+
+  // 与 handleSend 一致：未选项目时先回退默认工作区，引导失败则中止
+  if (!props.sessionId && showNoProjectWelcome.value) {
+    const ok = await openDefaultProject()
+    if (!ok) return
+  }
 
   // 添加用户输入的命令到消息列表
   // 如果 displayLabel 包含 /cmd: 标记，使用它（能渲染为 inline chip）；
