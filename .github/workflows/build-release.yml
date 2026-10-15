@@ -160,6 +160,26 @@ jobs:
       - name: Build frontend and proxy
         run: npm run build:all
 
+      # build.extraResources 把 resources/cua-driver 拷进 <resources>/cua-driver，
+      # 但二进制不入 git（.gitignore 的 *.exe*），CI 的干净 checkout 里该目录只有
+      # .gitkeep。不在打包前下载，安装就没有内置 cua-driver，Computer Use 只能退回
+      # 在线安装 —— 与卡片文案「已随安装包内置，无需额外下载」不符。
+      - name: Pre-download bundled cua-driver binary
+        shell: bash
+        run: |
+          node scripts/download-cua-driver.mjs
+          if [ -z "$(find resources/cua-driver -type f ! -name '.gitkeep' ! -name 'README*' -print -quit)" ]; then
+            echo "ERROR: resources/cua-driver is still empty — the packaged app would ship no bundled binary"
+            exit 1
+          fi
+
+      # 同上：extraResources 声明了 resources/officecli → <resources>/officecli，
+      # 但二进制不入 git。脚本默认软失败（应用内有「下载 OfficeCLI」按钮兜底），
+      # --strict 让正式版在缺这个声明过的资源时直接失败，而不是静默少一个二进制。
+      - name: Pre-download bundled OfficeCLI binary
+        shell: bash
+        run: node scripts/download-officecli.mjs --strict
+
       # 注意：这里使用 --publish never，由 publish-release job 统一上传到 release，
       # 避免三个平台并发 --publish always 时的竞争条件（曾经导致 Windows exe 上传被静默吞掉）
       - name: Build (Mac)

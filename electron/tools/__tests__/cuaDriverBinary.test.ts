@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as path from 'path'
+import { expectDeclaredInExtraResources, expectPopulatedByReleaseJob } from './packagingContract'
 
 /**
  * cua-driver binary detection. Five levels compete for priority, and the order
@@ -259,6 +260,22 @@ describe('findCuaDriverBinary — per-platform locations', () => {
     probe.existing.add(bundled)
 
     expect(svc.findCuaDriverBinary()).toBe(bundled)
+  })
+
+  it('ships the bundled dir the packaged lookup points at', async () => {
+    // A packaged lookup only ever sees process.resourcesPath, so that dir exists in
+    // the installer solely because build.extraResources copies it — and the binary is
+    // gitignored (*.exe*), so the release workflow has to download it first. A dev run
+    // shows neither link: resources/cua-driver is already populated locally.
+    const svc = await loadService('linux')
+    runtime.isPackaged = true
+    const bundled = path.join(RESOURCES, 'cua-driver', 'cua-driver')
+    probe.existing.add(bundled)
+
+    const shippedDir = path.relative(RESOURCES, path.dirname(svc.findCuaDriverBinary()!))
+
+    const entry = await expectDeclaredInExtraResources(shippedDir)
+    await expectPopulatedByReleaseJob(entry, 'download-cua-driver.mjs')
   })
 })
 

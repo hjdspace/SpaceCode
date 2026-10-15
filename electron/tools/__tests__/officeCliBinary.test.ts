@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as os from 'os'
 import * as path from 'path'
+import { expectDeclaredInExtraResources, expectPopulatedByReleaseJob } from './packagingContract'
 
 /**
  * Bundled OfficeCLI binary resolution. The three-level order (bundled →
@@ -109,6 +110,19 @@ describe('getOfficeCliBinaryPath', () => {
     useRuntime({ platform: 'darwin', arch: 'arm64', packaged: true, resourcesPath: resources })
 
     expect(getOfficeCliBinaryPath()).toBe(path.join(resources, 'officecli', 'officecli-mac-arm64'))
+  })
+
+  it('ships the officecli dir the packaged lookup points at', async () => {
+    // The binary is gitignored, so the extraResources copy only pays off when the
+    // release job downloads it first — otherwise every installer ships an empty dir
+    // and the in-app download button becomes the only path, silently.
+    const resources = path.join(process.cwd(), 'packed-resources')
+    useRuntime({ platform: 'win32', arch: 'x64', packaged: true, resourcesPath: resources })
+
+    const shippedDir = path.relative(resources, path.dirname(getOfficeCliBinaryPath()))
+
+    const entry = await expectDeclaredInExtraResources(shippedDir)
+    await expectPopulatedByReleaseJob(entry, 'download-officecli.mjs')
   })
 
   it('maps any other platform onto the linux naming', () => {

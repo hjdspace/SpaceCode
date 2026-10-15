@@ -5,6 +5,7 @@
  * Usage:
  *   node scripts/download-officecli.mjs          # download latest release
  *   node scripts/download-officecli.mjs v1.0.0   # download specific tag
+ *   node scripts/download-officecli.mjs --strict # exit non-zero instead of warning on failure
  *
  * The binary is placed in resources/officecli/ with the expected naming convention:
  *   officecli-{platform}-{arch}[.exe]
@@ -107,7 +108,18 @@ async function downloadFile(url, destPath) {
 async function main() {
   const args = process.argv.slice(2)
   const force = args.includes('--force')
+  const strict = args.includes('--strict')
   const tag = args.find(a => !a.startsWith('-'))
+
+  // 默认软失败：本地构建缺这个二进制无所谓，应用内有「下载 OfficeCLI」按钮兜底。
+  // --strict 给 CI 用 —— extraResources 声明了它，静默缺席就等于正式版悄悄少一个二进制。
+  const bail = (reason) => {
+    if (strict) {
+      console.error(`[OfficeCLI] --strict: ${reason}`)
+      process.exit(1)
+    }
+    console.warn('[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.')
+  }
 
   const { exeName, platform } = getPlatformInfo()
 
@@ -144,7 +156,7 @@ async function main() {
     console.error(`[OfficeCLI] Failed to fetch release info: ${err.message}`)
     console.error(`[OfficeCLI] You can manually download from: https://github.com/iOfficeAI/OfficeCLI/releases`)
     console.error(`[OfficeCLI] Place the binary at: ${targetPath}`)
-    console.warn(`[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.`)
+    bail(`release info unavailable: ${err.message}`)
     return
   }
 
@@ -157,7 +169,7 @@ async function main() {
     console.error(`[OfficeCLI] Available assets:`)
     assets.forEach(a => console.error(`  - ${a.name} (${(a.size / 1024 / 1024).toFixed(1)} MB)`))
     console.error(`[OfficeCLI] You can manually download from: ${release.html_url || 'https://github.com/iOfficeAI/OfficeCLI/releases'}`)
-    console.warn(`[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.`)
+    bail(`no release asset matches ${exeName}`)
     return
   }
 
@@ -184,7 +196,7 @@ async function main() {
     }
   } catch (err) {
     console.error(`[OfficeCLI] Download failed: ${err.message}`)
-    console.warn(`[OfficeCLI] Build will continue without the binary. Users can download it via the in-app download button.`)
+    bail(`download failed: ${err.message}`)
   }
 }
 

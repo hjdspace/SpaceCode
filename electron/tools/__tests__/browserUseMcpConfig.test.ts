@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as path from 'path'
 import type { BrowserUseAgentConfig, BrowserUseLiveSnapshot } from '../../../src/types/browserUse'
+import { expectCommittedFile, expectDeclaredInExtraResources } from './packagingContract'
 
 /**
  * The stdio MCP server block that the CLI receives via `--mcp-config`, plus the
@@ -312,6 +313,23 @@ describe('getBrowserUseMcpServerConfig — resolution', () => {
     const svc = await loadService()
 
     expect(svc.getBrowserUseMcpServerConfig()?.args).toEqual([PACKAGED_BRIDGE, '--mcp'])
+  })
+
+  it('packages the resources directory the packaged bridge path points at', async () => {
+    // The packaged build is the only layout this test can't reproduce by running the
+    // app: bridge.py reaches the user solely through electron-builder's extraResources
+    // copy. Without the declaration the packaged path never exists, every packaged
+    // probe fails with "bridge script not found", and dev keeps passing.
+    pythonReady()
+    probe.isPackaged = true
+    probe.existing.add(PACKAGED_BRIDGE)
+    const svc = await loadService()
+
+    const packagedBridge = svc.getBrowserUseMcpServerConfig()!.args[0]
+    const shippedDir = path.relative(process.resourcesPath, path.dirname(packagedBridge))
+
+    const entry = await expectDeclaredInExtraResources(shippedDir)
+    await expectCommittedFile(entry, 'bridge.py')
   })
 
   it('lets PYTHON_PATH decide the interpreter the CLI spawns', async () => {

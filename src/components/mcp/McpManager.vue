@@ -199,6 +199,14 @@
                   <p v-else-if="entry.preset.requirements" class="builtin-req">
                     {{ t('mcpSettings.builtinRequirements') }}: {{ entry.preset.requirements }}
                   </p>
+
+                  <!-- 「已安装」只证明 PATH 上有命令；连不上的原因必须显示出来才知道修哪层 -->
+                  <p
+                    v-if="entry.probe?.status === 'failed' && entry.probe.error"
+                    class="builtin-probe-error"
+                  >
+                    {{ entry.probe.error }}
+                  </p>
                 </div>
 
                 <div class="builtin-card-bottom">
@@ -1117,6 +1125,17 @@ onMounted(() => {
   color: var(--error);
   margin: 0;
   line-height: 1.4;
+}
+
+.builtin-probe-error {
+  font-size: 10px;
+  color: var(--error);
+  line-height: 1.4;
+  margin: 0;
+  padding: 5px 8px;
+  background: rgba(220, 53, 69, 0.06);
+  border-radius: 4px;
+  word-break: break-word;
 }
 
 .builtin-card-bottom {

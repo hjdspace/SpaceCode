@@ -35,14 +35,6 @@ export interface BuiltinMcpPreset {
     installerDocs?: string
   }
   /**
-   * 是否为预打包服务器：构建时已将依赖打入安装包 <resources>/mcp-vendor/。
-   * 为 true 时，electron/mcpConfigStore.ts 的 buildEnabledMcpConfig() 会用
-   * 打包内的 bun + 预装 server.js 解析绝对路径覆盖 config.command/args；
-   * 若预打包路径不存在（如开发模式未运行 copy-mcp-vendor），回退到 config
-   * 里的 npx 配置。bundled 预设通常不设 dependency（打包模式无需外部命令）。
-   */
-  bundled?: boolean
-  /**
    * 预设配置版本号。当预设的 command/args/env 等核心配置发生变更时递增。
    *
    * syncBuiltinServers 会比较持久化记录中的 _configVersion 与此值：

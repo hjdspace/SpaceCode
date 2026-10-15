@@ -56,7 +56,7 @@ coverage/
 # Bun binaries (downloaded during build)
 engine/bin/
 
-# Bundled computer-use MCP server (installed during build by scripts/copy-mcp-vendor.cjs)
+# Leftover from the pre-cua-driver computer-use bundle; no longer generated or shipped
 mcp-vendor/
 
 .workbuddy/
