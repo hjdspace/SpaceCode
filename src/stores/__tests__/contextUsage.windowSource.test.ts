@@ -36,7 +36,7 @@ function lastCallUsage() {
   }
 }
 
-async function setupSessionOnOpus(withUsage = true) {
+async function setupSessionOnOpus(withUsage = true, withModel = true) {
   const { useSettingsStore } = await import('../settings')
   const settings = useSettingsStore()
   settings.authMethod = 'anthropic_compatible'
@@ -51,7 +51,7 @@ async function setupSessionOnOpus(withUsage = true) {
   const { useChatSessionStore } = await import('../chatSession')
   const sessions = useChatSessionStore()
   const session = sessions.createSession('Test', 'D:/repo', 'ctx-window')
-  session.model = 'claude-opus-4-6'
+  if (withModel) session.model = 'claude-opus-4-6'
   if (withUsage) {
     session.messages.push({
       id: 'm-1',
@@ -138,6 +138,28 @@ describe('contextUsage store — 窗口与用量来源', () => {
     store.refresh('ctx-window')
 
     store.applyFallback('other-session')
+
+    expect(store.snapshot?.data?.model).toBe('claude-opus-4-6')
+  })
+
+  it('会话尚未落地模型时（未发送过消息），回退到输入框最近选择而不是 config.model', async () => {
+    const settings = await setupSessionOnOpus(false, false)
+    settings.lastSelectedModel = 'glm3.5-flash'
+
+    const { useContextUsageStore } = await import('../contextUsage')
+    const store = useContextUsageStore()
+    store.refresh('ctx-window')
+
+    expect(store.snapshot?.data?.model).toBe('glm3.5-flash')
+  })
+
+  it('会话已有模型记录时，session.model 仍优先于 lastSelectedModel', async () => {
+    const settings = await setupSessionOnOpus()
+    settings.lastSelectedModel = 'glm3.5-flash'
+
+    const { useContextUsageStore } = await import('../contextUsage')
+    const store = useContextUsageStore()
+    store.refresh('ctx-window')
 
     expect(store.snapshot?.data?.model).toBe('claude-opus-4-6')
   })

@@ -59,7 +59,15 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     const sessionStore = useChatSessionStore()
     const settingsStore = useSettingsStore()
     const session = sessionStore.sessions.find(s => s.id === sid)
-    const model = session?.model || settingsStore.config.model || 'claude-sonnet-4-6'
+    // 模型优先级与引擎启动解析（chatSession.initClaudeCodeSession）对齐：
+    // session.model > lastSelectedModel（输入框最近一次选择，跨重启持久化）> config.model。
+    // 不引入 lastSelectedModel 的话，未发消息的新会话会跳过输入框选择，
+    // 直接回退到 config.model 槽位，用量面板与输入框显示的模型不一致。
+    const model =
+      session?.model ||
+      settingsStore.lastSelectedModel ||
+      settingsStore.config.model ||
+      'claude-sonnet-4-6'
     const userCtxOverride = settingsStore.getContextWindowOverride(model)
     return buildFallbackSnapshot(session?.messages ?? [], model, userCtxOverride)
   }

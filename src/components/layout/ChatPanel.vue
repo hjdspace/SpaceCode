@@ -1186,6 +1186,10 @@ async function handleModelChange(model: string) {
     // restart fallback. Keep the selection available for subsequent restarts.
     await sessionStore.switchModel(modelAlias, model)
 
+    // 输入框切换模型后立刻按新模型重算上下文用量，
+    // 保持用量面板与下拉框选择一致，而不是等会话切换/回合结束才刷新
+    if (paneSessionId.value) contextUsageStore.refresh(paneSessionId.value)
+
     console.log('[ChatPanel] Model changed to:', modelAlias, '(from', model, ')')
   } finally {
     _modelChangeInProgress = false
