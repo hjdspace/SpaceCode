@@ -163,4 +163,14 @@ describe('contextUsage store — 窗口与用量来源', () => {
 
     expect(store.snapshot?.data?.model).toBe('claude-opus-4-6')
   })
+
+  it('lastSelectedModel 为空时正确回退到 config.model 槽位', async () => {
+    await setupSessionOnOpus(false, false)
+
+    const { useContextUsageStore } = await import('../contextUsage')
+    const store = useContextUsageStore()
+    store.refresh('ctx-window')
+
+    expect(store.snapshot?.data?.model).toBe('claude-sonnet-4-6')
+  })
 })

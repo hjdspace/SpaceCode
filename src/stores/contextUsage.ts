@@ -61,8 +61,9 @@ export const useContextUsageStore = defineStore('contextUsage', () => {
     const session = sessionStore.sessions.find(s => s.id === sid)
     // 模型优先级与引擎启动解析（chatSession.initClaudeCodeSession）对齐：
     // session.model > lastSelectedModel（输入框最近一次选择，跨重启持久化）> config.model。
-    // 不引入 lastSelectedModel 的话，未发消息的新会话会跳过输入框选择，
-    // 直接回退到 config.model 槽位，用量面板与输入框显示的模型不一致。
+    // 引擎链里的 _pendingModelChoice 由 switchModel 与 lastSelectedModel 双写同值，
+    // 故此处无需读该私有暂存值。不引入 lastSelectedModel 的话，未发消息的新会话
+    // 会跳过输入框选择，直接回退到 config.model 槽位，用量面板与输入框显示的模型不一致。
     const model =
       session?.model ||
       settingsStore.lastSelectedModel ||
