@@ -328,9 +328,10 @@ export class ClaudeCodeProcessPool {
     requestId: string,
     updatedInput?: Record<string, unknown>,
     decisionClassification?: 'user_temporary' | 'user_permanent',
+    updatedPermissions?: import('../session/controlProtocol').PermissionUpdate[],
   ): void {
     const proc = this.requireRunning(sessionId, 'allowPermission')
-    proc.allowPermission(requestId, updatedInput, decisionClassification)
+    proc.allowPermission(requestId, updatedInput, decisionClassification, updatedPermissions)
   }
 
   denyPermission(

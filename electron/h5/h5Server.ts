@@ -485,6 +485,24 @@ export class H5Server {
         }
         return
 
+      case '/api/session/agent-transcript-by-tool-use':
+        if (!this.requireSessionId(res, sessionId)) return
+        if (!body.toolUseId) {
+          this.sendJson(res, 400, { error: 'toolUseId required' })
+          return
+        }
+        try {
+          this.sendJson(res, 200, SessionHistoryManager.findAgentTranscriptByToolUse(
+            (body.projectPath as string) || this.mirrorProjectPath || '',
+            sessionId,
+            body.toolUseId as string,
+          ))
+        } catch (err) {
+          warn('H5Server', `findAgentTranscriptByToolUse failed | sessionId=${sessionId.slice(0, 8)} | error=${err}`)
+          this.sendJson(res, 200, null)
+        }
+        return
+
       // ── Agent / 引擎能力 ──
       case '/api/agents/list':
         this.sendJson(res, 200, await engineGateway.listAgents(

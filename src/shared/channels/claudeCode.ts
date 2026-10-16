@@ -54,6 +54,49 @@ export interface EngineEvictionBlockedEvent {
 
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 
+// ── 权限规则变更（can_use_tool 的 permission_suggestions / 应答的 updatedPermissions）──
+// 形状对齐引擎侧 PermissionUpdateSchema（engine/src/utils/permissions/PermissionUpdateSchema.ts）。
+// 宿主不解释、不重构这些对象，只把引擎发来的原样回传 —— 引擎用 zod discriminated union
+// 校验并对畸形项整体降级为 undefined，所以这里保持同一判别式即可，不要放宽成 Record。
+
+export type PermissionUpdateDestination =
+  | 'userSettings'
+  | 'projectSettings'
+  | 'localSettings'
+  | 'session'
+  | 'cliArg'
+
+/** `setMode` 可写入的模式，比用户可选的 PermissionMode 宽（引擎另有 dontAsk）。 */
+export type PermissionUpdateMode =
+  | 'acceptEdits'
+  | 'bypassPermissions'
+  | 'default'
+  | 'dontAsk'
+  | 'plan'
+
+export interface PermissionRuleValue {
+  toolName: string
+  ruleContent?: string
+}
+
+export type PermissionUpdate =
+  | {
+      type: 'addRules' | 'replaceRules' | 'removeRules'
+      destination: PermissionUpdateDestination
+      rules: PermissionRuleValue[]
+      behavior: 'allow' | 'deny' | 'ask'
+    }
+  | {
+      type: 'setMode'
+      destination: PermissionUpdateDestination
+      mode: PermissionUpdateMode
+    }
+  | {
+      type: 'addDirectories' | 'removeDirectories'
+      destination: PermissionUpdateDestination
+      directories: string[]
+    }
+
 export interface EngineAgentInfo {
   agentType: string
   description: string
@@ -121,6 +164,10 @@ export const claudeCodeNamespace = defineNamespace({
       req: [] as unknown as [projectPath: string, sessionId: string, agentId: string],
       res: null as unknown,
     },
+    findAgentTranscriptByToolUse: {
+      req: [] as unknown as [projectPath: string, sessionId: string, toolUseId: string],
+      res: null as unknown as string | null,
+    },
     restoreSession: {
       req: [] as unknown as [sessionId: string, projectPath: string],
       res: null as unknown as Record<string, unknown>,
@@ -140,6 +187,7 @@ export const claudeCodeNamespace = defineNamespace({
         requestId: string,
         updatedInput?: Record<string, unknown>,
         decisionClassification?: 'user_temporary' | 'user_permanent',
+        updatedPermissions?: PermissionUpdate[],
       ],
       res: null as unknown,
     },

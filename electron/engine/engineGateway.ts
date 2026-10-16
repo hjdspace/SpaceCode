@@ -11,6 +11,7 @@ import type {
   ImageAttachment,
   PermissionDecision,
   PermissionMode,
+  PermissionUpdate,
   AgentInfo,
   EngineType,
 } from './engines/types'
@@ -159,10 +160,17 @@ export const engineGateway = {
     requestId: string,
     updatedInput?: Record<string, unknown>,
     decisionClassification?: 'user_temporary' | 'user_permanent',
+    updatedPermissions?: PermissionUpdate[],
   ): Promise<void> => {
     const engine = findEngineForSession(sessionId)
-    const fn = requireAction<(sid: string, rid: string, input?: Record<string, unknown>, cls?: 'user_temporary' | 'user_permanent') => Promise<void>>(engine, 'allowPermission')
-    await fn(sessionId, requestId, updatedInput, decisionClassification)
+    const fn = requireAction<(
+      sid: string,
+      rid: string,
+      input?: Record<string, unknown>,
+      cls?: 'user_temporary' | 'user_permanent',
+      perms?: PermissionUpdate[],
+    ) => Promise<void>>(engine, 'allowPermission')
+    await fn(sessionId, requestId, updatedInput, decisionClassification, updatedPermissions)
   }),
 
   denyPermission: withLogging('denyPermission', async (

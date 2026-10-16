@@ -158,6 +158,12 @@ export const h5ApiClient = {
       body: { projectPath, sessionId, agentId },
     }),
 
+  findAgentTranscriptByToolUse: (projectPath: string, sessionId: string, toolUseId: string): Promise<string | null> =>
+    h5Fetch('/api/session/agent-transcript-by-tool-use', {
+      method: 'POST',
+      body: { projectPath, sessionId, toolUseId },
+    }),
+
   listAgents: (cwd?: string, engineType?: string) =>
     h5Fetch('/api/agents/list', { method: 'POST', body: { cwd, engineType } }),
 

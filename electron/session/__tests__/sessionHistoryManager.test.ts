@@ -432,4 +432,70 @@ describe('SessionHistoryManager', () => {
       expect(result).toContain('sess123')
     })
   })
+
+  // ── findAgentTranscriptByToolUse ────────────────────────────
+
+  describe('findAgentTranscriptByToolUse', () => {
+    function subagentsDir(projectPath: string, sessionId: string): string {
+      return path.dirname(SessionHistoryManager.getAgentTranscriptPath(projectPath, sessionId, 'probe'))
+    }
+
+    function writeAgent(projectPath: string, sessionId: string, agentId: string, meta: unknown, withTranscript = true): string {
+      const dir = subagentsDir(projectPath, sessionId)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, `agent-${agentId}.meta.json`), JSON.stringify(meta), 'utf8')
+      const transcript = path.join(dir, `agent-${agentId}.jsonl`)
+      if (withTranscript) fs.writeFileSync(transcript, '{"type":"user"}\n', 'utf8')
+      return transcript
+    }
+
+    it('按 meta.json 里的 toolUseId 命中同名 transcript', () => {
+      const projectPath = path.join(tmpRoot, 'myproject')
+      fs.mkdirSync(projectPath, { recursive: true })
+      const expected = writeAgent(projectPath, 's1', 'a111', { toolUseId: 'call_1', agentType: 'Explore' })
+      writeAgent(projectPath, 's1', 'a222', { toolUseId: 'call_2', agentType: 'Plan' })
+
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse(projectPath, 's1', 'call_1')).toBe(expected)
+    })
+
+    it('没有匹配的 toolUseId 时返回 null', () => {
+      const projectPath = path.join(tmpRoot, 'myproject')
+      fs.mkdirSync(projectPath, { recursive: true })
+      writeAgent(projectPath, 's1', 'a111', { toolUseId: 'call_1' })
+
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse(projectPath, 's1', 'call-nope')).toBeNull()
+    })
+
+    it('meta 已写但 transcript 尚未落盘时返回 null（留给下一轮重试）', () => {
+      const projectPath = path.join(tmpRoot, 'myproject')
+      fs.mkdirSync(projectPath, { recursive: true })
+      writeAgent(projectPath, 's1', 'a111', { toolUseId: 'call_1' }, false)
+
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse(projectPath, 's1', 'call_1')).toBeNull()
+    })
+
+    it('subagents 目录不存在时返回 null 而不是抛错', () => {
+      const projectPath = path.join(tmpRoot, 'myproject')
+      fs.mkdirSync(projectPath, { recursive: true })
+
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse(projectPath, 'missing', 'call_1')).toBeNull()
+    })
+
+    it('损坏的 meta.json 被跳过，仍能命中后面的 agent', () => {
+      const projectPath = path.join(tmpRoot, 'myproject')
+      fs.mkdirSync(projectPath, { recursive: true })
+      const dir = subagentsDir(projectPath, 's1')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'agent-a000.meta.json'), '{ not json', 'utf8')
+      const expected = writeAgent(projectPath, 's1', 'a111', { toolUseId: 'call_1' })
+
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse(projectPath, 's1', 'call_1')).toBe(expected)
+    })
+
+    it('参数缺失时直接返回 null', () => {
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse('', 's1', 'call_1')).toBeNull()
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse('/p', '', 'call_1')).toBeNull()
+      expect(SessionHistoryManager.findAgentTranscriptByToolUse('/p', 's1', '')).toBeNull()
+    })
+  })
 })

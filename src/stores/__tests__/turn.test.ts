@@ -681,7 +681,7 @@ describe('Turn 权限裁决', () => {
     fake._handlers.onPermissionRequest({ sessionId: 'sess-perm', data: { toolUseId: 'tu1', toolName: 'Bash', requestId: 'req1' } })
     await turn.allowPermission(msg.id, 'tu1', { command: 'ls' })
 
-    expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith('sess-perm', 'req1', { command: 'ls' }, undefined)
+    expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith('sess-perm', 'req1', { command: 'ls' }, undefined, undefined)
     const updated = sessionStore.sessions.find(s => s.id === 'sess-perm')!.messages.find(m => m.id === msg.id)!
     expect(updated.toolCalls!.find(t => t.id === 'tu1')!.status).toBe('completed')
     expect(turn.hasPendingPermissionForToolUse('tu1', 'sess-perm')).toBe(false)
@@ -713,9 +713,9 @@ describe('Turn 权限裁决', () => {
     const msg = sessionStore.addMessage({ role: 'assistant', content: '', toolCalls: [{ id: 'tu1', name: 'Bash', input: {}, status: 'running', startTime: 0, endTime: 0 }] }, 'sess-pane')
 
     fake._handlers.onPermissionRequest({ sessionId: 'sess-pane', data: { toolUseId: 'tu1', toolName: 'Bash', requestId: 'req1' } })
-    await turn.allowPermission(msg.id, 'tu1', { command: 'ls' }, undefined, 'sess-pane')
+    await turn.allowPermission(msg.id, 'tu1', { command: 'ls' }, undefined, undefined, 'sess-pane')
 
-    expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith('sess-pane', 'req1', { command: 'ls' }, undefined)
+    expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith('sess-pane', 'req1', { command: 'ls' }, undefined, undefined)
     const updated = sessionStore.sessions.find(s => s.id === 'sess-pane')!.messages.find(m => m.id === msg.id)!
     expect(updated.toolCalls!.find(t => t.id === 'tu1')!.status).toBe('completed')
   })
@@ -938,8 +938,8 @@ describe('Turn 长时间等待', () => {
     const answers = { 'Which path?': 'A' }
     if (withPermission) {
       const updatedInput = { ...input, answers }
-      await turn.allowPermission(ts.assistantMessageId, 'question-1', updatedInput, undefined, sid)
-      expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith(sid, 'req-wait', updatedInput, undefined)
+      await turn.allowPermission(ts.assistantMessageId, 'question-1', updatedInput, undefined, undefined, sid)
+      expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith(sid, 'req-wait', updatedInput, undefined, undefined)
       expect(turn.hasPendingPermissionForToolUse('question-1', sid)).toBe(false)
     } else {
       await turn.submitToolAnswer(sid, ts.assistantMessageId, 'question-1', answers)

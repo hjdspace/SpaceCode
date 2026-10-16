@@ -125,7 +125,7 @@ describe('DesignChatPane 提问工具答复通道', () => {
     await nextTick()
 
     expect(fake.claudeCode.allowPermission).toHaveBeenCalledWith(
-      'sess-design', 'req-ask-1', UPDATED_INPUT, undefined,
+      'sess-design', 'req-ask-1', UPDATED_INPUT, undefined, undefined,
     )
     expect(fake.claudeCode.submitToolAnswer).not.toHaveBeenCalled()
     // 首个用例承担 setup 的冷启动（动态 import + mount），全量并发跑时 5s 不够

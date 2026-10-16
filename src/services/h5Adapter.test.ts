@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   getSettings: vi.fn(async () => null),
   getPendingPermissionRequestIds: vi.fn(async () => []),
   resolveAgentTranscriptPath: vi.fn(async () => '/tmp/agent.jsonl'),
+  findAgentTranscriptByToolUse: vi.fn(async () => '/tmp/agent-by-tooluse.jsonl'),
   listAgents: vi.fn(async () => []),
   isEngineAvailable: vi.fn(async () => ({ available: true })),
   listProjectSessions: vi.fn(async () => []),
@@ -75,6 +76,11 @@ describe('createH5Adapter', () => {
         'resolveAgentTranscriptPath',
         a => a.resolveAgentTranscriptPath('/proj', 'sid', 'agent-1'),
         ['/proj', 'sid', 'agent-1'],
+      ],
+      [
+        'findAgentTranscriptByToolUse',
+        a => a.findAgentTranscriptByToolUse('/proj', 'sid', 'call-1'),
+        ['/proj', 'sid', 'call-1'],
       ],
     ]
 

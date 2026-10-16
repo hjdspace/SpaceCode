@@ -155,6 +155,8 @@ export function createH5Adapter(): ElectronClaudeCodeAPI {
     // H5: 子代理 transcript 路径由服务端解析
     resolveAgentTranscriptPath: (projectPath: string, sessionId: string, agentId: string) =>
       h5ApiClient.resolveAgentTranscriptPath(projectPath, sessionId, agentId),
+    findAgentTranscriptByToolUse: (projectPath: string, sessionId: string, toolUseId: string) =>
+      h5ApiClient.findAgentTranscriptByToolUse(projectPath, sessionId, toolUseId),
 
     // ── 事件监听（通过 WebSocket）──
     onAssistant: (callback: (data: { sessionId: string; data: any }) => void) =>

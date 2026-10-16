@@ -363,4 +363,35 @@ export const SessionHistoryManager = {
   getAgentTranscriptPath(projectPath: string, sessionId: string, agentId: string): string {
     return path.join(getProjectDir(projectPath), sessionId, 'subagents', `agent-${agentId}.jsonl`)
   },
+
+  /**
+   * 按父 Agent 工具调用的 tool_use ID 反查 sidechain transcript 路径。
+   *
+   * 前台（同步）子代理的 tool_result 只有最终正文，不带 agentId/output_file，
+   * 前端拿不到任何指向 sidechain 文件的线索。引擎在 spawn 时会写
+   * `subagents/agent-{agentId}.meta.json`，其中含 toolUseId —— 这是两者唯一的连接。
+   */
+  findAgentTranscriptByToolUse(projectPath: string, sessionId: string, toolUseId: string): string | null {
+    if (!projectPath || !sessionId || !toolUseId) return null
+    const dir = path.join(getProjectDir(projectPath), sessionId, 'subagents')
+    let entries: string[]
+    try {
+      entries = fs.readdirSync(dir)
+    } catch {
+      return null
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith('.meta.json')) continue
+      let toolUseIdOfMeta: unknown
+      try {
+        toolUseIdOfMeta = JSON.parse(fs.readFileSync(path.join(dir, entry), 'utf8'))?.toolUseId
+      } catch {
+        continue
+      }
+      if (toolUseIdOfMeta !== toolUseId) continue
+      const transcript = path.join(dir, entry.slice(0, -'.meta.json'.length) + '.jsonl')
+      return fs.existsSync(transcript) ? transcript : null
+    }
+    return null
+  },
 }

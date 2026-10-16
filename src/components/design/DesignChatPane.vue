@@ -160,7 +160,7 @@ async function handleToolSubmit(messageId: string, toolId: string, updatedInput:
   if (!sid) return
 
   if (turnStore.hasPendingPermissionForToolUse(toolId, sid)) {
-    await turnStore.allowPermission(messageId, toolId, updatedInput, undefined, sid)
+    await turnStore.allowPermission(messageId, toolId, updatedInput, undefined, undefined, sid)
     return
   }
 

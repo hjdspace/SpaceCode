@@ -25,6 +25,8 @@ export default {
       allow: 'Allow',
       deny: 'Deny',
       alwaysAllow: 'Always Allow',
+      // Session-scoped rules must not be promised as "Always" — they die with the process
+      allowForThisSession: 'Allow for this session',
       processing: 'Processing...',
       completed: 'Approved',
       denied: 'Denied',

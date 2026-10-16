@@ -329,7 +329,8 @@ describe('engineGateway', () => {
 
       await engineGateway.allowPermission('s1', 'r1', { foo: 1 }, 'user_temporary')
 
-      expect(engine.allowPermission).toHaveBeenCalledWith('s1', 'r1', { foo: 1 }, 'user_temporary')
+      // 网关固定转发 5 个位置参数，updatedPermissions 缺省时显式传 undefined
+      expect(engine.allowPermission).toHaveBeenCalledWith('s1', 'r1', { foo: 1 }, 'user_temporary', undefined)
     })
 
     it('denyPermission throws when engine lacks it', async () => {

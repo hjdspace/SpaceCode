@@ -71,6 +71,8 @@ vi.mock('../../infra/proxyManager', () => ({
     start: vi.fn(async () => {
       net.startCalls++
       net.proxyUrl = net.startUrl
+      // 真实 start() 的签名是 Promise<string>，buildEnv 用的就是它排空队列后的返回值
+      return net.startUrl
     }),
   },
   buildProxyConfigFromSettings: vi.fn(() => ({ upstreamProvider: 'x' })),

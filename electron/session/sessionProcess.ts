@@ -21,6 +21,7 @@ import {
   type PermissionMode,
   type CanUseToolRequest,
   type ElicitationRequest,
+  type PermissionUpdate,
 } from './controlProtocol'
 import { shouldAutoApprovePermission } from './permissionAutoApprove'
 import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
@@ -329,6 +330,14 @@ export class SessionProcess extends EventEmitter {
         permissionMode: this.config.permissionMode,
       },
     })
+
+    // 代理可能正因为一次配置保存处在启动队列里。buildArgs 与 buildEnv 都只读
+    // getProxyUrl() 快照，不等队列落地就会把这次 spawn 钉在旧上游（甚至是一个正要
+    // 被停掉的地址）上，而会话参数一旦写进 --settings 就不会再回头更正。
+    // Anthropic 直连不经过代理，不必为它等这道队列。
+    if ((this.config.provider || 'anthropic').toLowerCase() !== 'anthropic') {
+      await proxyManager.awaitStart()
+    }
 
     const builtArgs = this.buildArgs(this.config)
     // 记下这次 spawn 真正带回的参数：--thinking 只在 spawn 时读一次，运行中改
@@ -745,16 +754,24 @@ export class SessionProcess extends EventEmitter {
 
   /**
    * Helper: 用「允许」回应 can_use_tool。updatedInput 缺省为原始 input，等价于「直接放行」。
+   *
+   * `updatedPermissions` 透传给 ControlProtocolHandler —— 缺省时引擎只放行这一次。
    */
   allowPermission(
     requestId: string,
     updatedInput?: Record<string, unknown>,
     decisionClassification?: 'user_temporary' | 'user_permanent',
+    updatedPermissions?: PermissionUpdate[],
   ): void {
     if (!this.process?.stdin?.writable) {
       throw new Error('No active process')
     }
-    this.controlProtocol.allowPermission(requestId, updatedInput, decisionClassification)
+    this.controlProtocol.allowPermission(
+      requestId,
+      updatedInput,
+      decisionClassification,
+      updatedPermissions,
+    )
   }
 
   /**
@@ -1497,8 +1514,9 @@ export class SessionProcess extends EventEmitter {
         try {
           const proxyConfig = this.buildProxyConfig()
           if (proxyConfig) {
-            await proxyManager.start(proxyConfig)
-            const startedUrl = proxyManager.getProxyUrl()
+            // start() 返回的是队列排空后的最终 URL；再读一次 getProxyUrl() 快照
+            // 可能读到别的调用方刚排进来的那次启动。
+            const startedUrl = await proxyManager.start(proxyConfig)
             if (startedUrl) {
               env.ANTHROPIC_BASE_URL = startedUrl
               env.ANTHROPIC_API_KEY = 'sk-spacecode-proxy'

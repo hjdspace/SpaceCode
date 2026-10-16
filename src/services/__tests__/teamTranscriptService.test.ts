@@ -3,7 +3,7 @@ import type { Message, Session, ToolCall } from '@/types'
 
 const apiMock = vi.hoisted(() => ({
   readFile: vi.fn(),
-  claudeCode: { resolveAgentTranscriptPath: vi.fn() },
+  claudeCode: { resolveAgentTranscriptPath: vi.fn(), findAgentTranscriptByToolUse: vi.fn() },
 }))
 const parseTranscriptMock = vi.hoisted(() => vi.fn())
 const syncTaskMock = vi.hoisted(() => vi.fn())
@@ -73,6 +73,7 @@ describe('teamTranscriptService', () => {
   beforeEach(() => {
     apiMock.readFile.mockReset()
     apiMock.claudeCode.resolveAgentTranscriptPath.mockReset()
+    apiMock.claudeCode.findAgentTranscriptByToolUse.mockReset()
     parseTranscriptMock.mockReset()
     syncTaskMock.mockReset()
   })
@@ -468,6 +469,14 @@ describe('teamTranscriptService', () => {
   })
 
   describe('recordAgentToolCall', () => {
+    // 每次 recordAgentToolCall 都可能起一条 sidechain 文件轮询链；用假定时器
+    // 保证用例结束后不会留下真实 setTimeout 继续跑。
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => {
+      resetSessionMappings('sess-1')
+      vi.useRealTimers()
+    })
+
     it('非 Agent 工具直接忽略，不初始化转录', () => {
       const session = makeSession()
       recordAgentToolCall(session, { id: 't', name: 'Bash', input: {}, status: 'running' } as ToolCall)
@@ -513,12 +522,21 @@ describe('teamTranscriptService', () => {
       resetSessionMappings(session.id)
     })
 
-    it('转录已存在时不重复写占位消息', () => {
+    it('转录已有子代理正文时不重复写占位消息', () => {
       const session = makeSession()
-      session.teammateTranscripts = { t1: [msg({ id: 'live' })] }
+      session.teammateTranscripts = { t1: [msg({ id: 'live', content: 'sidechain 已收到的正文' })] }
       recordAgentToolCall(session, agentToolCall({ id: 't1', output: JSON.stringify({ text: 'some output' }) }))
       expect(session.teammateTranscripts!['t1'].map((m) => m.id)).toEqual(['live'])
-      resetSessionMappings(session.id)
+    })
+
+    it('转录里只有主 Agent 下发的任务提示词时，仍补写最终结果', () => {
+      // 前台子代理只会收到一条 sidechain 任务提示词；若以"转录非空"为由跳过兜底，
+      // 已完成的卡片点开后就只剩这段提示词，最终报告无处显示。
+      const session = makeSession()
+      session.teammateTranscripts = { t1: [msg({ id: 'prompt', role: 'user', content: '请分析 X 模块' })] }
+      recordAgentToolCall(session, agentToolCall({ id: 't1', output: JSON.stringify({ text: '最终报告' }) }))
+      expect(session.teammateTranscripts!['t1'].map(m => m.id)).toEqual(['prompt', 't1-result'])
+      expect(session.teammateTranscripts!['t1'][1].content).toBe('最终报告')
     })
 
     it('input 里缺 name/agentType 时用 general-purpose 默认名 Agent', () => {
@@ -712,6 +730,57 @@ describe('teamTranscriptService', () => {
     it('rekickAgentTranscriptPoll 对未登记的 teammate 无操作', () => {
       const session = makeSession()
       expect(() => rekickAgentTranscriptPoll(session, session.id, 'nobody')).not.toThrow()
+    })
+
+    // ── 前台（同步）子代理：没有 agentId / output_file，只能按 toolUseId 反查 ──
+
+    const assistantRecord = '{"type":"assistant","message":{"content":[{"type":"text","text":"x"}]}}\n'
+
+    it('无 output_file 时按 toolUseId 反查 sidechain JSONL 并轮询补全转录', async () => {
+      apiMock.claudeCode.findAgentTranscriptByToolUse.mockResolvedValue('/proj/subagents/agent-f1.jsonl')
+      parseTranscriptMock.mockReturnValue([msg({ content: '来自 sidechain 文件的过程' })])
+
+      const session = makeSession()
+      recordAgentToolCall(session, agentToolCall({ id: 'f1', input: { agentType: 'Explore' } }), 'running')
+      // 起链即登记为文件托管：实时 sidechain 事件不再另写转录，避免与文件内容重复
+      expect(isFileBackedTeammate(session.id, 'f1')).toBe(true)
+
+      apiMock.readFile.mockResolvedValue(assistantRecord)
+      await vi.advanceTimersByTimeAsync(1600)
+
+      expect(apiMock.claudeCode.findAgentTranscriptByToolUse).toHaveBeenCalledWith('/work/proj', session.id, 'f1')
+      expect(apiMock.readFile).toHaveBeenCalledWith('/proj/subagents/agent-f1.jsonl')
+      expect(session.teammateTranscripts!['f1'][0].content).toBe('来自 sidechain 文件的过程')
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+
+    it('meta.json 晚于首轮出现时后续轮询补上路径', async () => {
+      apiMock.claudeCode.findAgentTranscriptByToolUse
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue('/proj/subagents/agent-f2.jsonl')
+      parseTranscriptMock.mockReturnValue([msg({ content: 'late' })])
+      apiMock.readFile.mockResolvedValue(assistantRecord)
+
+      const session = makeSession()
+      recordAgentToolCall(session, agentToolCall({ id: 'f2' }), 'running')
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(apiMock.claudeCode.findAgentTranscriptByToolUse).toHaveBeenCalledTimes(1)
+      expect(apiMock.readFile).not.toHaveBeenCalled() // 首轮还没解析出路径
+
+      await vi.advanceTimersByTimeAsync(1600)
+      expect(apiMock.readFile).toHaveBeenCalledWith('/proj/subagents/agent-f2.jsonl')
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+
+    it('始终反查不到 sidechain 文件时撤销文件托管，让实时事件重新写入', async () => {
+      apiMock.claudeCode.findAgentTranscriptByToolUse.mockResolvedValue(null)
+      const session = makeSession()
+      recordAgentToolCall(session, agentToolCall({ id: 'f3' }), 'running')
+      expect(isFileBackedTeammate(session.id, 'f3')).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(isFileBackedTeammate(session.id, 'f3')).toBe(false)
     })
 
     it('rekickAgentTranscriptPoll 对已登记但仍在轮询的 teammate 不重复起链', async () => {

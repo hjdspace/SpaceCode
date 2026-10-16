@@ -8,7 +8,11 @@ import enUS from '@/i18n/locales/en-US'
 import zhCN from '@/i18n/locales/zh-CN'
 
 vi.mock('@/stores/turn', () => ({
-  useTurnStore: () => ({ allowPermission: vi.fn(), denyPermission: vi.fn() }),
+  useTurnStore: () => ({
+    allowPermission: vi.fn(),
+    denyPermission: vi.fn(),
+    getPendingPermissionForToolUse: vi.fn(() => undefined),
+  }),
 }))
 
 // MarkdownRenderer 链路会实例化 app → settings store 并调用 api；打桩避免 unhandled rejection

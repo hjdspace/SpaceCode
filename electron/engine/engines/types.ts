@@ -1,4 +1,8 @@
 import type { BrowserWindow } from 'electron'
+import type { PermissionUpdate } from '@/shared/channels/claudeCode'
+
+// 引擎实现统一从本模块取协议类型；定义仍在 src/shared（IPC 单一真相源）。
+export type { PermissionUpdate }
 
 export type EngineType = 'claude-code' | 'pi'
 
@@ -73,7 +77,7 @@ export type PermissionDecision =
   | {
       behavior: 'allow'
       updatedInput: Record<string, unknown>
-      updatedPermissions?: unknown[]
+      updatedPermissions?: PermissionUpdate[]
       decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
     }
   | {
@@ -106,6 +110,7 @@ export interface IEngine {
     requestId: string,
     updatedInput?: Record<string, unknown>,
     decisionClassification?: 'user_temporary' | 'user_permanent',
+    updatedPermissions?: PermissionUpdate[],
   ): Promise<void>
   denyPermission?(
     sessionId: string,

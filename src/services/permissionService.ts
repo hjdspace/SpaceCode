@@ -1,4 +1,7 @@
 import { ref, type Ref } from 'vue'
+import type { PermissionUpdate } from '@/shared/channels/claudeCode'
+
+export type { PermissionUpdate }
 
 export interface PermissionRequest {
   sessionId: string
@@ -12,7 +15,8 @@ export interface PermissionRequest {
   displayName?: string
   blockedPath?: string
   decisionReason?: string
-  permissionSuggestions?: unknown[]
+  /** 引擎算好的授权选项（"始终允许"的内容）；应答时原样回传即可 */
+  permissionSuggestions?: PermissionUpdate[]
 }
 
 export class PermissionService {

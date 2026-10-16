@@ -111,6 +111,9 @@ export class ProxyManager extends EventEmitter {
    * 直接返回在飞那次的 Promise 会把后来的配置丢掉（启动自启、设置保存对齐、
    * engineSourceChanged 都可能与另一次保存撞在一起）。等待方拿到的是队列排空后的
    * 最终 URL，所以"启动完成"意味着跑的就是最后一次请求带来的配置。
+   *
+   * 队列排空前若有人调用 stop()，还没起的那份配置算被撤单，等待方拿到失败而不是
+   * 一个已经没有进程在服务的 URL。
    */
   async start(config: ProxyConfig): Promise<string> {
     // 队列已经在趋奔同一份上游配置，重复请求不必再起一个子进程。
@@ -135,7 +138,10 @@ export class ProxyManager extends EventEmitter {
       // `handled` 按对象身份比对：只有"最新请求还没整个跑过"时才再起一次。
       let handled: ProxyConfig | null = null
       while (this.desiredConfig !== handled) {
-        const config: ProxyConfig = this.desiredConfig!
+        const config: ProxyConfig | null = this.desiredConfig
+        // stop() 把还没起的那份配置撤了单。把失败交给等待方，而不是让它拿到一个
+        // 刚被停掉的代理的 URL —— 那会被调用方读成"我的配置对齐成功了"。
+        if (!config) throw new Error('Proxy start cancelled by stop()')
         url = await this.doStart(config)
         handled = config
       }
@@ -143,6 +149,17 @@ export class ProxyManager extends EventEmitter {
     } finally {
       this.startPromise = null
     }
+  }
+
+  /**
+   * 等启动队列排空后返回；没有队列在飞时立即返回。
+   *
+   * `getProxyUrl()` / `getConfig()` 是不等队列的快照。要在"用这份配置起会话"之前读
+   * 它们，就得先过这道屏障 —— 否则读到的是上一个（可能正要被停掉的）代理的地址，
+   * 而会话一旦带上这个地址就不会再回头更正。
+   */
+  async awaitStart(): Promise<void> {
+    if (this.startPromise) await this.startPromise.catch(() => null)
   }
 
   /**
@@ -169,11 +186,19 @@ export class ProxyManager extends EventEmitter {
 
   private async doStart(config: ProxyConfig): Promise<string> {
     if (this.process) {
-      await this.stop()
+      await this.killChild()
     }
 
     const port = await this.findAvailablePort(config.port || PROXY_PORT_START)
     config.port = port
+
+    // 探测端口这段时间里可能又来了一次 start()（换成了更新的上游），或者 stop() 撤了
+    // 单。两种情况下这份配置都没人认领了，不要为它起子进程 —— 队列下一轮会用最终配置。
+    if (this.desiredConfig !== config) {
+      debug('ProxyManager', 'start() target was superseded or cancelled, skipping spawn')
+      return this.proxyUrl
+    }
+
     this.config = config
     this.healthRetryCount = 0
     this.lastHealthStatus = 'unknown'
@@ -220,6 +245,14 @@ export class ProxyManager extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    // 撤掉队列里还没起的那份配置：否则一次并发的 start() 会在停掉之后又复活一个子进程
+    // （引擎来源切回不需要代理的提供商时撞上的就是这条）。
+    this.desiredConfig = null
+    await this.killChild()
+  }
+
+  /** 干掉当前子进程并停掉健康检查；不动队列的认领状态。 */
+  private async killChild(): Promise<void> {
     this.stopHealthCheck()
 
     if (!this.process) {

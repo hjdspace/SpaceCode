@@ -9,7 +9,7 @@ import { useSettingsStore } from '../settings'
 import { useContextUsageStore } from '../contextUsage'
 import type { SessionSink } from '../turnSink'
 import { ErrorCategory } from '@/types'
-import { permissionService, type PermissionRequest } from '@/services/permissionService'
+import { permissionService, type PermissionRequest, type PermissionUpdate } from '@/services/permissionService'
 import { notifyWaitingForUser } from '@/services/waitNotification'
 import {
   isTeammateRawMessage,
@@ -718,11 +718,17 @@ export function useTurnStore(injectedApi?: any) {
       return permissionService.consumePermissionFor(toolUseId, sessionId)
     }
 
+    /**
+     * @param updatedPermissions 要交回引擎落地的权限规则（"始终允许"）。缺省 = 只放行这一次。
+     *        取值应是请求里的 `permissionSuggestions` 原样回传，不要宿主侧自己构造。
+     *        注意 `decisionClassification` 只进遥测，不会让授权变持久。
+     */
     async function allowPermission(
       messageId: string,
       toolUseId: string,
       updatedInput: Record<string, unknown>,
       decisionClassification?: 'user_temporary' | 'user_permanent',
+      updatedPermissions?: PermissionUpdate[],
       sessionId?: string,
     ): Promise<void> {
       const sid = sessionId ?? sessionStore.currentSessionId
@@ -737,12 +743,21 @@ export function useTurnStore(injectedApi?: any) {
         sessionStore.logger.warn('ChatStore', `allowPermission: no pending request | sessionId=${sid.slice(0, 8)} | toolUseId=${toolUseId.slice(0, 8)}`)
         return
       }
-      sessionStore.logger.info('ChatStore', `allowPermission | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)}`)
+      sessionStore.logger.info('ChatStore', `allowPermission | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | requestId=${req.requestId.slice(0, 8)} | class=${decisionClassification || '(none)'} | perms=${updatedPermissions?.length ?? 0}`)
       try {
+        // 两个参数都要过一遍 JSON 往返：Pinia 的 store 是 reactive 的，动作返回值会被 Vue
+        // 的 getter 深度包成 Proxy，而 Electron 的 IPC 序列化器遇到 Proxy 直接抛
+        // "An object could not be cloned"。updatedInput 一直这么做，updatedPermissions 同理。
         const safeInput = JSON.parse(JSON.stringify(updatedInput)) as Record<string, unknown>
-        await claudeCode.allowPermission(sid, req.requestId, safeInput, decisionClassification)
+        const safePermissions = updatedPermissions
+          ? (JSON.parse(JSON.stringify(updatedPermissions)) as PermissionUpdate[])
+          : undefined
+        await claudeCode.allowPermission(sid, req.requestId, safeInput, decisionClassification, safePermissions)
         sink.patchToolCall(sid, messageId, toolUseId, 'completed')
       } catch (error) {
+        // consume 已经把条目摘掉，不塞回去的话重试只会得到 "no pending request"，
+        // 引擎则永远等不到这次 control_response，整个会话卡在正在写入上。
+        permissionService.addPermissionRequest(sid, req)
         sessionStore.logger.error('ChatStore', 'allowPermission failed', { error: String(error) })
         throw error
       }

@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
 import { SessionConfig } from '../../session/sessionProcess'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate } from './types'
 import * as fs from 'fs'
 import * as path from 'path'
 import { info } from '../../infra/logger'
@@ -104,8 +104,9 @@ export class ClaudeCodeEngine implements IEngine {
     requestId: string,
     updatedInput?: Record<string, unknown>,
     decisionClassification?: 'user_temporary' | 'user_permanent',
+    updatedPermissions?: PermissionUpdate[],
   ): Promise<void> {
-    this.pool.allowPermission(sessionId, requestId, updatedInput, decisionClassification)
+    this.pool.allowPermission(sessionId, requestId, updatedInput, decisionClassification, updatedPermissions)
     return Promise.resolve()
   }
 

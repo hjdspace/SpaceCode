@@ -19,6 +19,7 @@ import assert from 'node:assert/strict'
 import {
   classifyInboundMessage,
   buildPermissionResponse,
+  ControlProtocolHandler,
   buildControlResponseSuccess,
   buildControlResponseError,
   buildInterruptRequest,
@@ -257,12 +258,28 @@ describe('buildPermissionResponse', () => {
     const msg = buildPermissionResponse('req-2', {
       behavior: 'allow',
       updatedInput: { x: 1 },
-      updatedPermissions: [{ type: 'addRules' }],
+      updatedPermissions: [
+        { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash', ruleContent: 'git:*' }],
+          behavior: 'allow',
+          destination: 'localSettings',
+        },
+      ],
       decisionClassification: 'user_permanent',
     })
     const inner = (msg as any).response.response
     assert.equal(inner.behavior, 'allow')
-    assert.deepEqual(inner.updatedPermissions, [{ type: 'addRules' }])
+    assert.deepEqual(inner.updatedPermissions, [
+      { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+      {
+        type: 'addRules',
+        rules: [{ toolName: 'Bash', ruleContent: 'git:*' }],
+        behavior: 'allow',
+        destination: 'localSettings',
+      },
+    ])
     assert.equal(inner.decisionClassification, 'user_permanent')
   })
 
@@ -278,6 +295,69 @@ describe('buildPermissionResponse', () => {
     assert.equal(inner.message, 'nope')
     assert.equal(inner.interrupt, true)
     assert.equal(inner.decisionClassification, 'user_reject')
+  })
+})
+
+/**
+ * 「始终允许」的生效路径。引擎只认应答里的 updatedPermissions（它会被
+ * applyPermissionUpdates + persistPermissionUpdates 消费）；decisionClassification
+ * 仅进 OTel 遥测。这两件事必须各有一条用例盯着，否则按钮会退化成"多放行一次"。
+ */
+describe('ControlProtocolHandler.allowPermission', () => {
+  const SUGGESTIONS = [
+    { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+  ] as const
+
+  function handlerWithPendingRequest() {
+    const written: any[] = []
+    const handler = new ControlProtocolHandler((msg) => written.push(msg))
+    handler.feedStdoutChunk(`${JSON.stringify({
+      type: 'control_request',
+      request_id: 'req-1',
+      request: {
+        subtype: 'can_use_tool',
+        tool_name: 'Edit',
+        tool_use_id: 'tu-1',
+        input: { file_path: '/repo/a.ts' },
+        permission_suggestions: [...SUGGESTIONS],
+      },
+    })}\n`)
+    return { handler, written }
+  }
+
+  function innerResponse(written: any[]) {
+    assert.equal(written.length, 1)
+    return written[0].response.response
+  }
+
+  it('surfaces the engine\'s permission_suggestions on the parsed request', () => {
+    const { handler, written } = handlerWithPendingRequest()
+    const req = handler.getPendingPermissionRequest('req-1')
+    assert.deepEqual(req?.permissionSuggestions, [...SUGGESTIONS])
+    handler.allowPermission('req-1')
+    assert.equal(innerResponse(written).updatedPermissions, undefined)
+  })
+
+  it('writes updatedPermissions back so the grant outlives this one tool call', () => {
+    const { handler, written } = handlerWithPendingRequest()
+    handler.allowPermission('req-1', undefined, 'user_permanent', [...SUGGESTIONS])
+    const inner = innerResponse(written)
+    assert.equal(inner.behavior, 'allow')
+    assert.deepEqual(inner.updatedPermissions, [...SUGGESTIONS])
+    assert.equal(inner.decisionClassification, 'user_permanent')
+    assert.deepEqual(inner.updatedInput, { file_path: '/repo/a.ts' })
+  })
+
+  it('omits updatedPermissions entirely for a one-off allow', () => {
+    const { handler, written } = handlerWithPendingRequest()
+    handler.allowPermission('req-1', undefined, 'user_temporary')
+    assert.equal('updatedPermissions' in innerResponse(written), false)
+  })
+
+  it('treats an empty updates array as no grant', () => {
+    const { handler, written } = handlerWithPendingRequest()
+    handler.allowPermission('req-1', undefined, 'user_permanent', [])
+    assert.equal('updatedPermissions' in innerResponse(written), false)
   })
 })
 

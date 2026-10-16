@@ -73,7 +73,7 @@
         :disabled="isProcessing"
       >
         <CheckCheck :size="16" />
-        {{ t('permission.card.actions.alwaysAllow') }}
+        {{ alwaysAllowLabel }}
       </button>
       
       <button 
@@ -119,6 +119,7 @@ import {
   ClipboardCheck
 } from 'lucide-vue-next'
 import { useTurnStore } from '@/stores/turn'
+import { isPermissionGrantPermanent } from '@/utils/permissionScope'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 
 interface Props {
@@ -188,8 +189,18 @@ const formattedInput = computed(() =>
   JSON.stringify(props.input, null, 2)
 )
 
-const showAlwaysAllow = computed(() => 
-  ['Edit', 'Read', 'Write'].includes(props.toolName)
+// 引擎在 can_use_tool 里随请求附带 permission_suggestions —— 那才是"始终允许"的内容。
+// 没有它就没有任何可落地的规则，按钮也就无从生效，所以按它驱动显隐，而不是按工具名猜。
+const permissionSuggestions = computed(
+  () => turnStore.getPendingPermissionForToolUse(props.toolUseId)?.permissionSuggestions,
+)
+
+const showAlwaysAllow = computed(() => !!permissionSuggestions.value?.length)
+
+const alwaysAllowLabel = computed(() =>
+  isPermissionGrantPermanent(permissionSuggestions.value)
+    ? t('permission.card.actions.alwaysAllow')
+    : t('permission.card.actions.allowForThisSession'),
 )
 
 const statusText = computed(() => {
@@ -247,13 +258,16 @@ async function handleDeny() {
 async function handleAlwaysAllow() {
   isProcessing.value = true
   status.value = 'processing'
-  
+
+  // 必须在 allowPermission 之前取：它会 consume 掉 pending 条目，之后 computed 就空了。
+  const suggestions = permissionSuggestions.value
   try {
     await turnStore.allowPermission(
-      props.messageId, 
-      props.toolUseId, 
-      props.input, 
-      'user_permanent'
+      props.messageId,
+      props.toolUseId,
+      props.input,
+      'user_permanent',
+      suggestions
     )
     status.value = 'completed'
   } catch (error) {

@@ -13,6 +13,10 @@
  */
 
 import { randomUUID } from 'crypto'
+import type { PermissionUpdate } from '@/shared/channels/claudeCode'
+
+// 权限规则变更的类型定义在 src/shared（IPC 单一真相源）；electron 侧统一从本模块取。
+export type { PermissionUpdate }
 
 // ──────────────────────────────────────────────────────────────────────────
 // Inbound (stdout from engine)
@@ -36,7 +40,7 @@ export interface CanUseToolRequest {
   displayName?: string
   blockedPath?: string
   decisionReason?: string
-  permissionSuggestions?: unknown[]
+  permissionSuggestions?: PermissionUpdate[]
   raw: any
 }
 
@@ -243,7 +247,7 @@ export function classifyInboundMessage(msg: any): ParsedInbound {
 export interface PermissionAllowDecision {
   behavior: 'allow'
   updatedInput: Record<string, unknown>
-  updatedPermissions?: unknown[]
+  updatedPermissions?: PermissionUpdate[]
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
 }
 
@@ -589,11 +593,17 @@ export class ControlProtocolHandler extends EventEmitter {
   /**
    * Helper: allow the in-flight request, defaulting `updatedInput` to the
    * original input if the caller doesn't override it.
+   *
+   * `updatedPermissions` 是让"始终允许"真正生效的那个字段：引擎会把它应用的会话权限
+   * 上下文并落盘（PermissionPromptToolResultSchema → applyPermissionUpdates +
+   * persistPermissionUpdates）。`decisionClassification` 只进 OTel 遥测，不改变任何
+   * 规则 —— 只传它等于放行一次。取值应原样回传请求里的 `permissionSuggestions`。
    */
   allowPermission(
     requestId: string,
     updatedInput?: Record<string, unknown>,
     decisionClassification?: 'user_temporary' | 'user_permanent',
+    updatedPermissions?: PermissionUpdate[],
   ): void {
     const pending = this.pendingPermissionRequests.get(requestId)
     if (!pending) {
@@ -605,6 +615,9 @@ export class ControlProtocolHandler extends EventEmitter {
         behavior: 'allow',
         updatedInput: updatedInput ?? pending.input,
         ...(decisionClassification ? { decisionClassification } : {}),
+        ...(updatedPermissions && updatedPermissions.length > 0
+          ? { updatedPermissions }
+          : {}),
       }),
     )
   }

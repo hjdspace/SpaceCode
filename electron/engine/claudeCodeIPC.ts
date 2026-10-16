@@ -16,7 +16,7 @@ import {
 } from '../tools/mcpConfigResolver'
 import { installPiSdk } from './piInstaller'
 import { engineGateway } from './engineGateway'
-import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { claudeCodeNamespace, type PermissionUpdate } from '@/shared/channels/claudeCode'
 import { channelNames, eventChannels } from '@/shared/channelMap'
 
 // channel 名从 claudeCode 表派生 — 与 preload bridge / renderer 类型共享同一真相源，
@@ -97,8 +97,15 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle(
     CLAUDE_CODE_CHANNELS.allowPermission,
-    async (_, sessionId: string, requestId: string, updatedInput?: Record<string, unknown>, decisionClassification?: 'user_temporary' | 'user_permanent') =>
-      engineGateway.allowPermission(sessionId, requestId, updatedInput, decisionClassification),
+    async (
+      _,
+      sessionId: string,
+      requestId: string,
+      updatedInput?: Record<string, unknown>,
+      decisionClassification?: 'user_temporary' | 'user_permanent',
+      updatedPermissions?: PermissionUpdate[],
+    ) =>
+      engineGateway.allowPermission(sessionId, requestId, updatedInput, decisionClassification, updatedPermissions),
   )
 
   ipcMain.handle(
@@ -162,6 +169,15 @@ export function registerClaudeCodeIPC() {
       return SessionHistoryManager.getAgentTranscriptPath(projectPath, sessionId, agentId)
     } catch (err) {
       error('ClaudeCodeIPC', `✗ resolveAgentTranscriptPath`, { error: String(err) })
+      return null
+    }
+  })
+
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.findAgentTranscriptByToolUse, async (_, projectPath: string, sessionId: string, toolUseId: string) => {
+    try {
+      return SessionHistoryManager.findAgentTranscriptByToolUse(projectPath, sessionId, toolUseId)
+    } catch (err) {
+      error('ClaudeCodeIPC', `✗ findAgentTranscriptByToolUse`, { error: String(err) })
       return null
     }
   })

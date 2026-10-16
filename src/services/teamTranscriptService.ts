@@ -99,14 +99,17 @@ export function teammateIdForParentToolUse(sessionId: string, parentToolUseId: s
 }
 
 /**
- * 清理某个会话在 parentToolUseToTeammate 中的全部映射条目。
- * 必须在会话销毁时调用，否则模块级 Map 会随会话更替持续增长（内存泄漏）。
+ * 清理某个会话在模块级 Map 中的全部条目。
+ * 必须在会话销毁时调用，否则这些 Map 会随会话更替持续增长（内存泄漏）。
  */
 export function clearSessionToolUseMappings(sessionId: string): void {
   if (!sessionId) return
   const prefix = `${sessionId}:`
   for (const key of parentToolUseToTeammate.keys()) {
     if (key.startsWith(prefix)) parentToolUseToTeammate.delete(key)
+  }
+  for (const key of agentOutputFiles.keys()) {
+    if (key.startsWith(prefix)) agentOutputFiles.delete(key)
   }
 }
 
@@ -361,10 +364,19 @@ export function ensureSubagentTranscripts(session: Session): void {
   }
 }
 
-// 记录"以输出文件为权威来源"的子代理（异步 agent）：key = `${sessionId}:${teammateId}`。
+// 记录"以 sidechain transcript 文件为权威来源"的子代理：key = `${sessionId}:${teammateId}`。
 // 这类子代理的转录完全由 transcript 文件解析得到，实时 sidechain 事件不再另写转录（避免重复）。
-// agentId 用于在 Windows（符号链接失败）时直接解析 transcript JSONL 路径，绕过 .output 空文件。
-const agentOutputFiles = new Map<string, { filePath: string; name: string; status: TeammateStatus; agentId?: string }>()
+// - 异步 agent：tool_result 带 output_file + agentId；filePath 是 .output 符号链接，
+//   agentId 用于解析真实 JSONL 路径（Windows 上符号链接创建失败，.output 是空文件）。
+// - 前台 agent：tool_result 只有最终正文，没有任何文件线索，只能靠 toolUseId
+//   反查 subagents/agent-*.meta.json 找到 JSONL —— 见 SessionHistoryManager.findAgentTranscriptByToolUse.
+const agentOutputFiles = new Map<string, {
+  filePath: string
+  name: string
+  status: TeammateStatus
+  agentId?: string
+  toolUseId?: string
+}>()
 const taskManager = useTaskManager()
 
 /** 该 teammate 的转录是否由输出文件托管（若是，则 recordTeammateMessage 不应再追加，以免重复）。 */
@@ -380,7 +392,13 @@ export function isFileBackedTeammate(sessionId: string, teammateId: string): boo
 export function rekickAgentTranscriptPoll(session: Session, sessionId: string, teammateId: string): void {
   const info = agentOutputFiles.get(`${sessionId}:${teammateId}`)
   if (!info) return
-  void hydrateAgentTranscriptFromFile(session, teammateId, info.filePath, info.name, info.status, info.agentId)
+  void hydrateAgentTranscriptFromFile(
+    session,
+    teammateId,
+    { filePath: info.filePath, agentId: info.agentId, toolUseId: info.toolUseId },
+    info.name,
+    info.status,
+  )
 }
 
 export function recordAgentToolCall(session: Session, toolCall: ToolCall, status: TeammateStatus = 'running'): void {
@@ -415,7 +433,11 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
   const transcript = session.teammateTranscripts![teammateId] || []
 
   if (toolCall.output && parsedOutput) {
-    if (!parsedOutput.agentId && transcript.length === 0) {
+    // 兜底：转录里还没有任何子代理正文时，用 tool_result 的最终结果补一条。
+    // 不能要求 transcript 为空 —— 前台子代理至少会收到主 Agent 下发的任务提示词，
+    // 那样兜底永远不触发，已完成的卡片点开只剩一段提示词。
+    const hasAssistantOutput = transcript.some(m => m.role === 'assistant' && m.content?.trim())
+    if (!parsedOutput.agentId && !hasAssistantOutput) {
       session.teammateTranscripts![teammateId] = [...transcript, {
         id: `${toolCall.id}-result`,
         role: 'assistant',
@@ -430,10 +452,40 @@ export function recordAgentToolCall(session: Session, toolCall: ToolCall, status
       }]
     }
     if (parsedOutput.outputFile) {
-      agentOutputFiles.set(`${session.id}:${teammateId}`, { filePath: parsedOutput.outputFile, name, status, agentId: parsedOutput.agentId })
-      void hydrateAgentTranscriptFromFile(session, teammateId, parsedOutput.outputFile, name, status, parsedOutput.agentId)
+      agentOutputFiles.set(`${session.id}:${teammateId}`, {
+        filePath: parsedOutput.outputFile,
+        name,
+        status,
+        agentId: parsedOutput.agentId,
+        toolUseId: String(toolCall.id),
+      })
+      void hydrateAgentTranscriptFromFile(
+        session,
+        teammateId,
+        { filePath: parsedOutput.outputFile, agentId: parsedOutput.agentId, toolUseId: String(toolCall.id) },
+        name,
+        status,
+      )
+      return
     }
   }
+
+  // 前台（同步）子代理：CLI 不把它的 thinking / 工具调用 / 旁白发到 stdout，
+  // 完整过程只落在 subagents/agent-{agentId}.jsonl 里。按 toolUseId 反查该文件并轮询，
+  // 让面板与异步子代理看到同样的实时输出（会话恢复后重放本函数同样生效）。
+  agentOutputFiles.set(`${session.id}:${teammateId}`, {
+    filePath: '',
+    name,
+    status,
+    toolUseId: String(toolCall.id),
+  })
+  void hydrateAgentTranscriptFromFile(
+    session,
+    teammateId,
+    { toolUseId: String(toolCall.id) },
+    name,
+    status,
+  )
 }
 
 function parseJsonlRecords(text: string): any[] {
@@ -556,9 +608,18 @@ const activeAgentFilePolls = new Set<string>()
  *     因此异步后台子代理在主回合结束后仍能被跟随。
  *  3. 当 agentId 可用时，优先通过 IPC 解析真实 transcript JSONL 路径进行轮询，
  *     绕过 .output 符号链接（Windows 上符号链接创建失败导致空文件）。
+ *  4. 前台子代理没有 agentId / output_file，只能按 toolUseId 反查 sidechain JSONL。
+ *     meta.json 在子代理 spawn 时才写，所以解析要放进轮询循环里重试，不能进函数就定死。
  */
-async function hydrateAgentTranscriptFromFile(session: Session, teammateId: string, filePath: string, name: string, status: TeammateStatus, agentId?: string) {
-  const pollKey = `${session.id}:${teammateId}:${filePath}`
+interface AgentTranscriptSource {
+  filePath?: string
+  agentId?: string
+  toolUseId?: string
+}
+
+async function hydrateAgentTranscriptFromFile(session: Session, teammateId: string, source: AgentTranscriptSource, name: string, status: TeammateStatus) {
+  const { filePath = '', agentId, toolUseId } = source
+  const pollKey = `${session.id}:${teammateId}:${filePath || agentId || toolUseId || ''}`
   if (activeAgentFilePolls.has(pollKey)) return
   activeAgentFilePolls.add(pollKey)
 
@@ -637,10 +698,25 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
 
   const tick = async () => {
     let text = ''
-    try {
-      text = (await api.readFile(transcriptPath)) || ''
-    } catch {
-      // 文件暂不可读，下一轮重试
+    if (!transcriptPath && toolUseId && session.workingDirectory) {
+      // meta.json 由引擎在子代理 spawn 时才写出，可能晚于本回合的第一次轮询 —— 逐轮重试。
+      try {
+        const found = await api.claudeCode?.findAgentTranscriptByToolUse(
+          session.workingDirectory,
+          session.id,
+          toolUseId,
+        )
+        if (typeof found === 'string' && found) transcriptPath = found
+      } catch {
+        // 解析失败，下一轮重试
+      }
+    }
+    if (transcriptPath) {
+      try {
+        text = (await api.readFile(transcriptPath)) || ''
+      } catch {
+        // 文件暂不可读，下一轮重试
+      }
     }
     // 仅在内容增长时重新解析并替换，避免无谓的重渲染
     if (text.trim() && text.length !== lastLength) {
@@ -658,6 +734,11 @@ async function hydrateAgentTranscriptFromFile(session: Session, teammateId: stri
     } else {
       if (text.trim()) applyParsed(text, true)
       activeAgentFilePolls.delete(pollKey)
+      // 始终没定位到 sidechain 文件（引擎版本不同 / 目录已清理）时撤销文件托管标记，
+      // 让实时 sidechain 事件重新有机会写进转录，而不是文件与事件两头都落空。
+      if (!transcriptPath && agentOutputFiles.get(`${session.id}:${teammateId}`)?.filePath === '') {
+        agentOutputFiles.delete(`${session.id}:${teammateId}`)
+      }
     }
   }
 
