@@ -101,7 +101,7 @@ describe('TaskOutputToolCard', () => {
     expect(wrapper.text()).toContain('Failed')
   })
 
-  it('shows badge "Timeout" when retrieval_status is timeout', () => {
+  it('badges an expired wait by the task lifecycle, never as a timeout', () => {
     const output = [
       '<retrieval_status>timeout</retrieval_status>',
       '<task_id>task_001</task_id>',
@@ -110,11 +110,13 @@ describe('TaskOutputToolCard', () => {
       '<output>Partial output...</output>',
     ].join('\n\n')
 
-    const wrapper = mountCard(makeToolCall({ status: 'running', output }))
-    expect(wrapper.text()).toContain('Timeout')
+    // tool_result 已回到前端：调用本身是 completed，只有后台任务还在跑
+    const wrapper = mountCard(makeToolCall({ output }))
+    expect(wrapper.text()).toContain('Running')
+    expect(wrapper.text()).not.toContain('Timeout')
   })
 
-  it('shows badge "Not Ready" when retrieval_status is not_ready', () => {
+  it('badges a non-blocking query as running, not as not ready', () => {
     const output = [
       '<retrieval_status>not_ready</retrieval_status>',
       '<task_id>task_001</task_id>',
@@ -123,8 +125,9 @@ describe('TaskOutputToolCard', () => {
       '<description>Running analysis</description>',
     ].join('\n\n')
 
-    const wrapper = mountCard(makeToolCall({ status: 'running', output }))
-    expect(wrapper.text()).toContain('Not Ready')
+    const wrapper = mountCard(makeToolCall({ output }))
+    expect(wrapper.text()).toContain('Running')
+    expect(wrapper.text()).not.toContain('Not Ready')
   })
 
   it('renders terminal window when expanded for local_bash', async () => {
@@ -179,7 +182,7 @@ describe('TaskOutputToolCard', () => {
     expect(wrapper.text()).toContain('Sub-agent output')
   })
 
-  it('renders waiting spinner and terminal output for timeout status when expanded', async () => {
+  it('explains the expired wait without a spinner once the call has settled', async () => {
     const output = [
       '<retrieval_status>timeout</retrieval_status>',
       '<task_id>task_001</task_id>',
@@ -188,16 +191,18 @@ describe('TaskOutputToolCard', () => {
       '<output>Partial</output>',
     ].join('\n\n')
 
-    const wrapper = mountCard(makeToolCall({ status: 'running', output }))
+    const wrapper = mountCard(makeToolCall({ output }))
     await wrapper.find('.tool-header').trigger('click')
-    expect(wrapper.find('.waiting-spinner').exists()).toBe(true)
+    // 调用已结束，再转圈就是在谎报"此刻仍在进行"
+    expect(wrapper.find('.waiting-spinner').exists()).toBe(false)
     expect(wrapper.text()).toContain('Task is still running')
+    expect(wrapper.text()).toContain('This wait ended')
     // waiting state should NOT short-circuit terminal output
     expect(wrapper.find('.terminal-window').exists()).toBe(true)
     expect(wrapper.text()).toContain('Partial')
   })
 
-  it('renders waiting state and description for not_ready local_agent when expanded', async () => {
+  it('renders the non-blocking note and description for not_ready local_agent when expanded', async () => {
     const output = [
       '<retrieval_status>not_ready</retrieval_status>',
       '<task_id>task_001</task_id>',
@@ -206,10 +211,11 @@ describe('TaskOutputToolCard', () => {
       '<description>Running analysis</description>',
     ].join('\n\n')
 
-    const wrapper = mountCard(makeToolCall({ status: 'running', output }))
+    const wrapper = mountCard(makeToolCall({ output }))
     await wrapper.find('.tool-header').trigger('click')
-    expect(wrapper.find('.waiting-spinner').exists()).toBe(true)
+    expect(wrapper.find('.waiting-spinner').exists()).toBe(false)
     expect(wrapper.text()).toContain('Running analysis')
+    expect(wrapper.text()).toContain('Non-blocking query')
   })
 
   it('renders no-task message when output is empty', async () => {
@@ -290,7 +296,7 @@ describe('TaskOutputToolCard', () => {
     expect(wrapper.text()).toContain('local_bash')
   })
 
-  it('shows timeout icon class when retrieval_status is timeout', () => {
+  it('keeps the header icon static when the task is running but the call has settled', () => {
     const output = [
       '<retrieval_status>timeout</retrieval_status>',
       '<task_id>task_001</task_id>',
@@ -299,9 +305,67 @@ describe('TaskOutputToolCard', () => {
       '<output>Partial</output>',
     ].join('\n\n')
 
-    const wrapper = mountCard(makeToolCall({ status: 'running', output }))
-    expect(wrapper.find('.tool-icon.status-timeout').exists()).toBe(true)
+    const wrapper = mountCard(makeToolCall({ output }))
+    expect(wrapper.find('.tool-icon.status-paused').exists()).toBe(true)
     expect(wrapper.find('.tool-icon.status-running').exists()).toBe(false)
+  })
+
+  it('animates only while the tool call is genuinely in flight', () => {
+    const wrapper = mountCard(makeToolCall({ status: 'running', output: '' }))
+    expect(wrapper.find('.tool-icon.status-running').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Waiting')
+  })
+
+  it('does not claim the task is missing while the call is still in flight', async () => {
+    const wrapper = mountCard(makeToolCall({ status: 'running', output: '' }))
+    await wrapper.find('.tool-header').trigger('click')
+    expect(wrapper.find('.waiting-spinner').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Waiting for task output')
+    expect(wrapper.find('.no-task').exists()).toBe(false)
+  })
+
+  it('upgrades to the later terminal status without rewriting the output snapshot', async () => {
+    const output = [
+      '<retrieval_status>timeout</retrieval_status>',
+      '<task_id>task_001</task_id>',
+      '<task_type>local_agent</task_type>',
+      '<status>running</status>',
+      '<output>Partial</output>',
+    ].join('\n\n')
+
+    const wrapper = mountCard(makeToolCall({
+      output,
+      taskFinalStatus: 'completed',
+      taskFinalAt: Date.now(),
+    }))
+    expect(wrapper.text()).toContain('Done')
+    await wrapper.find('.tool-header').trigger('click')
+    expect(wrapper.text()).toContain('Task has since completed')
+    expect(wrapper.text()).toContain('Partial')
+  })
+
+  it('trusts the tool_result snapshot over a contradicting later notification', () => {
+    const output = [
+      '<retrieval_status>success</retrieval_status>',
+      '<task_id>task_001</task_id>',
+      '<task_type>local_bash</task_type>',
+      '<status>completed</status>',
+      '<exit_code>0</exit_code>',
+      '<output>Build successful</output>',
+    ].join('\n\n')
+
+    const wrapper = mountCard(makeToolCall({ output, taskFinalStatus: 'failed', taskFinalAt: Date.now() }))
+    expect(wrapper.text()).toContain('Done')
+    expect(wrapper.text()).not.toContain('Failed')
+  })
+
+  it('reports no output when the wait expired on a task that vanished', async () => {
+    const wrapper = mountCard(makeToolCall({ output: '<retrieval_status>timeout</retrieval_status>' }))
+    expect(wrapper.text()).toContain('No output')
+    await wrapper.find('.tool-header').trigger('click')
+    expect(wrapper.text()).toContain('task record is no longer available')
+    // 引擎的 XML 原文不再当任务输出抛给用户
+    expect(wrapper.find('.raw-output-text').exists()).toBe(false)
   })
 
   it('hides input params section when no task_id or timeout in input', async () => {

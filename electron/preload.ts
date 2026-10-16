@@ -444,12 +444,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('cua-driver:installProgress', handler)
       return () => ipcRenderer.removeListener('cua-driver:installProgress', handler)
     },
-    /** 运行健康检查（通过 MCP 调用 health_report） */
-    doctor: () => ipcRenderer.invoke('cua-driver:doctor'),
+    /** 运行健康检查（通过 MCP 调用 health_report）。fresh=true 会先换掉驱动子进程 */
+    doctor: (fresh?: boolean) => ipcRenderer.invoke('cua-driver:doctor', Boolean(fresh)),
     /** 查询 macOS TCC 权限状态（辅助功能 + 屏幕录制） */
     getPermissions: () => ipcRenderer.invoke('cua-driver:permissions:status'),
     /** 请求 macOS TCC 权限（弹出系统设置） */
     grantPermissions: () => ipcRenderer.invoke('cua-driver:permissions:grant'),
+    /** 丢弃当前驱动子进程，下一次探测重新拉起（macOS 授权后需要） */
+    restart: () => ipcRenderer.invoke('cua-driver:restart'),
     /** 检查 cua-driver 更新 */
     checkUpdate: () => ipcRenderer.invoke('cua-driver:check-update'),
     /** 直接调用 cua-driver MCP 工具（高级用途） */

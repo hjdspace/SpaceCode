@@ -1,10 +1,11 @@
 import { electronAPI } from './_context'
-import type {
-  CuaDriverStatus,
-  CuaDriverUpdateInfo,
-  CuaDriverPermissions,
-  HealthCheck,
-  McpToolResult,
+import {
+  EMPTY_PERMISSIONS,
+  type CuaDriverStatus,
+  type CuaDriverUpdateInfo,
+  type CuaDriverPermissions,
+  type HealthCheck,
+  type McpToolResult,
 } from '@/types/computerUse'
 
 export const computerUse = {
@@ -21,8 +22,7 @@ export const computerUse = {
       canGrant: false,
       checks: [],
       error: 'Computer Use API not available',
-      accessibility: null,
-      screenRecording: null,
+      permissions: EMPTY_PERMISSIONS,
     }),
   install: (): Promise<{ success: boolean; error?: string }> =>
     electronAPI?.computerUse?.install() ||
@@ -33,15 +33,18 @@ export const computerUse = {
     }
     return () => {}
   },
-  doctor: (): Promise<{ ok: boolean; checks: HealthCheck[] }> =>
-    electronAPI?.computerUse?.doctor() ||
+  doctor: (fresh?: boolean): Promise<{ ok: boolean; checks: HealthCheck[] }> =>
+    electronAPI?.computerUse?.doctor(fresh) ||
     Promise.resolve({ ok: false, checks: [] }),
   getPermissions: (): Promise<CuaDriverPermissions> =>
     electronAPI?.computerUse?.getPermissions() ||
-    Promise.resolve({ accessibility: null, screenRecording: null }),
+    Promise.resolve(EMPTY_PERMISSIONS),
   grantPermissions: (): Promise<{ success: boolean; error?: string }> =>
     electronAPI?.computerUse?.grantPermissions() ||
     Promise.resolve({ success: false, error: 'Computer Use API not available' }),
+  restart: (): Promise<{ success: boolean }> =>
+    electronAPI?.computerUse?.restart() ||
+    Promise.resolve({ success: false }),
   checkUpdate: (): Promise<CuaDriverUpdateInfo> =>
     electronAPI?.computerUse?.checkUpdate() ||
     Promise.resolve({ updateAvailable: false, latestVersion: null, currentVersion: null }),

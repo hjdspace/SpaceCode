@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { type Locale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
-import type { ModelProfile, ModelCapabilityOverride, ProfilesFile } from '@/types/profile'
+import type { ModelProfile, ModelCapabilityOverride, ProfilesFile, ProfileApplyFailure } from '@/types/profile'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
 
@@ -646,7 +646,10 @@ export const useSettingsStore = defineStore('settings', () => {
       activeProfileId: activeProfileId.value,
       profiles: profiles.value,
     }
-    await api.profilesSave(JSON.stringify(file, null, 2))
+    // 主进程写失败时是 return { success: false }，ipcRenderer.invoke 不会 reject ——
+    // 不检查返回值就等于把落盘失败说成保存成功。
+    const result = await api.profilesSave(JSON.stringify(file, null, 2))
+    if (!result?.success) throw new Error(result?.error ?? 'profiles:save failed')
   }
 
   function applyProfileFields(p: ModelProfile): void {
@@ -662,22 +665,45 @@ export const useSettingsStore = defineStore('settings', () => {
     const p = profiles.value.find(x => x.id === id)
     if (!p) return
     const prevActiveId = activeProfileId.value
+    const prev = prevActiveId ? profiles.value.find(x => x.id === prevActiveId) ?? null : null
+
     activeProfileId.value = id
     applyProfileFields(p)
-    // saveSettings() 是同步函数，内部 api.saveGuiSettings() 是 fire-and-forget
-    // 它会触发主进程写 gui-settings.json + 同步 settings.json（现有链路）
-    saveSettings()
-    try {
-      await saveProfiles()
-    } catch (err) {
-      activeProfileId.value = prevActiveId
-      const prev = prevActiveId ? profiles.value.find(x => x.id === prevActiveId) : null
-      if (prev) {
-        applyProfileFields(prev)
-        saveSettings()
+
+    // saveSettings 触发主进程写 gui-settings.json + 同步 settings.json + 对齐本地代理，
+    // 那才是"生效"的那一步；它永不 reject，失败信息在返回值里，所以要等它并自己判。
+    const saved = await saveSettings()
+    let failure: ProfileApplyFailure | null = null
+    let reason = ''
+
+    if (!saved.success) {
+      failure = 'settings_save_failed'
+      reason = saved.error ?? 'settings:saveGuiSettings failed'
+    } else if (saved.proxyState === 'failed') {
+      failure = 'proxy_not_aligned'
+      reason = 'local proxy did not align with the new profile'
+    } else {
+      try {
+        await saveProfiles()
+      } catch (err) {
+        failure = 'profiles_save_failed'
+        reason = err instanceof Error ? err.message : String(err)
       }
-      throw err
     }
+
+    if (!failure) return
+
+    // 回滚：界面不能停在一个没生效的选择上。活动方案与主进程配置一起退回上一个 Profile。
+    activeProfileId.value = prevActiveId
+    if (prev) {
+      applyProfileFields(prev)
+      const rolledBack = await saveSettings()
+      // 回滚期间的二次落盘失败只记日志：它比原始失败次要，不该盖掉真正的失败原因。
+      if (rolledBack.success) await saveProfiles().catch((err) => console.error('[Settings] Failed to persist rollback:', err))
+      else console.error('[Settings] Failed to roll back GUI settings:', rolledBack.error)
+    }
+
+    throw Object.assign(new Error(`applyProfile("${id}") failed: ${reason}`), { profileApplyFailure: failure })
   }
 
   async function createProfile(name: string): Promise<string> {
@@ -759,7 +785,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     profiles.value = [p]
     activeProfileId.value = p.id
-    await saveProfiles()
+    // 迁移落盘失败不阻断启动：内存里的 Profile 已经可用，下一次保存会补上。
+    await saveProfiles().catch((err) => console.error('[Settings] Failed to persist migrated profiles:', err))
   }
 
   function updateFromSettingsPanel(settings: AuthSettings) {

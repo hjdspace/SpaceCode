@@ -248,9 +248,12 @@ export interface ElectronComputerUseAPI {
   getStatus: () => Promise<CuaDriverStatus>
   install: () => Promise<{ success: boolean; error?: string }>
   onInstallProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => () => void
-  doctor: () => Promise<{ ok: boolean; checks: HealthCheck[] }>
+  /** fresh=true 先换掉驱动子进程再探测；macOS 改完 TCC 授权后必须这样才看得见新结果 */
+  doctor: (fresh?: boolean) => Promise<{ ok: boolean; checks: HealthCheck[] }>
   getPermissions: () => Promise<CuaDriverPermissions>
   grantPermissions: () => Promise<{ success: boolean; error?: string }>
+  /** 丢弃当前驱动子进程，下一次探测重新拉起 */
+  restart: () => Promise<{ success: boolean }>
   checkUpdate: () => Promise<CuaDriverUpdateInfo>
   callTool: (name: string, args: Record<string, unknown>) => Promise<McpToolResult>
 }

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as path from 'path'
-import { expectDeclaredInExtraResources, expectPopulatedByReleaseJob } from './packagingContract'
+import { expectDeclaredInExtraResources, expectPopulatedByReleaseJob, expectScriptProduces } from './packagingContract'
 
 /**
  * cua-driver binary detection. Five levels compete for priority, and the order
@@ -23,6 +23,7 @@ import { expectDeclaredInExtraResources, expectPopulatedByReleaseJob } from './p
 const probe = vi.hoisted(() => ({
   existing: new Set<string>(),
   which: new Map<string, string>(),
+  realpaths: new Map<string, string>(),
   versionStdout: new Map<string, string>(),
   versionThrows: new Set<string>(),
   calls: [] as Array<{ cmd: string; args: string[]; options?: unknown }>,
@@ -54,6 +55,11 @@ vi.mock('fs', () => ({
   mkdirSync: vi.fn(),
   chmodSync: vi.fn(),
   readFileSync: vi.fn(() => ''),
+  realpathSync: (p: string) => {
+    const mapped = probe.realpaths.get(String(p))
+    if (!mapped) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    return mapped
+  },
 }))
 
 vi.mock('os', () => ({
@@ -116,6 +122,7 @@ function lookupCalls(): Array<{ cmd: string; args: string[] }> {
 beforeEach(() => {
   probe.existing.clear()
   probe.which.clear()
+  probe.realpaths.clear()
   probe.versionStdout.clear()
   probe.versionThrows.clear()
   probe.calls = []
@@ -237,12 +244,66 @@ describe('findCuaDriverBinary — per-platform locations', () => {
     expect(lookupCalls()).toEqual([{ cmd: 'which', args: ['cua-driver'] }])
   })
 
-  it('knows the macOS link dir under ~/Library/Cua', async () => {
-    const svc = await loadService('darwin')
-    const link = path.join(HOME, 'Library', 'Cua', 'cua-driver', 'bin', 'cua-driver')
-    probe.existing.add(link)
+  /**
+   * macOS 走另一套规则：TCC 授权按 CFBundleIdentifier 归属，裸 Mach-O 没有身份。
+   * 所以只认标准安装目录里的 CuaDriver.app。退回裸二进制会装出一个永远提示
+   * 「未授权」的 Computer Use —— 用户已经在系统设置里把勾打上也不会变绿，
+   * 因为那份授权算的是宿主应用，不是驱动。
+   */
+  describe('macOS resolves only a bundle-resident driver', () => {
+    const appBin = path.join('/Applications', 'CuaDriver.app', 'Contents', 'MacOS', 'cua-driver')
 
-    expect(svc.findCuaDriverBinary()).toBe(link)
+    it('uses the driver inside /Applications/CuaDriver.app', async () => {
+      const svc = await loadService('darwin')
+      probe.existing.add(appBin)
+
+      expect(svc.findCuaDriverBinary()).toBe(appBin)
+    })
+
+    it('refuses a bare binary even when PATH and the installer dirs offer one', async () => {
+      const svc = await loadService('darwin')
+      probe.which.set('cua-driver', path.join('/usr', 'local', 'bin', 'cua-driver'))
+      probe.existing.add(path.join(HOME, '.cua-driver', 'packages', 'current', 'cua-driver'))
+      runtime.isPackaged = true
+      probe.existing.add(path.join(RESOURCES, 'cua-driver', 'cua-driver'))
+
+      expect(svc.findCuaDriverBinary()).toBeNull()
+    })
+
+    it('falls back to ~/Applications when /Applications has no bundle', async () => {
+      const svc = await loadService('darwin')
+      const userApp = path.join(HOME, 'Applications', 'CuaDriver.app', 'Contents', 'MacOS', 'cua-driver')
+      probe.existing.add(userApp)
+
+      expect(svc.findCuaDriverBinary()).toBe(userApp)
+    })
+
+    it('accepts the ~/.local/bin link because it resolves into the bundle', async () => {
+      const svc = await loadService('darwin')
+      const link = path.join(HOME, '.local', 'bin', 'cua-driver')
+      probe.existing.add(link)
+      probe.existing.add(appBin)
+      probe.realpaths.set(link, appBin)
+
+      expect(svc.findCuaDriverBinary()).toBe(appBin)
+    })
+
+    it('rejects a ~/.local/bin entry that resolves outside any bundle', async () => {
+      const svc = await loadService('darwin')
+      const link = path.join(HOME, '.local', 'bin', 'cua-driver')
+      probe.existing.add(link)
+      probe.realpaths.set(link, path.join('/opt', 'tools', 'cua-driver'))
+
+      expect(svc.findCuaDriverBinary()).toBeNull()
+    })
+
+    it('still honours an explicit CUA_DRIVER_CMD override verbatim', async () => {
+      const custom = path.join(process.cwd(), 'my', 'cua-driver')
+      const svc = await loadService('darwin', { CUA_DRIVER_CMD: custom })
+      probe.existing.add(custom)
+
+      expect(svc.findCuaDriverBinary()).toBe(custom)
+    })
   })
 
   it('knows the Linux link dir under ~/.local/bin', async () => {
@@ -275,6 +336,30 @@ describe('findCuaDriverBinary — per-platform locations', () => {
     const shippedDir = path.relative(RESOURCES, path.dirname(svc.findCuaDriverBinary()!))
 
     const entry = await expectDeclaredInExtraResources(shippedDir)
+    await expectPopulatedByReleaseJob(entry, 'download-cua-driver.mjs')
+  })
+
+  it('ships a CuaDriver.app for the macOS bundle lookup to resolve inside', async () => {
+    // The darwin lookup only ever accepts <dir>/CuaDriver.app/Contents/MacOS/cua-driver.
+    // A dir that merely "is not empty" is how the last release shipped a bare Mach-O:
+    // no CFBundleIdentifier, so TCC never attributes the grant to the driver and
+    // Computer Use stays red no matter what the user ticks in System Settings.
+    const svc = await loadService('linux')
+    runtime.isPackaged = true
+    const bundled = path.join(RESOURCES, 'cua-driver', 'cua-driver')
+    probe.existing.add(bundled)
+
+    const shippedDir = path.relative(RESOURCES, path.dirname(svc.findCuaDriverBinary()!))
+    const entry = await expectDeclaredInExtraResources(shippedDir)
+
+    await expectScriptProduces(
+      path.join('scripts', 'download-cua-driver.mjs'),
+      "appBundle: 'CuaDriver.app'",
+    )
+    await expectScriptProduces(
+      path.join('scripts', 'download-cua-driver.mjs'),
+      'bundleOnly: true',
+    )
     await expectPopulatedByReleaseJob(entry, 'download-cua-driver.mjs')
   })
 })

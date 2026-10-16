@@ -8,8 +8,7 @@ import { ipcMain, app } from 'electron'
 import { join, dirname, resolve } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs'
 import { debug, info, warn, error } from '../infra/logger'
-import { proxyManager, buildProxyConfigFromSettings } from '../infra/proxyManager'
-import type { ProxyConfig } from '../proxy/types'
+import { proxyManager, buildProxyConfigFromSettings, isSameProxyConfig } from '../infra/proxyManager'
 import { aggregateLocalTokenStats } from '../session/tokenStatsService'
 
 // ── Path helpers ────────────────────────────────────────────────
@@ -45,17 +44,6 @@ export async function loadGuiSettings(): Promise<Record<string, any> | null> {
   } catch {
     return null
   }
-}
-
-/** 影响代理路由的配置字段是否一致 */
-function isSameProxyConfig(a: ProxyConfig, b: ProxyConfig): boolean {
-  return a.upstreamProvider === b.upstreamProvider
-    && a.upstreamBaseUrl === b.upstreamBaseUrl
-    && a.upstreamApiKey === b.upstreamApiKey
-    && a.modelMapping.haikuModel === b.modelMapping.haikuModel
-    && a.modelMapping.sonnetModel === b.modelMapping.sonnetModel
-    && a.modelMapping.opusModel === b.modelMapping.opusModel
-    && a.modelMapping.defaultModel === b.modelMapping.defaultModel
 }
 
 /** 保存后代理与配置的对照结果，回给渲染端，"已保存"才等于"代理真的对齐了"。 */
@@ -215,31 +203,51 @@ function getProjectCwd(): string {
 
 // ── IPC Registration ────────────────────────────────────────────
 
-export function registerSettingsIPCHandlers(): void {
-  ipcMain.handle('settings:saveGuiSettings', async (_event, data: string) => {
+/**
+ * 「写 gui-settings.json → 同步 settings.json → 对齐本地代理」是一个原子单元。
+ *
+ * 渲染端会连发两次保存（切配置方案时尤其明显）。并发跑时「最后一个写完文件的」和
+ * 「最后一个对齐代理的」未必是同一批 —— 文件已经是新上游、代理还挂在旧上游，
+ * 而两次保存都回报成功。排成一条队列，后到的保存在前者对齐完之后才开始。
+ */
+let settingsSaveQueue: Promise<unknown> = Promise.resolve()
+
+function enqueueSettingsSave<T>(task: () => Promise<T>): Promise<T> {
+  const run = settingsSaveQueue.then(task)
+  // 一次失败不能让队列卡死：后续保存照样要跑。
+  settingsSaveQueue = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function applyGuiSettingsSave(data: string): Promise<{ success: boolean; error?: string; proxy?: ProxyReconcileResult }> {
+  try {
+    ensureClaudeDir()
+    const settingsPath = getGuiSettingsPath()
+    writeFileSync(settingsPath, data, 'utf-8')
+    debug('Settings', `GUI settings saved to ${settingsPath}`)
+
+    syncApiConfigToSettingsJson(data)
+
+    let parsedGuiSettings: Record<string, any> | null = null
     try {
-      ensureClaudeDir()
-      const settingsPath = getGuiSettingsPath()
-      writeFileSync(settingsPath, data, 'utf-8')
-      debug('Settings', `GUI settings saved to ${settingsPath}`)
-
-      syncApiConfigToSettingsJson(data)
-
-      let parsedGuiSettings: Record<string, any> | null = null
-      try {
-        parsedGuiSettings = JSON.parse(data)
-      } catch {}
-      let proxy: ProxyReconcileResult = { state: 'not-needed' }
-      if (parsedGuiSettings && typeof parsedGuiSettings === 'object') {
-        proxy = await reconcileProxyWithSettings(parsedGuiSettings)
-      }
-
-      return { success: true, proxy }
-    } catch (err: any) {
-      error('Settings', 'Failed to save GUI settings', err)
-      return { success: false, error: String(err) }
+      parsedGuiSettings = JSON.parse(data)
+    } catch {}
+    let proxy: ProxyReconcileResult = { state: 'not-needed' }
+    if (parsedGuiSettings && typeof parsedGuiSettings === 'object') {
+      proxy = await reconcileProxyWithSettings(parsedGuiSettings)
     }
-  })
+
+    return { success: true, proxy }
+  } catch (err: any) {
+    error('Settings', 'Failed to save GUI settings', err)
+    return { success: false, error: String(err) }
+  }
+}
+
+export function registerSettingsIPCHandlers(): void {
+  ipcMain.handle('settings:saveGuiSettings', (_event, data: string) =>
+    enqueueSettingsSave(() => applyGuiSettingsSave(data)),
+  )
 
   ipcMain.handle('settings:loadGuiSettings', async () => {
     try {

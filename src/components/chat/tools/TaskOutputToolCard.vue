@@ -2,16 +2,17 @@
   <div class="tool-card" :class="statusClass">
     <!-- 折叠态头部 -->
     <div class="tool-header" :class="{ 'is-expanded': isExpanded }" @click="toggleExpand">
-      <Loader2 v-if="isRunning && !isWaiting" :size="14" class="tool-icon status-running" />
-      <Loader2 v-else-if="isWaiting" :size="14" class="tool-icon status-timeout" />
-      <X v-else-if="toolCall.status === 'error'" :size="14" class="tool-icon status-error" />
-      <FileOutput v-else :size="14" class="tool-icon status-completed" />
+      <Loader2 v-if="displayState === 'waiting'" :size="14" class="tool-icon status-running" />
+      <Clock v-else-if="displayState === 'running'" :size="14" class="tool-icon status-paused" />
+      <X v-else-if="displayState === 'failed'" :size="14" class="tool-icon status-error" />
+      <FileOutput v-else-if="displayState === 'completed'" :size="14" class="tool-icon status-completed" />
+      <FileOutput v-else :size="14" class="tool-icon" />
       <span class="tool-label">{{ t('toolCards.taskOutput') }}</span>
       <template v-if="headerTarget">
         <span class="tool-separator">·</span>
         <span class="tool-target">{{ headerTarget }}</span>
       </template>
-      <span v-if="statusBadge" class="task-status-badge" :class="statusBadgeClass">{{ statusBadge }}</span>
+      <span v-if="statusBadge" class="task-status-badge" :class="statusBadgeClass" :title="badgeTitle">{{ statusBadge }}</span>
       <span v-if="duration" class="tool-meta">{{ duration }}s</span>
       <div class="tool-actions">
         <ChevronDown :size="14" class="tool-chevron" :class="{ 'is-expanded': isExpanded }" />
@@ -32,8 +33,8 @@
         </span>
         <span class="meta-divider"></span>
         <span class="meta-item">{{ t('toolCards.taskOutputTaskId') }}: {{ taskIdDisplay }}</span>
-        <span class="meta-divider"></span>
-        <span v-if="parsedStatus" class="meta-item">{{ parsedStatus }}</span>
+        <span v-if="statusLabel" class="meta-divider"></span>
+        <span v-if="statusLabel" class="meta-item">{{ statusLabel }}</span>
         <span v-if="parsedExitCode !== null" class="meta-divider"></span>
         <span v-if="parsedExitCode !== null" class="meta-item">{{ t('toolCards.taskOutputExitCode') }}: {{ parsedExitCode }}</span>
       </div>
@@ -57,18 +58,18 @@
         </div>
       </div>
 
-      <!-- 等待状态提示 (timeout / not_ready) — 不短路后续内容渲染 -->
-      <div v-if="isWaiting" class="tool-section">
+      <!-- 调用在飞 / 本次取数未拿到终态 (timeout / not_ready) / 任务后到终态 —— 说明快照与现状的差别 -->
+      <div v-if="showsTaskState" class="tool-section">
         <div class="tool-section-header">{{ t('toolCards.taskOutputStatus') }}</div>
         <div class="waiting-state">
-          <div class="waiting-spinner"></div>
-          <div class="waiting-text">{{ waitingText }}</div>
-          <div v-if="waitingHint" class="waiting-hint">{{ waitingHint }}</div>
+          <div v-if="displayState === 'waiting'" class="waiting-spinner"></div>
+          <div class="waiting-text">{{ statusNoteText }}</div>
+          <div v-if="statusNoteHint" class="waiting-hint">{{ statusNoteHint }}</div>
         </div>
       </div>
 
       <!-- 无任务数据 (task 为 null) — 显示原始输出或错误信息 -->
-      <div v-if="!parsedTask" class="tool-section">
+      <div v-if="!parsedTask && !showsTaskState" class="tool-section">
         <div class="tool-section-header">{{ t('toolCards.taskOutputStatus') }}</div>
         <div v-if="rawOutputText" class="raw-output-text">{{ rawOutputText }}</div>
         <div v-else class="no-task">{{ t('toolCards.taskOutputNoTask') }}</div>
@@ -95,12 +96,12 @@
                   <span class="light green"></span>
                 </div>
                 <span class="terminal-title">{{ taskIdDisplay }} — {{ parsedDescription || 'bash' }}</span>
-                <span v-if="isRunning" class="terminal-status-badge running">{{ t('toolCards.bashRunning') }}</span>
-                <span v-else-if="toolCall.status === 'completed'" class="terminal-status-badge completed">{{ t('toolCards.bashCompleted') }}</span>
-                <span v-else-if="toolCall.status === 'error'" class="terminal-status-badge error">{{ t('toolCards.bashError') }}</span>
+                <span v-if="displayState === 'waiting' || displayState === 'running'" class="terminal-status-badge running">{{ t('toolCards.bashRunning') }}</span>
+                <span v-else-if="displayState === 'completed'" class="terminal-status-badge completed">{{ t('toolCards.bashCompleted') }}</span>
+                <span v-else-if="displayState === 'failed'" class="terminal-status-badge error">{{ t('toolCards.bashError') }}</span>
               </div>
               <div class="terminal-content">
-                <div v-if="parsedOutput" class="term-output" :class="{ 'error-output': toolCall.status === 'error' || parsedError }">{{ truncatedOutput }}<span v-if="isRunning" class="cursor"></span></div>
+                <div v-if="parsedOutput" class="term-output" :class="{ 'error-output': toolCall.status === 'error' || parsedError }">{{ truncatedOutput }}<span v-if="displayState === 'waiting'" class="cursor"></span></div>
                 <div v-if="showExitCode" class="term-exit" :class="{ 'error-exit': parsedExitCode !== 0 }">
                   {{ t('toolCards.bashExitCode', { code: parsedExitCode ?? 0 }) }}
                   <span v-if="isOutputTruncated" class="truncated-hint">· {{ t('toolCards.bashOutputTruncated') }}</span>
@@ -172,7 +173,7 @@
 
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
-import { FileOutput, ChevronDown, Loader2, X } from 'lucide-vue-next'
+import { FileOutput, ChevronDown, Clock, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
@@ -307,7 +308,6 @@ const parsedTask = computed(() => {
 })
 
 const parsedTaskType = computed(() => parsed.value.taskType || '')
-const parsedStatus = computed(() => parsed.value.status || '')
 const parsedExitCode = computed(() => parsed.value.exitCode)
 const parsedOutput = computed(() => parsed.value.output || '')
 const parsedError = computed(() => parsed.value.error || '')
@@ -337,46 +337,97 @@ const outputPreview = computed(() => {
   return lines.slice(0, 2).join('\n').slice(0, 200)
 })
 
-// ── 等待状态 ──
-const isWaiting = computed(() => {
-  const rs = parsed.value.retrievalStatus
-  return rs === 'timeout' || rs === 'not_ready'
+// ── 统一任务状态 ──
+// tool_result 上有两条独立状态轴，混用就会自相矛盾：
+//   • retrieval_status —— 本次取数等到了什么（success / timeout / not_ready）
+//   • <status>        —— 后台任务本身到哪了（running / completed / failed …）
+// timeout 不是失败，它只表示"这次没等到"。徽章一律描述后者，前者降级为正文说明。
+type TaskDisplayState = 'waiting' | 'running' | 'completed' | 'failed' | 'no-output'
+
+const SNAPSHOT_STATE_KEYS: Record<string, TaskDisplayState> = {
+  running: 'running',
+  pending: 'running',
+  queued: 'running',
+  completed: 'completed',
+  success: 'completed',
+  failed: 'failed',
+  error: 'failed',
+  killed: 'failed',
+  stopped: 'failed',
+}
+
+const BADGE_KEYS: Record<TaskDisplayState, string> = {
+  waiting: 'toolCards.taskOutputBadgeWaiting',
+  running: 'toolCards.taskOutputBadgeRunning',
+  completed: 'toolCards.agentStatusDone',
+  failed: 'toolCards.agentStatusFailed',
+  'no-output': 'toolCards.taskOutputBadgeNoOutput',
+}
+
+const BADGE_CLASSES: Record<TaskDisplayState, string> = {
+  waiting: 'badge-running',
+  running: 'badge-running',
+  completed: 'badge-done',
+  failed: 'badge-failed',
+  'no-output': 'badge-muted',
+}
+
+/** 快照里 <status> 的归一结果；没有快照时为空 */
+const snapshotState = computed<TaskDisplayState | ''>(() =>
+  SNAPSHOT_STATE_KEYS[parsed.value.status.trim().toLowerCase()] ?? '')
+
+/** 本次调用没拿到终态快照（阻塞等待到点 / 非阻塞查询） */
+const snapshotIncomplete = computed(() =>
+  parsed.value.retrievalStatus === 'timeout' || parsed.value.retrievalStatus === 'not_ready')
+
+/**
+ * 后到的任务终态（task_notification 回填）。
+ * 只在快照本身没给出终态时才算新信息 —— 快照已 completed 却又收到 failed
+ * 属于两条轴打架，此时以模型实际看到的 tool_result 为准。
+ */
+const laterStatus = computed(() => {
+  const final = props.toolCall.taskFinalStatus
+  if (!final) return ''
+  return snapshotState.value === 'running' || snapshotState.value === '' ? final : ''
 })
 
-const waitingText = computed(() => {
-  const rs = parsed.value.retrievalStatus
-  if (rs === 'timeout') return t('toolCards.taskOutputTimeout')
-  if (rs === 'not_ready') return t('toolCards.taskOutputNotReady')
-  return ''
+const displayState = computed<TaskDisplayState>(() => {
+  // 唯一允许动画的状态：这次调用真的还在飞
+  if (isRunning.value) return 'waiting'
+  if (laterStatus.value) return laterStatus.value
+  if (snapshotState.value) return snapshotState.value
+  if (!parsedTask.value) return props.toolCall.status === 'error' ? 'failed' : 'no-output'
+  return props.toolCall.status === 'error' ? 'failed' : 'completed'
 })
 
-const waitingHint = computed(() => {
-  const rs = parsed.value.retrievalStatus
-  if (rs === 'timeout') return t('toolCards.taskOutputTimeoutHint')
-  if (rs === 'not_ready') return t('toolCards.taskOutputNotReadyHint')
-  return ''
+const statusBadge = computed(() => t(BADGE_KEYS[displayState.value]))
+const statusBadgeClass = computed(() => BADGE_CLASSES[displayState.value])
+
+/** 元信息栏与徽章同一套词，不再裸输出引擎的英文 token */
+const statusLabel = computed(() => {
+  const s = displayState.value
+  return s === 'running' || s === 'completed' || s === 'failed' ? t(BADGE_KEYS[s]) : ''
 })
 
-// ── 状态徽章 ──
-const statusBadgeInfo = computed(() => {
-  const rs = parsed.value.retrievalStatus
-  const ts = parsed.value.status || props.toolCall.status
+/** 状态区要不要出现：调用还在飞，或快照与现状有差别 */
+const showsTaskState = computed(() =>
+  isRunning.value || snapshotIncomplete.value || !!laterStatus.value)
 
-  if (rs === 'timeout') return { text: t('toolCards.taskOutputBadgeTimeout'), cls: 'badge-timeout' }
-  if (rs === 'not_ready') return { text: t('toolCards.taskOutputBadgeNotReady'), cls: 'badge-not-ready' }
-
-  if (ts === 'running' || ts === 'pending' || props.toolCall.status === 'running' || props.toolCall.status === 'pending')
-    return { text: t('toolCards.agentStatusRunning'), cls: 'badge-running' }
-  if (ts === 'failed' || props.toolCall.status === 'error')
-    return { text: t('toolCards.agentStatusFailed'), cls: 'badge-failed' }
-  if (ts === 'completed' || ts === 'success' || props.toolCall.status === 'completed')
-    return { text: t('toolCards.agentStatusDone'), cls: 'badge-done' }
-
-  return { text: '', cls: '' }
+const statusNoteText = computed(() => {
+  if (displayState.value === 'waiting') return t('toolCards.taskOutputWaiting')
+  if (laterStatus.value === 'completed') return t('toolCards.taskOutputLaterCompleted')
+  if (laterStatus.value === 'failed') return t('toolCards.taskOutputLaterFailed')
+  if (!parsedTask.value) return t('toolCards.taskOutputNoOutputText')
+  return t('toolCards.taskOutputStillRunning')
 })
 
-const statusBadge = computed(() => statusBadgeInfo.value.text)
-const statusBadgeClass = computed(() => statusBadgeInfo.value.cls)
+const statusNoteHint = computed(() => {
+  if (laterStatus.value) return t('toolCards.taskOutputSnapshotHint')
+  if (parsed.value.retrievalStatus === 'not_ready') return t('toolCards.taskOutputNotReadyHint')
+  return t('toolCards.taskOutputWaitExpiredHint')
+})
+
+const badgeTitle = computed(() => (showsTaskState.value ? `${statusNoteText.value} ${statusNoteHint.value}`.trim() : ''))
 
 // ── 任务类型标签 ──
 const taskTypeTagClass = computed(() => {
@@ -427,14 +478,9 @@ function toggleExpand() {
     color: var(--error, #ef4444);
   }
 
-  &.badge-timeout {
-    background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
-    color: var(--warning, #f59e0b);
-  }
-
-  &.badge-not-ready {
-    background: color-mix(in srgb, var(--accent-tertiary, #7c3aed) 12%, transparent);
-    color: var(--accent-tertiary, #7c3aed);
+  &.badge-muted {
+    background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+    color: var(--text-muted);
   }
 }
 

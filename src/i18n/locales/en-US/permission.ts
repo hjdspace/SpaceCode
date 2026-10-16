@@ -18,6 +18,7 @@ export default {
       Bash: 'Run Command',
       Skill: 'Skill',
       AskUserQuestion: 'Ask User',
+      ExitPlanMode: 'Exit Plan Mode',
       default: 'Tool Call',
     },
     actions: {

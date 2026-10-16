@@ -159,6 +159,80 @@ describe('settings store — profile actions', () => {
       expect(store.activeProfileId).toBe('p1')
       expect(api.profilesSave).not.toHaveBeenCalled()
     })
+
+    /** p1 在用（baseUrl=https://p1.com），p2 是待切换的另一套上游（baseUrl=https://api.deepseek.com） */
+    function activeP1Store() {
+      const store = useSettingsStore()
+      const p1 = mockProfile('p1', '工作')
+      p1.openaiConfig = { baseUrl: 'https://p1.com', apiKey: 'sk-p1', haikuModel: '', sonnetModel: 'm1', opusModel: '' }
+      store.profiles = [p1, mockProfile('p2', '个人')]
+      store.activeProfileId = 'p1'
+      store.authMethod = 'openai_compatible'
+      store.openaiConfig = { ...p1.openaiConfig }
+      return store
+    }
+
+    // issue #42 第 8 项：主进程那一份要等 IPC 回来才算生效，"切换成功"不能抢在它前面。
+    it('主进程保存还没落地时不 resolve', async () => {
+      const store = activeP1Store()
+      let releaseSave: (value: { success: boolean }) => void = () => {}
+      vi.mocked(api.saveGuiSettings).mockImplementationOnce(
+        () => new Promise(resolve => { releaseSave = resolve }),
+      )
+
+      let settled = false
+      const applied = store.applyProfile('p2').then(() => { settled = true })
+      await Promise.resolve()
+
+      expect(settled).toBe(false)
+      expect(api.profilesSave).not.toHaveBeenCalled()
+
+      releaseSave({ success: true })
+      await applied
+      expect(settled).toBe(true)
+      expect(store.activeProfileId).toBe('p2')
+    })
+
+    it('主进程写 gui-settings 失败时判为失败，并把落盘的方案也退回 p1', async () => {
+      const store = activeP1Store()
+      vi.mocked(api.saveGuiSettings).mockResolvedValueOnce({ success: false, error: 'EPERM gui-settings.json' })
+
+      const err = await store.applyProfile('p2').catch(e => e)
+
+      expect(err.profileApplyFailure).toBe('settings_save_failed')
+      expect(err.message).toContain('EPERM gui-settings.json')
+      expect(store.activeProfileId).toBe('p1')
+      expect(store.openaiConfig.baseUrl).toBe('https://p1.com')
+      const savedCalls = vi.mocked(api.profilesSave).mock.calls
+      const lastPersisted = JSON.parse(String(savedCalls[savedCalls.length - 1]?.[0]))
+      expect(lastPersisted.activeProfileId).toBe('p1')
+    })
+
+    it('代理没按新配置起来时判为失败，而不是报成功', async () => {
+      const store = activeP1Store()
+      vi.mocked(api.saveGuiSettings).mockResolvedValueOnce({
+        success: true,
+        proxy: { state: 'failed', error: 'EADDRINUSE 34567' },
+      })
+
+      const err = await store.applyProfile('p2').catch(e => e)
+
+      expect(err.profileApplyFailure).toBe('proxy_not_aligned')
+      expect(store.activeProfileId).toBe('p1')
+      expect(store.openaiConfig.baseUrl).toBe('https://p1.com')
+    })
+
+    it('主进程返回 { success: false } 而不是抛错时，同样判为失败并回滚', async () => {
+      const store = activeP1Store()
+      vi.mocked(api.profilesSave).mockResolvedValueOnce({ success: false, error: 'EACCES profiles.json' })
+
+      const err = await store.applyProfile('p2').catch(e => e)
+
+      expect(err.profileApplyFailure).toBe('profiles_save_failed')
+      expect(err.message).toContain('EACCES profiles.json')
+      expect(store.activeProfileId).toBe('p1')
+      expect(store.openaiConfig.baseUrl).toBe('https://p1.com')
+    })
   })
 
   describe('createProfile', () => {

@@ -16,8 +16,8 @@ import type { ProxyConfig } from '../../proxy/types'
  *   - readiness is one NDJSON `{type:'ready',port}` line on stdout; the port the
  *     child reports is what `getProxyUrl()` returns, and start() rejects on a 10s
  *     timeout or on an exit before ready.
- *   - `start()` is single-flight; `stop()` is idempotent and escalates
- *     SIGTERM -> SIGKILL after 5s.
+ *   - `start()` is one queue, not one race: concurrent calls settle on the *latest*
+ *     config; `stop()` is idempotent and escalates SIGTERM -> SIGKILL after 5s.
  *   - a failed start does NOT clear `proxyUrl` or null the child: state must be
  *     read together, or the caller trusts a URL nobody is listening on.
  */
@@ -240,7 +240,7 @@ describe('start — port probing', () => {
   })
 })
 
-describe('start — single flight', () => {
+describe('start — one queue, latest config wins', () => {
   it('reuses the in-flight run instead of spawning a second child', async () => {
     spawnState.autoReadyPort = null
     const first = manager.start(makeConfig())
@@ -254,19 +254,23 @@ describe('start — single flight', () => {
     expect(spawnState.children).toHaveLength(1)
   })
 
-  it('drops the second call config, so a settings save during startup loses the new provider', async () => {
+  it('applies the second call config once the in-flight run settles, so a settings save during startup is not lost', async () => {
     spawnState.autoReadyPort = null
-    const wanted = makeConfig(34567)
+    spawnState.exitOnKill = true
+    const wanted = makeConfig(34600)
     wanted.upstreamBaseUrl = 'https://second.test/v1'
     const first = manager.start(makeConfig())
     await flushTurns()
 
     const second = manager.start(wanted)
     spawnState.child(0).writeReady(34567)
-    await Promise.all([first, second])
+    await flushTurns(12)
+    spawnState.child(1).writeReady(34600)
 
-    expect(manager.getConfig()!.upstreamBaseUrl).toBe('https://o.test/v1')
-    expect(spawnState.children).toHaveLength(1)
+    await expect(second).resolves.toBe('http://127.0.0.1:34600')
+    await expect(first).resolves.toBe('http://127.0.0.1:34600')
+    expect(spawnState.children).toHaveLength(2)
+    expect(manager.getConfig()!.upstreamBaseUrl).toBe('https://second.test/v1')
   })
 
   it('spawns a fresh child once the previous run has settled', async () => {
@@ -302,6 +306,24 @@ describe('ensureRunning — never restarts a live proxy', () => {
     await expect(ensuring).resolves.toBe('http://127.0.0.1:34567')
     await starting
     expect(spawnState.children).toHaveLength(1)
+  })
+
+  it('aligns the proxy when the in-flight start settled on a different provider', async () => {
+    spawnState.autoReadyPort = null
+    spawnState.exitOnKill = true
+    const starting = manager.start(makeConfig())
+    await flushTurns()
+
+    const wanted = makeConfig(34600)
+    wanted.upstreamBaseUrl = 'https://second.test/v1'
+    const ensuring = manager.ensureRunning(wanted)
+    spawnState.child(0).writeReady(34567)
+    await flushTurns(12)
+    spawnState.child(1).writeReady(34600)
+
+    await expect(ensuring).resolves.toBe('http://127.0.0.1:34600')
+    await starting
+    expect(manager.getConfig()!.upstreamBaseUrl).toBe('https://second.test/v1')
   })
 
   it('starts the proxy when nothing is running', async () => {

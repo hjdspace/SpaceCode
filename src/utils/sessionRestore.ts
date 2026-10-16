@@ -31,6 +31,9 @@ export function buildMessagesFromHistory(
   const toolCallIndex = new Map<string, { toolCall: any; messageRef: RestoredMessage }>()
   // assistant msgId → 已创建的 Message，用于合并同一 msgId 的多行 JSONL 记录
   const assistantMsgIndex = new Map<string, RestoredMessage>()
+  // taskId → 任务终态。来自 <task-notification> 合成消息，函数末尾回填给
+  // 引用同一 task_id 的 TaskOutput 工具调用（其 output 是取数时刻的快照）。
+  const taskFinalStates = new Map<string, { status: 'completed' | 'failed', at: number }>()
 
   // ── 自动重试去重状态 ──
   // 当 429 限流等可恢复错误触发自动重试时，前端会通过 resendForRetry →
@@ -197,6 +200,20 @@ export function buildMessagesFromHistory(
       // 导致重开 GUI 后用户消息气泡消失。此处提取命令名和参数，恢复为可读文本。
       const strippedText = stripSystemReminders(userText)
       if (strippedText.startsWith('<')) {
+        // <task-notification> 携带后台任务的终态，供末尾回填 TaskOutput 卡片。
+        // 引擎在 coordinator/worker 模式下的字段名是 <task-id>，SDK 事件侧是 task_id。
+        const taskNote = strippedText.match(/<task[-_]notification>([\s\S]*?)<\/task[-_]notification>/i)?.[1]
+        if (taskNote) {
+          const noteTaskId = /<task-id>([\s\S]*?)<\/task-id>/i.exec(taskNote)?.[1].trim()
+          const noteStatus = /<status>([\s\S]*?)<\/status>/i.exec(taskNote)?.[1].trim().toLowerCase()
+          if (noteTaskId && noteStatus) {
+            taskFinalStates.set(noteTaskId, {
+              status: noteStatus === 'completed' ? 'completed' : 'failed',
+              at: ts,
+            })
+          }
+        }
+
         // 检查是否是技能/斜杠命令的 metadata 消息
         const cmdMessageMatch = strippedText.match(/<command-message>([\s\S]*?)<\/command-message>/)
         const cmdNameMatch = strippedText.match(/<command-name>([\s\S]*?)<\/command-name>/)
@@ -485,6 +502,24 @@ export function buildMessagesFromHistory(
           status,
         },
       })
+    }
+  }
+
+  // ── 后台任务终态回填 ──
+  // TaskOutput 的 tool_result 是取数时刻的快照：retrieval_status=timeout 时快照里的
+  // <status> 还是 running。转录里后到的 <task-notification> 才是终态，回填到旁挂字段，
+  // 快照本身保持不动 —— 那是模型当时看到的内容。
+  if (taskFinalStates.size) {
+    for (const msg of messages) {
+      if (!msg.toolCalls?.length) continue
+      for (const tc of msg.toolCalls) {
+        if (tc.name !== 'TaskOutput') continue
+        const id = typeof tc.input?.task_id === 'string' ? tc.input.task_id : ''
+        const final = id ? taskFinalStates.get(id) : undefined
+        if (!final) continue
+        tc.taskFinalStatus = final.status
+        tc.taskFinalAt = final.at
+      }
     }
   }
 

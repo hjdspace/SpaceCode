@@ -78,4 +78,7 @@ _temp/
 
 *.exe*
 
+# prebuild:cua-driver 下载的 macOS 驱动 bundle（~20MB），CI 打包前现场下载
+resources/cua-driver/CuaDriver.app/
+
 .scratch/

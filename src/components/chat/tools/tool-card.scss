@@ -42,9 +42,9 @@
     color: var(--error);
   }
 
-  &.status-timeout {
+  /* 任务仍在跑、但本次调用已结束 —— 静态图标，不能用会转的 Loader2 */
+  &.status-paused {
     color: var(--warning, #f59e0b);
-    animation: tool-spin 1s linear infinite;
   }
 }
 

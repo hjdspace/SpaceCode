@@ -361,6 +361,58 @@ describe('buildMessagesFromHistory — assistant tool_use + tool_result backfill
     expect(toolCall.endTime).toBeGreaterThanOrEqual(toolCall.startTime!)
   })
 
+  it('replays a later <task-notification> onto the TaskOutput snapshot that preceded it', () => {
+    const messages = buildMessagesFromHistory([
+      {
+        type: 'assistant',
+        uuid: 'a1',
+        message: {
+          role: 'assistant',
+          content: [{
+            type: 'tool_use',
+            id: 'tc-out',
+            name: 'TaskOutput',
+            input: { task_id: 'af01ed6b30395409b', block: true, timeout: 120000 },
+          }],
+        },
+      },
+      {
+        type: 'user',
+        uuid: 'u1',
+        message: {
+          role: 'user',
+          content: [{
+            type: 'tool_result',
+            tool_use_id: 'tc-out',
+            is_error: false,
+            content: [
+              '<retrieval_status>timeout</retrieval_status>',
+              '<task_id>af01ed6b30395409b</task_id>',
+              '<task_type>local_agent</task_type>',
+              '<status>running</status>',
+            ].join('\n\n'),
+          }],
+        },
+      },
+      {
+        type: 'user',
+        uuid: 'u2',
+        message: {
+          role: 'user',
+          content: '<task-notification>\n<task-id>af01ed6b30395409b</task-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>',
+        },
+      },
+    ])
+
+    const toolCall = messages[0].toolCalls![0]
+    // 快照原样保留 —— 那是模型当时看到的内容
+    expect(toolCall.output).toContain('<status>running</status>')
+    // 后到的终态走旁挂字段，供卡片把徽章从"运行中"收敛成"已完成"
+    expect(toolCall.taskFinalStatus).toBe('completed')
+    // 通知本身依旧不渲染成用户气泡
+    expect(messages).toHaveLength(1)
+  })
+
   it('marks a failed tool call with error status', () => {
     const messages = buildMessagesFromHistory([
       {

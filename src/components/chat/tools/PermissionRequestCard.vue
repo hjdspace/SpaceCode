@@ -40,6 +40,13 @@
         </div>
       </template>
 
+      <!-- ExitPlanMode：只展示计划正文（Markdown），input 的其余字段一律不显示 -->
+      <template v-else-if="isPlanApproval">
+        <div v-if="planContent" class="plan-preview">
+          <MarkdownRenderer :content="planContent" />
+        </div>
+      </template>
+
       <!-- 其他工具：通用信息展示 -->
       <template v-else>
         <div class="generic-info">
@@ -108,9 +115,11 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { 
   Check, X, CheckCheck, Loader2, CheckCircle, XCircle,
-  FileEdit, Terminal as TerminalIcon, FileText as FileTextIcon, Shield
+  FileEdit, Terminal as TerminalIcon, FileText as FileTextIcon, Shield,
+  ClipboardCheck
 } from 'lucide-vue-next'
 import { useTurnStore } from '@/stores/turn'
+import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 
 interface Props {
   messageId: string
@@ -131,6 +140,7 @@ const toolIconMap: Record<string, any> = {
   'Write': FileEdit,
   'Read': FileTextIcon,
   'Bash': TerminalIcon,
+  'ExitPlanMode': ClipboardCheck,
 }
 
 const toolIcon = computed(() => toolIconMap[props.toolName] || Shield)
@@ -154,6 +164,13 @@ const filePath = computed(() =>
 const commandText = computed(() => 
   (props.input.command as string) || ''
 )
+
+const isPlanApproval = computed(() => props.toolName === 'ExitPlanMode')
+
+const planContent = computed(() => {
+  const plan = props.input.plan
+  return typeof plan === 'string' ? plan.trim() : ''
+})
 
 const oldString = computed(() => props.input.old_string as string || '')
 const newString = computed(() => props.input.new_string as string || '')
@@ -394,6 +411,16 @@ async function handleAlwaysAllow() {
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.plan-preview {
+  padding: 4px 14px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  max-height: 480px;
+  overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .card-actions {

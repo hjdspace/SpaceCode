@@ -105,6 +105,13 @@ export interface ToolCall {
   endTime?: number
   terminalId?: string
   isInteractive?: boolean
+  /**
+   * 后台任务在本次取数快照**之后**到达的终态，由 task_notification 回填。
+   * 只作旁挂事实，绝不写进 output —— output 是模型当时看到的快照。
+   */
+  taskFinalStatus?: 'completed' | 'failed'
+  /** 该终态通知的到达时间（ms） */
+  taskFinalAt?: number
 }
 
 export interface ToolResult {

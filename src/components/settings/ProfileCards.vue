@@ -120,7 +120,7 @@ import { Check, Copy, Loader2, Plus, SlidersHorizontal, Trash2 } from 'lucide-vu
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo, ProviderConfig } from '@/stores/settings'
-import type { ModelProfile } from '@/types/profile'
+import type { ModelProfile, ProfileApplyFailure } from '@/types/profile'
 import ModelSettings from './ModelSettings.vue'
 import { useDialog } from '@/composables/useDialog'
 import { errorHandler } from '@/services/errorHandler'
@@ -146,6 +146,23 @@ const expandedProfile = computed<ModelProfile | null>(() => {
 
 const switchingProfileId = ref<string | null>(null)
 
+function toast(message: string, category = ErrorCategory.UNKNOWN) {
+  errorHandler.pushToast({
+    id: crypto.randomUUID(),
+    category,
+    title: t('profile.title'),
+    message,
+    autoDismiss: true,
+    dismissAfter: 4000,
+    createdAt: Date.now(),
+  })
+}
+
+/** 落盘失败不是"没保存上"这么轻 —— 界面上看着改好了，新会话却用另一套配置。 */
+function reportSaveFailure(err: unknown) {
+  toast(t('profile.saveFailed', { reason: err instanceof Error ? err.message : String(err) }), ErrorCategory.CONFIG_ERROR)
+}
+
 const expandedSettingsModel = computed<ModelSettingsValue | null>(() => {
   const p = expandedProfile.value
   if (!p) return null
@@ -167,7 +184,7 @@ function onModelSettingsUpdate(val: ModelSettingsValue) {
     openaiConfig: { ...val.openaiConfig },
     geminiConfig: { ...val.geminiConfig },
     modelCapabilities: val.modelCapabilities ? { ...val.modelCapabilities } : undefined,
-  })
+  }).catch(reportSaveFailure)
 }
 
 function providerLabel(p: ModelProfile): string {
@@ -215,7 +232,7 @@ function startEditName() {
 function commitName() {
   if (!expandedProfile.value) return
   const trimmed = nameDraft.value.trim()
-  store.updateProfile(expandedProfile.value.id, { name: trimmed || t('profile.untitled') })
+  store.updateProfile(expandedProfile.value.id, { name: trimmed || t('profile.untitled') }).catch(reportSaveFailure)
   editingName.value = false
 }
 
@@ -235,18 +252,14 @@ async function onSelectProfile(id: string) {
   switchingProfileId.value = id
   try {
     await store.applyProfile(id)
-    errorHandler.pushToast({
-      id: crypto.randomUUID(),
-      category: ErrorCategory.UNKNOWN,
-      title: t('profile.title'),
-      message: t('profile.switchedToast', { name: profile.name }),
-      autoDismiss: true,
-      dismissAfter: 4000,
-      createdAt: Date.now(),
-    })
+    toast(t('profile.switchedToast', { name: profile.name }))
   } catch (error) {
     store.expandedProfileId = previousProfileId
-    errorHandler.handleError(error)
+    const failure = (error as { profileApplyFailure?: ProfileApplyFailure }).profileApplyFailure
+    if (failure === 'settings_save_failed') toast(t('profile.switchFailedSave', { name: profile.name }), ErrorCategory.CONFIG_ERROR)
+    else if (failure === 'proxy_not_aligned') toast(t('profile.switchFailedProxy', { name: profile.name }), ErrorCategory.CONFIG_ERROR)
+    else if (failure === 'profiles_save_failed') toast(t('profile.switchFailedProfiles', { name: profile.name }), ErrorCategory.CONFIG_ERROR)
+    else errorHandler.handleError(error)
   } finally {
     switchingProfileId.value = null
   }
@@ -254,18 +267,30 @@ async function onSelectProfile(id: string) {
 
 async function onDuplicate() {
   if (!expandedProfile.value) return
-  await store.duplicateProfile(expandedProfile.value.id)
+  try {
+    await store.duplicateProfile(expandedProfile.value.id)
+  } catch (err) {
+    reportSaveFailure(err)
+  }
 }
 
 async function onDelete() {
   if (!expandedProfile.value || store.profiles.length <= 1) return
   const confirmed = await showConfirm(t('profile.deleteConfirm'), { variant: 'danger' })
   if (!confirmed) return
-  await store.deleteProfile(expandedProfile.value.id)
+  try {
+    await store.deleteProfile(expandedProfile.value.id)
+  } catch (err) {
+    reportSaveFailure(err)
+  }
 }
 
 async function onAddNew() {
-  await store.createProfile(t('profile.untitled'))
+  try {
+    await store.createProfile(t('profile.untitled'))
+  } catch (err) {
+    reportSaveFailure(err)
+  }
 }
 </script>
 

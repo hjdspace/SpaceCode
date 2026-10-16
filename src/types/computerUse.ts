@@ -42,10 +42,8 @@ export interface CuaDriverStatus {
   checks: HealthCheck[]
   /** 错误信息 */
   error: string | null
-  /** macOS 辅助功能权限状态（null 表示非 macOS 或未知） */
-  accessibility: boolean | null
-  /** macOS 屏幕录制权限状态（null 表示非 macOS 或未知） */
-  screenRecording: boolean | null
+  /** macOS TCC 权限状态；非 macOS 时各项为 null */
+  permissions: CuaDriverPermissions
 }
 
 /** MCP 工具调用结果 */
@@ -78,4 +76,26 @@ export interface CuaDriverPermissions {
   accessibility: boolean | null
   /** 屏幕录制权限（仅 macOS） */
   screenRecording: boolean | null
+  /**
+   * ScreenCaptureKit 实测能否抓到屏。
+   * preflight 报已授权但这里是 false，说明那份授权属于另一个进程而不是驱动自己。
+   */
+  screenRecordingCapturable: boolean | null
+  /**
+   * 这两个布尔值反映的是谁的身份，取自 CLI 的 `source` 字段。
+   * macOS 把授权算给 responsible process，所以从宿主应用或终端直接问，
+   * 读到的是宿主/终端的授权而不是驱动的。`driver-daemon` 才代表驱动自身。
+   */
+  attribution: string | null
+  /** 读取权限状态这件事本身失败的原因；null 表示读取成功 */
+  readError: string | null
+}
+
+/** 空权限状态（非 macOS，或还没查过） */
+export const EMPTY_PERMISSIONS: CuaDriverPermissions = {
+  accessibility: null,
+  screenRecording: null,
+  screenRecordingCapturable: null,
+  attribution: null,
+  readError: null,
 }

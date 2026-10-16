@@ -161,14 +161,27 @@ jobs:
         run: npm run build:all
 
       # build.extraResources 把 resources/cua-driver 拷进 <resources>/cua-driver，
-      # 但二进制不入 git（.gitignore 的 *.exe*），CI 的干净 checkout 里该目录只有
-      # .gitkeep。不在打包前下载，安装就没有内置 cua-driver，Computer Use 只能退回
-      # 在线安装 —— 与卡片文案「已随安装包内置，无需额外下载」不符。
+      # 但二进制不入 git（.gitignore 的 *.exe* 与 CuaDriver.app），CI 的干净 checkout
+      # 里该目录只有 .gitkeep。不在打包前下载，安装就没有内置 cua-driver，Computer Use
+      # 只能退回在线安装 —— 与卡片文案「已随安装包内置，无需额外下载」不符。
       - name: Pre-download bundled cua-driver binary
         shell: bash
         run: |
           node scripts/download-cua-driver.mjs
-          if [ -z "$(find resources/cua-driver -type f ! -name '.gitkeep' ! -name 'README*' -print -quit)" ]; then
+          if [ "$(uname -s)" = "Darwin" ]; then
+            # macOS 的 TCC 授权按 CFBundleIdentifier 归属，裸 Mach-O 没有身份，
+            # 装出来的包会永远提示「未授权」。这里必须校验 bundle 而不是「目录非空」——
+            # 只抽裸二进制的旧脚本同样能通过目录非空检查，正是这次故障的来源。
+            PLIST=resources/cua-driver/CuaDriver.app/Contents/Info.plist
+            if [ ! -f "$PLIST" ]; then
+              echo "ERROR: $PLIST missing — macOS build must ship CuaDriver.app, not a bare binary"
+              exit 1
+            fi
+            if ! grep -q com.trycua.driver "$PLIST"; then
+              echo "ERROR: $PLIST lacks com.trycua.driver — TCC grants would not attribute to the driver"
+              exit 1
+            fi
+          elif [ -z "$(find resources/cua-driver -type f ! -name '.gitkeep' ! -name 'README*' -print -quit)" ]; then
             echo "ERROR: resources/cua-driver is still empty — the packaged app would ship no bundled binary"
             exit 1
           fi

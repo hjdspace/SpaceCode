@@ -1,8 +1,12 @@
 /**
- * 预下载 cua-driver 二进制文件到 resources/cua-driver/ 目录。
+ * 预下载 cua-driver 到 resources/cua-driver/ 目录。
  *
- * 在构建前运行此脚本，将 cua-driver 二进制预先下载到打包资源目录中，
+ * 在构建前运行此脚本，将 cua-driver 预先下载到打包资源目录中，
  * 这样应用安装后无需从 GitHub 下载，大幅提升用户体验。
+ *
+ * macOS 保留整个 CuaDriver.app 而不是裸二进制：TCC（辅助功能 / 屏幕录制）
+ * 按 CFBundleIdentifier 归属，裸 Mach-O 没有身份，抽出来打包会让
+ * Computer Use 永远停在「未授权」。详见 electron/tools/cuaDriverBundle.ts。
  *
  * 下载逻辑对齐官方安装脚本：
  *   - Windows: install.ps1       (tag prefix: cua-driver-rs-v)
@@ -10,7 +14,7 @@
  *
  * Asset 命名规则（来自官方 CD workflow）：
  *   Windows: cua-driver-rs-{version}-windows-x86_64.zip
- *   Mac:     cua-driver-rs-{version}-darwin-universal.tar.gz  (universal binary)
+ *   Mac:     cua-driver-rs-{version}-darwin-universal.tar.gz  (含 CuaDriver.app)
  *   Linux:   cua-driver-rs-{version}-linux-x86_64-binary.tar.gz
  *
  * 用法：
@@ -64,75 +68,61 @@ const BAKED_VERSION = '0.6.8'
  * @property {string} ext       - 压缩包扩展名（.zip 或 .tar.gz）
  * @property {string[]} [extraBinaries] - 额外需要复制的二进制（如 cua-driver-uia.exe）
  * @property {boolean} [linuxStyle] - Linux 风格 asset 名（含 -binary 后缀）
+ * @property {string} [appBundle] - 需要整目录保留的 .app bundle 名（macOS）
+ * @property {boolean} [bundleOnly] - 只保留 bundle，不抽裸二进制
  */
+
+/**
+ * 所有平台的下载目标 —— 单一事实来源。
+ *
+ * 之前 getPlatformTargets / getAllTargets 各写一份目标表，两份会漂移；
+ * macOS 那份漂移的结果是 bundle 被漏掉，装出来的包只剩裸二进制。
+ */
+const ALL_TARGETS = [
+  {
+    platform: 'win32',
+    binName: 'cua-driver.exe',
+    label: 'windows-x86_64',
+    ext: '.zip',
+    extraBinaries: ['cua-driver-uia.exe'],
+  },
+  {
+    platform: 'darwin',
+    binName: 'cua-driver',
+    label: 'darwin-universal',
+    ext: '.tar.gz',
+    appBundle: 'CuaDriver.app',
+    bundleOnly: true,
+  },
+  {
+    platform: 'linux',
+    binName: 'cua-driver',
+    label: 'linux-x86_64',
+    ext: '.tar.gz',
+    linuxStyle: true,
+  },
+  {
+    platform: 'linux',
+    binName: 'cua-driver',
+    label: 'linux-arm64',
+    ext: '.tar.gz',
+    linuxStyle: true,
+  },
+]
 
 /** 当前平台的下载目标 */
 function getPlatformTargets() {
   const platform = process.platform
-  const arch = process.arch
-  const targets = []
-
-  if (platform === 'win32') {
-    targets.push({
-      binName: 'cua-driver.exe',
-      label: 'windows-x86_64',
-      ext: '.zip',
-      extraBinaries: ['cua-driver-uia.exe'],
-    })
-  } else if (platform === 'darwin') {
-    // Mac 使用 universal binary，一个 tarball 同时支持 arm64 和 x86_64
-    targets.push({
-      binName: 'cua-driver',
-      label: 'darwin-universal',
-      ext: '.tar.gz',
-    })
-  } else if (platform === 'linux') {
-    if (arch === 'arm64') {
-      targets.push({
-        binName: 'cua-driver',
-        label: 'linux-arm64',
-        ext: '.tar.gz',
-        linuxStyle: true,
-      })
-    }
-    targets.push({
-      binName: 'cua-driver',
-      label: 'linux-x86_64',
-      ext: '.tar.gz',
-      linuxStyle: true,
-    })
-  }
-
-  return targets
+  const forPlatform = ALL_TARGETS.filter((t) => t.platform === platform)
+  if (platform !== 'linux') return forPlatform
+  // Linux 只在 arm64 机器上额外拉 arm64 包
+  if (process.arch === 'arm64') return forPlatform
+  return forPlatform.filter((t) => t.label !== 'linux-arm64')
 }
 
 /** 所有平台的下载目标（--all 模式） */
 function getAllTargets() {
-  return [
-    {
-      binName: 'cua-driver.exe',
-      label: 'windows-x86_64',
-      ext: '.zip',
-      extraBinaries: ['cua-driver-uia.exe'],
-    },
-    {
-      binName: 'cua-driver',
-      label: 'darwin-universal',
-      ext: '.tar.gz',
-    },
-    {
-      binName: 'cua-driver',
-      label: 'linux-x86_64',
-      ext: '.tar.gz',
-      linuxStyle: true,
-    },
-    {
-      binName: 'cua-driver',
-      label: 'linux-arm64',
-      ext: '.tar.gz',
-      linuxStyle: true,
-    },
-  ]
+  return ALL_TARGETS
 }
 
 // ── 网络工具 ──────────────────────────────────────────────────
@@ -344,23 +334,29 @@ function findBinaryInDir(dir, binName) {
 }
 
 /**
- * 检查目标二进制是否已存在（直接路径或 bin/ 子目录）。
- * @returns 已存在文件的完整路径，不存在则返回 null
+ * 检查目标平台的产物是否已就绪，避免重复下载。
+ *
+ * bundleOnly 的平台以 bundle 内的可执行文件为准 —— 只留下一个空壳 .app
+ * 目录会让脚本误判为已下载，从而把缺陷带进包里。
  */
-function findExistingBinary(binName) {
-  const directPath = join(TARGET_DIR, binName)
+function findExistingArtifact(target) {
+  if (target.appBundle) {
+    const inBundle = join(TARGET_DIR, target.appBundle, 'Contents', 'MacOS', target.binName)
+    return existsSync(inBundle) ? inBundle : null
+  }
+  const directPath = join(TARGET_DIR, target.binName)
   if (existsSync(directPath)) return directPath
-  const binPath = join(TARGET_DIR, 'bin', binName)
+  const binPath = join(TARGET_DIR, 'bin', target.binName)
   if (existsSync(binPath)) return binPath
   return null
 }
 
 /**
- * 将文件从源路径移动到目标目录（覆盖已存在的文件）。
+ * 移动文件或目录，覆盖已存在的目标。
  */
-function moveFile(srcPath, destPath) {
+function movePath(srcPath, destPath) {
   if (existsSync(destPath)) {
-    rmSync(destPath)
+    rmSync(destPath, { recursive: true })
   }
   renameSync(srcPath, destPath)
 }
@@ -371,7 +367,7 @@ function moveFile(srcPath, destPath) {
  * 下载并安装单个平台目标的 cua-driver 二进制。
  */
 async function downloadForTarget(target, release, version) {
-  const { binName, ext, extraBinaries } = target
+  const { binName, ext, extraBinaries, appBundle, bundleOnly } = target
   const asset = findAsset(release, target, version)
 
   if (!asset) {
@@ -404,15 +400,38 @@ async function downloadForTarget(target, release, version) {
     extractTarGz(tmpFile, extractDir)
   }
 
+  // macOS 的 TCC 身份挂在 .app bundle 上，整目录保留，不要只抽裸二进制。
+  let bundleOk = true
+  if (appBundle) {
+    const extractedApp = findBinaryInDir(extractDir, appBundle)
+    if (extractedApp) {
+      const finalApp = join(TARGET_DIR, appBundle)
+      movePath(extractedApp, finalApp)
+      const innerBin = join(finalApp, 'Contents', 'MacOS', binName)
+      if (!existsSync(innerBin)) {
+        console.warn(`  ⚠ ${appBundle} 内缺少 Contents/MacOS/${binName}，bundle 不可用`)
+        bundleOk = false
+      } else {
+        console.log(`  ✓ Installed: ${finalApp}`)
+      }
+    } else {
+      console.warn(`  ⚠ ${appBundle} not found in extracted files`)
+      console.warn(`    Extracted contents: ${readdirSync(extractDir).join(', ')}`)
+      bundleOk = false
+    }
+  }
+
   // 查找并移动主二进制文件
-  const extractedBin = findBinaryInDir(extractDir, binName)
-  if (extractedBin) {
-    const finalPath = join(TARGET_DIR, binName)
-    moveFile(extractedBin, finalPath)
-    console.log(`  ✓ Installed: ${finalPath}`)
-  } else {
-    console.warn(`  ⚠ Binary ${binName} not found in extracted files`)
-    console.warn(`    Extracted contents: ${readdirSync(extractDir).join(', ')}`)
+  if (!bundleOnly) {
+    const extractedBin = findBinaryInDir(extractDir, binName)
+    if (extractedBin) {
+      const finalPath = join(TARGET_DIR, binName)
+      movePath(extractedBin, finalPath)
+      console.log(`  ✓ Installed: ${finalPath}`)
+    } else {
+      console.warn(`  ⚠ Binary ${binName} not found in extracted files`)
+      console.warn(`    Extracted contents: ${readdirSync(extractDir).join(', ')}`)
+    }
   }
 
   // 查找并移动额外二进制文件（如 cua-driver-uia.exe）
@@ -421,7 +440,7 @@ async function downloadForTarget(target, release, version) {
       const extractedExtra = findBinaryInDir(extractDir, extraName)
       if (extractedExtra) {
         const extraPath = join(TARGET_DIR, extraName)
-        moveFile(extractedExtra, extraPath)
+        movePath(extractedExtra, extraPath)
         console.log(`  ✓ Installed: ${extraPath}`)
       } else {
         console.log(`  ℹ ${extraName} not found in archive (optional, skipping)`)
@@ -434,7 +453,7 @@ async function downloadForTarget(target, release, version) {
     rmSync(extractDir, { recursive: true })
   }
 
-  return true
+  return bundleOk
 }
 
 // ── 主入口 ────────────────────────────────────────────────────
@@ -459,12 +478,12 @@ async function main() {
 
   mkdirSync(TARGET_DIR, { recursive: true })
 
-  // 检查哪些目标二进制尚未存在，仅对缺失的执行下载
-  const missing = targets.filter((t) => !findExistingBinary(t.binName))
-  const existing = targets.filter((t) => findExistingBinary(t.binName))
+  // 检查哪些目标产物尚未存在，仅对缺失的执行下载
+  const missing = targets.filter((t) => !findExistingArtifact(t))
+  const existing = targets.filter((t) => findExistingArtifact(t))
 
   for (const target of existing) {
-    const path = findExistingBinary(target.binName)
+    const path = findExistingArtifact(target)
     console.log(`  ✓ ${target.label}: 已存在 (${path})，跳过下载`)
   }
   if (existing.length > 0) console.log()

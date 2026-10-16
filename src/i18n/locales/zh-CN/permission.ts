@@ -18,6 +18,7 @@ export default {
       Bash: '执行命令',
       Skill: '技能调用',
       AskUserQuestion: '询问用户',
+      ExitPlanMode: '退出计划模式',
       default: '工具调用',
     },
     actions: {

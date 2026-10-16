@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import ProfileCards from '@/components/settings/ProfileCards.vue'
+import { errorHandler } from '@/services/errorHandler'
 import { useSettingsStore } from '@/stores/settings'
 import type { ModelProfile } from '@/types/profile'
 import { createI18n } from 'vue-i18n'
@@ -134,6 +135,45 @@ describe('ProfileCards', () => {
     await chip.trigger('click')
     expect(spy).toHaveBeenCalledWith('p2')
     expect(store.expandedProfileId).toBe('p2')
+  })
+
+  it('切换成功后才提示"已切换到"', async () => {
+    const store = useSettingsStore()
+    store.profiles = [makeProfile({ id: 'p1' }), makeProfile({ id: 'p2', name: '个人' })]
+    store.activeProfileId = 'p1'
+    store.expandedProfileId = 'p1'
+    const pushToast = vi.spyOn(errorHandler, 'pushToast').mockImplementation(() => {})
+    vi.spyOn(store, 'applyProfile').mockResolvedValue(undefined)
+
+    const wrapper = mount(ProfileCards, mountOptions)
+    await wrapper.vm.$nextTick()
+    await wrapper.find('[data-testid="profile-chip-p2"]').trigger('click')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+
+    expect(pushToast.mock.calls.map(call => call[0].message).join('\n')).toContain('已切换到「个人」')
+  })
+
+  // issue #42 第 8 项：主进程还没生效（这里代理没起来）就不能显示"切换成功"。
+  it('主进程没生效时提示失败原因，不弹成功提示，选中也退回原配置', async () => {
+    const store = useSettingsStore()
+    store.profiles = [makeProfile({ id: 'p1' }), makeProfile({ id: 'p2', name: '个人' })]
+    store.activeProfileId = 'p1'
+    store.expandedProfileId = 'p1'
+    const pushToast = vi.spyOn(errorHandler, 'pushToast').mockImplementation(() => {})
+    vi.spyOn(store, 'applyProfile').mockRejectedValue(Object.assign(
+      new Error('applyProfile("p2") failed: EADDRINUSE 34567'),
+      { profileApplyFailure: 'proxy_not_aligned' },
+    ))
+
+    const wrapper = mount(ProfileCards, mountOptions)
+    await wrapper.vm.$nextTick()
+    await wrapper.find('[data-testid="profile-chip-p2"]').trigger('click')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+
+    const messages = pushToast.mock.calls.map(call => call[0].message).join('\n')
+    expect(messages).toContain('本地代理没能按新配置启动')
+    expect(messages).not.toContain('已切换到')
+    expect(store.expandedProfileId).toBe('p1')
   })
 
   it('只剩 1 个 Profile 时删除按钮禁用', async () => {

@@ -12,7 +12,8 @@ import type { Message, TeamContext } from '@/types'
  *  - recordSubagentMessage：普通 Agent 工具的子智能体，只写 teammateTranscripts，
  *    绝不建 teamContext、绝不往主时间线推通知。
  *  - handleTaskNotification：只认 subtype=task_notification 且状态可归一（completed /
- *    failed 系），命中对应 Agent/Task 工具调用后置终态；未知状态或找不到会话直接吞掉。
+ *    failed 系），命中对应 Agent/Task 工具调用后置终态；TaskOutput 卡片按 task_id 只旁挂
+ *    taskFinalStatus，绝不改写 output（那是模型当时看到的快照）；未知状态或找不到会话直接吞掉。
  *  - viewTeammateTranscript / backToLeaderView 与 displayMessages/viewedTeammate
  *    决定右栏看的是队友转录还是主线消息。
  */
@@ -253,6 +254,95 @@ describe('chatSession handleTaskNotification', () => {
     )
 
     expect(store.getSession('a')!.messages[0].toolCalls![0].status).toBe('error')
+  })
+
+  function sessionWithTaskOutputSnapshot(taskId = 'af01ed6b30395409b') {
+    seedSession('a', {
+      messages: [{
+        id: 'm1', role: 'assistant', content: '', timestamp: 1,
+        toolCalls: [{
+          id: 'tool-out',
+          name: 'TaskOutput',
+          input: { task_id: taskId, block: true, timeout: 120000 },
+          output: [
+            '<retrieval_status>timeout</retrieval_status>',
+            `<task_id>${taskId}</task_id>`,
+            '<task_type>local_agent</task_type>',
+            '<status>running</status>',
+            '<output>Partial</output>',
+          ].join('\n\n'),
+          status: 'completed',
+          startTime: 1,
+          endTime: 120_001,
+        }],
+      }],
+    })
+  }
+
+  it('backfills the terminal status onto the matching TaskOutput snapshot card', async () => {
+    sessionWithTaskOutputSnapshot()
+    const store = await loadStore()
+
+    store.handleTaskNotification(
+      { subtype: 'task_notification', status: 'completed', task_id: 'af01ed6b30395409b' },
+      'a',
+    )
+
+    const tc = store.getSession('a')!.messages[0].toolCalls![0]
+    expect(tc.taskFinalStatus).toBe('completed')
+    expect(tc.taskFinalAt).toBeTypeOf('number')
+    // output 是模型当时看到的快照，回填绝不能改写它
+    expect(tc.output).toContain('<status>running</status>')
+    expect(tc.output).toContain('Partial')
+    expect(tc.status).toBe('completed')
+  })
+
+  it('maps a killed notification onto a failed terminal status for TaskOutput too', async () => {
+    sessionWithTaskOutputSnapshot()
+    const store = await loadStore()
+
+    store.handleTaskNotification(
+      { subtype: 'task_notification', status: 'killed', task_id: 'af01ed6b30395409b' },
+      'a',
+    )
+
+    expect(store.getSession('a')!.messages[0].toolCalls![0].taskFinalStatus).toBe('failed')
+  })
+
+  it('leaves TaskOutput cards of other tasks untouched', async () => {
+    sessionWithTaskOutputSnapshot('other-task')
+    const store = await loadStore()
+
+    store.handleTaskNotification(
+      { subtype: 'task_notification', status: 'completed', task_id: 'af01ed6b30395409b' },
+      'a',
+    )
+
+    expect(store.getSession('a')!.messages[0].toolCalls![0].taskFinalStatus).toBeUndefined()
+  })
+
+  it('settles an Agent tool call and backfills a TaskOutput card in the same message', async () => {
+    seedSession('a', {
+      messages: [{
+        id: 'm1', role: 'assistant', content: '', timestamp: 1,
+        toolCalls: [
+          { id: 'tool-out', name: 'TaskOutput', input: { task_id: 'af01ed6b30395409b' }, output: '<status>running</status>', status: 'completed' },
+          { id: 'tool-1', name: 'Agent', input: { name: 'Worker' }, status: 'running' },
+        ],
+      }],
+    })
+    const store = await loadStore()
+
+    store.handleTaskNotification(
+      { subtype: 'task_notification', status: 'completed', task_id: 'af01ed6b30395409b', tool_use_id: 'tool-1' },
+      'a',
+    )
+
+    const toolCalls = store.getSession('a')!.messages[0].toolCalls!
+    // 两处改写不能互相覆盖：各自保留
+    expect(toolCalls[0].taskFinalStatus).toBe('completed')
+    expect(toolCalls[0].output).toBe('<status>running</status>')
+    expect(toolCalls[1].status).toBe('completed')
   })
 })
 

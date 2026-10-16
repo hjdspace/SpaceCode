@@ -20,6 +20,7 @@ export const useComputerUseStore = defineStore('computerUse', () => {
   const granting = ref(false)
   const checkingUpdate = ref(false)
   const runningDoctor = ref(false)
+  const restarting = ref(false)
   const error = ref<string | null>(null)
   const updateInfo = ref<CuaDriverUpdateInfo | null>(null)
   const doctorResult = ref<{ ok: boolean; checks: HealthCheck[] } | null>(null)
@@ -89,17 +90,38 @@ export const useComputerUseStore = defineStore('computerUse', () => {
     }
   }
 
-  /** 运行健康检查 */
-  async function runDoctor() {
+  /**
+   * 运行健康检查。
+   *
+   * @param fresh 先换掉驱动子进程再探测。macOS 的 TCC 判定按进程缓存，
+   *              在系统设置里改完授权后不换进程会一直读回旧结果。
+   */
+  async function runDoctor(fresh = false) {
     runningDoctor.value = true
     try {
-      const result = await api.computerUse.doctor()
+      const result = await api.computerUse.doctor(fresh)
       doctorResult.value = result
       return result
     } catch (e) {
       return { ok: false, checks: [] }
     } finally {
       runningDoctor.value = false
+    }
+  }
+
+  /** 丢弃当前驱动子进程，下一次探测重新拉起 */
+  async function restartDriver() {
+    restarting.value = true
+    error.value = null
+    try {
+      const result = await api.computerUse.restart()
+      await refreshStatus()
+      return result
+    } catch (e) {
+      error.value = String(e)
+      return { success: false }
+    } finally {
+      restarting.value = false
     }
   }
 
@@ -118,6 +140,15 @@ export const useComputerUseStore = defineStore('computerUse', () => {
 
   /** 是否已就绪 */
   const isReady = computed(() => status.value?.ready === true)
+  /**
+   * 就绪三态。null（读不到授权状态）不能显示成「未就绪，去系统设置」——
+   * 用户可能已经去勾过了，差别只在驱动有没有拿到自己的 TCC 身份。
+   */
+  const readyState = computed<'ready' | 'not-ready' | 'unknown'>(() => {
+    if (status.value?.ready === true) return 'ready'
+    if (status.value?.ready === null) return 'unknown'
+    return 'not-ready'
+  })
   /** 是否已安装 */
   const isInstalled = computed(() => status.value?.installed === true)
   /** 是否支持当前平台 */
@@ -138,11 +169,13 @@ export const useComputerUseStore = defineStore('computerUse', () => {
     granting,
     checkingUpdate,
     runningDoctor,
+    restarting,
     error,
     updateInfo,
     doctorResult,
     installProgress,
     isReady,
+    readyState,
     isInstalled,
     isPlatformSupported,
     isMacOS,
@@ -153,6 +186,7 @@ export const useComputerUseStore = defineStore('computerUse', () => {
     install,
     grantPermissions,
     runDoctor,
+    restartDriver,
     checkUpdate,
   }
 })

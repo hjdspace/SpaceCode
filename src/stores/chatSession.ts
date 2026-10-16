@@ -1210,6 +1210,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (!raw || raw.subtype !== 'task_notification') return
     const normalized = taskNotificationStatus(raw.status)
     if (!normalized) return
+    // taskNotificationStatus 只会归一到 completed / failed，但 TeammateStatus 还含 running
+    const finalStatus: 'completed' | 'failed' = normalized.teammateStatus === 'failed' ? 'failed' : 'completed'
     const session = sessions.value.find(s => s.id === targetSessionId)
     if (!session) return
 
@@ -1219,12 +1221,24 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const summary = typeof raw.summary === 'string' ? raw.summary : ''
     const finalText = [summary, outputFile ? `output_file: ${outputFile}` : ''].filter(Boolean).join('\n')
     let changed = false
+    let taskOutputBackfilled = false
 
     for (const msg of session.messages) {
       const toolCalls = msg.toolCalls
       if (!toolCalls) continue
+      // 逐条改写时以当前数组为基底，避免同一消息内多处命中互相覆盖
+      let next: ToolCall[] | null = null
       for (let i = 0; i < toolCalls.length; i++) {
-        const tc = toolCalls[i]
+        const tc = (next ?? toolCalls)[i]
+        if (tc.name === 'TaskOutput') {
+          // TaskOutput 卡片是一次性快照，任务终态只能旁挂，不能改写 output
+          if (taskId && tc.input?.task_id === taskId && tc.taskFinalStatus !== finalStatus) {
+            next = next ?? [...toolCalls]
+            next[i] = { ...tc, taskFinalStatus: finalStatus, taskFinalAt: Date.now() }
+            taskOutputBackfilled = true
+          }
+          continue
+        }
         if (tc.name !== 'Agent' && tc.name !== 'Task') continue
         const outputAgentId = typeof tc.output === 'string'
           ? tc.output.match(/agentId:\s*([^\s]+)/)?.[1]
@@ -1237,15 +1251,14 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         const nextOutput = finalText
           ? `${tc.output || ''}${tc.output ? '\n\n' : ''}${finalText}`.slice(0, 30000)
           : tc.output
-        const updatedToolCalls: ToolCall[] = [...toolCalls]
-        updatedToolCalls[i] = {
+        next = next ?? [...toolCalls]
+        next[i] = {
           ...tc,
           status: normalized.toolStatus,
           output: nextOutput,
           endTime: Date.now(),
         }
-        msg.toolCalls = updatedToolCalls
-        recordAgentToolCall(session, updatedToolCalls[i], normalized.teammateStatus)
+        recordAgentToolCall(session, next[i], normalized.teammateStatus)
         changed = true
 
         const mappedTeammateId = teammateIdForParentToolUse(targetSessionId, tc.id)
@@ -1253,13 +1266,14 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           (taskId ? normalizeTeammateId(taskId) : normalizeTeammateId(tc.id))
         applySubagentTerminalStatus(session, subagentId, normalized.teammateStatus, finalText)
       }
+      if (next) msg.toolCalls = next
     }
 
     if (!changed && taskId) {
       changed = applySubagentTerminalStatus(session, normalizeTeammateId(taskId), normalized.teammateStatus, finalText)
     }
 
-    if (changed) {
+    if (changed || taskOutputBackfilled) {
       session.updatedAt = Date.now()
       session.lastActivityAt = Date.now()
       saveToStorage()

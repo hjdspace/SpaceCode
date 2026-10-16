@@ -53,6 +53,22 @@ export async function expectCommittedFile(entry: ExtraResource, fileName: string
 }
 
 /**
+ * Assert a build script's source mentions `fragment`.
+ *
+ * Used when the *shape* of the payload is decided by the script rather than by
+ * the checkout — e.g. macOS has to keep the .app bundle and not just the bare
+ * binary, and nothing on disk proves that after the fact.
+ */
+export async function expectScriptProduces(scriptPath: string, fragment: string): Promise<void> {
+  const text = await readReal(scriptPath)
+  if (!text.includes(fragment)) {
+    throw new Error(
+      `${scriptPath} must produce ${fragment} — the packaged lookup depends on it being there`,
+    )
+  }
+}
+
+/**
  * Assert the release job runs `scriptFragment` to fill `entry.from` before
  * electron-builder copies it. Used when the payload is gitignored, so a clean CI
  * checkout alone would ship an empty directory.

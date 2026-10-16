@@ -123,10 +123,10 @@
             <span class="cu-permission-name">{{ t('computerUse.accessibility') }}</span>
             <span class="cu-permission-desc">{{ t('computerUse.accessibilityDesc') }}</span>
           </div>
-          <span class="cu-badge" :class="permissionBadgeClass(store.status?.accessibility)">
-            <CheckCircle v-if="store.status?.accessibility === true" :size="14" />
-            <XCircle v-else-if="store.status?.accessibility === false" :size="14" />
-            {{ permissionLabel(store.status?.accessibility) }}
+          <span class="cu-badge" :class="permissionBadgeClass(perms.accessibility)">
+            <CheckCircle v-if="perms.accessibility === true" :size="14" />
+            <XCircle v-else-if="perms.accessibility === false" :size="14" />
+            {{ permissionLabel(perms.accessibility) }}
           </span>
         </div>
 
@@ -135,11 +135,35 @@
             <span class="cu-permission-name">{{ t('computerUse.screenRecording') }}</span>
             <span class="cu-permission-desc">{{ t('computerUse.screenRecordingDesc') }}</span>
           </div>
-          <span class="cu-badge" :class="permissionBadgeClass(store.status?.screenRecording)">
-            <CheckCircle v-if="store.status?.screenRecording === true" :size="14" />
-            <XCircle v-else-if="store.status?.screenRecording === false" :size="14" />
-            {{ permissionLabel(store.status?.screenRecording) }}
+          <span class="cu-badge" :class="permissionBadgeClass(perms.screenRecording)">
+            <CheckCircle v-if="perms.screenRecording === true" :size="14" />
+            <XCircle v-else-if="perms.screenRecording === false" :size="14" />
+            {{ permissionLabel(perms.screenRecording) }}
           </span>
+        </div>
+
+        <!--
+          TCC 身份归属。macOS 把授权算给 responsible process，读数必须说明它反映的是
+          谁 —— 否则「驱动没有自己的身份」和「驱动有身份但被拒绝」在界面上无法区分，
+          用户会反复去系统设置里勾一个已经勾上的开关。
+        -->
+        <div class="cu-permission-row">
+          <div class="cu-permission-info">
+            <span class="cu-permission-name">{{ t('computerUse.tccIdentity') }}</span>
+            <span class="cu-permission-desc">{{ t('computerUse.tccIdentityDesc') }}</span>
+          </div>
+          <span class="cu-badge" :class="perms.attribution === DRIVER_DAEMON ? 'cu-badge-success' : 'cu-badge-danger'">
+            {{ perms.attribution || t('computerUse.unknown') }}
+          </span>
+        </div>
+
+        <div v-if="perms.readError" class="cu-warning">
+          <AlertCircle :size="16" />
+          <span>{{ t('computerUse.permissionReadFailed') }}: {{ perms.readError }}</span>
+        </div>
+        <div v-else-if="perms.screenRecording && perms.screenRecordingCapturable === false" class="cu-warning">
+          <AlertCircle :size="16" />
+          <span>{{ t('computerUse.grantBelongsToOtherProcess') }}</span>
         </div>
 
         <div class="cu-actions">
@@ -150,6 +174,14 @@
           >
             <ShieldCheck :size="14" />
             {{ store.granting ? t('computerUse.granting') : t('computerUse.grantPermissions') }}
+          </button>
+          <button
+            class="s-btn s-btn-secondary"
+            :disabled="store.restarting"
+            @click="store.restartDriver()"
+          >
+            <RotateCw :size="14" :class="{ spinning: store.restarting }" />
+            {{ t('computerUse.restartDriver') }}
           </button>
         </div>
         <p class="cu-hint">{{ t('computerUse.grantHint') }}</p>
@@ -168,7 +200,7 @@
         <button
           class="s-btn s-btn-secondary"
           :disabled="store.runningDoctor"
-          @click="store.runDoctor()"
+          @click="store.runDoctor(true)"
         >
           <Stethoscope :size="14" />
           {{ store.runningDoctor ? t('computerUse.running') : t('computerUse.runDoctor') }}
@@ -213,10 +245,11 @@
         </div>
       </div>
       <div class="s-panel-body">
-        <div class="cu-ready-banner" :class="store.isReady ? 'cu-ready' : 'cu-not-ready'">
-          <component :is="store.isReady ? CheckCircle : AlertCircle" :size="20" />
-          <span>{{ store.isReady ? t('computerUse.ready') : t('computerUse.notReady') }}</span>
+        <div class="cu-ready-banner" :class="readyBannerClass">
+          <component :is="readyIcon" :size="20" />
+          <span>{{ t(readyMessageKey) }}</span>
         </div>
+        <p v-if="store.readyState === 'unknown'" class="cu-hint">{{ t('computerUse.readyUnknownHint') }}</p>
       </div>
     </div>
 
@@ -256,12 +289,18 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, RefreshCw, Download, CheckCircle, XCircle, AlertCircle,
   ArrowUpCircle, Shield, ShieldCheck, Activity, Stethoscope,
-  Info, MinusCircle,
+  Info, MinusCircle, RotateCw,
 } from 'lucide-vue-next'
 import { useComputerUseStore } from '@/stores/computerUse'
+import { EMPTY_PERMISSIONS, type CuaDriverPermissions } from '@/types/computerUse'
+
+/** cua-driver 以自己的 bundle 身份（com.trycua.driver）运行时的归属值 */
+const DRIVER_DAEMON = 'driver-daemon'
 
 const { t } = useI18n()
 const store = useComputerUseStore()
+
+const perms = computed<CuaDriverPermissions>(() => store.status?.permissions ?? EMPTY_PERMISSIONS)
 
 onMounted(() => {
   store.refreshStatus()
@@ -278,6 +317,23 @@ function permissionLabel(granted: boolean | null | undefined): string {
   if (granted === false) return t('computerUse.notGranted')
   return t('computerUse.unknown')
 }
+
+const readyBannerClass = computed(() => ({
+  ready: 'cu-ready',
+  'not-ready': 'cu-not-ready',
+  unknown: 'cu-unknown',
+}[store.readyState]))
+
+const readyIcon = computed(() => {
+  if (store.readyState === 'ready') return CheckCircle
+  return store.readyState === 'unknown' ? AlertCircle : XCircle
+})
+
+const readyMessageKey = computed(() => ({
+  ready: 'computerUse.ready',
+  'not-ready': 'computerUse.notReady',
+  unknown: 'computerUse.readyUnknown',
+}[store.readyState]))
 
 const healthIconClass = computed(() => {
   if (!store.doctorResult) return ''
@@ -533,6 +589,12 @@ async function handleInstall() {
   &.cu-not-ready {
     background: rgba(239, 68, 68, 0.08);
     color: rgb(239, 68, 68);
+  }
+
+  // 读不到授权状态 ≠ 被拒绝：用中性色，避免把用户推回去重复勾一个已经勾上的开关
+  &.cu-unknown {
+    background: rgba(245, 158, 11, 0.08);
+    color: rgb(217, 119, 6);
   }
 }
 

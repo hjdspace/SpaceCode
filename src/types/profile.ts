@@ -39,3 +39,10 @@ export interface ProfilesFile {
   activeProfileId: string | null
   profiles: ModelProfile[]
 }
+
+/**
+ * applyProfile 的失败类别，挂在抛出的 Error 上（`profileApplyFailure`）。
+ * "切换失败"有三种成因，界面按它选文案：配置没写进主进程、本地代理没对齐、
+ * 还是方案文件没落盘。
+ */
+export type ProfileApplyFailure = 'settings_save_failed' | 'proxy_not_aligned' | 'profiles_save_failed'

@@ -15,6 +15,11 @@ import { homedir } from 'os'
 import { spawn, execFile, execFileSync } from 'child_process'
 import { info, warn, error as logError } from '../infra/logger'
 import { CuaDriverMcpClient } from './cuaDriverMcpClient'
+import {
+  findInstalledAppBundleBinary,
+  stageAppBundle,
+  CUA_DRIVER_APP_NAME,
+} from './cuaDriverBundle'
 import type {
   CuaDriverStatus,
   HealthCheck,
@@ -40,26 +45,34 @@ let mcpClient: CuaDriverMcpClient | null = null
 /**
  * 获取 cua-driver 二进制路径。
  *
- * 优先级：
+ * macOS 与其余平台走两套规则，因为「能跑」在这两处的含义不同：
+ *
+ * - darwin：只认 CuaDriver.app 内的可执行文件。TCC 授权按 CFBundleIdentifier
+ *   归属，裸 Mach-O 没有身份，跑起来只会得到一份全红的诊断（bundle_identity /
+ *   tcc_* / ax / screen_capture 全 fail），且用户在系统设置里勾了宿主应用也不会变绿。
+ *   没有 bundle 时返回 null，由 getComputerUseStatus 给出可操作的提示。
+ * - 其他平台：五级优先，用户自行安装的版本要能赢过随 SpaceCode 打包的副本。
+ *
+ * 优先级（非 darwin）：
  * 1. 环境变量 CUA_DRIVER_CMD
  * 2. 系统 PATH 上的 cua-driver（用户自行安装的最新版）
- * 3. 应用内置的 cua-driver（随 SpaceCode 打包）
- *
- * 返回 null 表示未找到。
+ * 3. 官方安装脚本的落地目录
+ * 4. 从内置二进制复制到 <userData>/bin 的副本
+ * 5. 应用内置的 cua-driver（随 SpaceCode 打包）
  */
 export function findCuaDriverBinary(): string | null {
-  // 1. 环境变量覆盖
+  // 1. 环境变量覆盖 — 用户显式指定的路径原样尊重，包括 darwin
   const envCmd = process.env[CUA_DRIVER_ENV_VAR]
   if (envCmd && existsSync(envCmd)) return envCmd
+
+  if (process.platform === 'darwin') return findInstalledAppBundleBinary()
 
   // 2. 检查系统 PATH（使用 which/where）— 用户自行安装的最新版
   const systemPath = findInPath(CUA_DRIVER_BIN)
   if (systemPath) return systemPath
 
-  // 3. 检查 cua-driver 官方安装脚本的标准安装路径
-  //    安装脚本会将二进制放在 ~/.cua-driver/packages/current/ 下，
-  //    并在系统安装目录创建 junction/symlink。PATH 可能未及时刷新
-  //    （Electron 进程启动时缓存了旧 PATH），所以这里显式检查。
+  // 3. 检查 cua-driver 官方安装脚本的标准安装路径。
+  //    PATH 可能未及时刷新（Electron 进程启动时缓存了旧 PATH），所以这里显式检查。
   const wellKnownPath = findInWellKnownLocations()
   if (wellKnownPath) return wellKnownPath
 
@@ -88,14 +101,15 @@ function findInPath(binName: string): string | null {
 }
 
 /**
- * 检查 cua-driver 官方安装脚本的标准安装路径。
+ * 检查 cua-driver 官方安装脚本的标准安装路径（Windows / Linux）。
  *
- * 安装脚本（install.ps1 / install.sh）将二进制安装到：
- * - package home: ~/.cua-driver/packages/current/<bin>  （所有平台）
+ * 安装脚本（install.ps1 / install.sh）将二进制放在：
+ * - package home: ~/.cua-driver/packages/current/<bin>
  * - install dir:
  *   - Windows: %LOCALAPPDATA%\Programs\Cua\cua-driver\bin\<bin> （junction → packages/current）
- *   - macOS:   ~/Library/Cua/cua-driver/bin/<bin>               （symlink → packages/current）
  *   - Linux:   ~/.local/bin/<bin>                               （symlink → packages/current）
+ *
+ * macOS 不在这里 —— 它用 /Applications/CuaDriver.app，见 cuaDriverBundle.ts。
  *
  * Electron 进程可能在安装脚本更新 PATH 之前就已启动，导致 `where`/`which`
  * 找不到二进制。这里显式检查这些已知路径作为兜底。
@@ -112,9 +126,6 @@ function findInWellKnownLocations(): string | null {
     if (localAppData) {
       candidates.push(join(localAppData, 'Programs', 'Cua', 'cua-driver', 'bin', CUA_DRIVER_BIN))
     }
-  } else if (process.platform === 'darwin') {
-    candidates.push(join(home, '.cua-driver', 'packages', 'current', CUA_DRIVER_BIN))
-    candidates.push(join(home, 'Library', 'Cua', 'cua-driver', 'bin', CUA_DRIVER_BIN))
   } else if (process.platform === 'linux') {
     candidates.push(join(home, '.cua-driver', 'packages', 'current', CUA_DRIVER_BIN))
     candidates.push(join(home, '.local', 'bin', CUA_DRIVER_BIN))
@@ -170,7 +181,7 @@ export async function getCuaDriverVersion(binaryPath: string): Promise<string | 
 
 /**
  * 判断二进制来源。
- * bundled = 随应用打包；system = 用户自行安装。
+ * bundled = 随应用打包；system = 用户自行安装（含 macOS 的 /Applications/CuaDriver.app）。
  */
 function getBinarySource(binaryPath: string | null): 'bundled' | 'system' | null {
   if (!binaryPath) return null
@@ -183,17 +194,19 @@ function getBinarySource(binaryPath: string | null): 'bundled' | 'system' | null
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     systemPatterns.push(join(process.env.LOCALAPPDATA, 'Programs', 'Cua'))
   }
-  if (process.platform === 'darwin') {
-    systemPatterns.push(join(home, 'Library', 'Cua'))
-  }
   for (const pattern of systemPatterns) {
     if (binaryPath.includes(pattern)) return 'system'
   }
 
   // 从内置二进制复制到 userData/bin/ 的标记为 'bundled'
   if (binaryPath.includes(join(app.getPath('userData'), 'bin'))) return 'bundled'
-  // 内置二进制路径包含 resources/cua-driver
-  if (binaryPath.includes(join('resources', 'cua-driver'))) return 'bundled'
+  // 内置副本在 <resourcesPath>/cua-driver 下。用 resourcesPath 而不是字面量
+  // 'resources/cua-driver' 比对：macOS 的磁盘布局是 Contents/Resources，大小写
+  // 对不上，字面量只在 Windows 上碰巧成立 —— mac 包因此被标成「系统」，
+  // 让人以为红叉来自自己装的那份驱动。
+  if (app.isPackaged && binaryPath.startsWith(join(process.resourcesPath, 'cua-driver'))) return 'bundled'
+  // 开发模式下内置副本直接从仓库的 resources/cua-driver 取
+  if (!app.isPackaged && binaryPath.includes(join('resources', 'cua-driver'))) return 'bundled'
   return 'system'
 }
 
@@ -238,8 +251,15 @@ export async function cleanupCuaDriverMcp(): Promise<void> {
  *
  * 对齐 hermes-agent 的 doctor.py — 调用 cua-driver 的 health_report MCP 工具，
  * 解析 structuredContent 中的 checks 数组。
+ *
+ * @param opts.fresh 先丢掉现有子进程再探测。macOS 在系统设置里改授权后必须换进程
+ *                   才看得到新结果，所以「运行诊断」按钮走 fresh。
  */
-export async function runHealthReport(): Promise<{ ok: boolean; checks: HealthCheck[] }> {
+export async function runHealthReport(
+  opts?: { fresh?: boolean },
+): Promise<{ ok: boolean; checks: HealthCheck[] }> {
+  if (opts?.fresh) await cleanupCuaDriverMcp()
+
   try {
     const client = await getMcpClient()
     const result = await client.callTool('health_report', {}, 30_000)
@@ -291,41 +311,67 @@ export async function runHealthReport(): Promise<{ ok: boolean; checks: HealthCh
 
 // ── 权限管理（macOS TCC）─────────────────────────────────────
 
+/** 权限状态的空值 —— 非 macOS、或拿不到任何有效读数时使用 */
+function emptyPermissions(readError: string | null = null): CuaDriverPermissions {
+  return {
+    accessibility: null,
+    screenRecording: null,
+    screenRecordingCapturable: null,
+    attribution: null,
+    readError,
+  }
+}
+
 /**
  * 查询 macOS TCC 权限状态。
  *
  * 对齐 hermes-agent 的 permissions.py — 调用 `cua-driver permissions status --json`。
- * Windows/Linux 无 TCC 模型，返回 null。
+ * Windows/Linux 无 TCC 模型，返回空。
+ *
+ * 除了两个布尔值，还要带上 CLI 的 `source` 字段（这里叫 attribution）：它说明
+ * 这次读数反映的是谁的身份。CLI 自己的解释是 —— macOS 把授权算给 responsible
+ * process，从终端或宿主应用里直接问，读到的是终端/宿主而非驱动的授权。没有这个
+ * 字段，「驱动没身份」和「驱动有身份但没授权」在界面上长得一模一样。
  */
 export async function getPermissionsStatus(): Promise<CuaDriverPermissions> {
   if (process.platform !== 'darwin') {
-    return { accessibility: null, screenRecording: null }
+    return emptyPermissions()
   }
 
   const binaryPath = findCuaDriverBinary()
   if (!binaryPath) {
-    return { accessibility: null, screenRecording: null }
+    return emptyPermissions('cua-driver binary not found')
   }
 
   return new Promise((resolve) => {
     execFile(
       binaryPath,
       ['permissions', 'status', '--json'],
-      { timeout: 10_000, env: { ...process.env, [CUA_TELEMETRY_ENV]: '0' } },
+      // 这条命令可能顺手 relaunch daemon，10s 偏紧
+      { timeout: 20_000, env: { ...process.env, [CUA_TELEMETRY_ENV]: '0' } },
       (err, stdout) => {
         if (err) {
           warn('CuaDriverService', `permissions status failed: ${err.message}`)
-          resolve({ accessibility: null, screenRecording: null })
+          resolve(emptyPermissions(err.message))
           return
         }
         try {
           const data = JSON.parse(stdout.trim())
           resolve({
-            accessibility: data.accessibility ?? null,
-            screenRecording: data.screen_recording ?? data.screenRecording ?? null,
+            accessibility: typeof data.accessibility === 'boolean' ? data.accessibility : null,
+            screenRecording:
+              typeof data.screen_recording === 'boolean' ? data.screen_recording : null,
+            screenRecordingCapturable:
+              typeof data.screen_recording_capturable === 'boolean'
+                ? data.screen_recording_capturable
+                : null,
+            attribution: typeof data.source === 'string' ? data.source : null,
+            readError: null,
           })
-        } catch {
-          resolve({ accessibility: null, screenRecording: null })
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          warn('CuaDriverService', `permissions status JSON parse failed: ${msg}`)
+          resolve(emptyPermissions(msg))
         }
       },
     )
@@ -335,6 +381,9 @@ export async function getPermissionsStatus(): Promise<CuaDriverPermissions> {
 /**
  * 请求 macOS TCC 权限。
  * 会弹出系统设置对话框，需要用户手动授权。
+ *
+ * 授权完成后必须换掉 MCP 子进程：TCC 的判定按进程缓存，旧进程会一直读回授权前的
+ * 拒绝结果。不重启的话，用户明明勾了开关，诊断面板还是全红。
  */
 export async function grantPermissions(): Promise<{ success: boolean; error?: string }> {
   if (process.platform !== 'darwin') {
@@ -346,20 +395,21 @@ export async function grantPermissions(): Promise<{ success: boolean; error?: st
     return { success: false, error: 'cua-driver binary not found' }
   }
 
-  return new Promise((resolve) => {
+  const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
     execFile(
       binaryPath,
       ['permissions', 'grant'],
-      { timeout: 30_000, env: { ...process.env, [CUA_TELEMETRY_ENV]: '0' } },
+      // 这条命令要等人在系统设置里点完，30s 会让一次正常授权被报成失败
+      { timeout: 180_000, env: { ...process.env, [CUA_TELEMETRY_ENV]: '0' } },
       (err) => {
-        if (err) {
-          resolve({ success: false, error: err.message })
-          return
-        }
-        resolve({ success: true })
+        if (err) resolve({ success: false, error: err.message })
+        else resolve({ success: true })
       },
     )
   })
+
+  if (result.success) await cleanupCuaDriverMcp()
+  return result
 }
 
 // ── 更新检查 ───────────────────────────────────────────────────
@@ -505,13 +555,42 @@ function execFileSync2(cmd: string, args: string[]): Promise<string> {
 }
 
 /**
+ * macOS：把内置的 CuaDriver.app 落到 /Applications（回退 ~/Applications）。
+ *
+ * 不走 installFromBundledBinary 那条「复制裸二进制到 <userData>/bin」的路：
+ * 那样得到的进程没有 CFBundleIdentifier，TCC 授权不会归到驱动身上，
+ * Computer Use 会永远停在未就绪。
+ *
+ * @returns true 表示已就绪（本次落地或此前已存在）；false 表示需要回退在线安装
+ */
+async function installMacAppBundle(progress: (p: CuaInstallProgress) => void): Promise<boolean> {
+  const existing = findInstalledAppBundleBinary()
+  if (existing) {
+    progress({ stage: 'done', message: `${CUA_DRIVER_APP_NAME} 已就绪`, percent: 100 })
+    info('CuaDriverService', `Using existing driver bundle: ${existing}`)
+    return true
+  }
+
+  progress({ stage: 'installing', message: `安装 ${CUA_DRIVER_APP_NAME} 到 /Applications...`, percent: 50 })
+  const staged = await stageAppBundle()
+  if (!staged.ok || !staged.binaryPath) {
+    logError('CuaDriverService', `Failed to stage CuaDriver.app: ${staged.error}`)
+    return false
+  }
+
+  progress({ stage: 'done', message: `已安装 ${staged.appDir}`, percent: 100 })
+  info('CuaDriverService', `Staged driver bundle: ${staged.binaryPath}`)
+  return true
+}
+
+/**
  * 安装或升级 cua-driver。
  *
  * 安装策略（按优先级）：
- * 1. **内置二进制** — 如果应用打包了 cua-driver（extraResources），
- *    直接复制到用户数据目录，秒级完成，无需网络下载。
- * 2. **GitHub 在线安装** — 如果没有内置二进制（如开发模式），
- *    调用上游安装脚本从 GitHub 下载。
+ * 1. **内置副本** — macOS 把 CuaDriver.app 落地到标准安装目录（TCC 身份需要它），
+ *    其他平台把裸二进制复制到用户数据目录。两者都秒级完成，无需网络。
+ * 2. **GitHub 在线安装** — 没有内置副本时（如开发模式），调用上游安装脚本。
+ *    官方脚本在 macOS 上同样会安装 /Applications/CuaDriver.app。
  *    支持 `CUA_DRIVER_GITHUB_MIRROR` 环境变量设置 GitHub 镜像加速。
  *
  * 安装完成后用户安装的版本优先于内置版本。
@@ -528,14 +607,16 @@ export async function installCuaDriver(): Promise<{ success: boolean; error?: st
   info('CuaDriverService', 'Starting cua-driver installation...')
   sendInstallProgress({ stage: 'downloading', message: 'Starting installation...', percent: 0 })
 
-  // ── 策略 1: 尝试从内置二进制安装 ──
-  const bundledResult = installFromBundledBinary()
-  if (bundledResult) {
+  // ── 策略 1: 从内置副本安装 ──
+  const fromBundled = isMacOS
+    ? await installMacAppBundle(sendInstallProgress)
+    : installFromBundledBinary() !== null
+  if (fromBundled) {
     return { success: true }
   }
 
   // ── 策略 2: 从 GitHub 在线安装 ──
-  info('CuaDriverService', 'No bundled binary found, falling back to GitHub install script')
+  info('CuaDriverService', 'No bundled payload found, falling back to GitHub install script')
   sendInstallProgress({ stage: 'downloading', message: 'Downloading from GitHub (may take a while)...', percent: 5 })
 
   // 支持 GitHub 镜像加速：设置 CUA_DRIVER_GITHUB_MIRROR 环境变量
@@ -652,14 +733,16 @@ export async function getComputerUseStatus(): Promise<CuaDriverStatus> {
       ready: false,
       canGrant,
       checks: [],
-      error: 'cua-driver binary not found',
-      accessibility: null,
-      screenRecording: null,
+      // macOS 上「找不到二进制」几乎都是「bundle 没落地」，说清楚才有下一步。
+      error: platform === 'darwin'
+        ? `${CUA_DRIVER_APP_NAME} 未安装到 /Applications —— 驱动需要 bundle 身份才能持有 TCC 授权，点「安装」即可。`
+        : 'cua-driver binary not found',
+      permissions: emptyPermissions(),
     }
   }
 
   // 获取权限状态（macOS）
-  let permissions: CuaDriverPermissions = { accessibility: null, screenRecording: null }
+  let permissions: CuaDriverPermissions = emptyPermissions()
   if (canGrant) {
     permissions = await getPermissionsStatus()
   }
@@ -682,9 +765,23 @@ export async function getComputerUseStatus(): Promise<CuaDriverStatus> {
   // 就绪条件：
   // - macOS: accessibility && screenRecording && health.ok
   // - Windows/Linux: health.ok
+  //
+  // macOS 上必须把「读不到」和「读到了但没授权」分开。把 null 当 false 会让
+  // bundle 身份缺失显示成「未就绪，请去系统设置」，而用户已经去授权过了 ——
+  // 这正是本次故障的表象。null 一路传到 UI 的三态横幅。
+  //
+  // screenRecordingCapturable === false 压过 preflight 的 true：上游明确说
+  // 两者不一致时，那份授权属于另一个进程，驱动实际抓不到屏，不该报就绪。
   let ready: boolean | null
   if (canGrant) {
-    ready = Boolean(permissions.accessibility) && Boolean(permissions.screenRecording) && healthResult.ok
+    const { accessibility, screenRecording, screenRecordingCapturable } = permissions
+    if (accessibility === null || screenRecording === null) {
+      ready = null
+    } else if (screenRecording && screenRecordingCapturable === false) {
+      ready = false
+    } else {
+      ready = accessibility && screenRecording && healthResult.ok
+    }
   } else {
     ready = healthResult.ok
   }
@@ -700,8 +797,7 @@ export async function getComputerUseStatus(): Promise<CuaDriverStatus> {
     canGrant,
     checks: healthResult.checks,
     error: null,
-    accessibility: permissions.accessibility,
-    screenRecording: permissions.screenRecording,
+    permissions,
   }
 }
 
@@ -727,11 +823,19 @@ export function registerCuaDriverIPCHandlers(): void {
 
   ipcMain.handle('cua-driver:install', () => installCuaDriver())
 
-  ipcMain.handle('cua-driver:doctor', () => runHealthReport())
+  ipcMain.handle('cua-driver:doctor', (_e, fresh?: boolean) =>
+    runHealthReport({ fresh: Boolean(fresh) }),
+  )
 
   ipcMain.handle('cua-driver:permissions:status', () => getPermissionsStatus())
 
   ipcMain.handle('cua-driver:permissions:grant', () => grantPermissions())
+
+  // 丢掉当前驱动子进程，下一次探测会重新拉起。macOS 改完授权后必须换进程才看得见。
+  ipcMain.handle('cua-driver:restart', async () => {
+    await cleanupCuaDriverMcp()
+    return { success: true }
+  })
 
   ipcMain.handle('cua-driver:check-update', () => checkUpdate())
 
