@@ -73,5 +73,6 @@ export default {
   priorityLater: 'Queue',
   priorityNow: 'Steer',
   messageSteered: 'Message steered into current turn',
+  thinkingAppliesNextTurn: 'Thinking setting applies after this response',
   dropImageHint: 'Drop image here to add',
 }

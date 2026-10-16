@@ -23,6 +23,16 @@ function collect(events: { data: string }[], estimate = 0) {
     .map(s => JSON.parse(s.slice(s.indexOf('data: ') + 6)))
 }
 
+function collectWithoutThinking(events: { data: string }[]) {
+  const t = new OpenAIToAnthropicStreamTransformer(0, false)
+  const out: string[] = []
+  for (const e of events) out.push(...t.transform(e))
+  out.push(...t.finish())
+  return out
+    .filter(s => s.startsWith('event:'))
+    .map(s => JSON.parse(s.slice(s.indexOf('data: ') + 6)))
+}
+
 const sse = (obj: unknown) => ({ data: JSON.stringify(obj) })
 
 describe('streamingTransformer thinking/reasoning', () => {
@@ -294,6 +304,110 @@ describe('openAIToAnthropicResponse thinking', () => {
     assert.equal(anthropicResponse.content.length, 1)
     assert.equal(anthropicResponse.content[0].type, 'thinking')
     assert.equal(anthropicResponse.content[0].thinking, 'Just thinking, no answer yet.')
+  })
+})
+
+/**
+ * 客户端没请求思考时（CLI 的 --thinking disabled → 请求体里没有 thinking），
+ * 兼容网关仍会默认吐 reasoning_content。此前代理无条件把它映射成 thinking 块，
+ * 于是"关了思考开关却照样看到推理过程"。
+ */
+describe('streamingTransformer — 未请求思考时不呈现推理', () => {
+  const reasoningThenAnswer = [
+    sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: { reasoning_content: '不该被看到的推理' } }] }),
+    sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: { content: '正式回答' } }] }),
+    sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+    { data: '[DONE]' },
+  ]
+
+  it('reasoning_content 不再开出 thinking 块，正文完整', () => {
+    const parsed = collectWithoutThinking(reasoningThenAnswer)
+
+    const blockTypes = parsed
+      .filter(e => e.type === 'content_block_start')
+      .map(e => e.content_block.type)
+    assert.deepEqual(blockTypes, ['text'])
+    assert.equal(
+      parsed.filter(e => e.type === 'content_block_delta').some(d => d.delta?.type === 'thinking_delta'),
+      false,
+    )
+    const text = parsed
+      .filter(e => e.type === 'content_block_delta' && e.delta?.type === 'text_delta')
+      .map(e => e.delta.text)
+      .join('')
+    assert.equal(text, '正式回答')
+  })
+
+  it('空 reasoning_content 的回执残留也不会攒进兜底缓冲', () => {
+    const parsed = collectWithoutThinking([
+      sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: { reasoning_content: '' } }] }),
+      sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: { content: '答' } }] }),
+      sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+      { data: '[DONE]' },
+    ])
+
+    assert.deepEqual(
+      parsed.filter(e => e.type === 'content_block_start').map(e => e.content_block.type),
+      ['text'],
+    )
+  })
+
+  it('纯推理模型（正文只在 reasoning_content 里）不会被吞成空白回复', () => {
+    const parsed = collectWithoutThinking([
+      sse({ id: 'c1', model: 'deepseek-r1', choices: [{ index: 0, delta: { reasoning_content: '只有推理，没有 content' } }] }),
+      sse({ id: 'c1', model: 'deepseek-r1', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+      { data: '[DONE]' },
+    ])
+
+    const blocks = parsed.filter(e => e.type === 'content_block_start')
+    assert.equal(blocks.length, 1)
+    assert.equal(blocks[0].content_block.type, 'text')
+    const text = parsed
+      .filter(e => e.type === 'content_block_delta')
+      .map(e => e.delta?.text)
+      .join('')
+    assert.equal(text, '只有推理，没有 content')
+  })
+
+  it('工具调用也算可见内容，兜底不会把推理塞进正文', () => {
+    const parsed = collectWithoutThinking([
+      sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: { reasoning_content: '我要调工具' } }] }),
+      sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'tu_1', function: { name: 'Read', arguments: '{}' } }] } }] }),
+      sse({ id: 'c1', model: 'glm-5-3-flash', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+      { data: '[DONE]' },
+    ])
+
+    const blocks = parsed.filter(e => e.type === 'content_block_start')
+    assert.deepEqual(blocks.map(b => b.content_block.type), ['tool_use'])
+  })
+
+  it('非流式响应同样按 includeReasoning 决定', () => {
+    const openaiResponse = {
+      id: 'c1',
+      model: 'glm-5-3-flash',
+      choices: [{ index: 0, message: { role: 'assistant', reasoning_content: '推理', content: '回答' }, finish_reason: 'stop' }],
+    }
+
+    const suppressed = openAIToAnthropicResponse(openaiResponse, { includeReasoning: false })
+    assert.deepEqual(suppressed.content.map((b: Record<string, any>) => b.type), ['text'])
+
+    const shown = openAIToAnthropicResponse(openaiResponse, { includeReasoning: true })
+    assert.deepEqual(shown.content.map((b: Record<string, any>) => b.type), ['thinking', 'text'])
+  })
+
+  it('请求体的 thinking 口径：adaptive/enabled 算请求，disabled 与缺省不算', () => {
+    const withAdaptive = anthropicToOpenAIRequest({ model: 'glm-5-3-flash', messages: [{ role: 'user', content: 'hi' }], thinking: { type: 'adaptive' } })
+    assert.ok(withAdaptive.enable_thinking === true || withAdaptive.thinking)
+
+    const withEnabled = anthropicToOpenAIRequest({ model: 'glm-5-3-flash', messages: [{ role: 'user', content: 'hi' }], thinking: { type: 'enabled', budget_tokens: 1000 } })
+    assert.ok(withEnabled.enable_thinking === true || withEnabled.thinking)
+
+    for (const thinking of [undefined, { type: 'disabled' }]) {
+      const body = anthropicToOpenAIRequest({ model: 'glm-5-3-flash', messages: [{ role: 'user', content: 'hi' }], ...(thinking ? { thinking } : {}) })
+      assert.equal(body.thinking, undefined)
+      assert.equal(body.enable_thinking, undefined)
+      assert.equal(body.chat_template_kwargs, undefined)
+    }
   })
 })
 

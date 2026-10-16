@@ -77,8 +77,9 @@ export class ClaudeCodeEngine implements IEngine {
   }
 
   sendMessage(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
-    this.pool.sendMessage(sessionId, content, images)
-    return Promise.resolve()
+    // 池会在转发前做权限模式核验与 --thinking 重启，这两步是异步的，
+    // 且可能判定"不该发送"—— 必须把这条 Promise 原样交给调用方。
+    return this.pool.sendMessage(sessionId, content, images)
   }
 
   submitToolAnswer(sessionId: string, toolCallId: string, answers: Record<string, string>): Promise<void> {
@@ -178,6 +179,7 @@ export class ClaudeCodeEngine implements IEngine {
       status: status.status,
       isRunning: status.isRunning,
       permissionMode: status.permissionMode as PermissionMode | undefined,
+      permissionModeVerified: status.permissionModeVerified,
     }
   }
 
@@ -188,6 +190,7 @@ export class ClaudeCodeEngine implements IEngine {
       status: s.status,
       isRunning: s.isRunning,
       permissionMode: s.permissionMode as PermissionMode | undefined,
+      permissionModeVerified: s.permissionModeVerified,
     }))
   }
 

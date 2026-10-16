@@ -134,7 +134,7 @@ afterEach(() => {
 })
 
 describe('buildArgs — base protocol flags', () => {
-  it('always opens the stream-json stdio protocol and bypass-safe startup', () => {
+  it('opens the stream-json stdio protocol and starts in the configured permission mode', () => {
     const args = buildArgs()
     expect(args.slice(0, 9)).toEqual([
       '--print',
@@ -144,9 +144,17 @@ describe('buildArgs — base protocol flags', () => {
       '--include-partial-messages',
       '--permission-mode', 'default',
     ])
-    expect(args).toContain('--dangerously-skip-permissions')
+    // --dangerously-skip-permissions 的启动优先级高于 --permission-mode，
+    // 一起传等于先起在全放行再指望控制请求改回去，所以非 bypass 意图一律不带它。
+    expect(args).not.toContain('--dangerously-skip-permissions')
     expect(flag(args, '--permission-prompt-tool')).toBe('stdio')
     expect(flag(args, '--thinking')).toBe('disabled')
+  })
+
+  it('only grants bypass at startup when the user asked for 完全信任', () => {
+    const args = buildArgs({ permissionMode: 'bypassPermissions' })
+    expect(flag(args, '--permission-mode')).toBe('bypassPermissions')
+    expect(args).toContain('--dangerously-skip-permissions')
   })
 
   it('reflects optional config flags only when the caller set them', () => {

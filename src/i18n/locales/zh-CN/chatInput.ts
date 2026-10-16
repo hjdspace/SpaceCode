@@ -73,5 +73,6 @@ export default {
   priorityLater: '排队',
   priorityNow: '插队',
   messageSteered: '消息已注入当前对话',
+  thinkingAppliesNextTurn: '思考开关将在本轮回复结束后生效',
   dropImageHint: '拖放图片到此处添加',
 }

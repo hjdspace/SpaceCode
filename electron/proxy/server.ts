@@ -5,6 +5,7 @@ import { StringDecoder } from 'string_decoder'
 import { ProxyConfig, AdapterStatus } from './types'
 import { anthropicToOpenAIRequest, openAIToAnthropicResponse, estimateInputTokens } from './transformer'
 import { OpenAIToAnthropicStreamTransformer } from './streamingTransformer'
+import { isThinkingRequested } from './thinkingParams'
 import { buildUpstreamRequest } from './authHandler'
 import { applyModelMapping } from './modelMapper'
 import { SSEParser } from './sseParser'
@@ -214,15 +215,19 @@ export class ProxyServer {
     // Estimate input tokens from the original Anthropic body (before conversion)
     // to seed message_start, since OpenAI-compatible streams omit usage there.
     const estimatedInputTokens = estimateInputTokens(body)
+    // 客户端这次要不要思考，只能看原始 Anthropic 请求体（CLI 的 --thinking 落到这里）。
+    // 它决定上游回传的 reasoning_content 是否呈现为 thinking 块 —— 兼容网关常常默认
+    // 开推理，不看这个口径，关了思考开关照样能看到推理过程。
+    const includeReasoning = isThinkingRequested(body.thinking)
     const openaiBody = anthropicToOpenAIRequest(body)
     const upstream = buildUpstreamRequest('/v1/messages', openaiBody, this.config)
     const isStream = body.stream === true
     const bodyStr = JSON.stringify(openaiBody)
 
     if (isStream) {
-      this.streamUpstream(upstream, bodyStr, res, true, estimatedInputTokens)
+      this.streamUpstream(upstream, bodyStr, res, true, estimatedInputTokens, includeReasoning)
     } else {
-      this.sendUpstream(upstream, bodyStr, res, true)
+      this.sendUpstream(upstream, bodyStr, res, true, includeReasoning)
     }
   }
 
@@ -231,6 +236,7 @@ export class ProxyServer {
     body: string,
     clientRes: http.ServerResponse,
     transformResponse: boolean,
+    includeReasoning = true,
   ): void {
     const parsedUrl = new URL(upstream.url)
     const bodyBuffer = Buffer.from(body)
@@ -258,7 +264,9 @@ export class ProxyServer {
       upstreamRes.on('end', () => {
         try {
           const response = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-          const finalResponse = transformResponse ? openAIToAnthropicResponse(response) : response
+          const finalResponse = transformResponse
+            ? openAIToAnthropicResponse(response, { includeReasoning })
+            : response
           clientRes.writeHead(200, { 'Content-Type': 'application/json' })
           clientRes.end(JSON.stringify(finalResponse))
         } catch (err) {
@@ -281,6 +289,7 @@ export class ProxyServer {
     clientRes: http.ServerResponse,
     transformStream: boolean,
     estimatedInputTokens = 0,
+    includeReasoning = true,
   ): void {
     const parsedUrl = new URL(upstream.url)
     const bodyBuffer = Buffer.from(body)
@@ -309,7 +318,7 @@ export class ProxyServer {
         })
 
         const parser = new SSEParser()
-        const transformer = new OpenAIToAnthropicStreamTransformer(estimatedInputTokens)
+        const transformer = new OpenAIToAnthropicStreamTransformer(estimatedInputTokens, includeReasoning)
         // TCP 分块可能把一个多字节 UTF-8 字符拦腰切断，逐块 toString() 是无状态解码，
         // 边界字符会碎成 ；解码状态必须跨块保持，且在 SSE 切分之前完成。
         const decoder = new StringDecoder('utf8')

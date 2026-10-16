@@ -17,7 +17,7 @@ export interface EngineSessionConfig {
   resumeSessionId?: string
   engineSource?: 'bundled' | 'installed'
   installedCliPath?: string
-  /** 会话起始权限模式；进程池据此把引擎从 bypass 启动态切回用户选择 */
+  /** 会话起始权限模式；sessionProcess 据此下发 --permission-mode（只有 bypass 才额外带 --dangerously-skip-permissions） */
   permissionMode?: PermissionMode
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
@@ -54,6 +54,8 @@ export interface EngineSessionStatus {
   status: 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
   isRunning: boolean
   permissionMode?: PermissionMode
+  /** 引擎是否已确认运行在 permissionMode 上；null/undefined = 无从核验，按 spawn 参数采信 */
+  permissionModeVerified?: boolean | null
 }
 
 export interface ImageAttachment {

@@ -174,10 +174,23 @@ export class SessionProcess extends EventEmitter {
   eventBuffer: SDKMessage[] = []
   lastActivityAt: number = Date.now()
   currentPermissionMode: PermissionMode = 'default'
+  /**
+   * 引擎在 system/init 里回报的实际权限模式。null = 该版本 CLI 没报，无从核验，
+   * 此时按"spawn 参数即意图"采信，不能当成失控。
+   */
+  reportedPermissionMode: PermissionMode | null = null
+  /**
+   * 意图模式（currentPermissionMode）是否已在引擎侧确认。
+   * null = 还没收到回报；true/false = 已确认符合 / 不符合。
+   */
+  permissionModeVerified: boolean | null = null
+  /** 本次 spawn 实际下发的思考开关；与 config.thinkingEnabled 不等即待重启生效。 */
+  spawnedThinkingEnabled?: boolean
 
   // 工具调用状态追踪
   private pendingToolCalls: Set<string> = new Set()
   private isProcessing: boolean = false
+  private initWaiters: Array<(ready: boolean) => void> = []
 
   // 控制协议处理器：负责 can_use_tool / control_response / elicitation 等
   private readonly controlProtocol: ControlProtocolHandler
@@ -318,6 +331,12 @@ export class SessionProcess extends EventEmitter {
     })
 
     const builtArgs = this.buildArgs(this.config)
+    // 记下这次 spawn 真正带回的参数：--thinking 只在 spawn 时读一次，运行中改
+    // config.thinkingEnabled 不会立刻生效，池要用这个差值判断"待重启生效"。
+    this.spawnedThinkingEnabled = this.config.thinkingEnabled
+    // 新进程 = 新的待核验状态，不要把上一个进程结论带过来。
+    this.reportedPermissionMode = null
+    this.permissionModeVerified = null
     const baseEnv = await this.buildEnv(this.config)
     const desktopCli = path.join(this.cliRoot, 'dist-desktop/cli.js')
     let launch = this.resolveCliCommand()
@@ -425,6 +444,33 @@ export class SessionProcess extends EventEmitter {
     })
   }
 
+  /**
+   * 等 CLI 发出 system/init —— 那才是它真正开始消费 stdin 控制请求的时刻。
+   * spawn 成功不等于就绪：在此之前发 set_permission_mode 会干等 10s 超时。
+   * 超时只返回 false，调用方按"未就绪"降级处理，不把启动判失败。
+   */
+  waitForInit(timeoutMs = 15_000): Promise<boolean> {
+    if (this.engineSessionId) return Promise.resolve(true)
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        const idx = this.initWaiters.indexOf(settle)
+        if (idx >= 0) this.initWaiters.splice(idx, 1)
+        resolve(false)
+      }, timeoutMs)
+      const settle = (ready: boolean) => {
+        clearTimeout(timer)
+        resolve(ready)
+      }
+      this.initWaiters.push(settle)
+    })
+  }
+
+  private settleInitWaiters(ready: boolean): void {
+    const waiters = this.initWaiters
+    this.initWaiters = []
+    for (const settle of waiters) settle(ready)
+  }
+
   private attachProcessListeners(proc: ChildProcess): void {
     proc.on('error', (err) => {
       this.status = 'exited'
@@ -473,6 +519,7 @@ export class SessionProcess extends EventEmitter {
       // Reject pending outbound control_requests and emit cancellation events
       // for any open inbound permission prompts so the UI can clean up.
       this.controlProtocol.rejectAllPending(`process_exit (code=${code}, signal=${signal})`)
+      this.settleInitWaiters(false)
       this.emit('exit', { code, signal, stderr: stderrTail })
       this.process = null
     })
@@ -810,6 +857,7 @@ export class SessionProcess extends EventEmitter {
     if (!this.process) return
     info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Suspending process | pid=${this.process.pid} | pendingTools=${this.pendingToolCalls.size}`)
     this.status = 'suspended'
+    this.settleInitWaiters(false)
     try {
       this.process.kill()
     } catch {}
@@ -821,6 +869,7 @@ export class SessionProcess extends EventEmitter {
       engineKillTree(this.process, 'SessionProcess')
       this.process = null
     }
+    this.settleInitWaiters(false)
     this.status = 'exited'
   }
 
@@ -917,6 +966,18 @@ export class SessionProcess extends EventEmitter {
 
     if (msg.type === 'system' && msg.subtype === 'init') {
       const sid = msg.session_id
+      // 引擎在 init 里回报它自己认定的权限模式 —— 这是宿主唯一能拿到的实况，
+      // 用来判断"用户意图是否真的落地"（池据此重试下发或直接重启进程）。
+      const reported = msg.permissionMode ?? msg.permission_mode
+      if (typeof reported === 'string') {
+        this.reportedPermissionMode = reported as PermissionMode
+        this.permissionModeVerified = reported === this.currentPermissionMode
+        info(
+          'SessionProcess',
+          `[${this.sessionId.slice(0, 8)}] Engine reports permission mode | mode=${reported} | intent=${this.currentPermissionMode} | matched=${this.permissionModeVerified}`,
+        )
+      }
+      this.settleInitWaiters(!!sid)
       if (sid) {
         this.engineSessionId = sid
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Engine session initialized | engineSessionId=${sid} | tools=${JSON.stringify(msg.tools || []).slice(0, 200)}`)
@@ -1104,11 +1165,14 @@ export class SessionProcess extends EventEmitter {
     }
     const permissionMode = config.permissionMode || 'default'
     args.push('--permission-mode', permissionMode)
-    // 使用 --dangerously-skip-permissions 使 engine 启动时 isBypassPermissionsModeAvailable=true，
-    // 从而允许运行时切换到 bypassPermissions 模式。
-    // engine 会因此启动为 bypass 模式（优先级高于 --permission-mode），
-    // 进程启动后由 ProcessPool 立即通过 setPermissionMode 切回用户配置的模式。
-    args.push('--dangerously-skip-permissions')
+    // bypass 只能由 --dangerously-skip-permissions 打开，且该 flag 在引擎启动优先级里
+    // 高于 --permission-mode（permissions/permissionSetup.ts 取第一个可用模式），一起
+    // 传就等于"先起在全放行、再指望控制请求改回去"。所以只在用户确实选了完全信任时
+    // 才加：其余模式启动即落在用户意图上，控制请求失败不再等于权限失控。
+    // 代价是运行中切到 bypass 会被引擎拒绝（not launched with ...），由进程池重启补上。
+    if (permissionMode === 'bypassPermissions') {
+      args.push('--dangerously-skip-permissions')
+    }
     if (config.effortLevel) args.push('--effort', config.effortLevel)
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
 

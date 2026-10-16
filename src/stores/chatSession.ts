@@ -492,32 +492,25 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   /**
    * 对账后端 permission mode 与用户偏好：若不一致则下发用户偏好。
    * 统一了 initClaudeCodeSession / selectSession / activateSession 三处的对账逻辑。
+   *
+   * status.permissionMode 是宿主记下的**意图**，不代表引擎真跑在这个模式上 ——
+   * 引擎在 system/init 里回报过不符（permissionModeVerified === false）时，即便意图
+   * 看起来一致也要重新下发。下发之后的重试与"重启到意图模式"兜底在进程池里
+   * （claudeCodeProcessPool.reconcilePermissionMode），这里不再自己排一遍重试。
    */
   async function syncPermissionMode(
     sessionId: string,
-    status: { permissionMode?: string | null } | null,
+    status: { permissionMode?: string | null; permissionModeVerified?: boolean | null } | null,
     callerName: string,
   ): Promise<void> {
     if (!status?.permissionMode) return
     const { usePermissionPolicyStore } = await import('./permissionPolicy')
     const policyStore = usePermissionPolicyStore()
-    if (status.permissionMode === policyStore.currentPermissionMode) return
-    const claudeCode = api.claudeCode
-    // Linux AppImage 冷启动时 CLI 可能超过 setPermissionMode 的 10s 超时窗口才
-    // 消费控制请求，首次下发会超时失败；失败后有限重试，避免会话静默停留在
-    // bypass 启动模式（engine 以 --dangerously-skip-permissions 启动）。
-    const maxAttempts = 3
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await claudeCode?.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
-        return
-      } catch (e) {
-        if (attempt >= maxAttempts) {
-          logger.warn('ChatStore', `${callerName}: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
-          return
-        }
-        await new Promise(resolve => setTimeout(resolve, 3_000))
-      }
+    if (status.permissionMode === policyStore.currentPermissionMode && status.permissionModeVerified !== false) return
+    try {
+      await api.claudeCode?.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
+    } catch (e) {
+      logger.warn('ChatStore', `${callerName}: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
     }
   }
 

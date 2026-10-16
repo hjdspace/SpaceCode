@@ -16,9 +16,9 @@ const SUPPORTED_PERMISSION_MODES: PermissionMode[] = ['default', 'plan', 'accept
 /**
  * 任务级配置映射到引擎会话。
  *
- * permissionMode 必须显式给值：sessionProcess 一律带 --dangerously-skip-permissions
- * 启动（让运行时能切到 bypass），再由进程池按 config.permissionMode 切回。
- * 留空就等于让无人值守的任务跑在全放行模式，比改走引擎会话之前的行为更危险。
+ * permissionMode 必须显式给值：sessionProcess 现在按 config.permissionMode 原样启动
+ * （只有 bypassPermissions 才带 --dangerously-skip-permissions），留空会落到 default，
+ * 无人值守的任务于是卡在没人应答的权限确认上。显式给值 = 任务自己声明要不要全放行。
  *
  * 任务里存的模型是设置槽位的实际名（如 deepseek-v4-flash），引擎会话要的是别名：
  * 代理模式下真名会落回 sonnet 路由，任务选的模型被静默丢弃。resolveModelAlias

@@ -85,9 +85,19 @@ export class OpenAIToAnthropicStreamTransformer {
   // indicator stuck at 0. We seed message_start with this estimate; the real value
   // (if the endpoint sends one) still overrides it via message_delta.
   private estimatedInputTokens = 0
+  /**
+   * 本次请求有没有要思考。兼容网关（本次实测 glm-5-flash 一路）常常**默认**回传
+   * reasoning_content，与客户端请求无关；不判这个口径，用户关了思考开关却照样在
+   * timeline 里看到推理过程。
+   */
+  private includeReasoning: boolean
+  /** includeReasoning=false 时先攒住推理，仅当整条回复没有任何可见内容时才兜底呈现。 */
+  private suppressedReasoning = ''
+  private hasVisibleContent = false
 
-  constructor(estimatedInputTokens = 0) {
+  constructor(estimatedInputTokens = 0, includeReasoning = true) {
     this.estimatedInputTokens = estimatedInputTokens
+    this.includeReasoning = includeReasoning
   }
   // Deferred finish: when finish_reason arrives, we defer message_delta/message_stop
   // until [DONE] so that trailing usage chunks (sent after finish_reason by some
@@ -172,36 +182,45 @@ export class OpenAIToAnthropicStreamTransformer {
     // 几十个小 text 块并夹进等量的空 thinking 块，下游 timeline 于是把答复渲染成
     // 一串碎片、粗体/列表/表格的语法边界全被截断，中间还插满空白折叠卡片。
     const reasoningContent = choice.delta?.reasoning_content
-    const opensThinking = reasoningContent != null
-      && (reasoningContent !== '' || this.contentBlockType === ContentBlockType.None)
-    if (opensThinking) {
-      if (this.contentBlockType !== ContentBlockType.Thinking) {
-        // Close any open block (text or tool_use) before opening thinking
-        if (this.contentBlockType !== ContentBlockType.None) {
-          output.push(this.formatSSE('content_block_stop', {
-            type: 'content_block_stop',
-            index: this.contentBlockIndex,
-          }))
-          this.contentBlockIndex++
-        }
-        this.contentBlockType = ContentBlockType.Thinking
-        output.push(this.formatSSE('content_block_start', {
-          type: 'content_block_start',
-          index: this.contentBlockIndex,
-          content_block: { type: 'thinking', thinking: '', signature: '' },
-        }))
+    if (!this.includeReasoning) {
+      // 客户端没要思考：攒起来，但不开 thinking 块。空的 reasoning_content 是网关
+      // 回执残留，连攒都不必攒。
+      if (typeof reasoningContent === 'string' && reasoningContent !== '') {
+        this.suppressedReasoning += reasoningContent
       }
+    } else {
+      const opensThinking = reasoningContent != null
+        && (reasoningContent !== '' || this.contentBlockType === ContentBlockType.None)
+      if (opensThinking) {
+        if (this.contentBlockType !== ContentBlockType.Thinking) {
+          // Close any open block (text or tool_use) before opening thinking
+          if (this.contentBlockType !== ContentBlockType.None) {
+            output.push(this.formatSSE('content_block_stop', {
+              type: 'content_block_stop',
+              index: this.contentBlockIndex,
+            }))
+            this.contentBlockIndex++
+          }
+          this.contentBlockType = ContentBlockType.Thinking
+          output.push(this.formatSSE('content_block_start', {
+            type: 'content_block_start',
+            index: this.contentBlockIndex,
+            content_block: { type: 'thinking', thinking: '', signature: '' },
+          }))
+        }
 
-      if (reasoningContent !== '') {
-        output.push(this.formatSSE('content_block_delta', {
-          type: 'content_block_delta',
-          index: this.contentBlockIndex,
-          delta: { type: 'thinking_delta', thinking: reasoningContent },
-        }))
+        if (reasoningContent !== '') {
+          output.push(this.formatSSE('content_block_delta', {
+            type: 'content_block_delta',
+            index: this.contentBlockIndex,
+            delta: { type: 'thinking_delta', thinking: reasoningContent },
+          }))
+        }
       }
     }
 
     if (choice.delta?.content != null && choice.delta.content !== '') {
+      this.hasVisibleContent = true
       if (this.contentBlockType === ContentBlockType.Thinking) {
         output.push(this.formatSSE('content_block_stop', {
           type: 'content_block_stop',
@@ -237,6 +256,7 @@ export class OpenAIToAnthropicStreamTransformer {
     }
 
     if (choice.delta?.tool_calls) {
+      this.hasVisibleContent = true
       for (const tc of choice.delta.tool_calls) {
         if (tc.function?.name) {
           // thinking 块也必须在此收口：漏掉它会让 tool_use 的
@@ -342,8 +362,10 @@ export class OpenAIToAnthropicStreamTransformer {
     this.outputTokens = 0
     this.cachedReadTokens = 0
     this.pendingFinishReason = null
-    // estimatedInputTokens is intentionally NOT reset — it's a per-request
-    // construction parameter, not stream state.
+    this.suppressedReasoning = ''
+    this.hasVisibleContent = false
+    // estimatedInputTokens / includeReasoning are intentionally NOT reset — they're
+    // per-request construction parameters, not stream state.
   }
 
   private emitClosingEvents(finishReason?: string): string[] {
@@ -362,6 +384,23 @@ export class OpenAIToAnthropicStreamTransformer {
     this.finished = true
 
     const output: string[] = []
+
+    // 纯推理型模型（deepseek-r1 那一类）即使没被请求思考也只会往 reasoning_content
+    // 里写东西。这时候全丢掉就成了一条空白回复 —— 宁可作为正文呈现，也不吞掉答复。
+    if (!this.includeReasoning && !this.hasVisibleContent && this.suppressedReasoning !== '') {
+      output.push(this.formatSSE('content_block_start', {
+        type: 'content_block_start',
+        index: this.contentBlockIndex,
+        content_block: { type: 'text', text: '' },
+      }))
+      output.push(this.formatSSE('content_block_delta', {
+        type: 'content_block_delta',
+        index: this.contentBlockIndex,
+        delta: { type: 'text_delta', text: this.suppressedReasoning },
+      }))
+      this.contentBlockType = ContentBlockType.Text
+      this.hasVisibleContent = true
+    }
 
     if (this.contentBlockType !== ContentBlockType.None) {
       output.push(this.formatSSE('content_block_stop', {

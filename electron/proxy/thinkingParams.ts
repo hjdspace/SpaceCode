@@ -20,6 +20,19 @@ export function isChatTemplateThinkingModel(model: unknown): boolean {
 }
 
 /**
+ * 客户端这次到底要不要思考。
+ *
+ * CLI 的 `--thinking` 只在 spawn 时读一次，落到 API 层就是 Anthropic 请求里的
+ * `thinking` 字段：没请求时它是缺省的（type 'disabled' 也按未请求处理）。这个判断
+ * 同时决定"往上游发哪种思考参数"和"上游回来的 reasoning_content 要不要当思考呈现"，
+ * 两处必须用同一个口径 —— 否则用户关了开关却还能看到推理过程。
+ */
+export function isThinkingRequested(thinking: unknown): boolean {
+  const type = (thinking as { type?: unknown } | undefined)?.type
+  return type === 'enabled' || type === 'adaptive'
+}
+
+/**
  * 返回要并入 OpenAI 请求体的思考参数。`enabled` 为 false 时返回空对象 ——
  * 与历史行为一致：不请求思考就不发任何私有参数。
  */

@@ -108,6 +108,16 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
     })
   }
 
+  // 进程池在转发消息前会核验引擎的权限模式：意图是 plan/acceptEdits 而引擎仍报
+  // bypass 时直接拦下这条消息（否则工具绕过宿主确认，等于在用户的计划模式里改文件）。
+  // 重发救不回来，要说清楚是"没发出去"，并给出下一步。
+  if (lowerMsg.includes('permission mode not applied')) {
+    return make(ErrorCategory.CONFIG_ERROR, {
+      retryable: false,
+      message: '引擎未能进入你选择的权限模式，为避免绕过确认执行，本条消息没有发送。请重新打开该会话（或先切到完全信任模式）后再试。',
+    })
+  }
+
   if (lowerMsg.includes('429') || lowerMsg.includes('rate_limit') || lowerMsg.includes('rate limit')) {
     // 从 "API Error: 429 {\"error\":{\"message\":\"...\",...}}" 格式中提取友好信息
     const jsonMatch = msg.match(/\{[\s\S]*\}/)

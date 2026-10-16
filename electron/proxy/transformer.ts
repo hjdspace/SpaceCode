@@ -1,4 +1,4 @@
-import { resolveThinkingParams } from './thinkingParams'
+import { resolveThinkingParams, isThinkingRequested } from './thinkingParams'
 
 /**
  * Rough input-token estimate (~chars/4) over the full Anthropic request body:
@@ -103,10 +103,8 @@ export function anthropicToOpenAIRequest(body: Record<string, any>): Record<stri
   //
   // `body.model` 此刻已经被 applyModelMapping 换成上游真实模型名（server.ts 先映射
   // 再转换），所以这里能按模型族挑出那一家认得的思考写法。
-  const thinkingEnabled = body.thinking && (
-    body.thinking.type === 'enabled' || body.thinking.type === 'adaptive'
-  )
-  Object.assign(result, resolveThinkingParams(body.model, Boolean(thinkingEnabled)))
+  const thinkingEnabled = isThinkingRequested(body.thinking)
+  Object.assign(result, resolveThinkingParams(body.model, thinkingEnabled))
 
   return result
 }
@@ -238,7 +236,16 @@ function collectImageParts(content: any): Array<Record<string, any>> {
   return parts
 }
 
-export function openAIToAnthropicResponse(body: Record<string, any>): Record<string, any> {
+/**
+ * @param opts.includeReasoning 本次请求有没有要思考（由 server.ts 按原始 Anthropic body 判定）。
+ *   false 时上游的 reasoning_content 不落成 thinking 块：用户关了思考开关却还能看到推理过程，
+ *   就是因为兼容网关默认吐 reasoning_content 而这里无条件映射过它。
+ */
+export function openAIToAnthropicResponse(
+  body: Record<string, any>,
+  opts: { includeReasoning?: boolean } = {},
+): Record<string, any> {
+  const { includeReasoning = true } = opts
   const choice = body.choices?.[0]
   const message = choice?.message || {}
 
@@ -247,7 +254,7 @@ export function openAIToAnthropicResponse(body: Record<string, any>): Record<str
   // compatible providers put chain-of-thought in `message.reasoning_content`.
   // Without this mapping the thinking content is silently dropped and the
   // desktop UI never shows the model's reasoning process.
-  if (message.reasoning_content) {
+  if (includeReasoning && message.reasoning_content) {
     contentBlocks.push({ type: 'thinking', thinking: message.reasoning_content })
   }
   if (message.content) {

@@ -334,8 +334,62 @@ describe('SessionProcess permission routing on the stdout seam', () => {
   })
 })
 
-describe('SessionProcess exit cleanup', () => {
-  it('cancels an open permission prompt and reports the exit payload to the UI', () => {
+/**
+ * 引擎在 system/init 里回报它自己认定的权限模式 —— 宿主据此判断"用户意图是否真的落地"，
+ * 进程池再决定重试下发或按意图重启（见 claudeCodeProcessPool.permissionMode.test.ts）。
+ * waitForInit 是同一条消息驱动的就绪信号：spawn 成功时 CLI 还没开始消费 stdin 上的
+ * 控制请求，在此之前发 set_permission_mode 注定等 10s 超时。
+ */
+describe('SessionProcess permission truth from system/init', () => {
+  it('records the engine-reported mode and whether it matches the intent', () => {
+    proc = wired({ permissionMode: 'plan' })
+
+    feed(proc, '{"type":"system","subtype":"init","session_id":"eng-2","permissionMode":"plan"}\n')
+
+    expect(proc.reportedPermissionMode).toBe('plan')
+    expect(proc.permissionModeVerified).toBe(true)
+  })
+
+  it('marks the intent as unverified when the engine reports a wider mode than intended', () => {
+    proc = wired({ permissionMode: 'plan' })
+
+    feed(proc, '{"type":"system","subtype":"init","session_id":"eng-3","permissionMode":"bypassPermissions"}\n')
+
+    expect(proc.reportedPermissionMode).toBe('bypassPermissions')
+    expect(proc.permissionModeVerified).toBe(false)
+  })
+
+  it('leaves verification unknown (not failed) when this CLI build reports no mode', () => {
+    proc = wired({ permissionMode: 'plan' })
+
+    feed(proc, '{"type":"system","subtype":"init","session_id":"eng-4"}\n')
+
+    expect(proc.reportedPermissionMode).toBeNull()
+    expect(proc.permissionModeVerified).toBeNull()
+  })
+
+  it('waitForInit resolves once system/init arrives', async () => {
+    proc = wired()
+
+    const ready = proc.waitForInit(5_000)
+    feed(proc, '{"type":"system","subtype":"init","session_id":"eng-5","permissionMode":"default"}\n')
+
+    await expect(ready).resolves.toBe(true)
+    // 已经就绪之后再问就立刻返回，不再挂起调用方。
+    await expect(proc.waitForInit(5_000)).resolves.toBe(true)
+  })
+
+  it('waitForInit resolves false when the process dies before initializing', async () => {
+    proc = wired()
+
+    const ready = proc.waitForInit(30_000)
+    proc._child.child.emit('exit', null, 'SIGKILL')
+
+    await expect(ready).resolves.toBe(false)
+  })
+})
+
+describe('SessionProcess exit cleanup', () => {  it('cancels an open permission prompt and reports the exit payload to the UI', () => {
     proc = wired({ permissionMode: 'default' })
     const cancelled: any[] = []
     const exits: any[] = []

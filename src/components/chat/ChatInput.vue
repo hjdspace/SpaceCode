@@ -112,6 +112,13 @@
             <span>{{ t('chatInput.messageSteered') }}</span>
           </div>
         </Transition>
+        <!-- 思考开关延后生效提示浮层 -->
+        <Transition name="stash-fade">
+          <div v-if="showThinkingHint" class="steer-hint">
+            <Sparkles :size="14" />
+            <span>{{ t('chatInput.thinkingAppliesNextTurn') }}</span>
+          </div>
+        </Transition>
       </div>
 
       <!-- 底部工具栏：+ 号、模型选择、发送按钮 -->
@@ -643,6 +650,7 @@ const { editorSessionId, saveDraftForSession, loadDraftForSession, restoreStashD
 
 // ── Local state (not extracted) ──────────────────────────────────
 const showSteerHint = ref(false)
+const showThinkingHint = ref(false)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
 const contextMenuRef = ref<InstanceType<typeof ContextMenu> | null>(null)
 
@@ -748,7 +756,14 @@ async function toggleThinking() {
   await settingsStore.saveSettings()
   const sid = editorSessionId.value
   if (sid) {
+    // --thinking 只在进程 spawn 时读一次：本轮进行中时不打断，进程会在本轮结束后
+    // 挂起、下一条消息以新参数恢复。这里把"要等下一轮"如实告诉用户。
+    const turnInFlight = turnStore.getIsLoading(sid)
     await api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
+    if (turnInFlight) {
+      showThinkingHint.value = true
+      setTimeout(() => { showThinkingHint.value = false }, 2500)
+    }
   }
 }
 
