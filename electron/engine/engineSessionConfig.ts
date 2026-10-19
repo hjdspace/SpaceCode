@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { warn } from '../infra/logger'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import { resolveModelAliasForEngine } from '@/utils/engineModel'
+import { isEffortLevel } from '@/shared/effort'
 import type { EngineSessionConfig, EngineType } from './engines/types'
 
 interface PersistedProviderConfig {
@@ -98,7 +99,8 @@ export function loadEngineSessionConfig(cwd: string): EngineSessionConfig {
   if (providerConfig?.apiKey) config.apiKey = providerConfig.apiKey
   if (providerConfig?.baseUrl) config.baseUrl = providerConfig.baseUrl
   if (typeof settings.thinkingEnabled === 'boolean') config.thinkingEnabled = settings.thinkingEnabled
-  if (settings.effortLevel) config.effortLevel = settings.effortLevel
+  // 磁盘上可能是历史/手写值；只认得 CLI 有效档位才下发，否则留给引擎自己的默认
+  if (isEffortLevel(settings.effortLevel)) config.effortLevel = settings.effortLevel
   if (settings.engineType) config.engineType = settings.engineType
   if (settings.engineSource) config.engineSource = settings.engineSource
   if (settings.installedCliPath) config.installedCliPath = settings.installedCliPath
