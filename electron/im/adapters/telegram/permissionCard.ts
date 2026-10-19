@@ -140,6 +140,21 @@ export class PermissionCard {
     return undefined
   }
 
+  /** Remove a pending permission after it was consumed by a quick reply or explicit command. */
+  removePending(chatId: number, requestId: string): void {
+    const list = this.pending.get(chatId)
+    if (!list) return
+    const idx = list.findIndex((p) => p.requestId === requestId)
+    if (idx !== -1) list.splice(idx, 1)
+  }
+
+  /** Resolve a pending requestId by tool name (case-insensitive, first match). */
+  findRequestIdByTool(chatId: number, toolName: string): string | undefined {
+    const list = this.pending.get(chatId)
+    const target = toolName.toLowerCase()
+    return list?.find((p) => p.toolName.toLowerCase() === target)?.requestId
+  }
+
   /** Clear all pending permissions for a chat. */
   clear(chatId: number): void {
     this.pending.delete(chatId)
