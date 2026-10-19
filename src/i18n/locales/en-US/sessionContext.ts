@@ -28,6 +28,14 @@ export default {
 
   // Review Panel
   review: 'Review',
+  sessionScope: 'This session',
+  changedFilesCount: '{count} files',
+  commandOriginBadge: 'command',
+  externalBadge: 'edited elsewhere',
+  stageSessionFiles: 'Stage session',
+  stageSessionFilesHint: 'Stage only the files this session wrote, leaving other sessions\u2019 changes unstaged',
+  currentTurn: 'This turn',
+  earlierTurns: 'Earlier ({count})',
   branch: 'Branch',
   createPR: 'Create PR',
   loadingDiff: 'Loading diff...',
