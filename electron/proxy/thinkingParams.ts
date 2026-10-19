@@ -12,6 +12,8 @@
  * （那些网关历史上就是"忽略不认识"的一批，收窄它们只会造成回归）。
  */
 
+import { isEffortLevel, type EffortLevel } from '@/shared/effort'
+
 /** 已知会拒绝 Anthropic 式 `thinking`、只认 vLLM/ChatML 一系写法的模型族。 */
 const CHAT_TEMPLATE_FAMILIES = /qwen|pangu|mimo|deepseek-r1/i
 
@@ -33,23 +35,43 @@ export function isThinkingRequested(thinking: unknown): boolean {
 }
 
 /**
+ * 客户端这次要的推理深度。
+ *
+ * CLI 的 `--effort` 落到 Anthropic 请求体是 `output_config.effort`（实测），代理看得到。
+ * 只认得 EffortLevel 那 5 个值才往外传：上游网关对 reasoning_effort 做的是枚举严格校验
+ * （实测 MaaS 对 'minimal' 直接 `400 'reasoning_effort' must be one of: ...`），
+ * 传一个它认不出的值比不传更糟 —— 那是确定性 400，整条请求都发不出去。
+ */
+export function readRequestedEffort(body: unknown): EffortLevel | undefined {
+  const effort = (body as { output_config?: { effort?: unknown } } | undefined)?.output_config?.effort
+  return isEffortLevel(effort) ? effort : undefined
+}
+
+/**
  * 返回要并入 OpenAI 请求体的思考参数。`enabled` 为 false 时返回空对象 ——
  * 与历史行为一致：不请求思考就不发任何私有参数。
+ *
+ * `effort` 只是把用户的意图合法地传下去：distributor 型网关常常收下 reasoning_effort
+ * 却并不真的按它调深度（实测各家 reasoning_tokens 无单调关系），所以界面不能承诺效果。
  */
 export function resolveThinkingParams(
   model: unknown,
   enabled: boolean,
+  effort?: EffortLevel,
 ): Record<string, unknown> {
   if (!enabled) return {}
+  const effortParams = effort ? { reasoning_effort: effort } : {}
   if (isChatTemplateThinkingModel(model)) {
     return {
       enable_thinking: true,
       chat_template_kwargs: { thinking: true, enable_thinking: true },
+      ...effortParams,
     }
   }
   return {
     thinking: { type: 'enabled' },
     enable_thinking: true,
     chat_template_kwargs: { thinking: true, enable_thinking: true },
+    ...effortParams,
   }
 }
