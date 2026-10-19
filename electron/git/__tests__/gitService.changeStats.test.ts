@@ -147,6 +147,28 @@ describe('getReviewDiff — HEAD ↔ 工作区', () => {
     await expect(handlers.getReviewDiff!('/repo', 'src/a.ts')).resolves.toBeNull()
   })
 
+  it('仓库外的绝对路径按全文新增渲染，而不是 "Diff 不可用"', async () => {
+    // 会话写过 agent 记忆目录之类的文件：git 直接拒绝 diff
+    seed('', 128, "fatal: 'C:/Users/me/.claude/projects/x/MEMORY.md' is outside repository")
+    seed('', 128, 'outside repository') // ls-files --error-unmatch
+    probe.fileContent = Buffer.from('# memory\nline two\n', 'utf8')
+
+    const result = (await handlers.getReviewDiff!('D:/repo', 'C:/Users/me/.claude/projects/x/MEMORY.md')) as DiffResult
+
+    // 关键点是绝对路径不能再被 join 成 D:/repo/C:/Users/...
+    expect(result.hunks).toHaveLength(1)
+    expect(result.additions).toBe(2)
+    expect(result.path).toBe('C:/Users/me/.claude/projects/x/MEMORY.md')
+  })
+
+  it('非零退出且文件也读不到时不编造内容', async () => {
+    seed('', 128, 'fatal: some other failure')
+    seed('', 1, 'nope') // ls-files → 视为未跟踪
+    probe.fileContent = undefined // readFileSync 抛错
+
+    await expect(handlers.getReviewDiff!('/repo', 'missing.ts')).resolves.toBeNull()
+  })
+
   it('HEAD 里没这个文件（未跟踪新建）时合成全量新增 hunk', async () => {
     seed('') // git diff HEAD → 空
     seed('', 1, 'did not match') // ls-files --error-unmatch → 未跟踪
