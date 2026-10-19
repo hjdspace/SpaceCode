@@ -3,6 +3,7 @@ import { SessionProcess, ProcessStatus, SessionConfig } from '../session/session
 import { info, warn, error, debug } from '../infra/logger'
 import { claudeCodeNamespace, type ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
+import type { EffortLevel } from '@/shared/effort'
 
 // 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
 const CLAUDE_CODE_EVENT_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.events, 'claude-code:')
@@ -242,9 +243,11 @@ export class ClaudeCodeProcessPool {
     return proc.reportedPermissionMode === 'bypassPermissions' && proc.currentPermissionMode !== 'bypassPermissions'
   }
 
-  /** --thinking 只在 spawn 时读一次：配置与本次 spawn 不一致即待重启生效。 */
-  private isThinkingArgsStale(proc: SessionProcess): boolean {
-    return proc.isRunning() && proc.spawnedThinkingEnabled !== proc.config.thinkingEnabled
+  /** --thinking / --effort 都只在 spawn 时读一次：配置与本次 spawn 不一致即待重启生效。 */
+  private isSpawnArgsStale(proc: SessionProcess): boolean {
+    return proc.isRunning()
+      && (proc.spawnedThinkingEnabled !== proc.config.thinkingEnabled
+        || proc.spawnedEffortLevel !== proc.config.effortLevel)
   }
 
   async sendMessage(sessionId: string, content: string, images?: any[]): Promise<void> {
@@ -254,7 +257,7 @@ export class ClaudeCodeProcessPool {
       throw new Error(`Session ${sessionId} has no active process`)
     }
     await this.guardPermissionMode(sessionId, proc)
-    await this.applyStaleThinkingArgs(sessionId, proc)
+    await this.applyStaleSpawnArgs(sessionId, proc)
     info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length} | images=${images?.length || 0}`)
     proc.sendMessage(content, images)
   }
@@ -275,12 +278,12 @@ export class ClaudeCodeProcessPool {
   }
 
   /**
-   * 思考开关在轮次进行中被改过：那一轮不动，但下一条消息必须以新参数起来。
+   * 思考开关或推理深度在轮次进行中被改过：那一轮不动，但下一条消息必须以新参数起来。
    * result 事件已经挂过一次了，这里是漏掉那次（或期间又改了配置）的兜底。
    */
-  private async applyStaleThinkingArgs(sessionId: string, proc: SessionProcess): Promise<void> {
-    if (!this.isThinkingArgsStale(proc) || !proc.canSafelySuspend()) return
-    info('ProcessPool', `[${sessionId.slice(0, 8)}] Thinking config changed while the turn was running | respawning with --thinking=${proc.config.thinkingEnabled ? 'enabled' : 'disabled'} before this send`)
+  private async applyStaleSpawnArgs(sessionId: string, proc: SessionProcess): Promise<void> {
+    if (!this.isSpawnArgsStale(proc) || !proc.canSafelySuspend()) return
+    info('ProcessPool', `[${sessionId.slice(0, 8)}] Spawn-only config changed mid-turn | respawning with --thinking=${proc.config.thinkingEnabled ? 'enabled' : 'disabled'} --effort=${proc.config.effortLevel ?? '(default)'} before this send`)
     if (proc.engineSessionId) {
       proc.suspend()
       await this.resumeSession(sessionId)
@@ -371,11 +374,7 @@ export class ClaudeCodeProcessPool {
    * 切换会话的思考开关。
    *
    * CLI 没有 set_thinking 控制请求，`--thinking` 只在 spawn 时读一次，所以这里改的是
-   * 会话配置本身：正在跑的那一轮不打断（历史靠 --resume 保住）。空闲时立即挂起；
-   * 轮次进行中则留待 result 事件挂起，最迟在下一条消息转发前重启补齐 —— 否则表现
-   * 就是"点了没反应"。
-   *
-   * @returns now = 本次切换已经落到进程上；next-turn = 当前这一轮跑完后生效。
+   * 会话配置本身，处置逻辑见 respawnForSpawnOnlyChange。
    */
   updateThinkingLevel(sessionId: string, enabled: boolean): ThinkingUpdateTiming {
     const proc = this.processes.get(sessionId)
@@ -384,13 +383,41 @@ export class ClaudeCodeProcessPool {
       return 'now'
     }
     proc.config.thinkingEnabled = enabled
+    return this.respawnForSpawnOnlyChange(sessionId, proc, `updateThinkingLevel=${enabled}`)
+  }
+
+  /**
+   * 切换会话的推理深度。与思考开关走同一条路径 —— CLI 同样没有 set_effort 控制请求，
+   * 而且非法档位它只 warn 后退回默认、退出码照旧是 0，所以界面只能靠这里的答复判断生效时机。
+   */
+  updateEffortLevel(sessionId: string, level: EffortLevel): ThinkingUpdateTiming {
+    const proc = this.processes.get(sessionId)
+    if (!proc) {
+      debug('ProcessPool', `[${sessionId.slice(0, 8)}] updateEffortLevel: no session entry | level=${level}`)
+      return 'now'
+    }
+    proc.config.effortLevel = level
+    return this.respawnForSpawnOnlyChange(sessionId, proc, `updateEffortLevel=${level}`)
+  }
+
+  /**
+   * 正在跑的那一轮不打断（历史靠 --resume 保住）：空闲时立即挂起，轮次进行中则留待
+   * result 事件挂起，最迟在下一条消息转发前重启补齐 —— 否则表现就是"点了没反应"。
+   *
+   * @returns now = 本次切换已经落到进程上；next-turn = 当前这一轮跑完后生效。
+   */
+  private respawnForSpawnOnlyChange(
+    sessionId: string,
+    proc: SessionProcess,
+    applied: string,
+  ): ThinkingUpdateTiming {
     if (!proc.isRunning()) return 'now'
     if (proc.canSafelySuspend()) {
-      info('ProcessPool', `[${sessionId.slice(0, 8)}] updateThinkingLevel=${enabled} | suspending so the next send respawns with it`)
+      info('ProcessPool', `[${sessionId.slice(0, 8)}] ${applied} | suspending so the next send respawns with it`)
       this.suspendSession(sessionId)
       return 'now'
     }
-    info('ProcessPool', `[${sessionId.slice(0, 8)}] updateThinkingLevel=${enabled} | turn in flight, applies at the end of this turn`)
+    info('ProcessPool', `[${sessionId.slice(0, 8)}] ${applied} | turn in flight, applies at the end of this turn`)
     return 'next-turn'
   }
 
@@ -563,9 +590,9 @@ export class ClaudeCodeProcessPool {
             error('ProcessPool', `[${sessionId.slice(0, 8)}] Permission mode reconcile after init failed`, { error: String(err) }),
           )
         } else if (msg.type === 'result') {
-          // 本轮结束 = 安全点：把轮次进行中欠下的两件事补上（思考参数、权限模式重启）。
-          if (this.isThinkingArgsStale(proc) && proc.canSafelySuspend()) {
-            info('ProcessPool', `[${sessionId.slice(0, 8)}] Turn ended with a stale --thinking | suspending so the next send respawns with it`)
+          // 本轮结束 = 安全点：把轮次进行中欠下的两件事补上（spawn 参数、权限模式重启）。
+          if (this.isSpawnArgsStale(proc) && proc.canSafelySuspend()) {
+            info('ProcessPool', `[${sessionId.slice(0, 8)}] Turn ended with stale spawn-only args | suspending so the next send respawns with them`)
             this.suspendSession(sessionId)
           }
           if (this.isModeHazard(proc)) {
