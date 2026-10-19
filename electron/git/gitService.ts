@@ -6,7 +6,7 @@
  */
 
 import * as childProcess from 'child_process'
-import { writeFileSync, readFileSync, unlinkSync, mkdtempSync, rmdirSync } from 'fs'
+import { writeFileSync, readFileSync, unlinkSync, mkdtempSync, rmdirSync, statSync } from 'fs'
 import { watch, type FSWatcher } from 'fs'
 import { Worker } from 'worker_threads'
 import { join } from 'path'
@@ -135,6 +135,22 @@ export interface GitFullDiffResult {
   files: GitFullDiffFileStats[]
   hunks: Record<string, GitDiffHunk[]>
   [key: string]: unknown
+}
+
+/** 工作区相对 HEAD 的单个文件改动指纹，见 getChangeStats */
+export interface GitChangeStatFile {
+  path: string
+  insertions: number
+  deletions: number
+  isUntracked: boolean
+  isBinary: boolean
+  mtimeMs: number
+  size: number
+}
+
+export interface GitChangeStatsResult {
+  generatedAt: number
+  files: GitChangeStatFile[]
 }
 
 export interface GitStatusResult {
@@ -558,34 +574,13 @@ async function getStagedDiffRaw(cwd: string): Promise<string> {
   return result.code === 0 ? result.stdout : ''
 }
 
-async function getDiff(cwd: string, path: string, staged?: boolean): Promise<GitDiffResult | null> {
-  const args = ['diff', '--no-color', '--unified=3']
-  if (staged) {
-    args.push('--cached')
-  }
-  args.push('--', path)
-
-  const result = await gitExec(args, cwd)
-  if (result.code !== 0) {
-    // git diff may return a non-zero exit code for untracked files in some
-    // edge cases (e.g. certain git versions or configurations). Before
-    // giving up, try the untracked file diff as a fallback so newly created
-    // files are still visible in the SCM diff viewer.
-    if (!staged) {
-      const untrackedDiff = await getUntrackedFileDiff(cwd, path)
-      if (untrackedDiff) {
-        return untrackedDiff
-      }
-    }
-    return null
-  }
-
-  // Parse unified diff
+/** 把 `git diff` 的 unified 输出切成 hunks，并数出 +/-。 */
+function parseDiffOutput(path: string, stdout: string): GitDiffResult {
   const hunks: GitDiffHunk[] = []
   let additions = 0
   let deletions = 0
 
-  const lines = result.stdout.split('\n')
+  const lines = stdout.split('\n')
   let i = 0
 
   // Skip header lines
@@ -625,24 +620,80 @@ async function getDiff(cwd: string, path: string, staged?: boolean): Promise<Git
     }
   }
 
+  return {
+    path,
+    hunks,
+    additions,
+    deletions,
+    isBinary: stdout.includes('Binary files'),
+  }
+}
+
+async function getDiff(cwd: string, path: string, staged?: boolean): Promise<GitDiffResult | null> {
+  const args = ['diff', '--no-color', '--unified=3']
+  if (staged) {
+    args.push('--cached')
+  }
+  args.push('--', path)
+
+  const result = await gitExec(args, cwd)
+  if (result.code !== 0) {
+    // git diff may return a non-zero exit code for untracked files in some
+    // edge cases (e.g. certain git versions or configurations). Before
+    // giving up, try the untracked file diff as a fallback so newly created
+    // files are still visible in the SCM diff viewer.
+    if (!staged) {
+      const untrackedDiff = await getUntrackedFileDiff(cwd, path)
+      if (untrackedDiff) {
+        return untrackedDiff
+      }
+    }
+    return null
+  }
+
+  const parsed = parseDiffOutput(path, result.stdout)
+
   // If no hunks were found and this is an unstaged diff, the file may be
   // untracked (git diff does not show untracked files). In that case, build
   // a synthetic diff showing the entire file content as additions so the
   // user can see what was created.
-  if (hunks.length === 0 && !staged) {
+  if (parsed.hunks.length === 0 && !staged) {
     const untrackedDiff = await getUntrackedFileDiff(cwd, path)
     if (untrackedDiff) {
       return untrackedDiff
     }
   }
 
-  return {
-    path,
-    hunks,
-    additions,
-    deletions,
-    isBinary: result.stdout.includes('Binary files'),
+  return parsed
+}
+
+/**
+ * 会话 review 用：HEAD ↔ 工作区。
+ *
+ * getDiff 的三个口径里没有一个能同时覆盖"改过 + 已 stage"：`git diff` 只看
+ * 工作区↔索引，文件一旦被 stage，review 就是空的。审查关心的是相对上次提交
+ * 改了什么，所以这里固定用 HEAD，仅当仓库还没有提交（unborn HEAD）时退回索引口径。
+ */
+async function getReviewDiff(cwd: string, path: string): Promise<GitDiffResult | null> {
+  const args = [
+    '--no-optional-locks', '-c', 'core.quotePath=false',
+    'diff', '--no-color', '--unified=3', 'HEAD', '--', path,
+  ]
+  const result = await gitExec(args, cwd)
+
+  if (result.code !== 0) {
+    if (/unknown revision|bad revision|ambiguous argument|does not have any commits/i.test(result.stderr)) {
+      return getDiff(cwd, path, true)
+    }
+    return null
   }
+
+  const parsed = parseDiffOutput(path, result.stdout)
+  if (parsed.hunks.length === 0) {
+    const untrackedDiff = await getUntrackedFileDiff(cwd, path)
+    if (untrackedDiff) return untrackedDiff
+  }
+  return parsed
 }
 
 /**
@@ -878,6 +929,86 @@ async function getFullDiff(cwd: string): Promise<GitFullDiffResult | null> {
     files,
     hunks,
   }
+}
+
+/**
+ * 工作区相对 HEAD 的改动指纹（numstat + mtime + size），不取 diff 正文。
+ *
+ * 会话归属要把"某个命令执行期间哪些文件真的变了"算出来，需要即时采样：
+ * scm.fileStats 是防抖异步刷新的，命令结束时往往还没反映最新状态。
+ * 也刻意不做 `git diff` 全文 —— 悬浮条与 review 都只需要路径与行数。
+ */
+async function getChangeStats(cwd: string): Promise<GitChangeStatsResult | null> {
+  const isRepo = await isGitRepo(cwd)
+  if (!isRepo) return null
+
+  const byPath = new Map<string, GitChangeStatFile>()
+
+  const collect = async (args: string[]): Promise<boolean> => {
+    const result = await gitExec(
+      ['--no-optional-locks', '-c', 'core.quotePath=false', 'diff', '--numstat', ...args],
+      cwd,
+    )
+    if (result.code !== 0) return false
+
+    for (const line of result.stdout.trim().split('\n').filter(Boolean)) {
+      const parts = line.split('\t')
+      if (parts.length < 3) continue
+      const addStr = parts[0]!
+      const remStr = parts[1]!
+      const path = parseNumstatPath(parts.slice(2).join('\t'))
+      const isBinary = addStr === '-' || remStr === '-'
+      byPath.set(path, {
+        path,
+        insertions: isBinary ? 0 : parseInt(addStr, 10) || 0,
+        deletions: isBinary ? 0 : parseInt(remStr, 10) || 0,
+        isBinary,
+        isUntracked: false,
+        mtimeMs: -1,
+        size: -1,
+      })
+    }
+    return true
+  }
+
+  // 首选 HEAD ↔ 工作区一条命令；仓库还没有提交（unborn HEAD）时退回两段口径
+  const headOk = await collect(['HEAD'])
+  if (!headOk) {
+    const cachedOk = await collect(['--cached'])
+    const worktreeOk = await collect([])
+    if (!cachedOk || !worktreeOk) return null
+  }
+
+  const untrackedResult = await gitExec(
+    ['--no-optional-locks', '-c', 'core.quotePath=false', 'ls-files', '--others', '--exclude-standard'],
+    cwd,
+  )
+  if (untrackedResult.code === 0 && untrackedResult.stdout.trim()) {
+    for (const path of untrackedResult.stdout.trim().split('\n').filter(Boolean)) {
+      if (byPath.has(path)) continue
+      byPath.set(path, {
+        path,
+        insertions: countFileLines(cwd, path),
+        deletions: 0,
+        isBinary: false,
+        isUntracked: true,
+        mtimeMs: -1,
+        size: -1,
+      })
+    }
+  }
+
+  for (const file of byPath.values()) {
+    try {
+      const stat = statSync(join(cwd, file.path))
+      file.mtimeMs = stat.mtimeMs
+      file.size = stat.size
+    } catch {
+      // 工作区里已经删掉的文件保留 -1，比对时按"消失"处理
+    }
+  }
+
+  return { generatedAt: Date.now(), files: Array.from(byPath.values()) }
 }
 
 // parseNumstatPath moved to gitParsers.ts (pure function, unit-tested there)
@@ -1521,6 +1652,8 @@ export function registerGitIPCHandlers() {
       return { success: result.code === 0, error: result.code !== 0 ? result.stderr : undefined }
     },
     getFullDiff: async (cwd: string) => getFullDiff(cwd),
+    getReviewDiff: async (cwd: string, path: string) => getReviewDiff(cwd, path),
+    getChangeStats: async (cwd: string) => getChangeStats(cwd),
     watchProject: async (cwd: string) => {
       startGitWatcher(cwd)
       return true
