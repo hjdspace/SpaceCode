@@ -279,6 +279,7 @@ import { useGoalStore, type GoalState } from '@/stores/goal'
 import { buildInitialGoalPrompt, MAX_GOAL_TURNS } from '@/lib/goalPrompts'
 import { serializeQuoteAttachments } from '@/composables/useContentEditor'
 import { useSettingsStore } from '@/stores/settings'
+import type { EffortLevel } from '@/shared/effort'
 import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import MessageList from '../chat/MessageList.vue'
@@ -1187,20 +1188,24 @@ async function handleModelChange(model: string) {
 }
 
 // 处理推理深度变更 - 同步到 settings store 和 ~/.claude/settings.json
-async function handleEffortChange(effort: string) {
-  const level = effort as 'low' | 'medium' | 'high' | 'max'
+async function handleEffortChange(level: EffortLevel) {
   settingsStore.effortLevel = level
   settingsStore.saveSettings()
 
-  // 同步到 ~/.claude/settings.json 以便 CLI 读取
+  // 这份副本是给 CLI 侧会话的单向导出：桌面不读它回 UI（档位的真相在 gui-settings → --effort），
+  // 且 max 在 CLI 读取时会被有意过滤。这里失败只影响 CLI 自己的默认值，不回退界面。
   try {
-    await api.injectGuiModelsToSettings({
+    const synced = await api.injectGuiModelsToSettings({
       primaryModel: settingsStore.getPrimaryModel() || '',
       haikuModel: settingsStore.getHaikuModel(),
       sonnetModel: settingsStore.getSonnetModel(),
       opusModel: settingsStore.getOpusModel(),
       effortLevel: level
     })
+    // handler 把失败装在 success:false 里返回，不 reject —— 不自己读就等于假装成功。
+    if (!synced.success) {
+      console.error('[ChatPanel] Failed to sync effort to Claude settings:', synced.error)
+    }
   } catch (error) {
     console.error('[ChatPanel] Failed to sync effort to Claude settings:', error)
   }
