@@ -50,8 +50,9 @@
       <button class="sc-row" @click="sessionContext.openRightPanel('review')">
         <FilePlus :size="13" class="sc-row-icon" />
         <span class="sc-row-label">{{ t('sessionContext.changes') }}</span>
-        <span class="sc-stat-add">+{{ sessionContext.gitAdditions }}</span>
-        <span class="sc-stat-del">-{{ sessionContext.gitDeletions }}</span>
+        <span class="sc-row-hint">{{ t('sessionContext.changedFilesCount', { count: sessionChanges.sessionCount }) }}</span>
+        <span class="sc-stat-add">+{{ sessionChanges.sessionAdditions }}</span>
+        <span class="sc-stat-del">-{{ sessionChanges.sessionDeletions }}</span>
       </button>
 
       <!-- Branch: click → toggle branch dropdown -->
@@ -232,16 +233,26 @@ import {
   CheckCircle2, Loader2, Circle, Search, Check, Plus, Network, ArrowUp, GitBranchPlus
 } from 'lucide-vue-next'
 import { useSessionContext } from '@/stores/sessionContext'
+import { useSessionFileChangesStore } from '@/stores/sessionFileChanges'
 import { useScmStore } from '@/stores/scm'
 
 defineEmits<{ continue: [] }>()
 
+/** 环境卡片展示的是哪个会话的改动；未传时回退全局当前会话 */
+const props = defineProps<{
+  sessionId?: string
+}>()
+
 const { t } = useI18n()
 const sessionContext = useSessionContext()
+const sessionFileChanges = useSessionFileChangesStore()
 const scmStore = useScmStore()
 
 const branchSearch = ref('')
 const groups = reactive({ completed: true, pending: false })
+
+// "更改"行点进去是会话级 review，所以数字也必须按会话口径 —— 下面 commit 行保持仓库全量。
+const sessionChanges = computed(() => sessionFileChanges.summaryFor(props.sessionId || ''))
 
 const taskProgress = computed(() => sessionContext.taskProgress)
 const progressPercent = computed(() => {
@@ -498,6 +509,12 @@ function handleGitOpsCreateBranch() {
   font-size: 12px;
 
   &:hover { background: var(--glass-hover); }
+}
+
+.sc-row-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
 }
 
 // Commit row wrapper: commit button + three-dots button side by side
