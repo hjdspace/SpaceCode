@@ -5,8 +5,9 @@
  * composable 坏了副本照样绿 —— 对模块是否可用零敏感。现在全部改成驱动真 composable、
  * 断言它返回的 computed 与方法。
  *
- * 档位（推理深度）部分同时钉住本次修正的口径：可用档位由模型能力决定，换模型时向下降档
- * 并回写 store —— 界面显示的必须就是引擎会发出的那一档。
+ * 档位（推理深度）部分同时钉住本次修正的口径：可用档位由**两维**决定 —— 模型能力与引擎
+ * 自己的 `--effort` 词汇表，两维都参与呈现；换模型时向下降档并回写 store，界面显示的必须
+ * 就是引擎会发出的那一档。
  */
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,17 +40,21 @@ type SlotConfig = { haikuModel?: string; sonnetModel?: string; opusModel?: strin
 /**
  * 一个 store 上只挂一个 selector：两个实例会各自 watch 同一份 availableModes，
  * 回写和 emit 都会双份发生，测试结论就不再代表真实界面。
+ *
+ * `engineSource` 缺 'bundled'，跟真 store 的默认一致 —— 档位有两维（模型能力 + 引擎词汇），
+ * 不写出来的用例就等于默认在测内部引擎那一套。
  */
-function setupSelector(slots: SlotConfig = {}, emitted: string[] = []) {
+function setupSelector(slots: SlotConfig = {}, emitted: string[] = [], engineSource: 'bundled' | 'installed' = 'bundled') {
   const settingsStore = useSettingsStore()
   settingsStore.authMethod = 'anthropic_compatible'
+  settingsStore.engineSource = engineSource
   settingsStore.anthropicConfig = { ...settingsStore.anthropicConfig, apiKey: '', baseUrl: '', ...slots }
   const selector = useModelSelector({ onUpdateEffort: (e) => emitted.push(e) })
   return { selector, settingsStore, emitted }
 }
 
-function selectorFor(slots: SlotConfig = {}) {
-  return setupSelector(slots)
+function selectorFor(slots: SlotConfig = {}, engineSource: 'bundled' | 'installed' = 'bundled') {
+  return setupSelector(slots, [], engineSource)
 }
 
 beforeEach(() => {
@@ -288,14 +293,29 @@ describe('getModelAlias', () => {
   })
 })
 
-describe('推理深度档位随模型能力变化', () => {
-  it('opus-4-7 有全部 5 档，sonnet-4-6 没有 xhigh', () => {
-    const { selector } = selectorFor({ sonnetModel: 'claude-sonnet-4-6', opusModel: 'claude-opus-4-7' })
+describe('推理深度档位随模型能力与引擎词汇变化', () => {
+  it('安装版 CLI 下 opus-4-7 有全部 5 档，sonnet-4-6 没有 xhigh', () => {
+    const { selector } = selectorFor({ sonnetModel: 'claude-sonnet-4-6', opusModel: 'claude-opus-4-7' }, 'installed')
 
     selector.selectedModel.value = 'claude-opus-4-7'
     expect([...selector.availableModes.value]).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
 
     selector.selectedModel.value = 'claude-sonnet-4-6'
+    expect([...selector.availableModes.value]).toEqual(['low', 'medium', 'high', 'max'])
+  })
+
+  /**
+   * 这条钉住那次"引擎进程异常"的成因：内部引擎压根不认 xhigh，把它呈现出来就等于递给
+   * spawn 一颗雷（那边是 commander 的 argParser，不认的值直接 exit 1）。未识别的模型名
+   * 走"全档透传"分支，所以引擎维是唯一还拦得住它的一层。
+   */
+  it('内部引擎下不呈现 xhigh，含未识别的网关模型名', () => {
+    const { selector } = selectorFor({ opusModel: 'claude-opus-4-7' })
+
+    selector.selectedModel.value = 'claude-opus-4-7'
+    expect([...selector.availableModes.value]).toEqual(['low', 'medium', 'high', 'max'])
+
+    selector.selectedModel.value = 'gpt-6.1-turbo'
     expect([...selector.availableModes.value]).toEqual(['low', 'medium', 'high', 'max'])
   })
 
