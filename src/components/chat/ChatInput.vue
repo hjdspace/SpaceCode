@@ -50,7 +50,7 @@
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
       <!-- 悬浮任务/改动状态栏 -->
-      <ComposerStatusBar v-if="!compact" />
+      <ComposerStatusBar v-if="!compact" :session-id="sessionId" />
 
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <QuoteAttachmentsBar :quotes="attachedQuotes" @remove="removeQuoteAttachment" />
