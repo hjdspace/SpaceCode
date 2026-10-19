@@ -75,6 +75,8 @@ export default {
   messageSteered: 'Message steered into current turn',
   thinkingAppliesNextTurn: 'Thinking setting applies after this response',
   thinkingApplyFailed: 'The engine did not accept this thinking toggle, so it was reverted',
+  effortAppliesNextTurn: 'Reasoning depth applies after this response',
+  effortApplyFailed: 'The engine did not accept this reasoning depth, so it was reverted',
   thinkingSaveFailed: 'Thinking setting could not be saved to the main process, so it was reverted',
   thinkingProxyFailed: 'Thinking setting saved, but the local proxy did not align',
   dropImageHint: 'Drop image here to add',
