@@ -12,7 +12,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import { normalizeApiUrl } from '@/utils/apiUrl'
-import { clampEffortLevel, getSupportedEffortLevels, type EffortLevel } from '@/shared/effort'
+import { clampEffortLevel, getEngineEffortLevels, getSupportedEffortLevels, type EffortLevel } from '@/shared/effort'
 
 export interface ModelOption {
   label: string
@@ -28,9 +28,12 @@ export function useModelSelector(options?: {
 
   // ── State ──────────────────────────────────────────────────────
   const selectedModel = ref('')
-  /** 当前模型真实可用的档位；空集合表示该模型不可调节推理深度（引擎会整个丢弃 effort）。 */
+  /**
+   * 当前模型真实可用的档位；空集合表示该模型不可调节推理深度（引擎会整个丢弃 effort）。
+   * 先跟引擎那一维求交：内部引擎压根不认 xhigh，呈现出来就是递给 spawn 一颗雷。
+   */
   const availableModes = computed<ReadonlyArray<EffortLevel>>(() =>
-    getSupportedEffortLevels(selectedModel.value)
+    getSupportedEffortLevels(selectedModel.value, getEngineEffortLevels(settingsStore.engineSource))
   )
   const selectedMode = ref<EffortLevel | null>(
     clampEffortLevel(settingsStore.effortLevel, availableModes.value)
