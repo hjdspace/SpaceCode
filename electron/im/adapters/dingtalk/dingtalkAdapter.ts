@@ -366,10 +366,21 @@ export class DingtalkAdapter {
         this.permissionCard.getSinglePendingRequestId(webhook)
       )
       if (parsed) {
+        // Quick replies carry the requestId; explicit /allow|/always|/deny <tool>
+        // commands resolve it from the pending list by tool name.
+        const toolName = parsed.toolName
+        const requestId = parsed.requestId
+          ?? (toolName ? this.permissionCard.findRequestIdByTool(webhook, toolName) : undefined)
+        if (!requestId) {
+          await this.bot.sendTextMessage(webhook, `❌ 未找到与工具 ${toolName} 匹配的待处理权限请求`)
+          return
+        }
+        // Consume the pending entry so the next chat word is not treated as another answer
+        this.permissionCard.removePending(webhook, requestId)
         const rule = parsed.action === 'always' ? 'always' : undefined
         this.bridge.sendPermissionResponse(
           chatId,
-          parsed.requestId!,
+          requestId,
           parsed.action !== 'deny',
           rule
         )
