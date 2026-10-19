@@ -118,24 +118,25 @@ const currentKey = computed(() => {
     border: 1.5px solid var(--border-strong);
     font-size: 10.5px;
     font-weight: var(--font-weight-semibold);
-    color: var(--text-disabled);
+    color: var(--text-muted);
   }
 
   .label {
     font-size: var(--text-md);
-    color: var(--text-muted);
-  }
-
-  &.current {
-    background: var(--accent-primary-glow);
-
-    .num { border-color: var(--accent-primary); color: var(--accent-primary); }
-    .label { color: var(--text-primary); font-weight: var(--font-weight-semibold); }
+    color: var(--text-secondary);
   }
 
   &.done {
     .num { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
     .label { color: var(--text-secondary); }
+  }
+
+  // 已完成又正停留在这一步时，"当前"要赢过"已完成" —— 所以必须排在 .done 之后。
+  &.current {
+    background: var(--accent-primary-glow);
+
+    .num { border-color: var(--accent-primary); color: var(--accent-primary); }
+    .label { color: var(--text-primary); font-weight: var(--font-weight-semibold); }
   }
 }
 
@@ -168,7 +169,7 @@ const currentKey = computed(() => {
 
 .later {
   font-size: var(--text-md);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   padding: 4px 2px;
   text-align: left;
 
