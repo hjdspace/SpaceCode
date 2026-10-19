@@ -307,7 +307,7 @@ function mapStreamDelta(delta: any): any {
  * 路径在 asar 外不可达），版本不归 package.json 说了算。读空会造出 id=undefined 的幽灵
  * 卡片，真卡片另由 tool_execution_start 建一条 → 同一次调用渲染两行。
  */
-function toolCallIdentity(delta: any): { id?: string; name?: string } {
+function toolCallIdentity(delta: PiAgentEvent): { id?: string; name?: string } {
   const block = delta.partial?.content?.[delta.contentIndex]
   return { id: delta.id ?? block?.id, name: delta.toolName ?? block?.name }
 }

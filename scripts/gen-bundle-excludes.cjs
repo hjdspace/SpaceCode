@@ -3,7 +3,7 @@
  * 验证 package.json 中 build.files 的排除规则是否仍然正确。
  *
  * 背景：经过打包优化，dependencies 已精简到只有运行时必需的原生模块和子进程依赖
- *（node-pty / better-sqlite3 / @mariozechner/pi-coding-agent）。
+ *（node-pty / better-sqlite3 / @earendil-works/pi-coding-agent）。
  * electron-builder 只打 dependencies（不含 devDependencies），因此不再需要
  * 逐包排除渲染进程依赖的百行清单。
  *
@@ -29,12 +29,12 @@ const PKG = path.join(ROOT, 'package.json')
  *
  * 判定依据（详见 docs/desktop-bundle-optimization.md）：
  * - node-pty / better-sqlite3：原生模块，vite-plugin-electron external，运行时从 node_modules 加载
- * - @mariozechner/pi-coding-agent：以独立子进程执行（spawn node cli.js），需完整依赖闭包
+ * - @earendil-works/pi-coding-agent：以独立子进程执行（spawn node cli.js），需完整依赖闭包
  */
 const EXPECTED_DEPS = new Set([
   'node-pty',
   'better-sqlite3',
-  '@mariozechner/pi-coding-agent',
+  '@earendil-works/pi-coding-agent',
 ])
 
 /**
@@ -45,7 +45,7 @@ const REQUIRED_FILE_PATTERNS = [
   'dist/**/*',
   'dist-electron/**/*',
   'node_modules/node-pty/**/*',
-  'node_modules/@mariozechner/**/*',
+  'node_modules/@earendil-works/**/*',
 ]
 
 /** 跨平台通用的产物裁剪规则 */
@@ -63,9 +63,9 @@ const PRUNE_PATTERNS = [
   '!**/node_modules/node-pty/src/**/*',
   '!**/node_modules/node-pty/deps/**/*',
   '!**/node_modules/node-pty/third_party/conpty/**/win10-arm64/**/*',
-  '!**/node_modules/@mariozechner/pi-coding-agent/docs/**/*',
-  '!**/node_modules/@mariozechner/pi-coding-agent/examples/**/*',
-  '!**/node_modules/@mariozechner/pi-ai/node_modules/**/*',
+  '!**/node_modules/@earendil-works/pi-coding-agent/docs/**/*',
+  '!**/node_modules/@earendil-works/pi-coding-agent/examples/**/*',
+  '!**/node_modules/@earendil-works/pi-ai/node_modules/**/*',
   '!**/node_modules/koffi/build/koffi/darwin_*',
   '!**/node_modules/koffi/build/koffi/freebsd_*',
   '!**/node_modules/koffi/build/koffi/openbsd_*',
