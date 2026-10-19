@@ -156,8 +156,8 @@ export class PiEngine implements IEngine {
     // In dev: __dirname = dist-electron/ → ../../ = project root
     // In packaged: __dirname = app.asar/dist-electron/ → ../../ = app root
     paths.push(
-      path.resolve(__dirname, '../../node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
-      path.resolve(__dirname, '../../../node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
+      path.resolve(__dirname, '../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
+      path.resolve(__dirname, '../../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
     )
 
     // Strategy 2: app.getAppPath()-relative (reliable in Electron dev mode)
@@ -166,7 +166,7 @@ export class PiEngine implements IEngine {
       // appPath in dev = project root, in packaged = app.asar
       const appRoot = appPath.endsWith('.asar') ? path.dirname(appPath) : appPath
       paths.push(
-        path.join(appRoot, 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
+        path.join(appRoot, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
       )
     } catch {
       // app might not be ready yet
@@ -174,7 +174,7 @@ export class PiEngine implements IEngine {
 
     // Strategy 3: process.cwd()-relative (fallback for unusual setups)
     paths.push(
-      path.join(process.cwd(), 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
+      path.join(process.cwd(), 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
     )
 
     // Strategy 4: Local pi-engine monorepo (sibling directory)
@@ -190,7 +190,7 @@ export class PiEngine implements IEngine {
 
     // Strategy 5: Packaged app resources
     paths.push(
-      path.join(process.resourcesPath || '', 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
+      path.join(process.resourcesPath || '', 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
       path.join(process.resourcesPath || '', 'pi-engine/dist/cli.js'),
     )
 

@@ -17,7 +17,7 @@ import { useChatSessionStore } from '@/stores/chatSession'
  *  - 工具名必须归一成渲染层词表：组件/图标/标签表按名精确匹配，小写 bash
  *    命中不了 BashToolCard，终端卡片会退化成通用行 + input/output JSON 直出。
  *
- * 帧 fixture 按 pi-ai 真实事件形状构造（见 node_modules/@mariozechner/pi-ai
+ * 帧 fixture 按 pi-ai 真实事件形状构造（见 node_modules/@earendil-works/pi-ai
  * /dist/types.d.ts 的 AssistantMessageEvent），不手搓"应该有"的字段。
  */
 

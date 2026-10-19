@@ -65,11 +65,11 @@ const HOME = '/home/u'
 const APP_ROOT = '/app/root'
 const RESOURCES = '/app/resources'
 const SRC_DIR = path.resolve(__dirname, '..')
-const DEV_CLI_1 = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
-const DEV_CLI_2 = path.resolve(SRC_DIR, '..', '..', '..', 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
-const APP_CLI = path.join(APP_ROOT, 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
+const DEV_CLI_1 = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
+const DEV_CLI_2 = path.resolve(SRC_DIR, '..', '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
+const APP_CLI = path.join(APP_ROOT, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const APP_MONOREPO_CLI = path.join(APP_ROOT, 'pi-engine', 'packages', 'coding-agent', 'dist', 'cli.js')
-const RES_CLI = path.join(RESOURCES, 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
+const RES_CLI = path.join(RESOURCES, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const RES_PI_ENGINE_CLI = path.join(RESOURCES, 'pi-engine', 'dist', 'cli.js')
 const PI_AGENT_DIR = path.join(HOME, '.pi', 'agent')
 const MODELS_JSON = path.join(PI_AGENT_DIR, 'models.json')
@@ -238,10 +238,10 @@ describe('resolveCliPath — bundled copy wins over every later strategy', () =>
   it('derives the app root from the directory holding the asar archive', () => {
     // a packaged app path points inside the archive, which no child process can read
     H.appPath = path.join(APP_ROOT, 'resources', 'app.asar')
-    H.existing.add(path.join(APP_ROOT, 'resources', 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js'))
+    H.existing.add(path.join(APP_ROOT, 'resources', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'))
 
     expect(privates(newProc()).resolveCliPath()).toBe(
-      path.join(APP_ROOT, 'resources', 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js'),
+      path.join(APP_ROOT, 'resources', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'),
     )
   })
 
@@ -250,11 +250,11 @@ describe('resolveCliPath — bundled copy wins over every later strategy', () =>
     const elsewhere = path.resolve('/', 'elsewhere')
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(elsewhere)
     H.appPathThrows = true
-    H.existing.add(path.join(elsewhere, 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js'))
+    H.existing.add(path.join(elsewhere, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'))
 
     try {
       expect(privates(newProc()).resolveCliPath()).toBe(
-        path.join(elsewhere, 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js'),
+        path.join(elsewhere, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'),
       )
     } finally {
       cwdSpy.mockRestore()
@@ -548,7 +548,9 @@ describe('writeModelsJsonOverride', () => {
       name: 'OpenAI Compatible',
       api: 'openai-completions',
       baseUrl: 'https://llm.internal.example/v1',
-      apiKey: 'OPENAI_API_KEY',
+      // $ 前缀不是风格问题：pi >=0.77 起只有 $NAME / ${NAME} 算环境变量引用，
+      // 裸 'OPENAI_API_KEY' 会被当作字面量提交上去当 key 用，直接 401。
+      apiKey: '$OPENAI_API_KEY',
       compat: {
         supportsStore: false,
         supportsDeveloperRole: false,

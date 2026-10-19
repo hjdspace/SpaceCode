@@ -50,7 +50,7 @@ interface SpawnCall {
 }
 
 const SRC_DIR = path.resolve(__dirname, '..')
-const DEV_CLI = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
+const DEV_CLI = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 
 const H = vi.hoisted(() => ({
   spawnCalls: [] as SpawnCall[],
@@ -251,7 +251,7 @@ describe('PiSessionProcess start — how the engine is launched', () => {
 
     expect(H.spawnCalls[0].command).toBe('npx')
     expect(H.spawnCalls[0].args).toEqual([
-      '@mariozechner/pi-coding-agent',
+      '@earendil-works/pi-coding-agent',
       '--mode',
       'rpc',
       '--provider',

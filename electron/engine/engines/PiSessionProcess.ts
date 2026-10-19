@@ -74,9 +74,9 @@ export class PiSessionProcess extends EventEmitter {
         command = 'pi'
         spawnArgs = ['--mode', 'rpc', ...baseArgs]
       } else if (cliPath === 'npx') {
-        // Fallback: npx @mariozechner/pi-coding-agent
+        // Fallback: npx @earendil-works/pi-coding-agent
         command = 'npx'
-        spawnArgs = ['@mariozechner/pi-coding-agent', '--mode', 'rpc', ...baseArgs]
+        spawnArgs = ['@earendil-works/pi-coding-agent', '--mode', 'rpc', ...baseArgs]
       } else {
         // Direct path to cli.js — prefer ELECTRON_RUN_AS_NODE over bun.
         // Bun may buffer stdout in chunk mode, causing streaming events to be delayed
@@ -484,7 +484,7 @@ export class PiSessionProcess extends EventEmitter {
   private resolveCliPath(): string {
     const isPackaged = app.isPackaged
 
-    // electron-builder places @mariozechner/pi-coding-agent under
+    // electron-builder places @earendil-works/pi-coding-agent under
     // app.asar.unpacked. Electron's virtual asar filesystem can read the
     // app.asar path, but a child process cannot execute a script from inside
     // the archive on Windows. Always try the unpacked equivalent first.
@@ -497,8 +497,8 @@ export class PiSessionProcess extends EventEmitter {
     // In dev: __dirname = dist-electron/ → ../../ = project root
     // In packaged: __dirname = app.asar/dist-electron/ → ../../ = app root
     const devPaths = [
-      path.resolve(__dirname, '../../node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
-      path.resolve(__dirname, '../../../node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
+      path.resolve(__dirname, '../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
+      path.resolve(__dirname, '../../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
     ]
     for (const p of devPaths) {
       const executablePath = unpackedPath(p)
@@ -513,7 +513,7 @@ export class PiSessionProcess extends EventEmitter {
       try {
         const appPath = app.getAppPath()
         const appRoot = appPath.endsWith('.asar') ? path.dirname(appPath) : appPath
-        const appRelativePath = path.join(appRoot, 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js')
+        const appRelativePath = path.join(appRoot, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js')
         if (fs.existsSync(appRelativePath)) {
           info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (appPath-relative): ${appRelativePath}`)
           return appRelativePath
@@ -530,7 +530,7 @@ export class PiSessionProcess extends EventEmitter {
     }
 
     // Strategy 3: process.cwd()-relative (fallback for unusual setups)
-    const cwdPath = path.join(process.cwd(), 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js')
+    const cwdPath = path.join(process.cwd(), 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js')
     if (fs.existsSync(cwdPath)) {
       info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (cwd-relative): ${cwdPath}`)
       return cwdPath
@@ -538,7 +538,7 @@ export class PiSessionProcess extends EventEmitter {
 
     // Strategy 4: Packaged app: look in resources
     const packagedPaths = [
-      path.join(process.resourcesPath || '', 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
+      path.join(process.resourcesPath || '', 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
       path.join(process.resourcesPath || '', 'pi-engine/dist/cli.js'),
     ]
     for (const p of packagedPaths) {
@@ -687,8 +687,10 @@ export class PiSessionProcess extends EventEmitter {
 
     if (this.config.apiKey) {
       if (this.shouldUseCompatProvider()) {
-        // The compat provider uses apiKey: "OPENAI_API_KEY" in models.json,
-        // so Pi CLI will read the key from this env var.
+        // The compat provider references "$OPENAI_API_KEY" in models.json, so Pi CLI
+        // reads the key from this env var. pi >=0.77 resolves a bare "OPENAI_API_KEY"
+        // as a literal instead (only $NAME / ${NAME} are env references now), which
+        // would authenticate with the string "OPENAI_API_KEY" and 401.
         env['OPENAI_API_KEY'] = this.config.apiKey
       } else {
         // Populate the env var(s) pi-ai reads for this provider so auth works without
@@ -819,7 +821,7 @@ export class PiSessionProcess extends EventEmitter {
         cp.name = 'OpenAI Compatible'
         cp.api = 'openai-completions'
         cp.baseUrl = baseUrl
-        cp.apiKey = 'OPENAI_API_KEY'
+        cp.apiKey = '$OPENAI_API_KEY'
         cp.compat = {
           supportsStore: false,
           supportsDeveloperRole: false,

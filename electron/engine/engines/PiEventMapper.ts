@@ -250,64 +250,64 @@ function mapStreamDelta(delta: any): any {
       return {
         type: 'content_block_start',
         content_block: { type: 'thinking' },
-        partial: delta.partial
       }
     case 'thinking_delta':
       return {
         type: 'content_block_delta',
         delta: { type: 'thinking_delta', thinking: delta.delta || delta.thinking },
-        partial: delta.partial
       }
     case 'thinking_end':
       return {
         type: 'content_block_stop',
         content_block: { type: 'thinking' },
-        partial: delta.partial
       }
     case 'text_start':
       return {
         type: 'content_block_start',
         content_block: { type: 'text' },
-        partial: delta.partial
       }
     case 'text_delta':
       return {
         type: 'content_block_delta',
         delta: { type: 'text_delta', text: delta.delta || delta.text },
-        partial: delta.partial
       }
     case 'text_end':
       return {
         type: 'content_block_stop',
         content_block: { type: 'text' },
-        partial: delta.partial
       }
     case 'toolcall_start': {
-      // pi-ai 的 toolcall_start 只带 { contentIndex, partial } —— id/name 不在事件顶层，
-      // 而是刚被推进 partial.content[contentIndex] 的那个 toolCall 块上（各 provider 与
-      // proxy 均如此）。读顶层的 delta.toolCallId/toolName 恒为 undefined，会让下游
-      // eventHandlers 兜底出随机 id + "Unknown Tool"，造出一张永远等不到 tool_result
-      // 的幽灵卡片，而真卡片随后由 tool_execution_start 另建一条 → 同一次调用渲染两行。
-      const block = delta.partial?.content?.[delta.contentIndex]
+      const tool = toolCallIdentity(delta)
       return {
         type: 'content_block_start',
-        content_block: { type: 'tool_use', id: block?.id, name: mapPiToolName(block?.name) },
-        partial: delta.partial
+        content_block: { type: 'tool_use', id: tool.id, name: mapPiToolName(tool.name) },
       }
     }
     case 'toolcall_delta':
       return {
         type: 'content_block_delta',
         delta: { type: 'input_json_delta', partial_json: delta.delta },
-        partial: delta.partial
       }
     case 'toolcall_end':
       return {
         type: 'content_block_stop',
         content_block: { type: 'tool_use' },
-        partial: delta.partial
       }
     default:
       return delta
   }
+}
+
+/**
+ * toolcall_start 的 id/name 在两个线上形状里位置不同：pi ≥ 0.84.3 的 RPC 帧把它提到顶层
+ * (`{ contentIndex, id, toolName }`)，更早的版本只给 `{ contentIndex, partial }`，id/name
+ * 挂在刚被推进 `partial.content[contentIndex]` 的 toolCall 块上。
+ *
+ * 两个分支都得读，因为打包后的 app 跑的是用户自装的全局 pi（resolveCliPath 的 bundled
+ * 路径在 asar 外不可达），版本不归 package.json 说了算。读空会造出 id=undefined 的幽灵
+ * 卡片，真卡片另由 tool_execution_start 建一条 → 同一次调用渲染两行。
+ */
+function toolCallIdentity(delta: any): { id?: string; name?: string } {
+  const block = delta.partial?.content?.[delta.contentIndex]
+  return { id: delta.id ?? block?.id, name: delta.toolName ?? block?.name }
 }

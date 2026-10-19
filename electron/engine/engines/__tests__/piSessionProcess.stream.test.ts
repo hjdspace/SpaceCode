@@ -55,7 +55,7 @@ type Frame = Record<string, unknown> & { type?: string }
 
 const SRC_DIR = path.resolve(__dirname, '..')
 /** Mirrors the __dirname-relative candidate the production resolver checks first. */
-const DEV_CLI = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
+const DEV_CLI = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 
 const H = vi.hoisted(() => ({
   spawnCalls: [] as SpawnCall[],

@@ -618,7 +618,7 @@ async function handleOpenPiCLI() {
   const cliCommand = await api.getPiCliPath()
   const env = settingsStore.buildEnvVars()
 
-  let fullCommand = cliCommand || 'npx @mariozechner/pi-coding-agent'
+  let fullCommand = cliCommand || 'npx @earendil-works/pi-coding-agent'
   
   appStore.openTerminalTab(fullCommand, env, appStore.projectRoot || undefined)
 }

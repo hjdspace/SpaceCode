@@ -24,8 +24,10 @@ import { mapPiEvent } from '../PiEventMapper'
  *    PascalCase 名；未收录的名字（如 ls）原样透传。归一放这里是因为渲染层的组件、
  *    图标、标签与 trace 分类表全部按 PascalCase 精确匹配，小写名会静默退化成
  *    通用 JSON 行而不是终端/diff 卡片。
- *  - 帧 fixture 必须照 pi-ai 的真实事件形状构造，不要按"字段应该存在"手写：
- *    toolcall_start 只带 contentIndex/partial，id/name 在 partial.content 的块上。
+ *  - 帧 fixture 必须照 pi 的真实 wire 形状构造，不要按"字段应该存在"手写：
+ *    pi ≥ 0.84.3 的 message_update 是 delta-only —— 顶层 message 与每个 delta 的 partial
+ *    都被 toJsonEvent 剥掉，toolcall_start 改为顶层带 id/toolName。旧引擎（打包后可能是
+ *    用户自装的全局 pi）仍走 partial.content，两条分支各有测试钉住。
  *
  * 纯函数直测，无 mock —— Pi 事件 fixture 直接按帧字面量构造
  * （与 piSessionProcess.stream.test.ts 的 frame 形状一致）。
@@ -175,7 +177,7 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
     ).toEqual({
       sessionId: SID,
       type: 'stream_event',
-      data: { event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hello' }, partial: false } },
+      data: { event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hello' } } },
     })
     expect(
       mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: { type: 'text_delta', text: 'fallback' } })?.data.event,
@@ -184,28 +186,46 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
 
   it('message_update thinking 三态 → content_block_start/delta/stop，content_block.type 为 thinking', () => {
     const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
+    // partial 已从 wire 移除（toJsonEvent 逐个 delta 剥掉），渲染层也从不读它：
+    // 上面 text_delta 那条刻意还带一个 partial 进帧，断言它不再被转发出来。
     expect(up({ type: 'thinking_start', partial: true })).toEqual({
       type: 'content_block_start',
       content_block: { type: 'thinking' },
-      partial: true,
     })
     expect(up({ type: 'thinking_delta', thinking: '来自 thinking 字段', partial: false })).toEqual({
       type: 'content_block_delta',
       delta: { type: 'thinking_delta', thinking: '来自 thinking 字段' },
-      partial: false,
     })
     expect(up({ type: 'thinking_delta', delta: '增量优先', thinking: '旧字段' })?.delta.thinking).toBe('增量优先')
     expect(up({ type: 'thinking_end', partial: false })).toEqual({
       type: 'content_block_stop',
       content_block: { type: 'thinking' },
-      partial: false,
     })
   })
 
   it('message_update toolcall 三态 → tool_use content_block_start（含 id/name）/ input_json_delta / content_block_stop', () => {
     const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
-    // pi-ai 的 toolcall_start 帧只有 { contentIndex, partial }：id/name 在刚被推进
-    // partial.content[contentIndex] 的 toolCall 块上，不在帧顶层。
+    // pi ≥ 0.84.3 的 RPC 帧：toolcall_start 在顶层带 id/toolName，且 wire 上已无 partial
+    // （toJsonEvent 刻意剥掉，见 docs/json.md「delta-only」）。
+    expect(up({ type: 'toolcall_start', contentIndex: 1, id: 'tc1', toolName: 'bash' })).toEqual({
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', id: 'tc1', name: 'Bash' },
+    })
+    expect(up({ type: 'toolcall_delta', contentIndex: 1, delta: '{"command":' })).toEqual({
+      type: 'content_block_delta',
+      delta: { type: 'input_json_delta', partial_json: '{"command":' },
+    })
+    expect(up({ type: 'toolcall_end', contentIndex: 1, toolCall: { id: 'tc1', name: 'bash' } })).toEqual({
+      type: 'content_block_stop',
+      content_block: { type: 'tool_use' },
+    })
+  })
+
+  it('toolcall_start 旧 wire 形状（partial.content 带 id/name）仍能取到身份', () => {
+    const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
+    // 打包后的 app 执行的是用户自装的全局 pi，版本可能早于 0.84.3 —— 那时 id/name 只挂在
+    // partial.content[contentIndex] 的 toolCall 块上。这条钉住那条回退分支：删掉它，旧引擎
+    // 会退化成 id=undefined 的幽灵卡片 + tool_execution_start 的真卡片，同一次调用渲染两行。
     const partial = {
       content: [
         { type: 'text', text: '先看一下' },
@@ -215,26 +235,18 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
     expect(up({ type: 'toolcall_start', contentIndex: 1, partial })).toEqual({
       type: 'content_block_start',
       content_block: { type: 'tool_use', id: 'tc1', name: 'Bash' },
-      partial,
-    })
-    expect(up({ type: 'toolcall_delta', contentIndex: 1, delta: '{"command":', partial })).toEqual({
-      type: 'content_block_delta',
-      delta: { type: 'input_json_delta', partial_json: '{"command":' },
-      partial,
-    })
-    expect(up({ type: 'toolcall_end', contentIndex: 1, toolCall: partial.content[1], partial })).toEqual({
-      type: 'content_block_stop',
-      content_block: { type: 'tool_use' },
-      partial,
     })
   })
 
-  it('toolcall_start 取不到 toolCall 块（contentIndex 越界）→ id/name 留空，不伪造', () => {
+  it('toolcall_start 两种形状都取不到身份 → id/name 留空，不伪造', () => {
     const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
     expect(up({ type: 'toolcall_start', contentIndex: 7, partial: { content: [] } })).toEqual({
       type: 'content_block_start',
       content_block: { type: 'tool_use', id: undefined, name: undefined },
-      partial: { content: [] },
+    })
+    expect(up({ type: 'toolcall_start', contentIndex: 0 })).toEqual({
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', id: undefined, name: undefined },
     })
   })
 

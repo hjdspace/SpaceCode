@@ -50,7 +50,7 @@
     "postversion": "git push && git push --tags"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.73.0",
+    "@earendil-works/pi-coding-agent": "^1.3.0",
     "better-sqlite3": "^13.0.3",
     "node-pty": "^1.1.0"
   },
@@ -130,7 +130,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "node_modules/node-pty/**/*",
-      "node_modules/@mariozechner/**/*",
+      "node_modules/@earendil-works/**/*",
       "!**/node_modules/**/*.map",
       "!**/node_modules/better-sqlite3/deps/**/*",
       "!**/node_modules/better-sqlite3/prebuilds/win32-arm64*",
@@ -144,9 +144,9 @@
       "!**/node_modules/node-pty/src/**/*",
       "!**/node_modules/node-pty/deps/**/*",
       "!**/node_modules/node-pty/third_party/conpty/**/win10-arm64/**/*",
-      "!**/node_modules/@mariozechner/pi-coding-agent/docs/**/*",
-      "!**/node_modules/@mariozechner/pi-coding-agent/examples/**/*",
-      "!**/node_modules/@mariozechner/pi-ai/node_modules/**/*",
+      "!**/node_modules/@earendil-works/pi-coding-agent/docs/**/*",
+      "!**/node_modules/@earendil-works/pi-coding-agent/examples/**/*",
+      "!**/node_modules/@earendil-works/pi-ai/node_modules/**/*",
       "!**/node_modules/koffi/build/koffi/darwin_*",
       "!**/node_modules/koffi/build/koffi/freebsd_*",
       "!**/node_modules/koffi/build/koffi/openbsd_*",
@@ -159,7 +159,7 @@
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*",
-      "node_modules/@mariozechner/**/*",
+      "node_modules/@earendil-works/**/*",
       "dist-electron/proxy/**/*"
     ],
     "extraResources": [

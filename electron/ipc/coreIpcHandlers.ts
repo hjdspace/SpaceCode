@@ -520,14 +520,14 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
       const { execSync } = await import('child_process')
       execSync('bun --version', { stdio: 'ignore' })
       info('PI', 'Using bun to run pi via npx')
-      return 'bunx @mariozechner/pi-coding-agent'
+      return 'bunx @earendil-works/pi-coding-agent'
     } catch {}
 
     try {
       const { execSync } = await import('child_process')
       execSync('npx --version', { stdio: 'ignore' })
       info('PI', 'Using npx to run pi')
-      return 'npx @mariozechner/pi-coding-agent'
+      return 'npx @earendil-works/pi-coding-agent'
     } catch {}
 
     warn('PI', 'No Pi CLI found!')

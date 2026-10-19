@@ -51,12 +51,12 @@ export default defineConfig({
                 'electron',
                 'node-pty',
                 'better-sqlite3',
-                '@mariozechner/pi-coding-agent',
-                '@mariozechner/pi-coding-agent/dist/modes/rpc/rpc-client.js',
-                '@mariozechner/pi-agent',
-                '@mariozechner/pi-ai',
-                '@mariozechner/pi-tui',
-                /^@mariozechner\/.*/
+                '@earendil-works/pi-coding-agent',
+                '@earendil-works/pi-coding-agent/dist/modes/rpc/rpc-client.js',
+                '@earendil-works/pi-agent',
+                '@earendil-works/pi-ai',
+                '@earendil-works/pi-tui',
+                /^@earendil-works\/.*/
               ]
             }
           }
@@ -125,7 +125,7 @@ export default defineConfig({
         main: resolve(import.meta.dirname, 'index.html'),
         'pet-window': resolve(import.meta.dirname, 'src/pet-window/index.html'),
       },
-      external: ['@mariozechner/pi-coding-agent'],
+      external: ['@earendil-works/pi-coding-agent'],
       output: {
         // Vite 8: manualChunks 已废弃，使用 codeSplitting.groups 替代
         // 通过 priority 确保高优先级组先匹配（数值越大优先级越高）

@@ -16,13 +16,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
  *  - 挂起再恢复之后，第二次请求体里还在不在第一轮的用户消息
  *  - 进程整个换掉（应用重启那条路）之后，只凭会话文件路径还接不接得上历史
  *
- * 不进 CI：需要本机装有 @mariozechner/pi-coding-agent，且会起子进程。显式跑：
+ * 不进 CI：需要本机装有 @earendil-works/pi-coding-agent，且会起子进程。显式跑：
  *   PI_REAL=1 npx vitest run electron/engine/engines/__tests__/piSessionProcess.realPi.test.ts
  * 全程用临时 HOME，不碰真实的 ~/.pi；假上游不含任何真实凭据。
  */
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
-const CLI = path.join(REPO_ROOT, 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
+const CLI = path.join(REPO_ROOT, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const ENABLED = process.env.PI_REAL === '1' && fs.existsSync(CLI)
 
 vi.mock('electron', () => ({
