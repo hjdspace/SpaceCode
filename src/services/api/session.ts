@@ -1,5 +1,5 @@
 import { electronAPI } from './_context'
-import type { SessionTurnCheckpoint, TurnCheckpointDiffResult } from '@/types'
+import type { SessionTurnCheckpoint, TurnCheckpointDiffResult, SessionFileDiffResult } from '@/types'
 
 export const session = {
   getTurnCheckpoints: (sessionId: string, projectPath?: string): Promise<{
@@ -43,6 +43,14 @@ export const session = {
       path: filePath,
       error: 'Session API not available'
     }),
+
+  getSessionFileDiff: (
+    sessionId: string,
+    filePath: string,
+    projectPath?: string
+  ): Promise<SessionFileDiffResult> =>
+    electronAPI?.session?.getSessionFileDiff(sessionId, filePath, projectPath) ||
+    Promise.resolve({ state: 'error', path: filePath, error: 'Session API not available' }),
 
   rewindTurn: (
     sessionId: string,
