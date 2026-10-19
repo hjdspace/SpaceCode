@@ -11,6 +11,11 @@ const WRITE_TOOLS = new Set([...FILE_TOOLS, 'NotebookEdit'])
 export interface SessionFileChange {
   /** 相对 projectRoot 的路径（正斜杠）；文件不在仓库内时退回归一后的绝对路径 */
   path: string
+  /**
+   * 路径是否落在 git 仓库内。仓库外的文件（agent 记忆目录、临时输出）没有
+   * numstat 可取，展示层要区分"读不到 git 数字"与"改动已提交/已回退"。
+   */
+  inRepo: boolean
   /** 按首次出现顺序记录的写文件工具名，同一工具多次调用会重复 */
   tools: string[]
   /** 归属轮次序号（会话内 assistant 消息序号，1 基），升序去重 */
@@ -106,10 +111,19 @@ function absolutize(raw: string, options: CollectOptions): string | null {
  * 归一后的绝对路径。聚合与写入账本必须共用这个口径，否则同一个文件会出现两份键。
  */
 export function resolveToolPathKey(raw: string, options: CollectOptions): string | null {
+  return resolveToolPath(raw, options)?.key ?? null
+}
+
+/** resolveToolPathKey + 这个路径到底在不在仓库内。 */
+export function resolveToolPath(
+  raw: string,
+  options: CollectOptions,
+): { key: string; inRepo: boolean } | null {
   const absolutePath = absolutize(raw, options)
   if (!absolutePath) return null
   const relative = options.projectRoot ? toRepoRelative(absolutePath, options.projectRoot) : null
-  return relative ?? toForwardSlashes(absolutePath)
+  if (relative) return { key: relative, inRepo: true }
+  return { key: toForwardSlashes(absolutePath), inRepo: false }
 }
 
 /**
@@ -128,8 +142,9 @@ export function collectSessionFileChanges(
   let turnIndex = 0
 
   const record = (raw: string, tool: string, at: number, turn: number, origin: 'direct' | 'command') => {
-    const path = resolveToolPathKey(raw, options)
-    if (!path) return
+    const resolved = resolveToolPath(raw, options)
+    if (!resolved) return
+    const { key: path, inRepo } = resolved
 
     const existing = byPath.get(path)
     if (existing) {
@@ -144,6 +159,7 @@ export function collectSessionFileChanges(
     } else {
       byPath.set(path, {
         path,
+        inRepo,
         tools: origin === 'direct' ? [tool] : [],
         turns: [turn],
         lastAt: at,
