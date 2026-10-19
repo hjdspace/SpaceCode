@@ -655,7 +655,8 @@ export class ClaudeCodeProcessPool {
       debug('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | data=${String(data).slice(0, 200)}`)
     } else {
       // assistant, tool_use, tool_result, result, system, user 等
-      info('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | windowAvailable=${windowAvailable}`)
+      // 逐事件高频日志降为 debug：正常模式不写文件（sdkMessage 已有逐条记录），--debug 下仍可排查
+      debug('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | windowAvailable=${windowAvailable}`)
     }
 
     if (windowAvailable) {
