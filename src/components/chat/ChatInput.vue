@@ -286,6 +286,7 @@ import type { WorkspaceEntry } from '@/composables/useWorkspaceBrowser'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
+import type { EffortLevel } from '@/shared/effort'
 
 // Re-export types for backward compatibility (other components import from ChatInput)
 export type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'
@@ -300,7 +301,7 @@ const emit = defineEmits<{
   send: [content: string, attachments: AllAttachments, options?: SendOptions]
   'slash-command': [command: string, args: string, attachments: AllAttachments, displayLabel?: string]
   'update:model': [model: string]
-  'update:effort': [effort: string]
+  'update:effort': [effort: EffortLevel]
   'update:agent': [agent: string]
   'update:permissionMode': [mode: PermissionMode]
   'open-skills': []
@@ -347,7 +348,7 @@ const { pendingFile, consumePendingFile } = useFileToChat()
 const modelSelector = useModelSelector({
   initialModelValue: props.modelValue,
   onUpdateModel: (m) => emit('update:model', m),
-  onUpdateEffort: (e) => emit('update:effort', e),
+  onUpdateEffort: (e) => applyEffort(e),
 })
 // 下拉的开合、键盘导航与子菜单定位归 ModelPickerMenu；宿主只留初始化与外部受控值
 const { selectedModel, initialize: initializeModelSelector } = modelSelector
@@ -601,6 +602,32 @@ async function toggleThinking() {
     flashThinkingHint(t('chatInput.thinkingProxyFailed'), true)
   } else if (appliesLater) {
     flashThinkingHint(t('chatInput.thinkingAppliesNextTurn'), false)
+  }
+}
+
+/**
+ * 推理深度走与思考开关同一条下发链：先让父级落配置，再问引擎什么时候生效。
+ *
+ * 引擎没接住就退回原档位 —— CLI 对认不出的档位只 warn 一句然后照旧退 0，
+ * 界面从退出码什么都拿不到，所以只能以这里的 reject 为凭。
+ */
+async function applyEffort(level: EffortLevel) {
+  const previous = modelSelector.selectedMode.value
+  emit('update:effort', level)
+
+  const sid = editorSessionId.value
+  if (!sid) return
+  try {
+    if ((await api.updateEffortLevel(sid, level)) === 'next-turn') {
+      flashThinkingHint(t('chatInput.effortAppliesNextTurn'), false)
+    }
+  } catch (err) {
+    console.error('[ChatInput] updateEffortLevel failed:', err)
+    if (previous && previous !== level) {
+      modelSelector.selectedMode.value = previous
+      emit('update:effort', previous)
+    }
+    flashThinkingHint(t('chatInput.effortApplyFailed'), true)
   }
 }
 
