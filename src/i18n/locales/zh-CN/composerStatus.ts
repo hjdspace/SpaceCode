@@ -8,6 +8,7 @@ export default {
   earlierTurns: '更早 {count} 个',
   noUncommittedChange: '已无未提交改动',
   commandOriginBadge: '命令/外部改动',
+  outsideRepoBadge: '不在 git 仓库内',
   openReview: '审查本会话改动',
   noChanges: '暂无改动',
 }
