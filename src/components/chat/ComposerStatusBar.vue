@@ -113,9 +113,8 @@
               <FileText :size="13" class="file-icon" />
               <span class="file-name" :title="file.path">{{ file.path.split(/[/\\]/).pop() || file.path }}</span>
               <span class="file-path" :title="file.path">{{ getDirPath(file.path) }}</span>
-              <span v-if="file.origin === 'command'" class="file-tag">{{ t('composerStatus.commandOriginBadge') }}</span>
-              <span v-else-if="!file.stillDirty" class="file-tag">{{ t('composerStatus.noUncommittedChange') }}</span>
-              <span class="file-stats">
+              <span v-if="fileTag(file)" class="file-tag">{{ fileTag(file) }}</span>
+              <span v-if="file.stillDirty" class="file-stats">
                 <span class="stat-add">+{{ file.insertions }}</span>
                 <span class="stat-del">-{{ file.deletions }}</span>
               </span>
@@ -131,7 +130,7 @@
 import { ref, computed, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionContext } from '@/stores/sessionContext'
-import { useSessionFileChangesStore } from '@/stores/sessionFileChanges'
+import { useSessionFileChangesStore, type SessionChangeRow } from '@/stores/sessionFileChanges'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 import {
@@ -211,6 +210,17 @@ function getDirPath(path: string): string {
   const parts = rel.split(/[/\\]/)
   parts.pop()
   return parts.length > 0 ? parts.join('/') + '/' : ''
+}
+
+/**
+ * 一行只给一个状态标签，按信息量排序：仓库外（git 数字与 diff 都无从谈起）
+ * > 命令/外部观测 > 已提交或已回退。
+ */
+function fileTag(file: SessionChangeRow): string {
+  if (!file.inRepo) return t('composerStatus.outsideRepoBadge')
+  if (file.origin === 'command') return t('composerStatus.commandOriginBadge')
+  if (!file.stillDirty) return t('composerStatus.noUncommittedChange')
+  return ''
 }
 
 function clearTimers() {
