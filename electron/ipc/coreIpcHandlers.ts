@@ -13,6 +13,7 @@ import {
   mkdirSync, copyFileSync, renameSync, rmSync,
 } from 'fs'
 import { debug, info, error, warn } from '../infra/logger'
+import { piShellCommand } from '../engine/engines/piCliResolver'
 import { getMainWindow } from '../windows/mainWindow'
 import { TerminalManager } from '../infra/terminalManager'
 import { channelNames } from '@/shared/channelMap'
@@ -505,33 +506,17 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
     return null
   })
 
+  /**
+   * 「在终端里开一个 pi」用的命令 —— 必须与应用真正 spawn 的是同一个引擎 (#52)。
+   *
+   * 这里曾经先 `where pi` 找用户全局装的版本、再退到 bunx/npx 现拉一份，跟应用内部
+   * 走的是两套解析；打包版里那份 bundled pi 又不在 node_modules，npx 只会装出第三个
+   * 版本。现在只问同一个解析器，命令口径收在 piShellCommand 一处。
+   */
   ipcMain.handle('app:getPiCliPath', async () => {
-    try {
-      const { execSync } = await import('child_process')
-      const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      try {
-        execSync(cmd, { stdio: 'ignore' })
-        info('PI', 'Using globally installed pi')
-        return 'pi'
-      } catch {}
-    } catch {}
-
-    try {
-      const { execSync } = await import('child_process')
-      execSync('bun --version', { stdio: 'ignore' })
-      info('PI', 'Using bun to run pi via npx')
-      return 'bunx @earendil-works/pi-coding-agent'
-    } catch {}
-
-    try {
-      const { execSync } = await import('child_process')
-      execSync('npx --version', { stdio: 'ignore' })
-      info('PI', 'Using npx to run pi')
-      return 'npx @earendil-works/pi-coding-agent'
-    } catch {}
-
-    warn('PI', 'No Pi CLI found!')
-    return null
+    const command = piShellCommand()
+    if (!command) warn('PI', 'No pi CLI resolved | no terminal command available')
+    return command
   })
 
   // ── Renderer Log Bridge ────────────────────────────────────────

@@ -95,7 +95,8 @@ vi.mock('fs', () => ({
   writeFileSync: (p: unknown, data: unknown) => {
     H.writes.push({ path: String(p), data: data as Buffer | string })
   },
-  readFileSync: () => '{}',
+  // 解析器靠包根 package.json 拿版本；不给版本号就会被判「无从核验」而拒绝起进程
+  readFileSync: (p: unknown) => String(p).endsWith('package.json') ? '{"version":"1.3.0"}' : '{}',
 }))
 
 vi.mock('electron', () => ({
@@ -241,24 +242,21 @@ describe('PiSessionProcess start — how the engine is launched', () => {
     expect(H.spawnCalls[0].opts.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
   })
 
-  it('launches the published package through npx as the last resort', async () => {
+  it('does not launch anything when the resolved pi fails the version floor', async () => {
+    // 以前解析不到合适版本会退到 `npx @earendil-works/pi-coding-agent` —— 等于让 npm 上
+    // 当下最新的版本决定打包版跑什么引擎 (#52)。现在起不来就起不来，错误原样抛给调用方。
     const proc = newProc()
-    vi.spyOn(proc as unknown as { resolveCliPath(): string }, 'resolveCliPath').mockReturnValue('npx')
+    const errors: Error[] = []
+    proc.on('error', (e: Error) => errors.push(e))
+    vi.spyOn(proc as unknown as { resolveCliPath(): string }, 'resolveCliPath').mockImplementation(() => {
+      throw new Error('Pi engine is not usable: pi 0.73.0 is below the required 1.0.0')
+    })
 
-    const starting = proc.start()
-    await vi.advanceTimersByTimeAsync(500)
-    await starting
+    await expect(proc.start()).rejects.toThrow('below the required 1.0.0')
 
-    expect(H.spawnCalls[0].command).toBe('npx')
-    expect(H.spawnCalls[0].args).toEqual([
-      '@earendil-works/pi-coding-agent',
-      '--mode',
-      'rpc',
-      '--provider',
-      'anthropic',
-      '--model',
-      'claude-sonnet-4',
-    ])
+    expect(H.spawnCalls).toHaveLength(0)
+    expect(proc.status).toBe('exited')
+    expect(errors).toHaveLength(1)
   })
 
   it('fails the launch when the child dies inside the grace window, quoting its stderr', async () => {

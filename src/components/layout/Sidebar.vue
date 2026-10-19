@@ -616,11 +616,14 @@ async function handleOpenClaudeCLI() {
 
 async function handleOpenPiCLI() {
   const cliCommand = await api.getPiCliPath()
-  const env = settingsStore.buildEnvVars()
+  // 主进程只回它真正会 spawn 的那个引擎；回不了就什么都不起 ——
+  // 退到 `npx @earendil-works/pi-coding-agent` 等于在终端里跑第三个版本的 pi (#52)
+  if (!cliCommand) {
+    console.warn('[Sidebar] No pi CLI resolved by the host; refusing to open an unmanaged one')
+    return
+  }
 
-  let fullCommand = cliCommand || 'npx @earendil-works/pi-coding-agent'
-  
-  appStore.openTerminalTab(fullCommand, env, appStore.projectRoot || undefined)
+  appStore.openTerminalTab(cliCommand, settingsStore.buildEnvVars(), appStore.projectRoot || undefined)
 }
 
 function handleAddToChat(node: TreeNode) {

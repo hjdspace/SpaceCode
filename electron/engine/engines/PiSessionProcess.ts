@@ -15,6 +15,7 @@ import {
   isProbableBunExecutable as engineIsProbableBunExecutable,
 } from '../../session/engineChildProcess'
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
+import { detectPiCli, MIN_PI_VERSION } from './piCliResolver'
 
 /** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
 interface PiImageContent {
@@ -45,6 +46,13 @@ export class PiSessionProcess extends EventEmitter {
   private _piSessionFile: string | null
 
   /**
+   * 实际 spawn 的那个 pi 的版本，以及它是否满足宿主的能力下限。null = 还没解析过，
+   * 或无从核验 —— 界面对 null/false 都不能声称能力可用 (#52)。
+   */
+  engineVersion: string | null = null
+  engineVersionCompatible: boolean | null = null
+
+  /**
    * @param resumeSessionFile 由池按历史记录注入的 pi 会话文件；不传则起一个空白会话。
    *   走构造参数而不是 config —— config 要跨 IPC，这个路径只该由主进程决定。
    */
@@ -70,13 +78,9 @@ export class PiSessionProcess extends EventEmitter {
       let launcherEnv: Record<string, string> | undefined
 
       if (cliPath === 'pi') {
-        // Global `pi` CLI command
+        // Global `pi` CLI command — it brings its own runtime
         command = 'pi'
         spawnArgs = ['--mode', 'rpc', ...baseArgs]
-      } else if (cliPath === 'npx') {
-        // Fallback: npx @earendil-works/pi-coding-agent
-        command = 'npx'
-        spawnArgs = ['@earendil-works/pi-coding-agent', '--mode', 'rpc', ...baseArgs]
       } else {
         // Direct path to cli.js — prefer ELECTRON_RUN_AS_NODE over bun.
         // Bun may buffer stdout in chunk mode, causing streaming events to be delayed
@@ -481,91 +485,31 @@ export class PiSessionProcess extends EventEmitter {
     this.emit('message', event)
   }
 
+  /**
+   * 解析这次真正该 spawn 哪个 pi，并把它的版本记到会话上。
+   *
+   * 不可用就直接抛：宁可会话起不来，也不能让「界面说可用、进程其实是另一个引擎」跑下去。
+   * 候选序列与版本判定都收在 piCliResolver —— PiEngine 的可用性走同一个函数，两边不可能再
+   * 各算一套 (issue #52)。
+   */
   private resolveCliPath(): string {
-    const isPackaged = app.isPackaged
+    const cli = detectPiCli()
+    this.engineVersion = cli.version
+    this.engineVersionCompatible = cli.available
 
-    // electron-builder places @earendil-works/pi-coding-agent under
-    // app.asar.unpacked. Electron's virtual asar filesystem can read the
-    // app.asar path, but a child process cannot execute a script from inside
-    // the archive on Windows. Always try the unpacked equivalent first.
-    const unpackedPath = (candidate: string): string =>
-      candidate.includes(`${path.sep}app.asar${path.sep}`)
-        ? candidate.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
-        : candidate.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1')
-
-    // Strategy 1: __dirname-relative paths (works in both dev and packaged modes)
-    // In dev: __dirname = dist-electron/ → ../../ = project root
-    // In packaged: __dirname = app.asar/dist-electron/ → ../../ = app root
-    const devPaths = [
-      path.resolve(__dirname, '../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-      path.resolve(__dirname, '../../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-    ]
-    for (const p of devPaths) {
-      const executablePath = unpackedPath(p)
-      if (fs.existsSync(executablePath)) {
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (__dirname-relative): ${executablePath}`)
-        return executablePath
-      }
+    if (!cli.entry || !cli.available) {
+      const detail = cli.reason === 'version-too-old'
+        ? `pi ${cli.version} is below the required ${MIN_PI_VERSION}`
+        : cli.reason === 'version-unknown'
+          ? 'the pi version could not be verified'
+          : app.isPackaged
+            ? 'the bundled pi shipped with this build is missing'
+            : 'no pi CLI found'
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Pi unavailable | reason=${cli.reason} | ${detail}`)
+      throw new Error(`Pi engine is not usable: ${detail}`)
     }
 
-    // Strategy 2: app.getAppPath()-relative (reliable in Electron dev mode)
-    if (!isPackaged) {
-      try {
-        const appPath = app.getAppPath()
-        const appRoot = appPath.endsWith('.asar') ? path.dirname(appPath) : appPath
-        const appRelativePath = path.join(appRoot, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js')
-        if (fs.existsSync(appRelativePath)) {
-          info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (appPath-relative): ${appRelativePath}`)
-          return appRelativePath
-        }
-        // Also check local pi-engine monorepo
-        const localPiPath = path.join(appRoot, 'pi-engine/packages/coding-agent/dist/cli.js')
-        if (fs.existsSync(localPiPath)) {
-          info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (local pi-engine): ${localPiPath}`)
-          return localPiPath
-        }
-      } catch {
-        // app might not be ready
-      }
-    }
-
-    // Strategy 3: process.cwd()-relative (fallback for unusual setups)
-    const cwdPath = path.join(process.cwd(), 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js')
-    if (fs.existsSync(cwdPath)) {
-      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (cwd-relative): ${cwdPath}`)
-      return cwdPath
-    }
-
-    // Strategy 4: Packaged app: look in resources
-    const packagedPaths = [
-      path.join(process.resourcesPath || '', 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-      path.join(process.resourcesPath || '', 'pi-engine/dist/cli.js'),
-    ]
-    for (const p of packagedPaths) {
-      if (fs.existsSync(p)) {
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (packaged): ${p}`)
-        return p
-      }
-    }
-
-    // Strategy 5: Check if `pi` CLI is available globally
-    // Use `where`/`which` to get the actual path, then verify it's executable.
-    try {
-      const { execSync } = require('child_process')
-      const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
-      const piPath = output.split(/\r?\n/)[0]?.trim()
-      if (piPath && fs.existsSync(piPath)) {
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (global 'pi' command): ${piPath}`)
-        return 'pi'
-      }
-    } catch {
-      // pi not available globally
-    }
-
-    // Fallback: try to use npx
-    warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] No pi CLI found, falling back to npx`)
-    return 'npx'
+    return cli.entry
   }
 
   /**

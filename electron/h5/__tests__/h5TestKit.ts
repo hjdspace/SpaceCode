@@ -21,6 +21,7 @@ import { join } from 'path'
 import { vi } from 'vitest'
 import type { Mock } from 'vitest'
 import type { WebSocket } from 'ws'
+import type { EngineAvailability } from '@/shared/channels/claudeCode'
 import type { H5AuthService } from '../h5AuthService'
 import type { H5AccessSettings } from '../h5Types'
 
@@ -302,7 +303,7 @@ export const engineFactoryStub = {
       if (at >= 0) engineFactoryStub.listeners.splice(at, 1)
     }
   }),
-  isEngineAvailableAsync: vi.fn(async (_type: unknown): Promise<boolean> => true),
+  getEngineAvailability: vi.fn(async (_type: unknown): Promise<EngineAvailability> => ({ available: true, reason: 'ok', version: null, installable: false })),
 }
 
 /** Push an event through whatever listener H5Server registered at start(). */
@@ -317,7 +318,7 @@ export function resetEngineFactoryStub(): void {
   engineFactoryStub.listeners = []
   engineFactoryStub.unsubscribeCalls = 0
   engineFactoryStub.onRouteEvent.mockClear()
-  engineFactoryStub.isEngineAvailableAsync.mockResolvedValue(true)
+  engineFactoryStub.getEngineAvailability.mockResolvedValue({ available: true, reason: 'ok', version: null, installable: false })
 }
 
 // ──────────────────────────────────────────────────

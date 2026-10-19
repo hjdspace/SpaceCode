@@ -70,6 +70,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Bot, Cpu, Download, Loader2 } from 'lucide-vue-next'
 import { useSettingsStore, type EngineSource, type EngineType } from '@/stores/settings'
+import type { EngineAvailability } from '@/shared/channels/claudeCode'
 import { api, type CliDetectionResult, type EnvironmentCheckResult } from '@/services/electronAPI'
 
 const { t } = useI18n()
@@ -77,7 +78,10 @@ const settingsStore = useSettingsStore()
 
 const SOURCE_OPTIONS: EngineSource[] = ['bundled', 'installed']
 
-const piAvailable = ref<boolean | null>(null)
+/** 主进程回不了话时按「不可用、也别引导安装」收口，不给界面留猜的余地 (#52) */
+const UNAVAILABLE: EngineAvailability = { available: false, reason: 'not-found', version: null, installable: false }
+
+const piAvailability = ref<EngineAvailability | null>(null)
 const piChecking = ref(true)
 const piInstalling = ref(false)
 const piInstallError = ref<string | null>(null)
@@ -85,8 +89,8 @@ const piInstallError = ref<string | null>(null)
 const cli = ref<CliDetectionResult | null>(null)
 const env = ref<EnvironmentCheckResult | null>(null)
 
-const piBlocked = computed(() => !piChecking.value && piAvailable.value !== true)
-const piInstallable = computed(() => !piChecking.value && piAvailable.value === false && !piInstalling.value)
+const piBlocked = computed(() => !piChecking.value && piAvailability.value?.available !== true)
+const piInstallable = computed(() => !piChecking.value && !piInstalling.value && piAvailability.value?.installable === true)
 
 const sourceLabel = computed(() =>
   settingsStore.engineSource === 'installed' ? t('engineSource.installed') : t('engineSource.bundled')
@@ -96,8 +100,14 @@ const piStateLabel = computed(() => {
   if (piChecking.value) return t('onboarding.engine.piChecking')
   if (piInstalling.value) return t('onboarding.engine.piInstalling')
   if (piInstallError.value) return piInstallError.value
-  if (piAvailable.value === false) return t('onboarding.engine.piMissing')
-  return t('onboarding.engine.piInstalled')
+  const info = piAvailability.value
+  if (!info) return t('onboarding.engine.piMissing')
+  if (!info.available) {
+    if (info.reason === 'version-too-old') return t('onboarding.engine.piVersionTooOld', { version: info.version ?? '?' })
+    if (info.reason === 'version-unknown') return t('onboarding.engine.piVersionUnknown')
+    return t('onboarding.engine.piMissing')
+  }
+  return info.version ? t('onboarding.engine.piInstalledVersion', { version: info.version }) : t('onboarding.engine.piInstalled')
 })
 
 const envRows = computed(() => {
@@ -118,13 +128,13 @@ const envRows = computed(() => {
 async function checkPiAvailability() {
   const claudeCode = window.electronAPI?.claudeCode
   if (!claudeCode?.isEngineAvailable) {
-    piAvailable.value = false
+    piAvailability.value = UNAVAILABLE
     return
   }
   try {
-    piAvailable.value = await claudeCode.isEngineAvailable('pi')
+    piAvailability.value = await claudeCode.isEngineAvailable('pi')
   } catch {
-    piAvailable.value = false
+    piAvailability.value = UNAVAILABLE
   }
 }
 
@@ -135,7 +145,7 @@ async function installPiSdk() {
     const result = await window.electronAPI?.claudeCode?.installPiSdk()
     if (result?.success) {
       await checkPiAvailability()
-      if (piAvailable.value) selectEngine('pi')
+      if (piAvailability.value?.available) selectEngine('pi')
     } else {
       piInstallError.value = t('onboarding.engine.piInstallFailed', { error: result?.error ?? 'unknown' })
     }
@@ -182,7 +192,7 @@ function selectSource(next: EngineSource) {
 onMounted(async () => {
   await checkPiAvailability()
   // SDK 被移除过的老用户不该把引擎停在选不了的状态里，跟通用设置页同一口径。
-  if (piAvailable.value === false && settingsStore.engineType === 'pi') {
+  if (piAvailability.value && !piAvailability.value.available && settingsStore.engineType === 'pi') {
     settingsStore.engineType = 'claude-code'
     void settingsStore.saveSettings()
   }

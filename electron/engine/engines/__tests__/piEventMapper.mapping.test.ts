@@ -26,8 +26,9 @@ import { mapPiEvent } from '../PiEventMapper'
  *    通用 JSON 行而不是终端/diff 卡片。
  *  - 帧 fixture 必须照 pi 的真实 wire 形状构造，不要按"字段应该存在"手写：
  *    pi ≥ 0.84.3 的 message_update 是 delta-only —— 顶层 message 与每个 delta 的 partial
- *    都被 toJsonEvent 剥掉，toolcall_start 改为顶层带 id/toolName。旧引擎（打包后可能是
- *    用户自装的全局 pi）仍走 partial.content，两条分支各有测试钉住。
+ *    都被 toJsonEvent 剥掉，toolcall_start 改为顶层带 id/toolName。更旧的形状只挂在
+ *    partial.content 里，而 #52 之后那种引擎根本进不来（版本低于下限即判不可用），
+ *    所以这里只钉顶层形状那一条。
  *
  * 纯函数直测，无 mock —— Pi 事件 fixture 直接按帧字面量构造
  * （与 piSessionProcess.stream.test.ts 的 frame 形状一致）。
@@ -221,11 +222,11 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
     })
   })
 
-  it('toolcall_start 旧 wire 形状（partial.content 带 id/name）仍能取到身份', () => {
+  it('旧 wire 形状（只把 id/name 挂在 partial.content 上）不再被认作身份', () => {
     const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
-    // 打包后的 app 执行的是用户自装的全局 pi，版本可能早于 0.84.3 —— 那时 id/name 只挂在
-    // partial.content[contentIndex] 的 toolCall 块上。这条钉住那条回退分支：删掉它，旧引擎
-    // 会退化成 id=undefined 的幽灵卡片 + tool_execution_start 的真卡片，同一次调用渲染两行。
+    // #52 之前这条分支是活的：打包版跑的是用户自装的全局旧 pi。现在打包版只 spawn 随产物
+    // 走的那份、且版本低于 1.0.0 直接判不可用，所以这里钉的是「旧形状不再生成 id」——
+    // 它不会再变成幽灵卡片，因为发不出这种帧的引擎根本起不来。
     const partial = {
       content: [
         { type: 'text', text: '先看一下' },
@@ -234,11 +235,11 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
     }
     expect(up({ type: 'toolcall_start', contentIndex: 1, partial })).toEqual({
       type: 'content_block_start',
-      content_block: { type: 'tool_use', id: 'tc1', name: 'Bash' },
+      content_block: { type: 'tool_use', id: undefined, name: undefined },
     })
   })
 
-  it('toolcall_start 两种形状都取不到身份 → id/name 留空，不伪造', () => {
+  it('toolcall_start 取不到身份时 id/name 留空，不伪造', () => {
     const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
     expect(up({ type: 'toolcall_start', contentIndex: 7, partial: { content: [] } })).toEqual({
       type: 'content_block_start',

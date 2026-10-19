@@ -53,6 +53,8 @@ export class PiProcessPool {
       engineSessionId: null,
       status: proc.status,
       isRunning: proc.isRunning(),
+      engineVersion: proc.engineVersion,
+      engineVersionCompatible: proc.engineVersionCompatible,
     }
   }
 
@@ -62,6 +64,8 @@ export class PiProcessPool {
       engineSessionId: null,
       status: proc.status,
       isRunning: proc.isRunning(),
+      engineVersion: proc.engineVersion,
+      engineVersionCompatible: proc.engineVersionCompatible,
     }))
   }
 

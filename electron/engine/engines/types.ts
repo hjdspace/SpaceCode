@@ -1,9 +1,9 @@
 import type { BrowserWindow } from 'electron'
-import type { PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EngineAvailability, EngineUnavailableReason, PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
 // 引擎实现统一从本模块取协议类型；定义仍在 src/shared（IPC 单一真相源）。
-export type { PermissionUpdate, ThinkingUpdateTiming }
+export type { EngineAvailability, EngineUnavailableReason, PermissionUpdate, ThinkingUpdateTiming }
 export type { EffortLevel }
 
 export type EngineType = 'claude-code' | 'pi'
@@ -62,6 +62,13 @@ export interface EngineSessionStatus {
   permissionMode?: PermissionMode
   /** 引擎是否已确认运行在 permissionMode 上；null/undefined = 无从核验，按 spawn 参数采信 */
   permissionModeVerified?: boolean | null
+  /**
+   * 真正 spawn 的那个引擎二进制的版本。null = 还没解析过，或无从核验。
+   * 打包版曾经跑的是用户机器上的 pi，版本号由不得 package.json (#52)。
+   */
+  engineVersion?: string | null
+  /** engineVersion 是否满足宿主侧的能力下限；null/false 时界面不得声称该引擎能力可用 */
+  engineVersionCompatible?: boolean | null
 }
 
 export interface ImageAttachment {

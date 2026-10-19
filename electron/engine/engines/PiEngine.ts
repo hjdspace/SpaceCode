@@ -1,10 +1,9 @@
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
-import * as path from 'path'
-import * as fs from 'fs'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, ThinkingUpdateTiming, EffortLevel } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, EngineAvailability, AgentInfo, ImageAttachment, ThinkingUpdateTiming, EffortLevel } from './types'
 import { toPiThinkingLevel } from '@/shared/effort'
 import { PiProcessPool } from './PiProcessPool'
+import { detectPiCli } from './piCliResolver'
 import { info, warn, error } from '../../infra/logger'
 
 export class PiEngine implements IEngine {
@@ -146,126 +145,21 @@ export class PiEngine implements IEngine {
   }
 
   /**
-   * Collect all candidate paths where pi-coding-agent CLI might be found.
-   * Uses multiple strategies: __dirname-relative, app-path-relative, local pi-engine.
+   * 界面据此决定 Pi 选项是可选、置灰、还是提示版本过低。版本无从核验时算不可用 ——
+   * 声称能力可用之前，得先知道真正要跑的是哪个引擎。
+   *
+   * 候选序列与版本判定都收在 piCliResolver，和 PiSessionProcess 实际 spawn 的读的是同一个
+   * 结果 —— 以前这里另算一套候选（既不看 asar unpack，也不看版本），于是可用性说「有 pi」，
+   * 子进程起的却是用户全局装的另一个引擎 (#52)。
    */
-  private static getCliCandidatePaths(): string[] {
-    const paths: string[] = []
-
-    // Strategy 1: __dirname-relative (works in both dev and packaged modes)
-    // In dev: __dirname = dist-electron/ → ../../ = project root
-    // In packaged: __dirname = app.asar/dist-electron/ → ../../ = app root
-    paths.push(
-      path.resolve(__dirname, '../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-      path.resolve(__dirname, '../../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-    )
-
-    // Strategy 2: app.getAppPath()-relative (reliable in Electron dev mode)
-    try {
-      const appPath = app.getAppPath()
-      // appPath in dev = project root, in packaged = app.asar
-      const appRoot = appPath.endsWith('.asar') ? path.dirname(appPath) : appPath
-      paths.push(
-        path.join(appRoot, 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-      )
-    } catch {
-      // app might not be ready yet
+  static getAvailability(): EngineAvailability {
+    const cli = detectPiCli()
+    // 打包版找不到 bundled pi 是产物坏了，装全局 pi 修不了它
+    return {
+      available: cli.available,
+      reason: cli.reason,
+      version: cli.version,
+      installable: !app.isPackaged && cli.reason === 'not-found',
     }
-
-    // Strategy 3: process.cwd()-relative (fallback for unusual setups)
-    paths.push(
-      path.join(process.cwd(), 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-    )
-
-    // Strategy 4: Local pi-engine monorepo (sibling directory)
-    try {
-      const appPath = app.getAppPath()
-      const appRoot = appPath.endsWith('.asar') ? path.dirname(appPath) : appPath
-      paths.push(
-        path.join(appRoot, 'pi-engine/packages/coding-agent/dist/cli.js'),
-      )
-    } catch {
-      // ignore
-    }
-
-    // Strategy 5: Packaged app resources
-    paths.push(
-      path.join(process.resourcesPath || '', 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js'),
-      path.join(process.resourcesPath || '', 'pi-engine/dist/cli.js'),
-    )
-
-    return paths
-  }
-
-  /**
-   * Check if we have a runtime (bun or ELECTRON_RUN_AS_NODE) available to execute
-   * the Pi CLI. Since PiSessionProcess now uses bundled bun or process.execPath
-   * with ELECTRON_RUN_AS_NODE, the SDK is considered available as long as cli.js
-   * exists on disk — we no longer depend on a system-installed `node`.
-   */
-  static async isAvailableAsync(): Promise<boolean> {
-    const candidatePaths = PiEngine.getCliCandidatePaths()
-
-    for (const p of candidatePaths) {
-      try {
-        if (fs.existsSync(p)) {
-          info('PiEngine', `pi-coding-agent found at ${p}`)
-          return true
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // Strategy 6: Check if `pi` CLI is available globally
-    // Verify the actual path exists (where/which can return stale entries)
-    try {
-      const { execSync } = await import('child_process')
-      const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
-      const piPath = output.split(/\r?\n/)[0]?.trim()
-      if (piPath && fs.existsSync(piPath)) {
-        info('PiEngine', `pi-coding-agent found via global 'pi' command: ${piPath}`)
-        return true
-      }
-    } catch {
-      // pi not available globally
-    }
-
-    warn('PiEngine', 'pi-coding-agent SDK not found in any known location')
-    return false
-  }
-
-  static isAvailable(): boolean {
-    const candidatePaths = PiEngine.getCliCandidatePaths()
-
-    for (const p of candidatePaths) {
-      try {
-        if (fs.existsSync(p)) {
-          info('PiEngine', `pi-coding-agent found at ${p}`)
-          return true
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // Check if `pi` CLI is available globally
-    // Verify the actual path exists (where/which can return stale entries)
-    try {
-      const { execSync } = require('child_process')
-      const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
-      const piPath = output.split(/\r?\n/)[0]?.trim()
-      if (piPath && fs.existsSync(piPath)) {
-        info('PiEngine', `pi-coding-agent found via global 'pi' command: ${piPath}`)
-        return true
-      }
-    } catch {
-      // pi not available globally
-    }
-
-    warn('PiEngine', 'pi-coding-agent SDK not found in any known location')
-    return false
   }
 }

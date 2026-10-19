@@ -89,7 +89,7 @@ vi.mock('../engine/engines/EngineFactory', () => ({
       if (!found) throw new Error(`Engine "${type}" not found`)
       return found
     }),
-    isEngineAvailableAsync: vi.fn(async () => true),
+    getEngineAvailability: vi.fn(async () => ({ available: true, reason: 'ok' as const, version: null })),
     onEngineCreated: vi.fn(() => () => {}),
   },
 }))
@@ -221,18 +221,20 @@ describe('engineGateway', () => {
       expect(status).toEqual({ sessionId: 's1', isRunning: true, status: 'active' })
     })
 
-    it('falls back to claude-code when requested engine not available', async () => {
+    it('refuses to start instead of silently switching the engine', async () => {
+      // 悄悄换成 claude-code 继续跑，界面上标的还是用户选的 Pi —— 引擎版本由不得产物时这最坑 (#52)
       const { EngineFactory } = await import('../engine/engines/EngineFactory')
-      ;(EngineFactory.isEngineAvailableAsync as any).mockResolvedValue(false)
+      ;(EngineFactory.getEngineAvailability as any).mockResolvedValue({ available: false, reason: 'version-too-old', version: '0.73.0' })
 
+      const piEngine = mockState.makePiEngine()
       const claudeEngine = mockState.makeClaudeEngine()
-      claudeEngine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true, status: 'active' })
-      mockState.engines.push(claudeEngine)
+      mockState.engines.push(claudeEngine, piEngine)
 
-      const status = await engineGateway.startSession('s1', { cwd: '/proj', engineType: 'pi' })
+      await expect(engineGateway.startSession('s1', { cwd: '/proj', engineType: 'pi' }))
+        .rejects.toThrow('Engine "pi" is not available (version-too-old, version 0.73.0)')
 
-      expect(claudeEngine.startSession).toHaveBeenCalledWith('s1', expect.objectContaining({ engineType: 'pi' }))
-      expect(status).toEqual({ sessionId: 's1', isRunning: true, status: 'active' })
+      expect(piEngine.startSession).not.toHaveBeenCalled()
+      expect(claudeEngine.startSession).not.toHaveBeenCalled()
     })
   })
 

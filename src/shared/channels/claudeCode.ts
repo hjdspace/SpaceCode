@@ -56,6 +56,24 @@ export interface EngineEvictionBlockedEvent {
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 
 /**
+ * 引擎为什么不能用 (issue #52)。界面按它选文案，不再自己猜：
+ * `version-unknown` / `version-too-old` 都算不可用 —— 版本无从核验，就等于不能声称能力可用。
+ */
+export type EngineUnavailableReason = 'ok' | 'not-found' | 'version-unknown' | 'version-too-old'
+
+export interface EngineAvailability {
+  available: boolean
+  reason: EngineUnavailableReason
+  /** 真正会 spawn 的引擎版本；null = 该引擎不回版本（claude-code）或无从核验 */
+  version: string | null
+  /**
+   * 「装一下就能用」是否成立。打包版只认随产物走的那份 pi，让用户去装全局 pi
+   * 只会多一个永远用不到的副本 (#52)。
+   */
+  installable: boolean
+}
+
+/**
  * 思考开关落到引擎进程的时间点。
  *
  * `--thinking` 只在 spawn 时读一次，所以「改成功了」有两种真值：空闲时当场挂起进程、
@@ -150,7 +168,7 @@ export const claudeCodeNamespace = defineNamespace({
     },
     isEngineAvailable: {
       req: [] as unknown as [engineType: string],
-      res: null as unknown as boolean,
+      res: null as unknown as EngineAvailability,
     },
     installPiSdk: {
       req: [] as unknown as [],

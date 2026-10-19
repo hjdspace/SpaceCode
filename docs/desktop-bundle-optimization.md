@@ -59,6 +59,9 @@
 `dist/` 与 `dist-electron/` 中**不存在任何指向 node_modules 的裸模块引用**（仅 `electron` + `better-sqlite3` + `node-pty` + Node 内置模块）。
 `@mariozechner/pi-coding-agent` 是以**独立子进程**方式执行的（`node <pkg>/dist/cli.js`），因此它及其完整依赖闭包必须保留。
 
+> ⚠️ 本节「pi 及其闭包必须保留」的判定已在 issue #52 被推翻，见 §5：子进程从 asar 里读不到裸依赖，
+> 那份副本根本跑不起来；现在 pi 是 devDependency，产物只带 `dist/bundle` 的自包含副本。
+
 ---
 
 ## 2. 实施的优化
@@ -175,3 +178,48 @@ node scripts/gen-bundle-excludes.cjs --dry    # 只打印，不改文件
 | 跨平台原生产物（darwin/linux 预编译） | ~15 MB | 需 `afterPack` 按 `electronPlatformName` 动态删 |
 
 若把 skills-lib / design-systems-lib / officecli / cua-driver（合计 ~153 MB）改成「首次使用时下载」，解包体积可再降到 **约 580 MB**。
+
+---
+
+## 5. pi 改为 devDependency + extraResources bundle（issue #52）
+
+上面 §1.1 的判定错在把「子进程能读到 cli.js」当成「子进程能跑起来」。实测：
+
+- `asarUnpack` 只搬出 `node_modules/@earendil-works/**`，而 `chalk` / `undici` / `file-type` / `typebox`
+  这些裸依赖按 §2.1 的机制留在 asar 里 —— 独立子进程从 `app.asar.unpacked/...` 起，模块解析走到
+  `app.asar.unpacked/node_modules` 就找不到它们，直接 `ERR_MODULE_NOT_FOUND`。
+- 于是运行时一路 fall through 到 `where pi` 命中的**用户全局安装的 pi**。升级票把 dev 依赖钉到 1.3.x
+  对打包版毫无影响：引擎版本由装机的那台机器决定。
+- 那份 asar 里的 20+ MB 依赖闭包，从头到尾没有被任何进程读过。
+
+### 5.1 现在的做法
+
+| 项 | 变化 |
+| --- | --- |
+| `@earendil-works/pi-coding-agent` | `dependencies` → `devDependencies`。electron-builder 只强制打包 `dependencies` 的闭包（§1.1），移到 dev 侧才是真的从 asar 里去掉 |
+| `build.files` / `build.asarUnpack` | 删掉 `node_modules/@earendil-works/**/*` 及它的三条裁剪规则 |
+| `build.extraResources` | 新增 `{ from: node_modules/@earendil-works/pi-coding-agent, to: pi, filter: [package.json, dist/bundle/**/*] }`，实测 9.0 MB |
+| `piCliResolver`（新增） | 打包态唯一候选是 `resources/pi/dist/bundle/cli.js`；找不到就判不可用，**不再**退回全局 `pi` 或 `npx` |
+
+为什么是 `dist/bundle`：1.3.0 起包内 `dist/bundle/*.js` 是上游自己的发行入口（`package.json` 的 `bin.pi`
+就指它），里面**零个裸依赖 import**，且 `dist/bundle/cli.js` 自带 `main(["--mode","rpc", …])` 语义，
+不需要 node_modules 闭包 —— 绕开整类「依赖没跟着搬出 asar」的问题。
+
+`package.json` 必须与 bundle 一起搬：pi 启动时向上走目录找 `package.json` 定 `VERSION`，只搬 bundle 会
+找到宿主的清单（实测把 SpaceCode 自己的 `0.8.10` 当成 pi 版本报出来）。
+
+### 5.2 版本下限与 fail-closed
+
+`piCliResolver` 读版本（bundled/dev 走包根 `package.json`，全局 `pi` 走 `--version` 探针），低于
+`MIN_PI_VERSION`（1.0.0，宿主事件契约要求的 delta 顶层 `id`/`toolName`）或问不出来，一律 `available: false`。
+`claude-code:isEngineAvailable` 回的是 `{ available, reason, version, installable }`，界面据此置灰并给文案；
+`engineGateway.startSession` 不再静默换成 claude-code 跑。
+
+### 5.3 防线
+
+这条路径没有类型检查和单测能覆盖，漂移只会表现在装好包的机器上，因此：
+
+- `scripts/gen-bundle-excludes.cjs` 现在校验 `dependencies` 归属、`build.files`、`build.asarUnpack`（此前无人对比）
+  与 `extraResources` 的源/目标/filter，并在漂移时以非 0 退出。
+- `tests/integration/bundledPiPackaging.test.ts` 按 `build` 配置摆一个假的 `resources/`，断言解析器要找的
+  路径与之完全一致。

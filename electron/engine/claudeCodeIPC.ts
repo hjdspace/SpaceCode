@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow, app } from 'electron'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { EngineFactory } from './engines/EngineFactory'
-import type { EngineSessionConfig, AgentInfo } from './engines/types'
+import type { EngineSessionConfig, EngineType, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from '../infra/logger'
 import { SessionHistoryManager, SessionLite } from '../session/sessionHistoryManager'
 import { detectInstalledCli, checkEnvironment, installCli, isCommandAvailable, installCommand } from './cliDetector'
@@ -64,7 +64,7 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle(CLAUDE_CODE_CHANNELS.isEngineAvailable, async (_, engineType: string) => {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)
-    return EngineFactory.isEngineAvailableAsync(engineType as any)
+    return EngineFactory.getEngineAvailability(engineType as EngineType)
   })
 
   ipcMain.handle(CLAUDE_CODE_CHANNELS.installPiSdk, async () => {

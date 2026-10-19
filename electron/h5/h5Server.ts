@@ -529,9 +529,9 @@ export class H5Server {
           this.sendJson(res, 400, { error: 'engineType required' })
           return
         }
-        this.sendJson(res, 200, {
-          available: await EngineFactory.isEngineAvailableAsync(body.engineType as EngineType),
-        })
+        // 与桌面端 IPC 同口径：把「为什么不可用」和真正会跑的版本一起给出去，
+        // 移动端才不至于在版本不达标时还把 Pi 当可选项 (#52)
+        this.sendJson(res, 200, await EngineFactory.getEngineAvailability(body.engineType as EngineType))
         return
 
       case '/api/session/status':

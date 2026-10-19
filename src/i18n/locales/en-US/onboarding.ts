@@ -69,6 +69,9 @@ export default {
     piMissing: 'Not found, install in one click',
     piInstalling: 'Installing',
     piInstalled: 'Installed',
+    piInstalledVersion: 'Ready · v{version}',
+    piVersionTooOld: 'Version too old (v{version})',
+    piVersionUnknown: 'Engine version unverifiable',
     installPi: 'Install Pi SDK',
     piInstallFailed: 'Install failed: {error}',
     installedCliHint: 'Installed CLI drives the claude you installed globally via npm, so you upgrade it yourself.'

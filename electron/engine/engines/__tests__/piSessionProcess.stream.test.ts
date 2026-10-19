@@ -94,7 +94,8 @@ vi.mock('fs', () => ({
   existsSync: (p: unknown) => H.existing.has(String(p)),
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
-  readFileSync: () => '{}',
+  // 解析器靠包根 package.json 拿版本；不给版本号就会被判「无从核验」而拒绝起进程
+  readFileSync: (p: unknown) => String(p).endsWith('package.json') ? '{"version":"1.3.0"}' : '{}',
 }))
 
 vi.mock('electron', () => ({

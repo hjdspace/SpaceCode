@@ -299,15 +299,14 @@ function mapStreamDelta(delta: any): any {
 }
 
 /**
- * toolcall_start 的 id/name 在两个线上形状里位置不同：pi ≥ 0.84.3 的 RPC 帧把它提到顶层
- * (`{ contentIndex, id, toolName }`)，更早的版本只给 `{ contentIndex, partial }`，id/name
- * 挂在刚被推进 `partial.content[contentIndex]` 的 toolCall 块上。
+ * toolcall_start 的 id/name 取 RPC 帧顶层的 `{ contentIndex, id, toolName }`。
  *
- * 两个分支都得读，因为打包后的 app 跑的是用户自装的全局 pi（resolveCliPath 的 bundled
- * 路径在 asar 外不可达），版本不归 package.json 说了算。读空会造出 id=undefined 的幽灵
- * 卡片，真卡片另由 tool_execution_start 建一条 → 同一次调用渲染两行。
+ * 这里曾经还兜底读 `partial.content[contentIndex]` —— 那是给比 0.84.3 更早的 wire 形状留的，
+ * 而它真正的存在理由是打包版实际跑用户自装的全局 pi (#52)。现在打包版只 spawn 随产物走的
+ * bundled 副本，版本低于 1.0.0 会被判不可用，旧形状不再有活的调用方，兜底分支一并删掉。
+ * 身份读空会造出 id=undefined 的幽灵卡片，真卡片另由 tool_execution_start 建一条 →
+ * 同一次调用渲染两行。
  */
 function toolCallIdentity(delta: PiAgentEvent): { id?: string; name?: string } {
-  const block = delta.partial?.content?.[delta.contentIndex]
-  return { id: delta.id ?? block?.id, name: delta.toolName ?? block?.name }
+  return { id: delta.id, name: delta.toolName }
 }

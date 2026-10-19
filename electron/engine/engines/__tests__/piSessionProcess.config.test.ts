@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as path from 'path'
 import { PiSessionProcess } from '../PiSessionProcess'
+import { resetPiCliProbeCache } from '../piCliResolver'
 import type { EngineSessionConfig } from '../types'
 import { info as loggerInfo, warn as loggerWarn } from '../../../infra/logger'
 
@@ -10,22 +11,18 @@ import { info as loggerInfo, warn as loggerWarn } from '../../../infra/logger'
  * pi CLI needs, and the models.json override that makes custom endpoints work.
  *
  * Two contracts matter more than the rest:
- *   - resolution order. The bundled copy under node_modules wins over the app
- *     path, which wins over cwd, which wins over packaged resources, and only
- *     then a global `pi` / `npx`. A wrong pick launches a stale engine or ENOENTs.
- *     A global lookup result is only trusted if the file it names really exists.
+ *   - resolution → verdict. Which pi to spawn and whether its version clears the
+ *     host floor is decided in piCliResolver (pinned there, along with the dev
+ *     candidate order). What this suite pins is what PiSessionProcess does with
+ *     that verdict: record it on the session, and refuse to start a session it
+ *     cannot vouch for. A packaged build must never reach a user-installed `pi`
+ *     or an `npx` pull — that is how the engine version escaped our control.
  *   - provider identity. The UI routinely pairs `provider=openai` with a
  *     third-party baseUrl. pi resolves models by provider name, so the baseUrl is
  *     mapped back to its canonical provider; when it is not a known one, the
  *     `openai-compat` provider is written into ~/.pi/agent/models.json because the
  *     built-in `openai` provider speaks the Responses API and third-party
  *     endpoints only implement Chat Completions.
- *
- * NOTE ON THE `require` SEAM: resolveCliPath() reads child_process through a
- * function-body `require('child_process')`, which bypasses Vitest's module mock
- * (verified) — a test that reaches that line would shell out `where`/`which` for
- * real. The suite therefore stubs `execSync` on the real module object, which is
- * exactly the object the source destructures at call time.
  */
 
 interface CompatModel {
@@ -71,8 +68,18 @@ const APP_CLI = path.join(APP_ROOT, 'node_modules', '@earendil-works', 'pi-codin
 const APP_MONOREPO_CLI = path.join(APP_ROOT, 'pi-engine', 'packages', 'coding-agent', 'dist', 'cli.js')
 const RES_CLI = path.join(RESOURCES, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const RES_PI_ENGINE_CLI = path.join(RESOURCES, 'pi-engine', 'dist', 'cli.js')
+/** #52 之后 packaged 分支唯一的落点：extraResources 搬出去的自包含 bundle */
+const BUNDLED_CLI = path.join(RESOURCES, 'pi', 'dist', 'bundle', 'cli.js')
+const BUNDLED_PKG_JSON = path.join(RESOURCES, 'pi', 'package.json')
+/** 旧布局的两处落点：asar 里的 node_modules 副本与 resources 下的 node_modules */
+const LEGACY_UNPACKED_CLI = path.join(RESOURCES, 'app.asar.unpacked', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const PI_AGENT_DIR = path.join(HOME, '.pi', 'agent')
 const MODELS_JSON = path.join(PI_AGENT_DIR, 'models.json')
+
+/** cli.js 所属包根的 package.json —— 解析器就靠它拿版本 */
+function packageJsonFor(cli: string, version: string): void {
+  H.files.set(path.join(path.dirname(path.dirname(cli)), 'package.json'), JSON.stringify({ version }))
+}
 
 const H = vi.hoisted(() => ({
   existing: new Set<string>(),
@@ -82,6 +89,8 @@ const H = vi.hoisted(() => ({
   writeThrows: false,
   lookupCalls: [] as string[],
   lookupResult: null as string | null,
+  versionProbeCalls: [] as string[][],
+  versionProbeResult: null as string | null,
   isPackaged: false,
   appPath: '/app/root',
   appPathThrows: false,
@@ -127,10 +136,24 @@ vi.mock('../../../session/engineChildProcess', () => ({
   isProbableBunExecutable: vi.fn(() => false),
 }))
 
+// 解析器现在静态 import child_process（不再是函数体里的 require），模块 mock 能拦住它 ——
+// 否则这些用例会真的去 shell out `where pi`，撞上本机装着 pi 的机器就不可复现。
+vi.mock('child_process', () => ({
+  execSync: (cmd: string) => {
+    H.lookupCalls.push(cmd)
+    if (H.lookupResult === null) throw new Error(`${cmd} exited with code 1`)
+    return H.lookupResult
+  },
+  execFileSync: (file: string, args: string[]) => {
+    H.versionProbeCalls.push([file, ...args])
+    if (H.versionProbeResult === null) throw new Error(`${file} exited with code 1`)
+    return H.versionProbeResult
+  },
+  spawn: vi.fn(),
+}))
+
 const BASE: EngineSessionConfig = { cwd: '/ws' }
 const ORIGINAL_PLATFORM = process.platform
-const realChildProcess = require('child_process') as typeof import('child_process')
-const ORIGINAL_EXEC_SYNC = realChildProcess.execSync
 
 function privates(proc: PiSessionProcess): PrivateConfigApi {
   return proc as unknown as PrivateConfigApi
@@ -166,6 +189,7 @@ function writtenModels(): ModelsJson {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetPiCliProbeCache()
   H.existing = new Set()
   H.files = new Map()
   H.writes = []
@@ -173,173 +197,113 @@ beforeEach(() => {
   H.writeThrows = false
   H.lookupCalls = []
   H.lookupResult = null
+  H.versionProbeCalls = []
+  H.versionProbeResult = null
   H.isPackaged = false
   H.appPath = APP_ROOT
   H.appPathThrows = false
   OPEN = []
   delete process.env.CLAUDE_CONFIG_DIR
-  Object.defineProperty(realChildProcess, 'execSync', {
-    configurable: true,
-    writable: true,
-    value: (cmd: string) => {
-      H.lookupCalls.push(cmd)
-      if (H.lookupResult === null) throw new Error(`${cmd} exited with code 1`)
-      return H.lookupResult
-    },
-  })
   Object.defineProperty(process, 'resourcesPath', { value: RESOURCES, configurable: true })
 })
 
 afterEach(() => {
   for (const proc of OPEN) proc.removeAllListeners()
   OPEN = []
-  Object.defineProperty(realChildProcess, 'execSync', {
-    configurable: true,
-    writable: true,
-    value: ORIGINAL_EXEC_SYNC,
-  })
   Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM, configurable: true })
 })
 
-describe('resolveCliPath — bundled copy wins over every later strategy', () => {
-  it('takes the node_modules sibling of the compiled electron bundle first', () => {
-    H.existing.add(DEV_CLI_1).add(DEV_CLI_2).add(APP_CLI).add(RES_CLI)
-
-    expect(privates(newProc()).resolveCliPath()).toBe(DEV_CLI_1)
-    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining(`CLI resolved (__dirname-relative): ${DEV_CLI_1}`))
-  })
-
-  it('walks to the second dev candidate when the first is not installed', () => {
-    H.existing.add(DEV_CLI_2)
-
-    expect(privates(newProc()).resolveCliPath()).toBe(DEV_CLI_2)
-  })
-
-  it('uses the app path in a dev build when nothing resolves relative to the bundle', () => {
-    H.existing.add(APP_CLI)
-
-    expect(privates(newProc()).resolveCliPath()).toBe(APP_CLI)
-    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('CLI resolved (appPath-relative)'))
-  })
-
-  it('prefers the installed package over the local pi-engine monorepo checkout', () => {
-    H.existing.add(APP_CLI).add(APP_MONOREPO_CLI)
-
-    expect(privates(newProc()).resolveCliPath()).toBe(APP_CLI)
-  })
-
-  it('falls back to the local pi-engine monorepo checkout', () => {
-    H.existing.add(APP_MONOREPO_CLI)
-
-    expect(privates(newProc()).resolveCliPath()).toBe(APP_MONOREPO_CLI)
-    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('CLI resolved (local pi-engine)'))
-  })
-
-  it('derives the app root from the directory holding the asar archive', () => {
-    // a packaged app path points inside the archive, which no child process can read
-    H.appPath = path.join(APP_ROOT, 'resources', 'app.asar')
-    H.existing.add(path.join(APP_ROOT, 'resources', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'))
-
-    expect(privates(newProc()).resolveCliPath()).toBe(
-      path.join(APP_ROOT, 'resources', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'),
-    )
-  })
-
-  it('skips the app-path strategy while the app module is not ready', () => {
-    // a distinct cwd keeps strategy 3's candidate apart from the dev candidates
-    const elsewhere = path.resolve('/', 'elsewhere')
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(elsewhere)
-    H.appPathThrows = true
-    H.existing.add(path.join(elsewhere, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'))
-
-    try {
-      expect(privates(newProc()).resolveCliPath()).toBe(
-        path.join(elsewhere, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js'),
-      )
-    } finally {
-      cwdSpy.mockRestore()
-    }
-    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('CLI resolved (cwd-relative)'))
-  })
-
-  it('reads the packaged resources directory in order', () => {
+describe('resolveCliPath — 打包态只认随产物走的那份 pi (#52)', () => {
+  it('spawn resources/pi 里的 bundled 入口，并把版本记到会话上', () => {
     H.isPackaged = true
-    H.existing.add(RES_CLI)
-    expect(privates(newProc()).resolveCliPath()).toBe(RES_CLI)
-
-    H.writes = []
-    H.isPackaged = true
-    H.existing = new Set([RES_PI_ENGINE_CLI])
-    expect(privates(newProc()).resolveCliPath()).toBe(RES_PI_ENGINE_CLI)
-    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('CLI resolved (packaged)'))
-  })
-
-  it('copes with a packaged build that has no resources path', () => {
-    H.isPackaged = true
-    Object.defineProperty(process, 'resourcesPath', { value: undefined, configurable: true })
-
-    // the candidates become relative paths; nothing on disk matches, so the resolver
-    // ends on the global lookup instead of resolving to a bogus location
-    H.lookupResult = null
-    expect(privates(newProc()).resolveCliPath()).toBe('npx')
-  })
-
-  it('never consults the dev app path in a packaged build', () => {
-    H.isPackaged = true
-    H.existing.add(APP_CLI)
-
-    // the app-path candidate is dev-only, so the resolver lands on the global lookup
+    H.existing.add(BUNDLED_CLI).add(LEGACY_UNPACKED_CLI).add(RES_CLI)
+    H.files.set(BUNDLED_PKG_JSON, JSON.stringify({ version: '1.3.0' }))
     globalLookup('C:\\tools\\pi.exe')
-    expect(withPlatform('win32', () => privates(newProc()).resolveCliPath())).toBe('pi')
+
+    const proc = newProc()
+
+    expect(privates(proc).resolveCliPath()).toBe(BUNDLED_CLI)
+    expect(proc.engineVersion).toBe('1.3.0')
+    expect(proc.engineVersionCompatible).toBe(true)
+    // 用户机器上装没装 pi 与打包版无关：一次都不该去查询
+    expect(H.lookupCalls).toEqual([])
+  })
+
+  it('bundled 不在就抛，绝不退回旧 asar 副本或用户全局的 pi', () => {
+    H.isPackaged = true
+    H.existing.add(LEGACY_UNPACKED_CLI).add(RES_CLI)
+    globalLookup('C:\\tools\\pi.exe')
+
+    const proc = newProc()
+
+    expect(() => privates(proc).resolveCliPath()).toThrow(/bundled pi shipped with this build is missing/)
+    expect(proc.engineVersion).toBeNull()
+    expect(proc.engineVersionCompatible).toBe(false)
+    expect(H.lookupCalls).toEqual([])
+  })
+
+  it('bundled 版本低于能力下限时拒绝起会话，并把读到的版本留在会话上', () => {
+    H.isPackaged = true
+    H.existing.add(BUNDLED_CLI)
+    H.files.set(BUNDLED_PKG_JSON, JSON.stringify({ version: '0.73.0' }))
+
+    const proc = newProc()
+
+    expect(() => privates(proc).resolveCliPath()).toThrow(/below the required 1\.0\.0/)
+    expect(proc.engineVersion).toBe('0.73.0')
+    expect(proc.engineVersionCompatible).toBe(false)
+  })
+
+  it('读不到 bundled 的 package.json 也算无从核验 —— 光搬 bundle 不搬清单是不行的', () => {
+    H.isPackaged = true
+    H.existing.add(BUNDLED_CLI)
+
+    const proc = newProc()
+
+    expect(() => privates(proc).resolveCliPath()).toThrow(/could not be verified/)
+    expect(proc.engineVersion).toBeNull()
+    expect(proc.engineVersionCompatible).toBe(false)
   })
 })
 
-describe('resolveCliPath — global pi lookup', () => {
-  it('trusts a where hit on Windows only after checking the file exists', () => {
-    const pi = 'C:\\tools\\pi.exe'
-    globalLookup(pi)
+describe('resolveCliPath — dev 里的候选（顺序细节钉在 piCliResolver.test.ts）', () => {
+  it('用编译产物旁的 node_modules 副本并记下它的版本', () => {
+    H.existing.add(DEV_CLI_1).add(DEV_CLI_2).add(APP_CLI)
+    packageJsonFor(DEV_CLI_1, '1.3.0')
 
-    expect(withPlatform('win32', () => privates(newProc()).resolveCliPath())).toBe('pi')
+    const proc = newProc()
+
+    expect(privates(proc).resolveCliPath()).toBe(DEV_CLI_1)
+    expect(proc.engineVersion).toBe('1.3.0')
+  })
+
+  it('本机全局装的 pi 版本够格才用，且是靠 --version 探针问出来的', () => {
+    globalLookup('C:\\tools\\pi.exe')
+    H.versionProbeResult = '1.3.0\n'
+
+    const proc = newProc()
+
+    expect(withPlatform('win32', () => privates(proc).resolveCliPath())).toBe('pi')
+    expect(proc.engineVersion).toBe('1.3.0')
     expect(H.lookupCalls).toEqual(['where pi'])
-    expect(H.existing.has(pi)).toBe(true)
-    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining("CLI resolved (global 'pi' command): C:\\tools\\pi.exe"))
+    expect(H.versionProbeCalls).toEqual([['pi', '--version']])
   })
 
-  it('asks `which pi` on a posix platform', () => {
-    globalLookup('/usr/local/bin/pi')
+  it('全局 pi 版本问不出来就不起 —— 旧实现会退到 npx 拉一个没人管版本的引擎', () => {
+    globalLookup('C:\\tools\\pi.exe')
+    H.versionProbeResult = null
 
-    expect(withPlatform('linux', () => privates(newProc()).resolveCliPath())).toBe('pi')
-    expect(H.lookupCalls).toEqual(['which pi'])
+    const proc = newProc()
+
+    expect(() => privates(proc).resolveCliPath()).toThrow(/could not be verified/)
+    expect(proc.engineVersionCompatible).toBe(false)
   })
 
-  it('drops a stale lookup entry whose file has disappeared', () => {
-    H.lookupResult = 'C:\\tools\\pi.exe\n'
+  it('盘上没有任何候选时抛错，不再返回 npx', () => {
+    const proc = newProc()
 
-    expect(privates(newProc()).resolveCliPath()).toBe('npx')
-    expect(loggerWarn).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('No pi CLI found, falling back to npx'))
-  })
-
-  it('drops a lookup that printed nothing but whitespace', () => {
-    H.lookupResult = '  \n  \n'
-    H.existing.add('C:\\tools\\pi.exe')
-
-    expect(privates(newProc()).resolveCliPath()).toBe('npx')
-  })
-
-  it('trims the lookup banner before taking the first path', () => {
-    // `where` can decorate its answer; trim swallows the leading blank lines and the
-    // padding, so the first real path is what gets verified
-    H.lookupResult = '\n\n   C:\\tools\\pi.exe   \n'
-    H.existing.add('C:\\tools\\pi.exe')
-
-    expect(privates(newProc()).resolveCliPath()).toBe('pi')
-  })
-
-  it('falls back to npx when the lookup command itself fails', () => {
-    H.lookupResult = null
-
-    expect(privates(newProc()).resolveCliPath()).toBe('npx')
-    expect(loggerWarn).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('falling back to npx'))
+    expect(() => privates(proc).resolveCliPath()).toThrow(/no pi CLI found/)
+    expect(loggerWarn).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('Pi unavailable | reason=not-found'))
   })
 })
 

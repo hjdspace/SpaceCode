@@ -8,12 +8,14 @@ import { useChatSessionStore } from '@/stores/chatSession'
  * Pi 帧 → 工具卡片身份 的跨边界契约。
  *
  * 单测各自看一半时都成立、拼起来才出错的那段：
- *  - pi-ai 的 toolcall_start 帧只有 { contentIndex, partial }，id/name 在
- *    partial.content[contentIndex] 的 toolCall 块上；真 id 也要到
- *    tool_execution_start 才第二次出现。mapper 若读帧顶层不存在的字段，
- *    turn store 会用随机 uuid + 'Unknown Tool' 建一张幽灵卡片（tool_result 按
- *    真 id 匹配，幽灵永远 running → 一直转圈、时长一直涨），再由
- *    tool_execution_start 另建真卡片 —— 同一次调用渲染成两行。
+ *  - pi 1.x 的 toolcall_start 在帧顶层给 id/toolName；真 id 也要到
+ *    tool_execution_start 才第二次出现。mapper 若读不到那份身份，turn store 会用
+ *    随机 uuid + 'Unknown Tool' 建一张幽灵卡片（tool_result 按真 id 匹配，幽灵永远
+ *    running → 一直转圈、时长一直涨），再由 tool_execution_start 另建真卡片 ——
+ *    同一次调用渲染成两行。
+ *  - 更早的 wire 形状把 id/name 只挂在 partial.content[contentIndex] 上。#52 之后不必再
+ *    兼容：打包版只 spawn 随产物走的 bundled pi，版本低于能力下限直接判不可用，发得出
+ *    那种帧的引擎根本起不来。
  *  - 工具名必须归一成渲染层词表：组件/图标/标签表按名精确匹配，小写 bash
  *    命中不了 BashToolCard，终端卡片会退化成通用行 + input/output JSON 直出。
  *
@@ -76,15 +78,14 @@ function feedPi(handlers: Record<string, Handler>, frame: any) {
 
 function feedToolCallStream(handlers: Record<string, Handler>) {
   const toolCall = { type: 'toolCall', id: 'tc-1', name: 'bash', arguments: {}, partialJson: '', index: 0 }
-  const partial = { content: [toolCall] }
   const update = (assistantMessageEvent: any) => feedPi(handlers, { type: 'message_update', assistantMessageEvent })
-  update({ type: 'toolcall_start', contentIndex: 0, partial })
-  update({ type: 'toolcall_delta', contentIndex: 0, delta: `{"command":"${COMMAND}"}`, partial })
+  // 1.x 的 RPC 帧：toolcall_start 顶层带 id/toolName，wire 上已无 partial（toJsonEvent 剥掉）
+  update({ type: 'toolcall_start', contentIndex: 0, id: toolCall.id, toolName: toolCall.name })
+  update({ type: 'toolcall_delta', contentIndex: 0, delta: `{"command":"${COMMAND}"}` })
   update({
     type: 'toolcall_end',
     contentIndex: 0,
     toolCall: { ...toolCall, arguments: { command: COMMAND } },
-    partial,
   })
 }
 

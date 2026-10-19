@@ -63,6 +63,9 @@ const H = vi.hoisted(() => {
     status: 'idle' | 'active' | 'suspended' | 'exited' = 'idle'
     running = true
     lastActivityAt = 1000
+    /** 进程解析到的 pi 版本 —— 池要把它带到 EngineSessionStatus 上，界面才不至于空口声称能力可用 (#52) */
+    engineVersion: string | null = '1.3.0'
+    engineVersionCompatible: boolean | null = true
 
     handlers = new Map<string, Set<(...args: any[]) => void>>()
 
@@ -655,6 +658,20 @@ describe('会话控制面', () => {
       engineSessionId: null,
       status: 'active',
       isRunning: true,
+      engineVersion: '1.3.0',
+      engineVersionCompatible: true,
+    })
+  })
+
+  it('getSessionStatus 把「版本没核过」原样带上，不粉饰成可用', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    proc.engineVersion = '0.73.0'
+    proc.engineVersionCompatible = false
+
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({
+      engineVersion: '0.73.0',
+      engineVersionCompatible: false,
     })
   })
 
@@ -662,10 +679,12 @@ describe('会话控制面', () => {
     const { pool } = makePool()
     await seedSessions(pool, 2)
     FakePiProcess.instances[1].running = false
+    FakePiProcess.instances[1].engineVersion = null
+    FakePiProcess.instances[1].engineVersionCompatible = null
 
     expect(pool.getActiveSessions()).toEqual([
-      { sessionId: 'seed-0', engineSessionId: null, status: 'idle', isRunning: true },
-      { sessionId: 'seed-1', engineSessionId: null, status: 'idle', isRunning: false },
+      { sessionId: 'seed-0', engineSessionId: null, status: 'idle', isRunning: true, engineVersion: '1.3.0', engineVersionCompatible: true },
+      { sessionId: 'seed-1', engineSessionId: null, status: 'idle', isRunning: false, engineVersion: null, engineVersionCompatible: null },
     ])
     expect(pool.getActiveCount()).toBe(1)
   })
