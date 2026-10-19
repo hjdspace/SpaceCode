@@ -73,13 +73,23 @@ describe('collectSessionFileChanges', () => {
     expect(files[0].path).toBe('src/stores/app.ts')
   })
 
-  it('仓库外的文件保留绝对路径，不冒充仓库相对路径', () => {
+  it('仓库外的文件保留绝对路径并标为不在仓库内', () => {
     const files = collectSessionFileChanges(
       [assistant([toolCall('Write', { file_path: 'D:/other/project/notes.md' })])],
       { projectRoot: ROOT },
     )
 
     expect(files[0].path).toBe('D:/other/project/notes.md')
+    expect(files[0].inRepo).toBe(false)
+  })
+
+  it('仓库内的文件标为 inRepo，供展示层区分"读不到 git 数字"与"改动已提交"', () => {
+    const files = collectSessionFileChanges(
+      [assistant([toolCall('Edit', { file_path: `${ROOT}/src/a.ts` })])],
+      { projectRoot: ROOT },
+    )
+
+    expect(files[0].inRepo).toBe(true)
   })
 
   it('NotebookEdit 与批量形态 edits[]/files[] 里的路径都被收进来', () => {
