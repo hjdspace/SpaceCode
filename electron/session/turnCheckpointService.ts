@@ -318,6 +318,70 @@ async function readBackupContent(
   return readFileContent(backupPath)
 }
 
+/**
+ * 备份的三种状态，必须区分开：
+ *  - absent = 引擎记录"编辑前文件不存在"（backupFileName 为 null），本会话新建的文件
+ *  - content = 读到了编辑前的真实内容
+ *  - lost    = 记录指向的备份文件在盘上找不到了（file-history 目录被清理）
+ *
+ * 只按"内容是否为 null"处理会把 lost 当成 absent，于是整份文件被渲染成全量新增 ——
+ * 轮次卡片于是报出"本会话新增了 800 行"这种根本没发生过的改动。
+ */
+type BackupState =
+  | { kind: 'absent' }
+  | { kind: 'content'; text: string }
+  | { kind: 'lost' }
+
+async function readBackupState(
+  sessionId: string,
+  backup: FileHistoryBackup | undefined
+): Promise<BackupState> {
+  if (!backup) return { kind: 'absent' }
+  if (!backup.backupFileName) return { kind: 'absent' }
+  const text = await readBackupContent(sessionId, backup.backupFileName)
+  if (text === null) return { kind: 'lost' }
+  return { kind: 'content', text }
+}
+
+/**
+ * 引擎写进 JSONL 的 trackingPath 有两种形态：仓库内是相对 workDir 的路径且带
+ * 反斜杠（maybeShortenFilePath 的产物），仓库外是绝对路径。前端传回来的键是
+ * 正斜杠口径，所以比较要同时做斜杠归一和盘符大小写归一。
+ */
+function sameTrackingPath(a: string, b: string): boolean {
+  const left = a.replace(/\\/g, '/').replace(/\/+$/, '')
+  const right = b.replace(/\\/g, '/').replace(/\/+$/, '')
+  const driveLetter = /^[a-zA-Z]:\//
+  if (driveLetter.test(left) || driveLetter.test(right)) {
+    return left.toLowerCase() === right.toLowerCase()
+  }
+  return left === right
+}
+
+function expandTrackingPath(trackingPath: string, workDir: string): string {
+  return path.isAbsolute(trackingPath) ? trackingPath : path.join(workDir, trackingPath)
+}
+
+/** 在本轮跟踪表里找 filePath 对应的跟踪键（可能存相对、查的是绝对，反之亦然）。 */
+function findTrackingKey(
+  tracked: Record<string, FileHistoryBackup>,
+  filePath: string,
+  workDir: string
+): string | null {
+  const wanted = filePath.replace(/\\/g, '/')
+  const wantedAbs = expandTrackingPath(filePath, workDir).replace(/\\/g, '/')
+  for (const key of Object.keys(tracked)) {
+    if (sameTrackingPath(key, wanted)) return key
+    if (sameTrackingPath(expandTrackingPath(key, workDir), wantedAbs)) return key
+  }
+  return null
+}
+
+function patchHeader(filePath: string): string {
+  const shown = filePath.replace(/\\/g, '/')
+  return `diff --git a/${shown} b/${shown}\n--- a/${shown}\n+++ b/${shown}\n`
+}
+
 async function computeFileDiff(
   beforeContent: string | null,
   afterContent: string | null
@@ -670,14 +734,13 @@ export async function getTurnCheckpointDiff(
     return { state: 'missing', path: filePath, error: 'No snapshot found for target message' }
   }
 
-  const expandedPath = path.isAbsolute(filePath) ? filePath : path.join(workDir, filePath)
-  const trackingPath = Object.keys(targetSnapshot.snapshot.trackedFileBackups).find(
-    p => p === filePath || (path.isAbsolute(p) ? p : path.join(workDir, p)) === expandedPath
-  )
+  const trackingPath = findTrackingKey(targetSnapshot.snapshot.trackedFileBackups, filePath, workDir)
 
   if (!trackingPath) {
     return { state: 'missing', path: filePath, error: 'File not found in snapshot' }
   }
+
+  const expandedPath = expandTrackingPath(trackingPath, workDir)
 
   const targetBackup = targetSnapshot.snapshot.trackedFileBackups[trackingPath]
   const nextSnapshot = findNextSnapshotAfter(snapshots, targetSnapshot)
@@ -685,14 +748,16 @@ export async function getTurnCheckpointDiff(
   let beforeContent: string | null = null
   let afterContent: string | null = null
 
+  beforeContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
   if (nextSnapshot) {
-    // 与 buildTurnCodePreview 相同的方向：本轮备份 = before（轮次前状态），
-    // 下一轮快照备份 = after（本轮结束后状态）
+    // 与 buildTurnCodePreview 同口径：下一轮快照里有这个键才用它的备份，
+    // 缺键说明下一轮没再动这个文件 —— 必须回落到磁盘，否则 after 会被读成 null，
+    // 把"本轮改了两行"渲染成"整份文件被删光"。
     const nextBackup = nextSnapshot.snapshot.trackedFileBackups[trackingPath]
-    beforeContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
-    afterContent = await readBackupContent(sessionId, nextBackup?.backupFileName ?? null)
+    afterContent = nextBackup
+      ? await readBackupContent(sessionId, nextBackup.backupFileName)
+      : await readFileContent(expandedPath)
   } else {
-    beforeContent = await readBackupContent(sessionId, targetBackup?.backupFileName ?? null)
     afterContent = await readFileContent(expandedPath)
   }
 
@@ -702,12 +767,73 @@ export async function getTurnCheckpointDiff(
     return { state: 'missing', path: filePath, error: 'No diff content available' }
   }
 
-  const header = `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n`
   return {
     state: 'ok',
     path: filePath,
-    diff: header + diff,
+    diff: patchHeader(filePath) + diff,
   }
+}
+
+export interface SessionFileDiffResult {
+  /**
+   * no_evidence   = 本会话的文件跟踪表里没有它（命令/外部改动，或从未跟踪）
+   * evidence_lost = 跟踪表指向的备份文件已不在盘上，不能拿空内容冒充"编辑前不存在"
+   */
+  state: 'ok' | 'no_evidence' | 'evidence_lost' | 'error'
+  path: string
+  diff?: string
+  error?: string
+}
+
+/**
+ * 本会话对某个文件"从头到尾改了什么"，完全不查 git。
+ *
+ * before 取会话第一次动它之前的备份，after 取当前磁盘，所以 git 给不出答案的两种情况
+ * 都有解：仓库外文件（agent 记忆目录、临时输出）根本没有 numstat；改动已经 commit 掉、
+ * 工作区与 HEAD 无差异的文件也仍能看到本会话做了什么。
+ *
+ * after 用磁盘意味着"会话结束之后的人工改动一并算进来"，这跟 git 工作区口径同病。
+ * 想剔除它得把面板的轮次序号对齐到 JSONL 的 user uuid，而那套对齐只能靠时间锚点猜
+ * （见 src/utils/turnCheckpointUtils.ts），不值得为此少显示内容。
+ */
+export async function getSessionFileDiff(
+  sessionId: string,
+  projectPath: string,
+  filePath: string
+): Promise<SessionFileDiffResult> {
+  const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
+  if (!fs.existsSync(sessionPath)) {
+    return { state: 'error', path: filePath, error: 'Session file not found' }
+  }
+
+  const groups = extractFileHistorySnapshots(readSessionJsonl(sessionPath))
+  let firstGroup: FileHistorySnapshotEntry | null = null
+  let trackingKey: string | null = null
+  for (const group of groups) {
+    const key = findTrackingKey(group.snapshot.trackedFileBackups, filePath, projectPath)
+    if (key) {
+      firstGroup = group
+      trackingKey = key
+      break
+    }
+  }
+
+  if (!firstGroup || !trackingKey) {
+    return { state: 'no_evidence', path: filePath }
+  }
+
+  const before = await readBackupState(sessionId, firstGroup.snapshot.trackedFileBackups[trackingKey])
+  if (before.kind === 'lost') {
+    return { state: 'evidence_lost', path: filePath }
+  }
+
+  const afterText = await readFileContent(expandTrackingPath(trackingKey, projectPath))
+  const { diff } = await computeFileDiff(before.kind === 'content' ? before.text : null, afterText)
+  if (!diff) {
+    return { state: 'no_evidence', path: filePath }
+  }
+
+  return { state: 'ok', path: filePath, diff: patchHeader(filePath) + diff }
 }
 
 export async function rewindTurn(
