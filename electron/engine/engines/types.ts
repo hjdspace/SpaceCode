@@ -69,6 +69,18 @@ export interface EngineSessionStatus {
   engineVersion?: string | null
   /** engineVersion 是否满足宿主侧的能力下限；null/false 时界面不得声称该引擎能力可用 */
   engineVersionCompatible?: boolean | null
+  /**
+   * 界面所选的 agent 有没有真的落到这条会话上。null = 本会话没选 agent（不适用），
+   * false = 选了但落不上，undefined = 该引擎不报这个状态。
+   * 选了没落地时，界面不得只留一个 agent 徽章当作已经生效 (#46)。
+   */
+  agentApplied?: boolean | null
+  /**
+   * 子代理扩展（委派能力）这次有没有真的随 spawn 装进来。选了 agent 却是 false 时，
+   * 界面不得把它当成「什么都能委派」—— 静默无效正是 #46 要消除的形态。
+   * undefined = 该引擎不报这个状态。
+   */
+  agentExtensionLoaded?: boolean
 }
 
 export interface ImageAttachment {

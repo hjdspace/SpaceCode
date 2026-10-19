@@ -75,6 +75,11 @@ export class PiProcessPool {
       engineVersionCompatible: proc.engineVersionCompatible,
       permissionMode: intent,
       permissionModeVerified: intent === 'plan' ? proc.planModeActive : null,
+      // agent 的「生效」只由命令行有没有带上那段人设说话：pi 不会回执「我按这个 agent 在跑」，
+      // 而没带上就一定没生效 —— 界面对 false 不得声称已按所选 agent 运行 (#46)。
+      agentApplied: proc.agentApplied,
+      // 选了 agent 才谈得上扩展没装上；其余会话报 undefined，不替不存在的需求说话。
+      agentExtensionLoaded: proc.config.agent ? proc.subagentsExtensionLoaded : undefined,
     }
   }
 

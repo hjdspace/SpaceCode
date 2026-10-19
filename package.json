@@ -63,6 +63,7 @@
     "@iconify/utils": "^3.1.7",
     "@iconify/vue": "^5.0.3",
     "@narumitw/pi-plan-mode": "^0.59.3",
+    "@tintinweb/pi-subagents": "^0.22.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.19",
     "@types/diff": "^7.0.0",
@@ -170,6 +171,25 @@
       {
         "from": "node_modules/@narumitw/pi-plan-mode",
         "to": "pi-extensions/node_modules/@narumitw/pi-plan-mode",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/@tintinweb/pi-subagents",
+        "to": "pi-extensions/node_modules/@tintinweb/pi-subagents",
+        "filter": [
+          "package.json",
+          "src/**/*",
+          "node_modules/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/croner",
+        "to": "pi-extensions/node_modules/croner",
         "filter": [
           "package.json",
           "dist/**/*",

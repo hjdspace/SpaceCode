@@ -3,6 +3,7 @@ import { app } from 'electron'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, EngineAvailability, AgentInfo, ImageAttachment, PermissionMode, ThinkingUpdateTiming, EffortLevel } from './types'
 import { toPiThinkingLevel } from '@/shared/effort'
 import { PiProcessPool } from './PiProcessPool'
+import { discoverAgentDefinitions, toAgentInfos } from './agentDefinitions'
 import { detectPiCli } from './piCliResolver'
 import { info, warn, error } from '../../infra/logger'
 
@@ -143,14 +144,17 @@ export class PiEngine implements IEngine {
     return this.pool.getActiveSessions()
   }
 
+  /**
+   * Pi 真正能用的 agent：`.claude/agents` 与 pi 原生位置都扫，同名按 agentDefinitions
+   * 的优先级去重。以前这里硬编码一条 `general-purpose`，于是下拉框展示的内容和引擎
+   * 能做的事毫无关系 —— 选中的值一路传到 buildArgs 又被丢掉 (#46)。
+   *
+   * 不列 Claude 引擎内置的 Explore / Plan / verification：它们活在那台引擎的代码里，
+   * pi 侧没有对应定义，列出来就等于再造一次「说了没做」。pi 的默认行为由界面已有的
+   * 「默认」项表达。
+   */
   async listAgents(cwd?: string): Promise<AgentInfo[]> {
-    return [
-      {
-        agentType: 'general-purpose',
-        description: 'Pi coding agent - full-featured coding assistant with compaction, extensions, and multi-provider support',
-        source: 'built-in',
-      },
-    ]
+    return toAgentInfos(discoverAgentDefinitions({ kinds: ['claude', 'pi'], cwd }))
   }
 
   /**

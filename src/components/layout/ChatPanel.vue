@@ -25,7 +25,12 @@
           >
             <History :size="16" />
           </button>
-          <span class="agent-badge" v-if="sessionStore.currentAgent" :title="sessionStore.currentAgent">
+          <span
+            class="agent-badge"
+            :class="{ 'agent-unapplied': agentUnapplied }"
+            v-if="sessionStore.currentAgent"
+            :title="agentUnapplied ? t('chatInput.agentNotApplied', { agent: sessionStore.currentAgent }) : sessionStore.currentAgent"
+          >
             <span class="badge-dot agent-dot" aria-hidden="true"></span>
             {{ sessionStore.currentAgent }}
           </span>
@@ -838,6 +843,12 @@ const chatCommands = useChatCommands({
 const currentSession = computed(() => paneSession.value)
 const provider = computed(() => llmState.provider.value)
 const isConfigured = computed(() => llmState.isConfigured.value)
+// 徽章的名字来自全局所选，而「没落地」那笔账是按会话记的：只有两者指的是同一个 agent
+// 才许给它加未生效的样式，否则就是把 A 会话的失败挂到 B 会话的名字上 (#46)。
+const agentUnapplied = computed(() => {
+  const selected = sessionStore.currentAgent
+  return !!selected && currentSession.value?.agentUnapplied === selected
+})
 
 // Check if current tab is a terminal tab
 // 分屏模式下用 paneTabId 判断，避免全局 activeCenterTab 被其他 pane 切换而串扰
@@ -1958,6 +1969,18 @@ async function handleRestoreHistorySession(session: any) {
     border-radius: 50%;
     background: var(--accent-primary, #6366f1);
     flex-shrink: 0;
+  }
+
+  // 选了但引擎没落地：换成告警色，圆点改成空心，避免和「正在以该 agent 运行」长一个样
+  &.agent-unapplied {
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    color: var(--warning);
+    border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+
+    .badge-dot {
+      background: transparent;
+      border: 1px solid var(--warning);
+    }
   }
 }
 

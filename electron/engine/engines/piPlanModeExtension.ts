@@ -1,7 +1,4 @@
-import * as fs from 'fs'
-import * as path from 'path'
-import { app } from 'electron'
-import { info, warn } from '../../infra/logger'
+import { resolvePiExtensionEntry } from './piExtensionPackage'
 
 const TAG = 'PiPlanModeExtension'
 
@@ -20,46 +17,11 @@ export const PLAN_MODE_EXIT_COMMAND = '/plan exit'
 /** 包清单 `pi.extensions` 指向的入口；Pi 的 jiti 直接吃 TypeScript。 */
 const ENTRY_SEGMENTS = ['dist', 'index.ts']
 
-function extensionEntry(nodeModulesDir: string): string {
-  return path.join(nodeModulesDir, ...PLAN_MODE_PACKAGE.split('/'), ...ENTRY_SEGMENTS)
-}
-
-/** 打包态的落点：build.extraResources 把扩展闭包搬到 resources/pi-extensions 下 (#45)。 */
-function packagedNodeModulesDir(): string {
-  return path.join(process.resourcesPath || '', 'pi-extensions', 'node_modules')
-}
-
-function devNodeModulesDirs(): string[] {
-  const roots = [
-    path.resolve(__dirname, '../..'),
-    path.resolve(__dirname, '../../..'),
-    process.cwd(),
-  ]
-  try {
-    const appPath = app.getAppPath()
-    // packaged 时 appPath 指向 asar，子进程读不进去；dev 时它才是项目根
-    roots.push(appPath.endsWith('.asar') ? path.dirname(appPath) : appPath)
-  } catch {
-    // app 还没 ready
-  }
-  return [...new Set(roots)].map(root => path.join(root, 'node_modules'))
-}
-
 /**
- * 解析扩展入口的绝对路径；null = 这台机器上没有可加载的副本。
+ * 解析权限闸扩展入口；null = 这台机器上没有可加载的副本。
  *
- * 这个路径要交给 pi 子进程去读，所以只认真实文件：打包态那份由 extraResources 提供，
- * dev 态由 node_modules 提供。asar 里的路径在这里一律不算数 —— 子进程读不到。
+ * 候选序列与 asar 规则都在 resolvePiExtensionEntry 里，和 subagents 扩展读的是同一份口径。
  */
 export function resolvePlanModeExtensionPath(): string | null {
-  const dirs = app.isPackaged ? [packagedNodeModulesDir()] : devNodeModulesDirs()
-  for (const dir of dirs) {
-    const entry = extensionEntry(dir)
-    if (fs.existsSync(entry)) {
-      info(TAG, `Resolved plan mode extension | ${entry}`)
-      return entry
-    }
-  }
-  warn(TAG, `Plan mode extension not found | candidates=${dirs.map(extensionEntry).join(', ') || '(none)'}`)
-  return null
+  return resolvePiExtensionEntry(PLAN_MODE_PACKAGE, ENTRY_SEGMENTS, TAG)
 }

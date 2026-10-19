@@ -73,6 +73,10 @@ const H = vi.hoisted(() => {
     /** #45：这两个字段是池判定「plan 到底生效没有」的唯一依据，扩展没装上下次就再重启也白搭 */
     planModeExtensionLoaded = false
     planModeActive: boolean | null = null
+    /** #46：所选 agent 有没有落到这次 spawn 上，由进程报给池再报给界面 */
+    agentApplied: boolean | null = null
+    /** #46：子代理扩展（委派能力）这次随 spawn 装没装进来 */
+    subagentsExtensionLoaded = false
 
     /** setPlanMode 的回执：'confirmed' 返回 true 并把 planModeActive 置上；'refused' 返回 false；'throw' 抛错 */
     static nextSetPlanMode: 'confirmed' | 'refused' | 'throw' = 'confirmed'
@@ -702,7 +706,35 @@ describe('会话控制面', () => {
       // 没选过模式的会话：意图为空，verified 只能报 null（default 在 Pi 侧没有闸可验）
       permissionMode: undefined,
       permissionModeVerified: null,
+      // 同理：没选 agent 的会话报 null（不适用），不是「生效了」
+      agentApplied: null,
     })
+  })
+
+  it('getSessionStatus 把「agent 没落地」原样带回，不替界面粉饰', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+
+    proc.agentApplied = false
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentApplied: false })
+
+    proc.agentApplied = true
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentApplied: true })
+  })
+
+  it('选了 agent 却没装上子代理扩展时如实报 false —— 静默无效就是 #46 本身', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+
+    // 没选 agent 的会话不报这项：那份能力本来就没被要求
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentExtensionLoaded: undefined })
+
+    proc.config = { agent: 'reviewer' }
+    proc.subagentsExtensionLoaded = false
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentExtensionLoaded: false })
+
+    proc.subagentsExtensionLoaded = true
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentExtensionLoaded: true })
   })
 
   it('getSessionStatus 把「版本没核过」原样带上，不粉饰成可用', async () => {
@@ -725,8 +757,8 @@ describe('会话控制面', () => {
     FakePiProcess.instances[1].engineVersionCompatible = null
 
     expect(pool.getActiveSessions()).toEqual([
-      { sessionId: 'seed-0', engineSessionId: null, status: 'idle', isRunning: true, engineVersion: '1.3.0', engineVersionCompatible: true, permissionMode: undefined, permissionModeVerified: null },
-      { sessionId: 'seed-1', engineSessionId: null, status: 'idle', isRunning: false, engineVersion: null, engineVersionCompatible: null, permissionMode: undefined, permissionModeVerified: null },
+      { sessionId: 'seed-0', engineSessionId: null, status: 'idle', isRunning: true, engineVersion: '1.3.0', engineVersionCompatible: true, permissionMode: undefined, permissionModeVerified: null, agentApplied: null },
+      { sessionId: 'seed-1', engineSessionId: null, status: 'idle', isRunning: false, engineVersion: null, engineVersionCompatible: null, permissionMode: undefined, permissionModeVerified: null, agentApplied: null },
     ])
     expect(pool.getActiveCount()).toBe(1)
   })

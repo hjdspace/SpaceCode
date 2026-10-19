@@ -255,3 +255,31 @@ Pi 不内置权限闸：1.3.0 的 `docs/security.md` 仍写着 *"it does not ask
 - `electron/engine/engines/__tests__/piSessionProcess.planMode.realPi.test.ts`（`PI_REAL=1`）用真 pi +
   本地假上游证明：`/plan start` 拿到扩展回执、上游要求的 `write` 没落盘、扩展的 `select` 菜单被宿主取消后
   命令仍有 ack（不回帧就会整条会话挂死）。
+
+## 7. 子代理扩展也走 extraResources（issue #46）
+
+Pi 1.3.0 没有 `--agent` 旗子，`dist/cli/args.js` 里根本没有它，README.md:19 仍写着
+*"Pi ships with powerful defaults but skips features like sub-agents and plan mode"*。
+界面上的「所选 agent」要变成引擎里真实存在的东西，走的还是 #45 那条 `--extension` 通道，
+加载 `@tintinweb/pi-subagents`；`.claude/agents` 里的人设它从不读（只读 `.pi/agents`、
+`.agents/agents`、`$PI_CODING_AGENT_DIR/agents`），所以那部分靠 `--append-system-prompt` 注入。
+
+| 项 | 变化 |
+| --- | --- |
+| `@tintinweb/pi-subagents` | 进 `devDependencies`（宿主进程从不 require 它） |
+| `build.extraResources` | 新增两条：扩展本体（入口是包清单声明的 `src/index.ts`，filter 带 `node_modules/**/*` 以随带嵌套的 `nanoid@5`）与 `croner`，实测约 1.1 MB |
+| `piExtensionPackage.ts`（新增） | 两个扩展共用的候选序列：打包态只认 `resources/pi-extensions`，dev 只认 `node_modules`，asar 路径一概不算 |
+| `PiSessionProcess` | 选了 agent 才拼这两样（`--extension` + persona 文件）；没选的会话命令行形态不变 |
+
+`@tintinweb/pi-subagents` 的 `nanoid` 是**嵌套副本**（它要 ^5.1.16，顶层是 3.3.18），随包一起搬；
+`croner` 在顶层，需要自己的条目。两者都不在 bundle 的虚拟模块表上，少搬一个就是 dev 正常、
+打包后扩展静默加载失败 —— 而界面上的 agent 徽章照样亮着。
+
+### 7.1 防线
+
+- `scripts/gen-bundle-excludes.cjs` 的扩展闭包断言同时覆盖两个扩展。
+- `tests/integration/piSubagentsPackaging.test.ts` 把 build 配置与 `resolveSubagentsExtensionPath()`
+  钉成同一个字符串，并断言入口就是包清单 `pi.extensions` 声明的那个文件。
+- `electron/engine/engines/__tests__/piSessionProcess.agent.realPi.test.ts`（`PI_REAL=1`）用真 pi +
+  本地假上游证明：上游收到的系统提示里带该 agent 的正文，且工具清单里出现了扩展注册的 `Agent` ——
+  「argv 里拼了 `--extension`」只说明我们想装，回执才是装上了。

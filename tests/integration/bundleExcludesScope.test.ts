@@ -35,11 +35,11 @@ describe('打包依赖守卫脚本与 package.json 同步', () => {
     expect(out).not.toContain('build.files 有多余规则')
   })
 
-  it('报告 plan 模式扩展的依赖闭包搬得齐', () => {
+  it('报告 pi 扩展（权限闸 + 子代理）的依赖闭包搬得齐', () => {
     // 少搬一个包不会报类型错，打包后只在子进程 stderr 里留下扩展加载失败，
-    // 而界面照样显示「计划模式」—— 这条 #45 的失败形态与 #52 同构。
+    // 而界面照样显示「计划模式」/「已按该 agent 运行」—— #45 与 #46 的失败形态同构于 #52。
     const out = runValidator()
-    expect(out).toContain('✅ plan 模式扩展闭包走 extraResources')
-    expect(out).not.toContain('plan 模式扩展打包路径已漂移')
+    expect(out).toContain('✅ pi 扩展闭包走 extraResources')
+    expect(out).not.toContain('pi 扩展打包路径已漂移')
   })
 })

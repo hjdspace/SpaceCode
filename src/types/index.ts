@@ -266,6 +266,12 @@ export interface Session {
    * 只存哈希，不存提示词栈原文与 API Key 明文；运行中会话据此判断是否需要重启。
    */
   startupFingerprint?: SessionStartupFingerprint
+  /**
+   * 引擎回报「没能按这个 agent 运行」时，记下那个 agent 的名字。缺省 = 没有未生效的账要还。
+   * 存名字而不是布尔：徽章展示的是全局所选的 agent，只有同名时才许给它加未生效的样式，
+   * 否则就是把 A 会话的失败挂到 B 会话的名字上 (#46)。
+   */
+  agentUnapplied?: string
   /** 侧边任务会话：不落盘、不出现在会话列表，关闭应用即消失。 */
   ephemeral?: boolean
 }

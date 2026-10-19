@@ -12,9 +12,11 @@ export default {
   openProjectFolder: '打开项目',
   agent: '智能体',
   default: '默认',
-  defaultAgentDesc: '标准 Claude Code 会话',
+  defaultAgentDesc: '不指定智能体，按引擎默认方式运行',
   builtIn: '内置',
   custom: '自定义',
+  agentNotApplied: '没能按智能体「{agent}」运行：本机找不到它的定义或正文为空，本次会话仍按默认方式工作',
+  agentExtensionMissing: '子代理扩展没能加载：智能体「{agent}」的人设已生效，但本次会话无法委派子任务',
   agents: {
     'general-purpose': {
       name: '通用',

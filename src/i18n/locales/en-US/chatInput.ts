@@ -12,9 +12,11 @@ export default {
   openProjectFolder: 'Open project',
   agent: 'Agent',
   default: 'Default',
-  defaultAgentDesc: 'Standard Claude Code session',
+  defaultAgentDesc: 'No agent selected — runs with the engine default prompt',
   builtIn: 'Built-in',
   custom: 'Custom',
+  agentNotApplied: 'Agent "{agent}" did not take effect: its definition is missing or empty on this machine, so this session runs with the default prompt',
+  agentExtensionMissing: 'Sub-agent extension failed to load: the "{agent}" persona is in effect, but this session cannot delegate sub-agents',
   agents: {
     'general-purpose': {
       name: 'General-purpose',

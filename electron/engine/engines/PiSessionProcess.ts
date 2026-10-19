@@ -21,6 +21,8 @@ import {
   PLAN_MODE_EXIT_COMMAND,
   resolvePlanModeExtensionPath,
 } from './piPlanModeExtension'
+import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
+import { findAgentDefinition } from './agentDefinitions'
 
 /** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
 interface PiImageContent {
@@ -110,6 +112,19 @@ export class PiSessionProcess extends EventEmitter {
    * 界面上的模式徽章在 null/false 而意图是 plan 时都不得声称只读已生效。
    */
   planModeActive: boolean | null = null
+
+  /**
+   * 所选 agent 有没有真的落到这次 spawn 上：null = 本会话没选 agent（不适用），
+   * true = 定义正文已作为 `--append-system-prompt` 交给进程，false = 选了但落不上。
+   * 界面在 false/null 而意图是某个 agent 时不得声称「正以该 agent 运行」 (#46)。
+   */
+  agentApplied: boolean | null = null
+
+  /**
+   * 这次 spawn 有没有带上子代理扩展。它管「能不能委派」，与 agentApplied 管的
+   * 「本会话是谁」是两件事：扩展装不上时人设照样生效，只是不会委派。
+   */
+  subagentsExtensionLoaded = false
 
   /**
    * @param resumeSessionFile 由池按历史记录注入的 pi 会话文件；不传则起一个空白会话。
@@ -1005,6 +1020,64 @@ export class PiSessionProcess extends EventEmitter {
       }
     }
 
+    this.applySelectedAgent(args)
+
     return args
+  }
+
+  /**
+   * 把界面所选的 agent 真的落到这条会话上 (issue #46)。
+   *
+   * pi 没有 `--agent` 旗子（1.3.0 的 dist/cli/args.js 里根本没有），也没有能设主线程人设的
+   * RPC 命令。而 Claude 那条 `--agent` 本身就是把定义正文当成主线程的 system prompt
+   * （engine/src/main.tsx:2586 `systemPrompt = agentSystemPrompt`）—— 所以这里把同一段正文
+   * 交给 `--append-system-prompt` 才是同构做法：pi 自己的工具说明留在 preamble，persona 作为
+   * addendum 叠上去，两边都是「本会话以此 agent 运行」。
+   *
+   * 传的是文件路径而不是正文：pi 的 resolvePromptInput 认在盘的路径（并把它记进
+   * appendSystemPromptSourcePaths），于是长人设不会撞上 Windows 的命令行长度上限，
+   * 上游请求里出现的也正是这段正文 —— 探针测试就是照这个断言的。
+   *
+   * 同时带上子代理扩展：它让 `.pi/agents` 里的定义在 pi 侧成为一等公民并给出委派能力
+   * （来路与口径见 piSubagentsExtension）。只在选了 agent 时带，跟 #45 一样按意图加载。
+   */
+  private applySelectedAgent(args: string[]): void {
+    this.agentApplied = this.config.agent ? false : null
+    this.subagentsExtensionLoaded = false
+    const agent = this.config.agent
+    if (!agent) return
+
+    const extensionPath = resolveSubagentsExtensionPath()
+    if (extensionPath) {
+      args.push('--extension', extensionPath)
+      this.subagentsExtensionLoaded = true
+    } else {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Subagents extension not loadable | ${agent} cannot delegate for this process`)
+    }
+
+    const definition = findAgentDefinition(agent, { kinds: ['claude', 'pi'], cwd: this.config.cwd })
+    if (!definition) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Selected agent has no definition on disk | agent=${agent}`)
+      return
+    }
+    if (!definition.body) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Selected agent definition is empty | agent=${agent}`)
+      return
+    }
+
+    const promptDir = path.join(os.tmpdir(), 'SpaceCode')
+    const promptPath = path.join(promptDir, `pi-agent-${this.sessionId}.md`)
+    try {
+      fs.mkdirSync(promptDir, { recursive: true })
+      // 按 sessionId 固定文件名：同一会话重启时覆盖，而不是往临时目录里越堆越多
+      fs.writeFileSync(promptPath, definition.body, 'utf8')
+    } catch (err) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write agent persona file | path=${promptPath}`, err)
+      return
+    }
+
+    args.push('--append-system-prompt', promptPath)
+    this.agentApplied = true
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Agent persona attached | agent=${agent} | source=${definition.source} | bodyLen=${definition.body.length} | file=${promptPath}`)
   }
 }
