@@ -123,6 +123,22 @@ export class FeishuPermissionCard {
     return undefined
   }
 
+  /** Remove a pending permission after it was consumed by a quick reply or explicit command. */
+  removePending(receiveId: string, requestId: string): void {
+    const list = this.pending.get(receiveId)
+    if (!list) return
+    const idx = list.findIndex((p) => p.requestId === requestId)
+    if (idx !== -1) list.splice(idx, 1)
+  }
+
+  /** Resolve a pending requestId by tool name (case-insensitive, first match). */
+  findRequestIdByTool(receiveId: string, toolName: string): string | undefined {
+    const target = toolName.toLowerCase()
+    return this.pending
+      .get(receiveId)
+      ?.find((p) => p.toolName.toLowerCase() === target)?.requestId
+  }
+
   /** Clear all pending permissions. */
   clear(receiveId: string): void {
     this.pending.delete(receiveId)

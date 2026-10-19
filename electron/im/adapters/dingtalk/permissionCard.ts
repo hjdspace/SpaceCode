@@ -116,6 +116,22 @@ export class DingtalkPermissionCard {
     return undefined
   }
 
+  /** Remove a pending permission after it was consumed by a quick reply or explicit command. */
+  removePending(sessionWebhook: string, requestId: string): void {
+    const list = this.pending.get(sessionWebhook)
+    if (!list) return
+    const idx = list.findIndex((p) => p.requestId === requestId)
+    if (idx !== -1) list.splice(idx, 1)
+  }
+
+  /** Resolve a pending requestId by tool name (case-insensitive, first match). */
+  findRequestIdByTool(sessionWebhook: string, toolName: string): string | undefined {
+    const target = toolName.toLowerCase()
+    return this.pending
+      .get(sessionWebhook)
+      ?.find((p) => p.toolName.toLowerCase() === target)?.requestId
+  }
+
   /** Clear all pending. */
   clear(sessionWebhook: string): void {
     this.pending.delete(sessionWebhook)

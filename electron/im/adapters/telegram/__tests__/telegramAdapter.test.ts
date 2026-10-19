@@ -926,7 +926,7 @@ describe('TelegramAdapter — server message handling (streaming)', () => {
     expect(bot.sendMessage).toHaveBeenCalledWith(CHAT_ID, `❌ 工具错误: ${'x'.repeat(500)}`)
   })
 
-  it('DEFECT: message_complete 不带 cache 计数时 Token 统计被静默丢弃', async () => {
+  it('message_complete always reports token usage even without cache counters', async () => {
     const bot = makeBot()
     const { adapter, handler } = await setupSession(bot)
 
@@ -937,9 +937,7 @@ describe('TelegramAdapter — server message handling (streaming)', () => {
 
     expect(sm.complete).toHaveBeenCalledTimes(1)
     expect(streamingMapOf(adapter).has(CHAT_ID)).toBe(false)
-    // NOTE: usageText 被计算但只在 cache 分支内发送（telegramAdapter handleServerMessage
-    // message_complete 分支）——无 cache 计数时用户看不到 Token 统计。
-    expect(bot.sendMessage).toHaveBeenCalledTimes(0)
+    expect(lastSent(bot)).toBe('📊 Token: ↓12 ↑3400')
   })
 
   it('message_complete adds a cache line only when cache counters are present', async () => {
@@ -1052,7 +1050,7 @@ describe('TelegramAdapter — permission cards & quick replies', () => {
     expect(bridge.sendUserMessage).toHaveBeenCalledWith(CHAT_KEY, '1')
   })
 
-  it('DEFECT: 文字快速回复放行权限后不清 pending 卡片，下一个词会被再次当成权限答复消费', async () => {
+  it('consuming a quick reply pops the pending entry — the next word is chat text', async () => {
     const bot = makeBot()
     const { adapter, bridge, handler } = await setupSession(bot)
 
@@ -1060,29 +1058,43 @@ describe('TelegramAdapter — permission cards & quick replies', () => {
     bridge.sendPermissionResponse.mockClear()
 
     await sendUpdate(adapter, makeUpdate({ text: '1' }))
+    expect(bridge.sendPermissionResponse).toHaveBeenCalledTimes(1)
     expect(bridge.sendPermissionResponse).toHaveBeenCalledWith(CHAT_KEY, 'perm-1', true, undefined)
     expect(bridge.sendUserMessage).toHaveBeenCalledTimes(0)
 
-    // NOTE: the text quick-reply path never removes the pending entry
-    // (telegramAdapter.ts handleUserMessage — only permissionCard.handleCallback pops it),
-    // so a following chat word that maps to a quick reply is consumed AGAIN.
     await sendUpdate(adapter, makeUpdate({ text: 'allow' }))
-    expect(bridge.sendPermissionResponse).toHaveBeenCalledTimes(2)
-    expect(bridge.sendUserMessage).toHaveBeenCalledTimes(0)
+    expect(bridge.sendPermissionResponse).toHaveBeenCalledTimes(1)
+    expect(bridge.sendUserMessage).toHaveBeenCalledWith(CHAT_KEY, 'allow')
   })
 
-  it('DEFECT: 显式 /always 回复 allowed 但把 undefined 的 requestId 发给引擎', async () => {
+  it('explicit /always <tool> resolves the requestId from the pending list by tool name', async () => {
     const bot = makeBot()
     const { adapter, bridge, handler } = await setupSession(bot)
 
     await handler({ type: 'permission_request', requestId: 'perm-a', toolName: 'Bash', input: {} })
 
+    await sendUpdate(adapter, makeUpdate({ text: '/always bash' })) // case-insensitive match
+
+    expect(bridge.sendPermissionResponse).toHaveBeenCalledWith(CHAT_KEY, 'perm-a', true, 'always')
+    expect(lastSent(bot)).toBe('✅ 已允许')
+
+    // consumed → a later quick-reply word is chat text
+    bridge.sendPermissionResponse.mockClear()
+    await sendUpdate(adapter, makeUpdate({ text: '1' }))
+    expect(bridge.sendPermissionResponse).toHaveBeenCalledTimes(0)
+    expect(bridge.sendUserMessage).toHaveBeenCalledWith(CHAT_KEY, '1')
+  })
+
+  it('explicit command naming an unlisted tool replies with an error and sends nothing to the engine', async () => {
+    const bot = makeBot()
+    const { adapter, bridge, handler } = await setupSession(bot)
+
+    await handler({ type: 'permission_request', requestId: 'perm-w', toolName: 'Write', input: {} })
+
     await sendUpdate(adapter, makeUpdate({ text: '/always Bash' }))
 
-    // NOTE: parsePermissionCommand returns requestId only for callback/quick-reply forms;
-    // explicit commands send undefined as the requestId (telegramAdapter handleUserMessage).
-    expect(bridge.sendPermissionResponse).toHaveBeenCalledWith(CHAT_KEY, undefined, true, 'always')
-    expect(lastSent(bot)).toBe('✅ 已允许')
+    expect(lastSent(bot)).toBe('❌ 未找到与工具 Bash 匹配的待处理权限请求')
+    expect(bridge.sendPermissionResponse).toHaveBeenCalledTimes(0)
   })
 })
 

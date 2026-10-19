@@ -74,11 +74,13 @@ npm run test:changed  # 只跑受改动影响的测试 (vitest --changed, 基于
 npm run build         # vue-tsc --noEmit + vite build (已含类型检查)
 ```
 
-日常迭代用 `test:changed` 快速验证; 以下情况必须全量 `npm run test`:
+**默认只跑 `test:changed`** —— 无论改动大小, 包括收尾时, 都不要求跑全量 `npm run test`。全量仅在以下情况运行:
 
-- 提交前 / 收尾前 (CI 只认全量)
-- 改动横切面广: `vitest.config.ts`、`package.json` (依赖变更会命中 forceRerunTriggers 强制全量)、`src/shared/`、`src/utils/`、全局类型、i18n locales
-- `test:changed` 显示 0 个受影响测试, 但改动可能通过动态 import / 运行时路径影响其他模块
+- 用户明确要求全量测试
+- 改动命中 forceRerunTriggers (`vitest.config.ts`、`package.json` 依赖变更) —— 此时 `test:changed` 自身会升级为全量, 无需额外操作
+- `test:changed` 显示 0 个受影响测试, 且改动疑似通过动态 import / 运行时路径影响其他模块
+
+提交前的全量兜底交给 CI (`.github/workflows/test.yml` 会跑 `test:coverage`), 本地不重复跑。
 
 任一失败则修复后重新执行.
 

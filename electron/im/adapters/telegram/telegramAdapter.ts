@@ -403,10 +403,21 @@ export class TelegramAdapter {
         this.permissionCard.getSinglePendingRequestId(chatId)
       )
       if (parsed) {
+        // Quick replies carry the requestId; explicit /allow|/always|/deny <tool>
+        // commands resolve it from the pending list by tool name.
+        const toolName = parsed.toolName
+        const requestId = parsed.requestId
+          ?? (toolName ? this.permissionCard.findRequestIdByTool(chatId, toolName) : undefined)
+        if (!requestId) {
+          await this.bot.sendMessage(chatId, `❌ 未找到与工具 ${toolName} 匹配的待处理权限请求`)
+          return
+        }
+        // Consume the pending entry so the next chat word is not treated as another answer
+        this.permissionCard.removePending(chatId, requestId)
         const rule = parsed.action === 'always' ? 'always' : undefined
         this.bridge.sendPermissionResponse(
           String(chatId),
-          parsed.requestId!,
+          requestId,
           parsed.action !== 'deny',
           rule
         )
@@ -572,13 +583,13 @@ export class TelegramAdapter {
           this.streamingMessages.delete(chatId)
         }
 
-        // Show token usage
+        // Show token usage (cache line appended only when cache counters exist)
         const usage = msg.usage
-        const usageText = `📊 Token: ↓${usage.inputTokens} ↑${usage.outputTokens}`
+        let usageText = `📊 Token: ↓${usage.inputTokens} ↑${usage.outputTokens}`
         if (usage.cacheReadInputTokens || usage.cacheCreationInputTokens) {
-          const cache = `💾 Cache: ${usage.cacheReadInputTokens ?? 0}/${usage.cacheCreationInputTokens ?? 0}`
-          await this.bot.sendMessage(chatId, `${usageText}\n${cache}`)
+          usageText += `\n💾 Cache: ${usage.cacheReadInputTokens ?? 0}/${usage.cacheCreationInputTokens ?? 0}`
         }
+        await this.bot.sendMessage(chatId, usageText)
         break
       }
 

@@ -359,8 +359,22 @@ export class WechatAdapter {
     if (pending && pending.length > 0) {
       const parsed = parsePermissionCommand(text, pending.length, pending.length === 1 ? pending[0].requestId : undefined)
       if (parsed) {
+        // Quick replies carry the requestId; explicit /allow|/always|/deny <tool>
+        // commands resolve it from the pending list by tool name.
+        const toolName = parsed.toolName
+        const requestId = parsed.requestId
+          ?? (toolName
+            ? pending.find((p) => p.toolName.toLowerCase() === toolName.toLowerCase())?.requestId
+            : undefined)
+        if (!requestId) {
+          await this.bot.sendTextMessage(chatId, `❌ 未找到与工具 ${toolName} 匹配的待处理权限请求`)
+          return
+        }
+        // Consume the pending entry so the next chat word is not treated as another answer
+        const idx = pending.findIndex((p) => p.requestId === requestId)
+        if (idx !== -1) pending.splice(idx, 1)
         const rule = parsed.action === 'always' ? 'always' : undefined
-        this.bridge.sendPermissionResponse(chatId, parsed.requestId!, parsed.action !== 'deny', rule)
+        this.bridge.sendPermissionResponse(chatId, requestId, parsed.action !== 'deny', rule)
         await this.bot.sendTextMessage(chatId, `✅ 已${parsed.action === 'deny' ? '拒绝' : '允许'}`)
         return
       }
