@@ -37,6 +37,7 @@ import { computed, ref, watch } from 'vue'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { useSettingsStore } from '@/stores/settings'
+import type { EffortLevel } from '@/shared/effort'
 import { initLLMService } from '@/services/llm'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
@@ -109,8 +110,7 @@ function handleModelChange(model: string) {
   currentModel.value = model
 }
 
-async function handleEffortChange(effort: string) {
-  const level = effort as 'low' | 'medium' | 'high' | 'max'
+async function handleEffortChange(level: EffortLevel) {
   settingsStore.effortLevel = level
   settingsStore.saveSettings()
 }
