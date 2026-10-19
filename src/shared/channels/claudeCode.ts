@@ -15,6 +15,7 @@
  */
 import { defineNamespace } from '@/shared/channelMap'
 import type { DeriveRendererApi, DeriveEventApi } from '@/shared/channelMap'
+import type { EffortLevel } from '@/shared/effort'
 import type {
   CliDetectionResult,
   EnvironmentCheckResult,
@@ -157,6 +158,10 @@ export const claudeCodeNamespace = defineNamespace({
     },
     updateThinkingLevel: {
       req: [] as unknown as [sessionId: string, enabled: boolean],
+      res: null as unknown as ThinkingUpdateTiming,
+    },
+    updateEffortLevel: {
+      req: [] as unknown as [sessionId: string, level: EffortLevel],
       res: null as unknown as ThinkingUpdateTiming,
     },
     // ── 会话历史 ──
