@@ -4,6 +4,7 @@ import { type Locale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import type { ModelProfile, ModelCapabilityOverride, ProfilesFile, ProfileApplyFailure } from '@/types/profile'
+import { type EffortLevel, normalizeEffortLevel } from '@/shared/effort'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
 
@@ -76,7 +77,7 @@ export interface AuthSettings {
   engineSource?: EngineSource
   installedCliPath?: string
   lastViewedChangelogVersion?: string
-  effortLevel?: 'low' | 'medium' | 'high' | 'max'
+  effortLevel?: EffortLevel
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
   /** Per-model capability overrides (contextWindow / supportsImages). */
@@ -292,7 +293,7 @@ export const useSettingsStore = defineStore('settings', () => {
   })
   const oauthAccount = ref<OAuthAccountInfo | null>(saved.oauthAccount || null)
   const projectRoot = ref(saved.projectRoot || '')
-  const effortLevel = ref<'low' | 'medium' | 'high' | 'max'>(saved.effortLevel || 'high')
+  const effortLevel = ref<EffortLevel>(normalizeEffortLevel(saved.effortLevel))
   const thinkingEnabled = ref<boolean>(saved.thinkingEnabled !== undefined ? saved.thinkingEnabled : true)
   const language = ref<Locale>(saved.language || detectSystemLanguage())
   const engineType = ref<EngineType>(saved.engineType || 'claude-code')
@@ -922,7 +923,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     if (envSettings.effortLevel !== undefined && !effortLevel.value) {
-      effortLevel.value = envSettings.effortLevel
+      effortLevel.value = normalizeEffortLevel(envSettings.effortLevel)
     }
     if (envSettings.language && !language.value) {
       language.value = envSettings.language
