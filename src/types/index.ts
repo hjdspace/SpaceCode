@@ -129,6 +129,14 @@ export interface ArtifactSummaryEntry {
   mtime: number
 }
 
+/** 回合窗口内检测到、但无直接写文件事件归属的改动（见 MessageMetadata.commandFiles）。 */
+export interface SessionCommandFile {
+  /** 相对仓库根的路径，正斜杠 */
+  path: string
+  /** 检测到改动的时间（文件 mtime） */
+  at: number
+}
+
 /** 自动重试状态：遇到可恢复错误时在聊天页展示错误信息 + "正在重试 (n/m)"。 */
 export interface RetryState {
   /** 当前重试次数（1-based，0 表示尚未重试） */
@@ -185,6 +193,15 @@ export interface MessageMetadata {
   skillName?: string
   /** 本回合新生成/修改的产物文件（回合结算时按会话工作目录收集，见 utils/artifactScope）。 */
   artifacts?: ArtifactSummaryEntry[]
+  /**
+   * 本回合期间被改过、但没有直接 Write/Edit 事件可归属的文件
+   * （Bash、格式化、子代理写入）。判据是文件 mtime 落在回合窗口内。
+   *
+   * 置信度低于工具事件：同仓库并行会话在窗口内的写入也会落在这里，
+   * 由 fileWriteLedger 裁决最后写入者。存进消息 metadata 是为了重启后
+   * 仍能还原 —— 这类信息无法从 JSONL 历史反推。
+   */
+  commandFiles?: SessionCommandFile[]
   /** 自动重试状态：供内部重试流程跟踪，不直接展示给用户 */
   retryState?: RetryState
 }

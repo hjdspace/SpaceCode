@@ -14,6 +14,7 @@ import type {
   GitStatus,
   GitDiffResult,
   GitFullDiffResult,
+  GitChangeStatsResult,
   GitBranch,
   GitLogEntry,
   GitCommitFileStat,
@@ -85,6 +86,14 @@ export const gitChannels = defineChannels({
   getFullDiff: {
     req: [] as unknown as [cwd: string],
     res: null as unknown as GitFullDiffResult | null,
+  },
+  getReviewDiff: {
+    req: [] as unknown as [cwd: string, path: string],
+    res: null as unknown as GitDiffResult | null,
+  },
+  getChangeStats: {
+    req: [] as unknown as [cwd: string],
+    res: null as unknown as GitChangeStatsResult | null,
   },
   getStagedDiff: {
     req: [] as unknown as [cwd: string],

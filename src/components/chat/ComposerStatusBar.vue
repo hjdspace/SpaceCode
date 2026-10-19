@@ -25,7 +25,7 @@
 
     <span v-if="hasTasks && hasChanges" class="status-divider" aria-hidden="true">·</span>
 
-    <!-- 右侧：文件改动 -->
+    <!-- 右侧：本会话文件改动 -->
     <div
       v-if="hasChanges"
       ref="changesZoneRef"
@@ -42,9 +42,9 @@
       :aria-label="t('composerStatus.openReview')"
     >
       <span class="zone-label">{{ changesSummary }}</span>
-      <span v-if="hasChanges" class="changes-stats">
-        <span class="stat-add">+{{ sessionContext.gitAdditions }}</span>
-        <span class="stat-del">-{{ sessionContext.gitDeletions }}</span>
+      <span class="changes-stats">
+        <span class="stat-add">+{{ changes.turnAdditions }}</span>
+        <span class="stat-del">-{{ changes.turnDeletions }}</span>
       </span>
     </div>
 
@@ -83,7 +83,7 @@
       </div>
     </Transition>
 
-    <!-- 文件改动详情弹出层 -->
+    <!-- 文件改动详情弹出层：只列本会话写过的文件，按轮次分组 -->
     <Transition name="status-popup">
       <div
         v-if="showChangesPopup && hasChanges"
@@ -94,27 +94,33 @@
       >
         <div class="popup-header">
           <FileDiff :size="14" />
-          <span>{{ t('composerStatus.fileChanges', { count: sessionContext.changedFiles.length }) }}</span>
+          <span>{{ t('composerStatus.sessionFileChanges', { count: changes.sessionCount }) }}</span>
           <span class="popup-header-stats">
-            <span class="stat-add">+{{ sessionContext.gitAdditions }}</span>
-            <span class="stat-del">-{{ sessionContext.gitDeletions }}</span>
+            <span class="stat-add">+{{ changes.sessionAdditions }}</span>
+            <span class="stat-del">-{{ changes.sessionDeletions }}</span>
           </span>
         </div>
         <div class="popup-body">
-          <button
-            v-for="file in sessionContext.changedFiles"
-            :key="file.path"
-            class="popup-file-item"
-            @click="openFileDiff(file.path)"
-          >
-            <FileText :size="13" class="file-icon" />
-            <span class="file-name" :title="file.path">{{ file.path.split(/[/\\]/).pop() || file.path }}</span>
-            <span class="file-path" :title="file.path">{{ getDirPath(file.path) }}</span>
-            <span class="file-stats">
-              <span class="stat-add">+{{ file.insertions }}</span>
-              <span class="stat-del">-{{ file.deletions }}</span>
-            </span>
-          </button>
+          <div v-for="section in changeSections" :key="section.key" class="popup-group">
+            <div class="popup-group-title">{{ section.label }}</div>
+            <button
+              v-for="file in section.files"
+              :key="file.path"
+              class="popup-file-item"
+              :class="{ 'is-clean': !file.stillDirty }"
+              @click="openFileDiff(file.path)"
+            >
+              <FileText :size="13" class="file-icon" />
+              <span class="file-name" :title="file.path">{{ file.path.split(/[/\\]/).pop() || file.path }}</span>
+              <span class="file-path" :title="file.path">{{ getDirPath(file.path) }}</span>
+              <span v-if="file.origin === 'command'" class="file-tag">{{ t('composerStatus.commandOriginBadge') }}</span>
+              <span v-else-if="!file.stillDirty" class="file-tag">{{ t('composerStatus.noUncommittedChange') }}</span>
+              <span class="file-stats">
+                <span class="stat-add">+{{ file.insertions }}</span>
+                <span class="stat-del">-{{ file.deletions }}</span>
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </Transition>
@@ -125,14 +131,23 @@
 import { ref, computed, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSessionContext } from '@/stores/sessionContext'
+import { useSessionFileChangesStore } from '@/stores/sessionFileChanges'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 import {
   ClipboardList, Loader2, CheckCircle2, Circle, Lock,
   FileDiff, FileText
 } from 'lucide-vue-next'
 
+/** 归属的会话；未传时回退全局当前会话，与 ChatInput 的取数口径一致 */
+const props = defineProps<{
+  sessionId?: string
+}>()
+
 const { t } = useI18n()
 const sessionContext = useSessionContext()
+const sessionFileChanges = useSessionFileChangesStore()
+const chatSessionStore = useChatSessionStore()
 const appStore = useAppStore()
 
 const HOVER_DELAY_MS = 180
@@ -154,11 +169,12 @@ let changesLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const taskProgress = computed(() => sessionContext.taskProgress)
 const hasTasks = computed(() => sessionContext.tasks.length > 0)
-const hasChanges = computed(() => (
-  sessionContext.changedFiles.length > 0 ||
-  sessionContext.gitAdditions > 0 ||
-  sessionContext.gitDeletions > 0
-))
+
+const activeSessionId = computed(() => props.sessionId || chatSessionStore.currentSessionId || '')
+const changes = computed(() => sessionFileChanges.summaryFor(activeSessionId.value))
+
+/** 只看本会话写过/编辑过的文件 —— 仓库里其他会话的未提交改动不算。 */
+const hasChanges = computed(() => changes.value.sessionCount > 0)
 const hasInProgressTasks = computed(() => sessionContext.tasks.some(t => t.status === 'in_progress'))
 
 const visible = computed(() => hasTasks.value || hasChanges.value)
@@ -169,7 +185,21 @@ const taskSummary = computed(() => {
 })
 
 const changesSummary = computed(() => {
-  return t('composerStatus.filesChanged', { count: sessionContext.changedFiles.length })
+  const { turnCount, sessionCount } = changes.value
+  if (sessionCount > turnCount) {
+    return t('composerStatus.turnFilesWithSession', { count: turnCount, total: sessionCount })
+  }
+  return t('composerStatus.turnFiles', { count: turnCount })
+})
+
+const changeSections = computed(() => {
+  const { current, earlier } = sessionFileChanges.groupedFor(activeSessionId.value)
+  const sections: Array<{ key: string; label: string; files: typeof current }> = []
+  if (current.length > 0) sections.push({ key: 'current', label: t('composerStatus.currentTurn'), files: current })
+  if (earlier.length > 0) {
+    sections.push({ key: 'earlier', label: t('composerStatus.earlierTurns', { count: earlier.length }), files: earlier })
+  }
+  return sections
 })
 
 function getDirPath(path: string): string {
@@ -464,6 +494,20 @@ onUnmounted(clearTimers)
   border-radius: 3px;
 }
 
+.popup-group + .popup-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.popup-group-title {
+  padding: 4px 10px 2px;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .popup-file-item {
   width: 100%;
   display: flex;
@@ -481,6 +525,21 @@ onUnmounted(clearTimers)
   transition: background 0.12s ease;
 
   &:hover { background: var(--surface-hover); }
+
+  // 写过但工作区已无未提交差异（被提交或被回退），没有可 review 的内容
+  &.is-clean {
+    color: var(--text-muted);
+    .file-name { color: var(--text-muted); }
+  }
+}
+
+.file-tag {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-hover);
 }
 
 .file-icon {

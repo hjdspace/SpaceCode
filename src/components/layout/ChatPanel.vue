@@ -169,12 +169,12 @@
 
         <!-- Right: Env Panel (floating solid card) -->
         <Transition name="sc-env-fade">
-          <SessionContextEnvPanel v-if="!compact && sessionContext.showEnvPanel" @continue="handleContinue" />
+          <SessionContextEnvPanel v-if="!compact && sessionContext.showEnvPanel" :session-id="paneSessionId" @continue="handleContinue" />
         </Transition>
 
         <!-- Right: Detail Panel (tasks/review) -->
         <Transition name="sc-panel-slide">
-          <SessionContextTaskPanel v-if="!compact && sessionContext.showRightPanel" />
+          <SessionContextTaskPanel v-if="!compact && sessionContext.showRightPanel" :session-id="paneSessionId" />
         </Transition>
 
         <!-- Capsule (shown when env panel is collapsed: by user, by activity, or always-collapse mode) -->
@@ -187,7 +187,8 @@
           >
             <ClipboardList :size="14" />
             <span class="sc-capsule-text" v-if="sessionContext.tasks.length > 0">{{ sessionContext.taskProgress.completed }}/{{ sessionContext.taskProgress.total }}</span>
-            <span class="sc-capsule-text" v-else-if="sessionContext.gitAdditions > 0 || sessionContext.gitDeletions > 0 || sessionContext.changedFiles.length > 0">+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
+            <span class="sc-capsule-text" v-else-if="sessionChanges.sessionCount > 0">{{ sessionChanges.sessionCount }} · +{{ sessionChanges.sessionAdditions }} -{{ sessionChanges.sessionDeletions }}</span>
+            <span class="sc-capsule-text" v-else-if="sessionContext.gitAdditions > 0 || sessionContext.gitDeletions > 0">+{{ sessionContext.gitAdditions }} -{{ sessionContext.gitDeletions }}</span>
             <span class="sc-capsule-text" v-else>{{ t('sessionContext.gitTools') }}</span>
           </div>
         </Transition>
@@ -302,6 +303,8 @@ import ContextUsageChip from '../chat/ContextUsageChip.vue'
 import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSessionContext } from '@/stores/sessionContext'
+import { useSessionFileChangesStore } from '@/stores/sessionFileChanges'
+import { countKnownWritePaths } from '@/lib/sessionFileChanges'
 import { useScmStore } from '@/stores/scm'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
@@ -399,6 +402,7 @@ const diffPanelData = ref<any>(null)
 const diffPanelLoading = ref(false)
 const contextUsageStore = useContextUsageStore()
 const sessionContext = useSessionContext()
+const sessionFileChanges = useSessionFileChangesStore()
 const scmStore = useScmStore()
 const taskManager = useTaskManager()
 
@@ -525,19 +529,27 @@ function handleContinue() {
   console.log('[SessionContext] Continue requested')
 }
 
-// Session Context: sync git stats from the real diff line counts
-let gitStatsRequestId = 0
+// Session Context: 仓库 git 总量（环境卡片与 commit 对话框要的全量口径）
 let scmRefreshKey: string | null = null
 
-function clearSessionContextGitStats() {
+function syncGitTotalsFromScm() {
   if (props.compact) return
-  sessionContext.updateGitStats({ additions: 0, deletions: 0, files: [] })
+  const stats = scmStore.fileStats
+  let additions = 0
+  let deletions = 0
+  for (const path of Object.keys(stats)) {
+    const entry = stats[path]
+    if (!entry) continue
+    additions += entry.additions ?? 0
+    deletions += entry.deletions ?? 0
+  }
+  sessionContext.updateGitTotals({ additions, deletions })
 }
 
 // Git status is project-wide, but it is expensive and is not part of an empty
 // conversation's first paint. Initialize it when a session has real messages;
 // the SCM panel still refreshes independently when the user opens it.
-// 会话切换时清空 sessionContext，避免旧数据闪现（如 ComposerStatusBar 显示旧会话的任务/文件改动）
+// 会话切换时清空面板态。文件改动不在这清 —— 它按 sessionId 键控，切回来立即可用。
 watch(
   () => paneSessionId.value,
   () => {
@@ -552,8 +564,6 @@ watch(
     if (props.compact) return
     if (!sessionId || messageCount === 0 || !workingDirectory) {
       scmRefreshKey = null
-      gitStatsRequestId++
-      clearSessionContextGitStats()
       return
     }
 
@@ -565,63 +575,28 @@ watch(
   { immediate: true },
 )
 
+// refreshFileStats 整体替换 fileStats 对象，非 deep 监听即可
+watch(() => scmStore.fileStats, syncGitTotalsFromScm, { immediate: true })
+
+// 会话文件改动来自消息本身（写文件工具事件 + 回合窗口观测），不看 git 的未提交集合
+// —— 后者是仓库级的，并行会话与用户手改会混进同一份列表。签名用"已知路径的写文件
+// 调用数"，避免每个流式 token 都重算一遍历史。
+const fileWriteSignature = computed(
+  () => `${paneSessionId.value}:${paneMessages.value.length}:${countKnownWritePaths(paneMessages.value)}`,
+)
+
+const sessionChanges = computed(() => sessionFileChanges.summaryFor(paneSessionId.value))
+
 watch(
-  () => [
-    paneSessionId.value,
-    paneMessages.value.length,
-    paneWorkingDirectory.value,
-    scmStore.staged,
-    scmStore.unstaged,
-    scmStore.untracked,
-  ],
-  async () => {
-    if (props.compact) return
-    const requestId = ++gitStatsRequestId
-    if (!paneSessionId.value || paneMessages.value.length === 0) {
-      clearSessionContextGitStats()
-      return
-    }
-
-    const totalChanged =
-      scmStore.staged.length +
-      scmStore.unstaged.length +
-      scmStore.untracked.length
-
-    if (totalChanged === 0) {
-      clearSessionContextGitStats()
-      return
-    }
-
-    const cwd = paneWorkingDirectory.value || appStore.projectRoot
-    if (!cwd) {
-      clearSessionContextGitStats()
-      return
-    }
-
-    try {
-      const result = await api.git.getFullDiff(cwd)
-      if (requestId !== gitStatsRequestId) return
-
-      if (result?.stats && Array.isArray(result.files)) {
-        sessionContext.updateGitStats({
-          additions: result.stats.linesAdded,
-          deletions: result.stats.linesRemoved,
-          files: result.files.map(file => ({
-            path: file.path,
-            insertions: file.linesAdded,
-            deletions: file.linesRemoved,
-          })),
-        })
-      } else {
-        clearSessionContextGitStats()
-      }
-    } catch (e) {
-      if (requestId !== gitStatsRequestId) return
-      console.error('[SessionContext] Failed to sync git stats:', e)
-      clearSessionContextGitStats()
-    }
+  fileWriteSignature,
+  () => {
+    if (props.compact || !paneSessionId.value) return
+    sessionFileChanges.syncSession(paneSessionId.value, paneMessages.value, {
+      projectRoot: appStore.projectRoot,
+      workingDirectory: paneWorkingDirectory.value || appStore.projectRoot,
+    })
   },
-  { deep: true },
+  { immediate: true },
 )
 // Rebuild task state from the current session's message history.
 // Fires on session switch (to restore tasks that were previously created)
@@ -1043,7 +1018,7 @@ onMounted(async () => {
       toggleBranch: () => sessionContext.toggleBranchDropdown(),
       openCommit: () => sessionContext.openCommitDialog(),
       setTasks: (tasks: any[]) => sessionContext.updateTasks(tasks),
-      setGitStats: (stats: any) => sessionContext.updateGitStats(stats),
+      setGitTotals: (stats: any) => sessionContext.updateGitTotals(stats),
       store: sessionContext,
     }
     console.log('[Dev] Session Context API: __sc.openEnv() / __sc.openReview() / __sc.setTasks([...])')

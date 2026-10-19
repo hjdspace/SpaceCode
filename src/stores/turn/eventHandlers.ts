@@ -109,6 +109,25 @@ export interface EventReducerOptions {
   getClaudeCode: () => ClaudeCodeApi | null
   getArtifactsApi: () => ArtifactsApi | null
   /**
+   * 仓库根的取值口径 —— 会话工作目录可能是子目录，而 git 侧的所有路径口径
+   * （scm.fileStats / getFullDiff）都以项目根为准。回合窗口扫描必须用同一个基准，
+   * 否则同一文件会出现两份路径。
+   */
+  getProjectRoot: () => string | null
+  /**
+   * 写文件工具落盘后记账，供会话改动的展示层分辨"被其他会话覆盖过"。
+   * 与 getProjectRoot 一样走注入：turn store 不直接依赖面板态 store。
+   */
+  fileWriteLedger: {
+    recordToolWrite: (args: {
+      projectRoot: string | null
+      sessionId: string
+      toolName: string
+      input: Record<string, any> | undefined
+      workingDirectory?: string
+    }) => void
+  }
+  /**
    * 把新生成的交付物送进右侧预览（办公文档走 officecli，HTML 走内置浏览器）。
    * 由调用方注入，因为这住在 turn store 里，而面板状态归 appStore。
    */
@@ -281,6 +300,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     errorHandler,
     getClaudeCode,
     getArtifactsApi,
+    getProjectRoot,
+    fileWriteLedger,
     openArtifactPreview,
     isSoundOnTaskComplete,
     isDesktopNotifyOnTaskComplete,
@@ -292,6 +313,21 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const { turnStates, beginTurn, endTurn } = stateMachine
   /** 已经自动预览过的交付物，避免每轮结束都把同一个文件重新弹一次。 */
   const autoPreviewedPaths = new Set<string>()
+
+  /**
+   * 写文件工具成功落盘后记入账本。路径口径与会话改动列表必须一致，所以复用
+   * store 里的解析（含工作目录补全与仓库相对化）。
+   */
+  const recordWriteToLedger = (sessionId: string, toolName: string, input: Record<string, any> | undefined) => {
+    if (!FILE_TOOLS.has(toolName)) return
+    fileWriteLedger.recordToolWrite({
+      projectRoot: getProjectRoot(),
+      sessionId,
+      toolName,
+      input,
+      workingDirectory: sink.get(sessionId)?.workingDirectory,
+    })
+  }
 
   /**
    * 工具成功完成后，若产出值得预览的交付物，立即送右侧预览 —— 不等 turn 结束。
@@ -1007,6 +1043,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           sink.persist(sessionId)
 
           if (FILE_TOOLS.has(toolName) || COMMAND_TOOLS.has(toolName)) {
+            if (!resultIsError) recordWriteToLedger(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
             window.dispatchEvent(new CustomEvent('scm:refresh'))
             window.dispatchEvent(new CustomEvent('refresh-file-tree'))
           }
@@ -1057,6 +1094,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
               // 工具刚产出交付物（Write 了 xlsx / 跑了 officecli 命令）→ 创建即打开预览
               if (!toolResult.is_error) {
+                recordWriteToLedger(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
                 maybeAutoPreviewArtifact(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
               }
             }
@@ -1275,6 +1313,37 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               }
             } catch (err) {
               console.error('[Artifacts] turn summary collect failed:', err)
+            }
+          })()
+        }
+
+        // 回合窗口内被改过、但没有 Write/Edit 事件点名的文件（Bash、格式化、子代理写入）。
+        // 判据用 mtime 而不是"前后两次快照求差"：原地编辑行数不变时 numstat 求差会漏，
+        // 而 mtime 一定跟着写盘动。只在回合真的跑过命令或子代理时才花这次采样。
+        const hasExternalWriter = msg.toolCalls?.some(tc =>
+          COMMAND_TOOLS.has(tc.name) || tc.name === 'Agent' || tc.name === 'Task')
+        const projectRoot = hasExternalWriter ? getProjectRoot() : null
+        if (hasExternalWriter && projectRoot && !msg.metadata?.commandFiles) {
+          const turnStart = ts.sendStartTime
+          const targetMsgId = ts.assistantMessageId
+          void (async () => {
+            try {
+              const stats = await api.git.getChangeStats(projectRoot)
+              if (!stats) return
+              const hits = stats.files
+                .filter(file => file.mtimeMs >= turnStart - 1000)
+                .map(file => ({ path: file.path, at: file.mtimeMs }))
+              if (hits.length === 0) return
+
+              const sess = sink.get(sessionId)
+              const target = sess?.messages.find(m => m.id === targetMsgId)
+              if (!sess || !target) return
+              // 与工具事件重名的文件不在这里判重：collect 侧按 direct 优先合并
+              target.metadata = { ...(target.metadata || {}), commandFiles: hits }
+              sess.messages = [...sess.messages]
+              sink.persist(sessionId)
+            } catch (err) {
+              console.warn('[SessionChanges] turn window scan failed:', err)
             }
           })()
         }

@@ -295,6 +295,7 @@ export class PiProcessPool {
         // ignore listener errors
       }
     }
-    info('PiProcessPool', `[${shortSid}] route → renderer | type=${unifiedEvent.type}`)
+    // 逐事件高频日志降为 debug：正常模式不写文件，--debug 下仍可排查
+    debug('PiProcessPool', `[${shortSid}] route → renderer | type=${unifiedEvent.type}`)
   }
 }

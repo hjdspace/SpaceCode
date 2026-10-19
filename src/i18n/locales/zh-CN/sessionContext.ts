@@ -28,6 +28,14 @@ export default {
 
   // Review Panel
   review: '审查',
+  sessionScope: '本会话改动',
+  changedFilesCount: '{count} 个文件',
+  commandOriginBadge: '命令/外部',
+  externalBadge: '其他会话已改',
+  stageSessionFiles: '暂存本会话',
+  stageSessionFilesHint: '只暂存本会话写过的文件，不带上其他会话的未提交改动',
+  currentTurn: '本轮',
+  earlierTurns: '更早 ({count})',
   branch: '分支',
   createPR: '创建 PR',
   loadingDiff: '正在加载 diff...',

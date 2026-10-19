@@ -216,6 +216,30 @@ export interface GitFullDiffResult {
   [key: string]: unknown
 }
 
+export interface GitChangeStatFile {
+  /** 相对 cwd 的路径，正斜杠 */
+  path: string
+  insertions: number
+  deletions: number
+  isUntracked: boolean
+  isBinary: boolean
+  /** 工作区里已经不存在（被删除）时为 -1 */
+  mtimeMs: number
+  size: number
+}
+
+/**
+ * 工作区相对 HEAD 的改动指纹，不含 diff 正文。
+ *
+ * 会话改动要按"两次快照之间哪些文件的指纹变了"来判断命令写了哪些文件，
+ * 这要求采样点上的即时数据 —— scm.fileStats 是防抖 + 异步刷新的，拿它当
+ * 快照会在命令结束时尚未更新，把改动漏掉。
+ */
+export interface GitChangeStatsResult {
+  generatedAt: number
+  files: GitChangeStatFile[]
+}
+
 export interface GitStatusFile {
   path: string
   originalPath?: string

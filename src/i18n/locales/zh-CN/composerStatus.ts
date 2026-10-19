@@ -1,8 +1,13 @@
 export default {
   taskProgress: '任务进度 {completed}/{total}',
-  fileChanges: '文件改动 ({count})',
   stepProgress: '步骤 {completed}/{total}',
-  filesChanged: '{count} 个文件改动',
-  openReview: '审查文件改动',
+  turnFiles: '本轮 {count} 个文件改动',
+  turnFilesWithSession: '本轮 {count} 个 · 会话 {total} 个',
+  sessionFileChanges: '本会话改动 {count} 个文件',
+  currentTurn: '本轮',
+  earlierTurns: '更早 {count} 个',
+  noUncommittedChange: '已无未提交改动',
+  commandOriginBadge: '命令/外部改动',
+  openReview: '审查本会话改动',
   noChanges: '暂无改动',
 }

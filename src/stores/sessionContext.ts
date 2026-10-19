@@ -14,12 +14,6 @@ import { ref, computed, watch } from 'vue'
 export type RightPanelView = 'tasks' | 'review'
 export type PanelExpandMode = 'auto' | 'always-expand' | 'always-collapse'
 
-export interface SessionContextFile {
-  path: string
-  insertions: number
-  deletions: number
-}
-
 export const useSessionContext = defineStore('sessionContext', () => {
   // === Env Panel (right-top embedded card) ===
   const showEnvPanel = ref(false)
@@ -69,10 +63,10 @@ export const useSessionContext = defineStore('sessionContext', () => {
     return { completed, total }
   })
 
-  // === Git stats ===
+  // === Git stats（仓库全量：环境卡片与 commit 对话框）===
+  // 会话归属的文件改动列表在 sessionFileChanges store，两者语义不同，不要混用。
   const gitAdditions = ref(0)
   const gitDeletions = ref(0)
-  const changedFiles = ref<SessionContextFile[]>([])
 
   // === Review state ===
   const expandedReviewFiles = ref<Set<string>>(new Set())
@@ -83,8 +77,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
   const hasActivity = computed(() =>
     tasks.value.length > 0 ||
     gitAdditions.value > 0 ||
-    gitDeletions.value > 0 ||
-    changedFiles.value.length > 0
+    gitDeletions.value > 0
   )
 
   // === Actions: Env Panel ===
@@ -228,14 +221,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
   }
 
   // === Actions: Git stats ===
-  function updateGitStats(stats: {
-    additions: number
-    deletions: number
-    files: SessionContextFile[]
-  }) {
+  function updateGitTotals(stats: { additions: number; deletions: number }) {
     gitAdditions.value = stats.additions
     gitDeletions.value = stats.deletions
-    changedFiles.value = stats.files
     evaluateAutoExpand()
   }
 
@@ -270,9 +258,9 @@ export const useSessionContext = defineStore('sessionContext', () => {
     userOverride.value = false
     rightPanelView.value = 'tasks'
     tasks.value = []
-    gitAdditions.value = 0
-    gitDeletions.value = 0
-    changedFiles.value = []
+    // gitAdditions/gitDeletions 不在这清：它们是仓库全量口径，唯一归属者是
+    // scm.fileStats 的同步 watcher。会话切换或另一个 pane 重置面板时清零，
+    // 会让环境卡片显示 +0 -0 直到下一次 git 事件。
     expandedReviewFiles.value = new Set()
     pendingReviewFile.value = null
   }
@@ -317,7 +305,6 @@ export const useSessionContext = defineStore('sessionContext', () => {
     taskProgress,
     gitAdditions,
     gitDeletions,
-    changedFiles,
     expandedReviewFiles,
     pendingReviewFile,
     hasActivity,
@@ -369,7 +356,7 @@ export const useSessionContext = defineStore('sessionContext', () => {
     updateTasks,
 
     // Git
-    updateGitStats,
+    updateGitTotals,
 
     // Review
     toggleReviewFile,

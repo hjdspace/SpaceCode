@@ -83,58 +83,72 @@
       <!-- Toolbar -->
       <div class="sc-review-toolbar">
         <span class="sc-review-label">{{ t('sessionContext.review') }}</span>
+        <span class="sc-review-scope">{{ t('sessionContext.sessionScope') }}</span>
         <div class="sc-review-stats">
-          <span class="sc-stat-add">+{{ sessionContext.gitAdditions }}</span>
-          <span class="sc-stat-del">-{{ sessionContext.gitDeletions }}</span>
+          <span class="sc-stat-add">+{{ changes.sessionAdditions }}</span>
+          <span class="sc-stat-del">-{{ changes.sessionDeletions }}</span>
         </div>
         <div class="sc-review-actions">
+          <button
+            class="sc-action-btn"
+            :disabled="stageablePaths.length === 0 || stagingInProgress"
+            :title="t('sessionContext.stageSessionFilesHint')"
+            @click="stageSessionFiles"
+          >
+            {{ t('sessionContext.stageSessionFiles') }}
+          </button>
           <button class="sc-action-btn" @click="sessionContext.openCommitDialog()">
             {{ t('sessionContext.commitOrPush') }}
           </button>
         </div>
       </div>
 
-      <!-- File list -->
+      <!-- File list: 本会话写过的文件，按轮次分组 -->
       <div class="sc-file-list">
-        <template v-for="file in sessionContext.changedFiles" :key="file.path">
-          <button
-            class="sc-file-row"
-            :class="{ expanded: sessionContext.isReviewFileExpanded(file.path) }"
-            @click="handleToggleFile(file.path)"
-          >
-            <span class="sc-file-dot" />
-            <span class="sc-file-name" :title="file.path">{{ getFileName(file.path) }}</span>
-            <span class="sc-file-path" :title="file.path">{{ getDirPath(file.path) }}</span>
-            <span class="sc-file-stats">
-              <span class="sc-stat-add">+{{ file.insertions }}</span>
-              <span class="sc-stat-del">-{{ file.deletions }}</span>
-            </span>
-            <ChevronRight :size="12" class="sc-file-arrow" :class="{ rotated: sessionContext.isReviewFileExpanded(file.path) }" />
-          </button>
+        <div v-for="section in reviewSections" :key="section.key" class="sc-file-group">
+          <div class="sc-file-group-title">{{ section.label }}</div>
+          <div v-for="file in section.files" :key="file.path" class="sc-file-group-item">
+            <button
+              class="sc-file-row"
+              :class="{ expanded: sessionContext.isReviewFileExpanded(file.path), clean: !file.stillDirty }"
+              @click="handleToggleFile(file.path)"
+            >
+              <span class="sc-file-dot" />
+              <span class="sc-file-name" :title="file.path">{{ getFileName(file.path) }}</span>
+              <span class="sc-file-path" :title="file.path">{{ getDirPath(file.path) }}</span>
+              <span class="sc-file-tool">{{ fileLabel(file) }}</span>
+              <span v-if="file.external" class="sc-file-external">{{ t('sessionContext.externalBadge') }}</span>
+              <span class="sc-file-stats">
+                <span class="sc-stat-add">+{{ file.insertions }}</span>
+                <span class="sc-stat-del">-{{ file.deletions }}</span>
+              </span>
+              <ChevronRight :size="12" class="sc-file-arrow" :class="{ rotated: sessionContext.isReviewFileExpanded(file.path) }" />
+            </button>
 
-          <!-- Expanded diff -->
-          <div v-if="sessionContext.isReviewFileExpanded(file.path)" class="sc-diff-block">
-            <div v-if="loadingDiffs.has(file.path)" class="sc-diff-loading">
-              {{ t('sessionContext.loadingDiff') }}
+            <!-- Expanded diff -->
+            <div v-if="sessionContext.isReviewFileExpanded(file.path)" class="sc-diff-block">
+              <div v-if="loadingDiffs.has(file.path)" class="sc-diff-loading">
+                {{ t('sessionContext.loadingDiff') }}
+              </div>
+              <div v-else-if="diffErrors[file.path]" class="sc-diff-error">
+                {{ diffErrors[file.path] }}
+              </div>
+              <div v-else-if="diffData[file.path]" class="sc-diff-lines">
+                <template v-for="(line, idx) in diffData[file.path]" :key="idx">
+                  <div class="sc-diff-line" :class="line.type">
+                    <span class="sc-ln old">{{ line.oldNum || '' }}</span>
+                    <span class="sc-ln new">{{ line.newNum || '' }}</span>
+                    <span class="sc-prefix">{{ line.prefix }}</span>
+                    <span class="sc-code">{{ line.content }}</span>
+                  </div>
+                </template>
+              </div>
+              <div v-else class="sc-diff-empty">{{ t('sessionContext.noDiffAvailable') }}</div>
             </div>
-            <div v-else-if="diffErrors[file.path]" class="sc-diff-error">
-              {{ diffErrors[file.path] }}
-            </div>
-            <div v-else-if="diffData[file.path]" class="sc-diff-lines">
-              <template v-for="(line, idx) in diffData[file.path]" :key="idx">
-                <div class="sc-diff-line" :class="line.type">
-                  <span class="sc-ln old">{{ line.oldNum || '' }}</span>
-                  <span class="sc-ln new">{{ line.newNum || '' }}</span>
-                  <span class="sc-prefix">{{ line.prefix }}</span>
-                  <span class="sc-code">{{ line.content }}</span>
-                </div>
-              </template>
-            </div>
-            <div v-else class="sc-diff-empty">{{ t('sessionContext.noDiffAvailable') }}</div>
           </div>
-        </template>
+        </div>
 
-        <div v-if="sessionContext.changedFiles.length === 0" class="sc-file-empty">
+        <div v-if="changes.files.length === 0" class="sc-file-empty">
           <FileDiff :size="24" />
           <span>{{ t('sessionContext.noFileChanges') }}</span>
         </div>
@@ -152,12 +166,20 @@ import {
   Maximize2, Minimize2
 } from 'lucide-vue-next'
 import { useSessionContext } from '@/stores/sessionContext'
+import { useSessionFileChangesStore, type SessionChangeRow } from '@/stores/sessionFileChanges'
+import { useScmStore } from '@/stores/scm'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import { useResizablePanel } from '@/composables/useResizablePanel'
 
+/** review 的是哪个会话的改动；未传时回退全局当前会话 */
+const props = defineProps<{
+  sessionId?: string
+}>()
+
 const { t } = useI18n()
 const sessionContext = useSessionContext()
+const sessionFileChanges = useSessionFileChangesStore()
 const appStore = useAppStore()
 
 // ── 面板宽度拖拽缩放 ──
@@ -214,10 +236,42 @@ const diffErrors = reactive<Record<string, string>>({})
 const loadingDiffs = ref<Set<string>>(new Set())
 
 const taskProgress = computed(() => sessionContext.taskProgress)
+const changes = computed(() => sessionFileChanges.summaryFor(props.sessionId || ''))
+const reviewSections = computed(() => {
+  const { current, earlier } = sessionFileChanges.groupedFor(props.sessionId || '')
+  const sections: Array<{ key: string; label: string; files: typeof current }> = []
+  if (current.length > 0) sections.push({ key: 'current', label: t('sessionContext.currentTurn'), files: current })
+  if (earlier.length > 0) {
+    sections.push({ key: 'earlier', label: t('sessionContext.earlierTurns', { count: earlier.length }), files: earlier })
+  }
+  return sections
+})
 const progressPercent = computed(() => {
   const { completed, total } = taskProgress.value
   return total > 0 ? (completed / total) * 100 : 0
 })
+
+const scmStore = useScmStore()
+const stagingInProgress = ref(false)
+
+/**
+ * 只暂存本会话的文件。仓库里并行会话的未提交改动不该被顺手带进这次 commit，
+ * 所以这里给的是会话口径的暂存入口，而不是沿用"暂存全部"。
+ */
+const stageablePaths = computed(() =>
+  changes.value.files.filter(file => file.stillDirty).map(file => file.path),
+)
+
+async function stageSessionFiles() {
+  const paths = stageablePaths.value
+  if (paths.length === 0 || stagingInProgress.value) return
+  stagingInProgress.value = true
+  try {
+    await scmStore.stagePaths(paths)
+  } finally {
+    stagingInProgress.value = false
+  }
+}
 
 const panelStyle = computed(() => {
   if (sessionContext.rightPanelFullscreen) return undefined
@@ -226,6 +280,11 @@ const panelStyle = computed(() => {
 
 function getFileName(path: string): string {
   return path.split(/[/\\]/).pop() || path
+}
+
+/** 工具事件点名的文件显示工具名；只在回合窗口里观测到的标为"命令/外部" */
+function fileLabel(file: SessionChangeRow): string {
+  return file.origin === 'command' ? t('sessionContext.commandOriginBadge') : file.tools[file.tools.length - 1] || ''
 }
 
 function getDirPath(path: string): string {
@@ -255,7 +314,7 @@ async function loadFileDiff(path: string) {
 
   loadingDiffs.value.add(path)
   try {
-    const result = await api.git.getDiff(cwd, path, false)
+    const result = await api.git.getReviewDiff(cwd, path)
     if (result?.hunks && result.hunks.length > 0) {
       diffData[path] = parseDiffHunks(result.hunks)
     } else {
@@ -612,6 +671,43 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sc-file-group-title {
+  padding: 8px 12px 4px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-secondary, transparent);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sc-file-tool {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-hover);
+}
+
+.sc-file-external {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--warning);
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--warning-bg, rgba(245, 158, 11, 0.1));
+}
+
+// 写过但工作区已无未提交差异：保留行（用户确实动过），但明示无 diff 可看
+.sc-file-row.clean {
+  .sc-file-dot { background: var(--text-muted); }
+  .sc-file-name { color: var(--text-muted); }
 }
 
 .sc-file-stats {

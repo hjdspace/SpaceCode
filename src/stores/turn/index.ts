@@ -7,6 +7,7 @@ import { useAppStore } from '../app'
 import { isHtmlPreviewPath, isOfficePreviewPath } from '@/utils/artifactFormat'
 import { useSettingsStore } from '../settings'
 import { useContextUsageStore } from '../contextUsage'
+import { useFileWriteLedgerStore } from '../fileWriteLedger'
 import type { SessionSink } from '../turnSink'
 import { ErrorCategory } from '@/types'
 import { permissionService, type PermissionRequest, type PermissionUpdate } from '@/services/permissionService'
@@ -370,9 +371,11 @@ export function useTurnStore(injectedApi?: any) {
       autoRetry,
       initiateAutoRetry,
       contextUsage: useContextUsageStore(),
+      fileWriteLedger: useFileWriteLedgerStore(),
       errorHandler,
       getClaudeCode: () => resolvedApi.claudeCode ?? null,
       getArtifactsApi: () => resolvedApi.artifacts ?? null,
+      getProjectRoot: () => useAppStore().projectRoot,
       openArtifactPreview: (filePath: string) => {
         const appStore = useAppStore()
         if (isOfficePreviewPath(filePath)) appStore.openOfficePreview(filePath)

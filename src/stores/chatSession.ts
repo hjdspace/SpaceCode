@@ -197,6 +197,7 @@ async function hydrateSessionsFromJsonl(sessions: Session[], messageIdsAtStart?:
       //   • metadata.apiCallUsage — 最后一次 API 调用的 token 明细
       //   • metadata.artifacts    — 办公模式产物汇总
       //   • metadata.warning     — 前端生成的警告信息
+      //   • metadata.commandFiles — 回合窗口内观测到的间接改动（会话 review 的文件清单）
       // buildMessagesFromHistory 从 JSONL 重建消息时会丢失这些字段，导致重开后
       // 用时统计变为 0、产物汇总卡片消失。此处从 localStorage 保存的旧消息中
       // 按助手消息位置提取这些字段，重建后按位置合并回去
@@ -212,6 +213,7 @@ async function hydrateSessionsFromJsonl(sessions: Session[], messageIdsAtStart?:
           if (md.apiCallUsage) extra.apiCallUsage = md.apiCallUsage
           if (md.artifacts?.length) extra.artifacts = md.artifacts
           if (md.warning) extra.warning = md.warning
+          if (md.commandFiles?.length) extra.commandFiles = md.commandFiles
           if (Object.keys(extra).length > 0) {
             oldExtraMetaByAssistantIdx.set(oldAssistantIdx, extra)
           }
