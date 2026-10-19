@@ -9,7 +9,7 @@ import * as childProcess from 'child_process'
 import { writeFileSync, readFileSync, unlinkSync, mkdtempSync, rmdirSync, statSync } from 'fs'
 import { watch, type FSWatcher } from 'fs'
 import { Worker } from 'worker_threads'
-import { join } from 'path'
+import { join, isAbsolute } from 'path'
 import { tmpdir } from 'os'
 import { ipcMain, BrowserWindow } from 'electron'
 import { debug } from '../infra/logger'
@@ -685,6 +685,10 @@ async function getReviewDiff(cwd: string, path: string): Promise<GitDiffResult |
     if (/unknown revision|bad revision|ambiguous argument|does not have any commits/i.test(result.stderr)) {
       return getDiff(cwd, path, true)
     }
+    // 仓库外的路径 git 直接拒绝（"outside repository"），但文件本身可读：
+    // 按全文新增渲染，别让 review 变成死胡同
+    const outsideDiff = await getUntrackedFileDiff(cwd, path)
+    if (outsideDiff) return outsideDiff
     return null
   }
 
@@ -712,7 +716,10 @@ async function getUntrackedFileDiff(cwd: string, filePath: string): Promise<GitD
   }
 
   try {
-    const fullPath = join(cwd, filePath)
+    // 会话 review 会传仓库外的绝对路径（agent 的 MEMORY.md 之类）。join 会把
+    // "D:\repo" 和 "C:\Users\..." 拼成一个不存在的路径，绝对路径必须原样使用。
+    // 仓库内的绝对路径仍走上面的 ls-files 检查，不会误判成"未跟踪"。
+    const fullPath = isAbsolute(filePath) ? filePath : join(cwd, filePath)
     const content = readFileSync(fullPath)
 
     // Binary file check: presence of null byte indicates binary content
