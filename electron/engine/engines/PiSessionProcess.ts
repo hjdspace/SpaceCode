@@ -8,6 +8,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { StringDecoder } from 'string_decoder'
 import type { ProcessStatus } from '../../session/sessionProcess'
 import type { EngineSessionConfig, ImageAttachment } from './types'
+import { toPiThinkingLevel } from '@/shared/effort'
 import { info, warn, error, debug } from '../../infra/logger'
 import {
   killTree as engineKillTree,
@@ -891,7 +892,11 @@ export class PiSessionProcess extends EventEmitter {
       args.push('--model', model)
     }
     if (this.config.apiKey) args.push('--api-key', this.config.apiKey)
-    if (this.config.thinkingEnabled) args.push('--thinking', 'medium')
+    // 关着就什么都不传（pi 自己按 off 走），保持既有参数形态不变；开着才把档位带上 ——
+    // 此前这里写死 medium，用户选的深度根本没进 pi。
+    if (this.config.thinkingEnabled === true) {
+      args.push('--thinking', toPiThinkingLevel(true, this.config.effortLevel ?? 'medium'))
+    }
     // 带上 pi 自己的会话文件，否则新进程起来就是一个没有历史的新会话
     if (this._piSessionFile) args.push('--session', this._piSessionFile)
     if (this.config.systemPrompt) args.push('--system-prompt', this.config.systemPrompt)

@@ -7,7 +7,7 @@
     >
       <Loader2 v-if="isLoadingModels" :size="14" class="loading-icon spin" />
       <span class="model-name">{{ selectedModelLabel }}</span>
-      <span v-if="selectedMode" class="model-mode-pill">{{ modeLabel(selectedMode) }}</span>
+      <span v-if="selectedMode" class="model-mode-pill">{{ t('chat.effort.' + selectedMode) }}</span>
       <ChevronDown :size="14" class="dropdown-icon" :class="{ open: showModelDropdown }" />
     </button>
     <!-- 模型下拉菜单 -->
@@ -24,9 +24,10 @@
               :class="{ active: selectedMode === mode }"
               @click="selectMode(mode)"
             >
-              <span class="item-name">{{ modeLabel(mode) }}</span>
+              <span class="item-name">{{ t('chat.effort.' + mode) }}</span>
               <Check v-if="selectedMode === mode" :size="14" class="check-icon" />
             </button>
+            <p v-if="availableModes.length === 0" class="reasoning-unavailable">{{ t('chat.effort.unavailable') }}</p>
           </div>
         </div>
         <div class="dropdown-section-divider"></div>
@@ -150,7 +151,7 @@ const {
   modelSearchInput, modelSelectorRef, modelListRef, modelSubmenuRef,
   mainDropdownRef, modelTriggerRowRef,
   availableModes, hasConfiguredModels, filteredModels, canRefreshModels, selectedModelLabel,
-  selectModel, selectMode, modeLabel, closeModelDropdown, toggleModelDropdown,
+  selectModel, selectMode, closeModelDropdown, toggleModelDropdown,
   toggleModelSubmenu, onCurrentModelRowLeave, onModelSubmenuEnter,
   onModelSubmenuLeave, closeModelSubmenu, refreshModels, handleModelKeydown,
 } = props.selector
@@ -346,6 +347,13 @@ watch(showModelSubmenu, (open) => {
 
 .reasoning-list {
   max-height: none;
+}
+
+.reasoning-unavailable {
+  margin: 0;
+  padding: 4px 12px 6px;
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
 }
 
 .dropdown-section {

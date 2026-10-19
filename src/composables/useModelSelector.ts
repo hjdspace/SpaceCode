@@ -12,25 +12,29 @@ import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 import { normalizeApiUrl } from '@/utils/apiUrl'
+import { clampEffortLevel, getSupportedEffortLevels, type EffortLevel } from '@/shared/effort'
 
 export interface ModelOption {
   label: string
   value: string
 }
 
-const AVAILABLE_MODES = ['low', 'medium', 'high', 'max'] as const
-export type EffortMode = typeof AVAILABLE_MODES[number]
-
 export function useModelSelector(options?: {
   initialModelValue?: string
   onUpdateModel?: (model: string) => void
-  onUpdateEffort?: (effort: string) => void
+  onUpdateEffort?: (effort: EffortLevel) => void
 }) {
   const settingsStore = useSettingsStore()
 
   // ── State ──────────────────────────────────────────────────────
   const selectedModel = ref('')
-  const selectedMode = ref<EffortMode>(settingsStore.effortLevel || 'high')
+  /** 当前模型真实可用的档位；空集合表示该模型不可调节推理深度（引擎会整个丢弃 effort）。 */
+  const availableModes = computed<ReadonlyArray<EffortLevel>>(() =>
+    getSupportedEffortLevels(selectedModel.value)
+  )
+  const selectedMode = ref<EffortLevel | null>(
+    clampEffortLevel(settingsStore.effortLevel, availableModes.value)
+  )
   const showModelDropdown = ref(false)
   const showModelSubmenu = ref(false)
   const modelSearchQuery = ref('')
@@ -200,8 +204,6 @@ export function useModelSelector(options?: {
     return model?.label || selectedModel.value || 'Select Model'
   })
 
-  const availableModes = AVAILABLE_MODES
-
   // ── Actions ────────────────────────────────────────────────────
 
   /** Fetch model list from the provider's BASE_URL */
@@ -295,18 +297,9 @@ export function useModelSelector(options?: {
     options?.onUpdateModel?.(modelValue)
   }
 
-  function selectMode(mode: EffortMode) {
+  function selectMode(mode: EffortLevel) {
     selectedMode.value = mode
     options?.onUpdateEffort?.(mode)
-  }
-
-  function modeLabel(mode: EffortMode): string {
-    switch (mode) {
-      case 'low': return 'Low'
-      case 'medium': return 'Medium'
-      case 'high': return 'High'
-      case 'max': return 'Extra High'
-    }
   }
 
   function closeModelDropdown() {
@@ -426,10 +419,20 @@ export function useModelSelector(options?: {
   })
 
   watch(() => settingsStore.effortLevel, (newLevel) => {
-    if (newLevel && newLevel !== selectedMode.value) {
-      selectedMode.value = newLevel
-    }
-  }, { immediate: true })
+    if (!newLevel || newLevel === selectedMode.value) return
+    const clamped = clampEffortLevel(newLevel, availableModes.value)
+    if (clamped !== selectedMode.value) selectedMode.value = clamped
+  })
+
+  // 换模型后可用集合就变了：把档位落回新集合并回写 store。留着旧值等于让引擎去丢弃它，
+  // 界面显示的档位和真正发出的那个从此对不上。
+  watch(availableModes, (modes) => {
+    const current = selectedMode.value ?? settingsStore.effortLevel
+    const clamped = clampEffortLevel(current, modes)
+    if (clamped === selectedMode.value) return
+    selectedMode.value = clamped
+    if (clamped) options?.onUpdateEffort?.(clamped)
+  })
 
   watch(showModelDropdown, (open) => {
     if (!open) modelSearchQuery.value = ''
@@ -475,7 +478,6 @@ export function useModelSelector(options?: {
     // Actions
     selectModel,
     selectMode,
-    modeLabel,
     closeModelDropdown,
     toggleModelDropdown,
     toggleModelSubmenu,

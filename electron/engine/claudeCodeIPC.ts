@@ -17,6 +17,7 @@ import {
 import { installPiSdk } from './piInstaller'
 import { engineGateway } from './engineGateway'
 import { claudeCodeNamespace, type PermissionUpdate } from '@/shared/channels/claudeCode'
+import type { EffortLevel } from '@/shared/effort'
 import { channelNames, eventChannels } from '@/shared/channelMap'
 
 // channel 名从 claudeCode 表派生 — 与 preload bridge / renderer 类型共享同一真相源，
@@ -58,6 +59,8 @@ export function registerClaudeCodeIPC() {
   // 曾经这里 try/catch 只记日志并返回 undefined，invoke 永远 resolve 成功，界面就停在
   // 一个从没生效的开关上（issue #49）。
   ipcMain.handle(CLAUDE_CODE_CHANNELS.updateThinkingLevel, async (_, sessionId: string, enabled: boolean) => engineGateway.updateThinkingLevel(sessionId, enabled))
+  // --effort 同样只在 spawn 读一次，生效时机与失败都按 thinking 那条链的同一口径回给界面。
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.updateEffortLevel, async (_, sessionId: string, level: EffortLevel) => engineGateway.updateEffortLevel(sessionId, level))
 
   ipcMain.handle(CLAUDE_CODE_CHANNELS.isEngineAvailable, async (_, engineType: string) => {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)

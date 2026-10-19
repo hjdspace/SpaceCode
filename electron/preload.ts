@@ -4,6 +4,7 @@ import { terminalNamespace } from '@/shared/channels/terminal'
 import { updateNamespace } from '@/shared/channels/update'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { memoryChannels } from '@/shared/channels/memory'
+import type { EffortLevel } from '@/shared/effort'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
@@ -195,7 +196,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPiCliPath: () => ipcRenderer.invoke('app:getPiCliPath'),
 
   // Inject GUI model settings into ~/.claude/settings.json
-  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max'; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) =>
+  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: EffortLevel; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) =>
     ipcRenderer.invoke('settings:injectGuiModels', models),
 
   // GUI Settings persistence (file-based, ~/.claude/gui-settings.json)

@@ -3,6 +3,7 @@ import { engineGateway } from '../engine/engineGateway'
 import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 import { EngineFactory } from '../engine/engines/EngineFactory'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { isEffortLevel } from '@/shared/effort'
 import { eventChannels } from '@/shared/channelMap'
 import type { EngineSessionConfig, EngineType, PermissionMode } from '../engine/engines/types'
 import type { H5RemoteUserMessagePayload } from '../h5/h5Types'
@@ -41,7 +42,9 @@ export function buildCronEngineConfig(
       config.modelContextWindows = { ...base.modelContextWindows, [alias]: ctx }
     }
   }
-  if (options?.effort) config.effortLevel = options.effort
+  // cron 任务里的 effort 来自用户可写的任务定义，非法值 CLI 只 warn 后静默退默认，
+  // 认不出来就不下发，让引擎按自己的默认走。
+  if (isEffortLevel(options?.effort)) config.effortLevel = options.effort
   if (options?.agent) config.agent = options.agent
   const mode = options?.permissionMode as PermissionMode | undefined
   config.permissionMode = mode && SUPPORTED_PERMISSION_MODES.includes(mode) ? mode : 'default'

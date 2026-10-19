@@ -1,8 +1,10 @@
 import type { BrowserWindow } from 'electron'
 import type { PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EffortLevel } from '@/shared/effort'
 
 // 引擎实现统一从本模块取协议类型；定义仍在 src/shared（IPC 单一真相源）。
 export type { PermissionUpdate, ThinkingUpdateTiming }
+export type { EffortLevel }
 
 export type EngineType = 'claude-code' | 'pi'
 
@@ -13,7 +15,7 @@ export interface EngineSessionConfig {
   apiKey?: string
   baseUrl?: string
   thinkingEnabled?: boolean
-  effortLevel?: string
+  effortLevel?: EffortLevel
   systemPrompt?: string
   appendSystemPrompt?: string
   agent?: string
@@ -132,6 +134,11 @@ export interface IEngine {
    * @returns now = 已落到进程；next-turn = 当前这一轮跑完才生效。
    */
   updateThinkingLevel?(sessionId: string, enabled: boolean): Promise<ThinkingUpdateTiming>
+  /**
+   * 运行中改推理深度。与 thinking 开关同构：`--effort` 同样只在 spawn 时读一次，
+   * 生效时机由引擎答复，界面不能自己猜。
+   */
+  updateEffortLevel?(sessionId: string, level: EffortLevel): Promise<ThinkingUpdateTiming>
 }
 
 export interface AgentInfo {

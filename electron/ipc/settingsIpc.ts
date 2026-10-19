@@ -5,6 +5,7 @@
  * and syncing API config to Claude's settings.json.
  */
 import { ipcMain, app } from 'electron'
+import type { EffortLevel } from '@/shared/effort'
 import { join, dirname, resolve, isAbsolute } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs'
 import { debug, info, warn, error } from '../infra/logger'
@@ -427,7 +428,7 @@ export function registerSettingsIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: 'low' | 'medium' | 'high' | 'max'; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) => {
+  ipcMain.handle('settings:injectGuiModels', async (_event, models: { primaryModel: string; haikuModel?: string; sonnetModel?: string; opusModel?: string; effortLevel?: EffortLevel; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }) => {
     debug('Settings', 'injectGuiModels', models)
     try {
       const settingsPath = getClaudeSettingsPath()
@@ -468,6 +469,8 @@ export function registerSettingsIPCHandlers(): void {
         mergedSettings.modelSettings = { ...existingModelSettings, ...modelSettings }
       }
 
+      // 单向导出给 CLI 的偏好副本，UI 不从这儿回读：CLI 读取侧会有意丢掉 max（对外部用户
+      // 它是 session-scoped），把它当档位的真相会让界面显示一个从没生效的值。
       if (models.effortLevel) {
         mergedSettings.effortLevel = models.effortLevel
       }

@@ -1,4 +1,4 @@
-import { resolveThinkingParams, isThinkingRequested } from './thinkingParams'
+import { resolveThinkingParams, isThinkingRequested, readRequestedEffort } from './thinkingParams'
 
 /**
  * Rough input-token estimate (~chars/4) over the full Anthropic request body:
@@ -104,7 +104,7 @@ export function anthropicToOpenAIRequest(body: Record<string, any>): Record<stri
   // `body.model` 此刻已经被 applyModelMapping 换成上游真实模型名（server.ts 先映射
   // 再转换），所以这里能按模型族挑出那一家认得的思考写法。
   const thinkingEnabled = isThinkingRequested(body.thinking)
-  Object.assign(result, resolveThinkingParams(body.model, thinkingEnabled))
+  Object.assign(result, resolveThinkingParams(body.model, thinkingEnabled, readRequestedEffort(body)))
 
   return result
 }

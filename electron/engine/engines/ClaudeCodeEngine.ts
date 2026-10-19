@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
 import { SessionConfig } from '../../session/sessionProcess'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate, ThinkingUpdateTiming } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate, ThinkingUpdateTiming, EffortLevel } from './types'
 import * as fs from 'fs'
 import * as path from 'path'
 import { info } from '../../infra/logger'
@@ -61,7 +61,7 @@ export class ClaudeCodeEngine implements IEngine {
       model: config.model,
       baseUrl: config.baseUrl,
       apiKey: config.apiKey,
-      effortLevel: config.effortLevel as SessionConfig['effortLevel'],
+      effortLevel: config.effortLevel,
       // 无人值守的调用方（定时任务）靠这个字段决定是否跳过权限确认，此前被丢弃
       permissionMode: config.permissionMode,
       systemPrompt: config.systemPrompt,
@@ -132,6 +132,10 @@ export class ClaudeCodeEngine implements IEngine {
   // 别让"返回 Promise 却同步抛错"漏到只写 .catch() 的调用方身上。
   async updateThinkingLevel(sessionId: string, enabled: boolean): Promise<ThinkingUpdateTiming> {
     return this.pool.updateThinkingLevel(sessionId, enabled)
+  }
+
+  async updateEffortLevel(sessionId: string, level: EffortLevel): Promise<ThinkingUpdateTiming> {
+    return this.pool.updateEffortLevel(sessionId, level)
   }
 
   getMcpStatus(sessionId: string) {

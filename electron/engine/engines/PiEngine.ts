@@ -2,7 +2,8 @@ import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, ThinkingUpdateTiming } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, ThinkingUpdateTiming, EffortLevel } from './types'
+import { toPiThinkingLevel } from '@/shared/effort'
 import { PiProcessPool } from './PiProcessPool'
 import { info, warn, error } from '../../infra/logger'
 
@@ -57,6 +58,14 @@ export class PiEngine implements IEngine {
     }
   }
 
+  /**
+   * pi 把「开不开思考」和「思考多深」合成同一个 level 参数，所以两个入口都按合成结果下发，
+   * 否则会互相覆盖 —— 之前这里写死 medium，用户选的档位整条链路根本没进 pi。
+   */
+  private piThinkingLevel(enabled: boolean, effort?: EffortLevel): string {
+    return toPiThinkingLevel(enabled, effort ?? 'medium')
+  }
+
   async updateThinkingLevel(sessionId: string, enabled: boolean): Promise<ThinkingUpdateTiming> {
     const proc = this.pool.getProcess(sessionId)
     if (!proc) {
@@ -67,10 +76,32 @@ export class PiEngine implements IEngine {
 
     info('PiEngine', `updateThinkingLevel | sessionId=${sessionId.slice(0, 8)} | enabled=${enabled}`)
 
+    // 先落 config 再下发：进程池之后 suspend/resume 是按 config 重拼 spawn 参数的，
+    // 只发 stdin 命令不写 config 的话，一次重启就把设置退回去了。
+    proc.config.thinkingEnabled = enabled
     try {
-      await proc.setThinkingLevel(enabled ? 'medium' : 'off')
+      await proc.setThinkingLevel(this.piThinkingLevel(enabled, proc.config.effortLevel))
     } catch (err) {
       error('PiEngine', `updateThinkingLevel failed | sessionId=${sessionId.slice(0, 8)}`, err)
+      throw err
+    }
+    return 'now'
+  }
+
+  async updateEffortLevel(sessionId: string, level: EffortLevel): Promise<ThinkingUpdateTiming> {
+    const proc = this.pool.getProcess(sessionId)
+    if (!proc) {
+      warn('PiEngine', `updateEffortLevel: session not found | sessionId=${sessionId.slice(0, 8)}`)
+      return 'now'
+    }
+
+    info('PiEngine', `updateEffortLevel | sessionId=${sessionId.slice(0, 8)} | level=${level}`)
+
+    proc.config.effortLevel = level
+    try {
+      await proc.setThinkingLevel(this.piThinkingLevel(proc.config.thinkingEnabled === true, level))
+    } catch (err) {
+      error('PiEngine', `updateEffortLevel failed | sessionId=${sessionId.slice(0, 8)}`, err)
       throw err
     }
     return 'now'

@@ -15,6 +15,7 @@ import type {
   AgentInfo,
   EngineType,
   ThinkingUpdateTiming,
+  EffortLevel,
 } from './engines/types'
 import { info, warn, error } from '../infra/logger'
 
@@ -283,5 +284,11 @@ export const engineGateway = {
     // 引擎不支持就等于没下发，别当成"成功但没答"—— 界面要靠这条把开关退回点击前。
     const fn = requireAction<(sid: string, enabled: boolean) => Promise<ThinkingUpdateTiming>>(engine, 'updateThinkingLevel')
     return fn(sessionId, enabled)
+  }),
+
+  updateEffortLevel: withLogging('updateEffortLevel', async (sessionId: string, level: EffortLevel): Promise<ThinkingUpdateTiming> => {
+    const engine = findEngineForSession(sessionId)
+    const fn = requireAction<(sid: string, level: EffortLevel) => Promise<ThinkingUpdateTiming>>(engine, 'updateEffortLevel')
+    return fn(sessionId, level)
   }),
 }

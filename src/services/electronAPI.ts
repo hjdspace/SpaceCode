@@ -9,6 +9,7 @@
  * - 通过 spread 组合命名空间对象到 api 导出
  */
 import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EffortLevel } from '@/shared/effort'
 
 import type {
   CuaDriverStatus,
@@ -495,7 +496,7 @@ export const api = {
     }
     return Promise.resolve(null)
   },
-  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string | undefined; sonnetModel?: string | undefined; opusModel?: string | undefined; effortLevel?: 'low' | 'medium' | 'high' | 'max'; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }): Promise<{ success: boolean; error?: string }> => {
+  injectGuiModelsToSettings: (models: { primaryModel: string; haikuModel?: string | undefined; sonnetModel?: string | undefined; opusModel?: string | undefined; effortLevel?: EffortLevel; permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions' }): Promise<{ success: boolean; error?: string }> => {
     if (electronAPI?.injectGuiModelsToSettings) {
       return electronAPI.injectGuiModelsToSettings(models)
     }
@@ -641,6 +642,14 @@ export const api = {
       return electronAPI.claudeCode.updateThinkingLevel(sessionId, enabled)
     }
     // 无桥接（纯浏览器预览）时没有引擎可失配：按"已生效"答，别给没有会话的用户报错。
+    return Promise.resolve('now')
+  },
+
+  // 与 updateThinkingLevel 同一条口径：--effort 也只在 spawn 读一次，生效时机由引擎答。
+  updateEffortLevel: (sessionId: string, level: EffortLevel): Promise<ThinkingUpdateTiming> => {
+    if (electronAPI?.claudeCode?.updateEffortLevel) {
+      return electronAPI.claudeCode.updateEffortLevel(sessionId, level)
+    }
     return Promise.resolve('now')
   },
 

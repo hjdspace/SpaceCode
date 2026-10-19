@@ -96,6 +96,53 @@ describe('updateThinkingLevel', () => {
   })
 })
 
+describe('updateEffortLevel', () => {
+  it('与思考开关共用同一条重启路径：空闲时当场挂起', async () => {
+    const { pool, proc } = await startOne()
+
+    expect(pool.updateEffortLevel(SID, 'xhigh')).toBe('now')
+    expect(proc.config.effortLevel).toBe('xhigh')
+    expect(proc.suspend).toHaveBeenCalledTimes(1)
+  })
+
+  it('轮次进行中不打断，回报"下一轮生效"', async () => {
+    const { pool, proc } = await startOne()
+    proc.canSafelySuspend.mockReturnValue(false)
+
+    expect(pool.updateEffortLevel(SID, 'max')).toBe('next-turn')
+    expect(proc.config.effortLevel).toBe('max')
+    expect(proc.suspend).not.toHaveBeenCalled()
+  })
+
+  it('只改深度也会计入待重启的 spawn 参数 —— result 一到就补上', async () => {
+    const { pool, proc } = await startOne()
+    proc.canSafelySuspend.mockReturnValue(false)
+    pool.updateEffortLevel(SID, 'xhigh')
+    proc.canSafelySuspend.mockReturnValue(true)
+
+    proc.emitResult()
+    await vi.runAllTimersAsync()
+
+    expect(proc.suspend).toHaveBeenCalledTimes(1)
+
+    const forward = vi.fn()
+    proc.sendMessage = forward
+    await pool.startSession(SID, {
+      cwd: '/repo', provider: 'openai', model: 'qwen3.8-27b', permissionMode: 'default', effortLevel: 'xhigh',
+    } as any)
+    await vi.runAllTimersAsync()
+    await pool.sendMessage(SID, 'next question')
+
+    expect(proc.spawnedEffortLevel).toBe('xhigh')
+    expect(forward).toHaveBeenCalledWith('next question', undefined)
+  })
+
+  it('会话已被回收时不抛错', () => {
+    const pool = new ClaudeCodeProcessPool()
+    expect(() => pool.updateEffortLevel('never-seen-session', 'high')).not.toThrow()
+  })
+})
+
 describe('轮次结束后补上欠下的重启', () => {
   it('result 一到就挂起，下一条消息以新参数恢复', async () => {
     const { pool, proc } = await startOne()

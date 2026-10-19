@@ -2,6 +2,7 @@
 // H5 模式下的 HTTP REST 客户端 — 替代 Electron IPC 调用
 
 import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EffortLevel } from '@/shared/effort'
 
 /** H5 连接配置（从 URL query params 解析） */
 export interface H5ConnectionConfig {
@@ -137,6 +138,9 @@ export const h5ApiClient = {
 
   updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<{ ok: true; timing: ThinkingUpdateTiming }> =>
     h5Fetch('/api/session/thinking-level', { method: 'POST', body: { sessionId, enabled } }),
+
+  updateEffortLevel: (sessionId: string, level: EffortLevel): Promise<{ ok: true; timing: ThinkingUpdateTiming }> =>
+    h5Fetch('/api/session/effort-level', { method: 'POST', body: { sessionId, level } }),
 
   stopEngineTask: (sessionId: string, taskId: string) =>
     h5Fetch('/api/session/task-stop', { method: 'POST', body: { sessionId, taskId } }),

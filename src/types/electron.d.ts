@@ -29,6 +29,7 @@ import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
+import type { EffortLevel } from '@/shared/effort'
 import type {
 SkillManagerOverview,
 SkillManagerSettings,
@@ -455,7 +456,7 @@ export interface ElectronAPI {
     haikuModel?: string
     sonnetModel?: string
     opusModel?: string
-    effortLevel?: 'low' | 'medium' | 'high' | 'max'
+    effortLevel?: EffortLevel
     permissionMode?: 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
   }) => Promise<{ success: boolean; error?: string }>
 

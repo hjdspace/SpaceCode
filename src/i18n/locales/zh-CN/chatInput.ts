@@ -75,6 +75,8 @@ export default {
   messageSteered: '消息已注入当前对话',
   thinkingAppliesNextTurn: '思考开关将在本轮回复结束后生效',
   thinkingApplyFailed: '引擎没有接受这次思考开关切换，已恢复原状态',
+  effortAppliesNextTurn: '推理深度将在本轮回复结束后生效',
+  effortApplyFailed: '引擎没有接受这次推理深度切换，已恢复原档位',
   thinkingSaveFailed: '思考设置没能保存到主进程，已恢复原状态',
   thinkingProxyFailed: '思考设置已保存，但本地代理没有对齐',
   dropImageHint: '拖放图片到此处添加',

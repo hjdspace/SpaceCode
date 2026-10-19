@@ -26,6 +26,7 @@ export class FakeSessionProcess {
   reportedPermissionMode: FakeMode | null = null
   permissionModeVerified: boolean | null = null
   spawnedThinkingEnabled?: boolean
+  spawnedEffortLevel?: string
 
   start = vi.fn(async () => { this.onStarted() })
   resume = vi.fn(async () => { this.onStarted() })
@@ -89,6 +90,7 @@ export class FakeSessionProcess {
     this.process = { pid: 4321 }
     this.status = 'active'
     this.spawnedThinkingEnabled = this.config.thinkingEnabled as boolean | undefined
+    this.spawnedEffortLevel = this.config.effortLevel as string | undefined
     this.reportedPermissionMode = null
     this.permissionModeVerified = null
     // 真身 spawn 参数即意图，回报也就按意图；测试可用 emitInit 覆盖成"引擎不认账"。

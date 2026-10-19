@@ -11,6 +11,7 @@ import { H5PathGuard } from './h5PathGuard'
 import { redactSecretsInJson } from './h5ConfigRedactor'
 import { H5AuthService } from './h5AuthService'
 import { engineGateway } from '../engine/engineGateway'
+import { isEffortLevel } from '@/shared/effort'
 import { EngineFactory } from '../engine/engines/EngineFactory'
 import type { EngineType, PermissionMode } from '../engine/engines/types'
 import { SessionHistoryManager } from '../session/sessionHistoryManager'
@@ -435,6 +436,18 @@ export class H5Server {
         // timing 要带回：渲染层靠它决定提示，失败则原样抛给外层 catch 出 500（不能回 ok:true）。
         this.sendJson(res, 200, { ok: true, timing: await engineGateway.updateThinkingLevel(sessionId, Boolean(body.enabled)) })
         return
+
+      case '/api/session/effort-level': {
+        if (!this.requireSessionId(res, sessionId)) return
+        // 浏览器提交的是任意字符串，而 CLI 对认不出的档位只 warn 后退默认、照样成功：
+        // 不在这里挡住，界面就会显示一个从未生效过的档位。
+        if (!isEffortLevel(body.level)) {
+          this.sendJson(res, 400, { error: `Unsupported effort level: ${String(body.level)}` })
+          return
+        }
+        this.sendJson(res, 200, { ok: true, timing: await engineGateway.updateEffortLevel(sessionId, body.level) })
+        return
+      }
 
       // ── 查询 ──
       case '/api/session/mcp-status':
