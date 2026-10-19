@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
+import type { EffortLevel } from '@/shared/effort'
 import { proxyManager, buildProxyConfigFromSettings } from '../infra/proxyManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from '../infra/logger'
 import {
@@ -135,8 +136,8 @@ export interface SessionConfig {
   baseUrl?: string
   /** CLI 支持的权限模式: acceptEdits, bypassPermissions, default, dontAsk, plan */
   permissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
-  /** 推理深度: low, medium, high, max */
-  effortLevel?: 'low' | 'medium' | 'high' | 'max'
+  /** 推理深度，见 `@/shared/effort`。非法值 CLI 只 warn 并退默认，不会报错退出。 */
+  effortLevel?: EffortLevel
   systemPrompt?: string
   appendSystemPrompt?: string
   maxTurns?: number
@@ -218,6 +219,8 @@ export class SessionProcess extends EventEmitter {
   permissionModeVerified: boolean | null = null
   /** 本次 spawn 实际下发的思考开关；与 config.thinkingEnabled 不等即待重启生效。 */
   spawnedThinkingEnabled?: boolean
+  /** 同上，记的是 --effort：CLI 只在 spawn 时读一次，非法值只 warn 不报错。 */
+  spawnedEffortLevel?: EffortLevel
 
   // 工具调用状态追踪
   private pendingToolCalls: Set<string> = new Set()
@@ -374,6 +377,7 @@ export class SessionProcess extends EventEmitter {
     // 记下这次 spawn 真正带回的参数：--thinking 只在 spawn 时读一次，运行中改
     // config.thinkingEnabled 不会立刻生效，池要用这个差值判断"待重启生效"。
     this.spawnedThinkingEnabled = this.config.thinkingEnabled
+    this.spawnedEffortLevel = this.config.effortLevel
     // 新进程 = 新的待核验状态，不要把上一个进程结论带过来。
     this.reportedPermissionMode = null
     this.permissionModeVerified = null
