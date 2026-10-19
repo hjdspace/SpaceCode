@@ -116,9 +116,10 @@
               <span class="sc-file-dot" />
               <span class="sc-file-name" :title="file.path">{{ getFileName(file.path) }}</span>
               <span class="sc-file-path" :title="file.path">{{ getDirPath(file.path) }}</span>
-              <span class="sc-file-tool">{{ fileLabel(file) }}</span>
+              <span v-if="fileLabel(file)" class="sc-file-tool">{{ fileLabel(file) }}</span>
+              <span v-if="fileTag(file)" class="sc-file-tag">{{ fileTag(file) }}</span>
               <span v-if="file.external" class="sc-file-external">{{ t('sessionContext.externalBadge') }}</span>
-              <span class="sc-file-stats">
+              <span v-if="file.stillDirty" class="sc-file-stats">
                 <span class="sc-stat-add">+{{ file.insertions }}</span>
                 <span class="sc-stat-del">-{{ file.deletions }}</span>
               </span>
@@ -127,6 +128,7 @@
 
             <!-- Expanded diff -->
             <div v-if="sessionContext.isReviewFileExpanded(file.path)" class="sc-diff-block">
+              <div v-if="diffNote(file)" class="sc-diff-note">{{ diffNote(file) }}</div>
               <div v-if="loadingDiffs.has(file.path)" class="sc-diff-loading">
                 {{ t('sessionContext.loadingDiff') }}
               </div>
@@ -170,6 +172,7 @@ import { useSessionFileChangesStore, type SessionChangeRow } from '@/stores/sess
 import { useScmStore } from '@/stores/scm'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
+import { splitPatch } from '@/services/diffFileBuilder'
 import { useResizablePanel } from '@/composables/useResizablePanel'
 
 /** review 的是哪个会话的改动；未传时回退全局当前会话 */
@@ -234,6 +237,9 @@ interface DiffLine {
 const diffData = reactive<Record<string, DiffLine[]>>({})
 const diffErrors = reactive<Record<string, string>>({})
 const loadingDiffs = ref<Set<string>>(new Set())
+/** 每行 diff 的来源口径，决定展开区顶部的说明文案 */
+type DiffSource = 'git' | 'session'
+const diffSources = reactive<Record<string, DiffSource>>({})
 
 const taskProgress = computed(() => sessionContext.taskProgress)
 const changes = computed(() => sessionFileChanges.summaryFor(props.sessionId || ''))
@@ -282,9 +288,17 @@ function getFileName(path: string): string {
   return path.split(/[/\\]/).pop() || path
 }
 
-/** 工具事件点名的文件显示工具名；只在回合窗口里观测到的标为"命令/外部" */
+/** 工具事件点名的行显示工具名；间接观测的行交给 fileTag 说明 */
 function fileLabel(file: SessionChangeRow): string {
-  return file.origin === 'command' ? t('sessionContext.commandOriginBadge') : file.tools[file.tools.length - 1] || ''
+  return file.origin === 'direct' ? (file.tools[file.tools.length - 1] || '') : ''
+}
+
+/** 一行的状态：仓库外（git 给不出数字）> 命令/外部观测 > 已提交或已回退 */
+function fileTag(file: SessionChangeRow): string {
+  if (!file.inRepo) return t('sessionContext.outsideRepoBadge')
+  if (file.origin === 'command') return t('sessionContext.commandOriginBadge')
+  if (!file.stillDirty) return t('sessionContext.noUncommittedChange')
+  return ''
 }
 
 function getDirPath(path: string): string {
@@ -312,19 +326,89 @@ async function loadFileDiff(path: string) {
     return
   }
 
+  const file = changes.value.files.find(f => f.path === path)
   loadingDiffs.value.add(path)
   try {
-    const result = await api.git.getReviewDiff(cwd, path)
-    if (result?.hunks && result.hunks.length > 0) {
-      diffData[path] = parseDiffHunks(result.hunks)
-    } else {
-      diffErrors[path] = t('sessionContext.diffUnavailable')
+    // git 优先：未提交差异的行号才是 hunk 暂存能用得上的那份
+    if (file?.stillDirty) {
+      const git = await api.git.getReviewDiff(cwd, path)
+      if (git?.hunks?.length) {
+        setDiff(path, 'git', parseDiffHunks(git.hunks))
+        return
+      }
     }
+
+    // 仓库外文件与已提交/已回退的改动只有会话备份能给答案
+    const sessionId = props.sessionId
+    if (sessionId) {
+      const evidence = await api.session.getSessionFileDiff(sessionId, path, cwd)
+      if (evidence.state === 'ok' && evidence.diff) {
+        setDiff(path, 'session', parseDiffText(evidence.diff))
+        return
+      }
+      if (evidence.state === 'evidence_lost') {
+        diffErrors[path] = t('sessionContext.evidenceLostDiff')
+        return
+      }
+    }
+
+    // 兜底保留 A 的行为：仓库外的绝对路径由 git 服务直读磁盘，至少给全文
+    const fallback = await api.git.getReviewDiff(cwd, path)
+    if (fallback?.hunks?.length) {
+      setDiff(path, 'git', parseDiffHunks(fallback.hunks))
+      return
+    }
+    diffErrors[path] = file && !file.stillDirty
+      ? t('sessionContext.noUncommittedChange')
+      : t('sessionContext.diffUnavailable')
   } catch (e: any) {
     diffErrors[path] = e.message || t('sessionContext.failedToLoadDiff')
   } finally {
     loadingDiffs.value.delete(path)
   }
+}
+
+function setDiff(path: string, source: DiffSource, lines: DiffLine[]) {
+  if (lines.length === 0) return
+  diffData[path] = lines
+  diffSources[path] = source
+}
+
+/** 展开区顶部的口径说明 —— diff 来自 git 还是会话备份，用户得知道自己在看什么。 */
+function diffNote(file: SessionChangeRow): string {
+  if (diffSources[file.path] !== 'session') return ''
+  return file.inRepo
+    ? t('sessionContext.sessionEvidenceNote')
+    : t('sessionContext.outsideRepoEvidenceNote')
+}
+
+/**
+ * 会话备份返回的是 unified diff 文本，而 git 服务给的是已解析的 hunks，
+ * 这里把文本摊平成同一套行模型。空行是 hunk 之间的分隔符，不是内容行。
+ */
+function parseDiffText(raw: string): DiffLine[] {
+  const lines: DiffLine[] = []
+  for (const hunk of splitPatch(raw).hunks) {
+    const hunkLines = hunk.split('\n')
+    const header = hunkLines[0] ?? ''
+    const pos = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(header)
+    let oldLine = pos ? Number(pos[1]) : 1
+    let newLine = pos ? Number(pos[2]) : 1
+    lines.push({ type: 'header', content: header, prefix: '' })
+
+    for (const line of hunkLines.slice(1)) {
+      if (line === '') continue
+      const prefix = line[0] as string
+      if (prefix === '+') {
+        lines.push({ type: 'add', content: line.slice(1), newNum: newLine++, prefix })
+      } else if (prefix === '-') {
+        lines.push({ type: 'remove', content: line.slice(1), oldNum: oldLine++, prefix })
+      } else {
+        lines.push({ type: 'context', content: line.slice(1), oldNum: oldLine++, newNum: newLine++, prefix: ' ' })
+      }
+    }
+  }
+  return lines
 }
 
 function parseDiffHunks(hunks: any[]): DiffLine[] {
@@ -695,6 +779,15 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
   background: var(--surface-hover);
 }
 
+.sc-file-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-hover);
+}
+
 .sc-file-external {
   flex-shrink: 0;
   font-size: 10px;
@@ -704,10 +797,18 @@ watch(() => [sessionContext.rightPanelView, sessionContext.showRightPanel], () =
   background: var(--warning-bg, rgba(245, 158, 11, 0.1));
 }
 
-// 写过但工作区已无未提交差异：保留行（用户确实动过），但明示无 diff 可看
+// 写过但工作区已无未提交差异（或压根不在仓库里）：保留行，但别装作有数字可看
 .sc-file-row.clean {
   .sc-file-dot { background: var(--text-muted); }
   .sc-file-name { color: var(--text-muted); }
+}
+
+.sc-diff-note {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--surface-border);
 }
 
 .sc-file-stats {
