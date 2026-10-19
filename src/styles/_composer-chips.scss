@@ -1,0 +1,144 @@
+/* 输入框内联 chip 的样式：mention / command / image 三种。
+ *
+ * 这些节点由 useContentEditor 用 document.createElement 造出来，不带 scoped 的
+ * data-v 属性，所以宿主必须以 :deep() 命中；又因为它们只活在 .inline-editor 里，
+ * 选择器嵌套不能拆 —— 于是写成 mixin，由宿主在编辑器节点内部 @include。
+ * MessageItem / MarkdownRenderer 里渲染消息正文中的同名 chip，各自还留着自己的
+ * 一份样式，需要时可以 @use 这里复用。
+ */
+@mixin composer-chips {
+// Shared delete button styles for chips.
+// chip 节点由 useContentEditor 动态创建, 无 scoped 属性, 必须 :deep 才能命中
+:deep(.chip-delete-btn) {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.85);
+  transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  pointer-events: none;
+  z-index: 1;
+
+  svg {
+    width: 8px;
+    height: 8px;
+  }
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+}
+
+// Inline mention chip styles
+:deep(.mention-chip) {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 8px;
+  margin: 0 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  vertical-align: baseline;
+  cursor: default;
+  user-select: none;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+
+  .chip-icon {
+    font-size: var(--text-sm);
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .chip-name {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover .chip-delete-btn {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1);
+    pointer-events: auto;
+  }
+
+  &.is-folder {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
+    border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
+    color: var(--accent-primary);
+  }
+
+  &.is-image {
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+    padding: 2px 6px 2px 2px;
+  }
+
+  .chip-thumb {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+    cursor: zoom-in;
+    display: block;
+  }
+}
+
+// Inline command chip styles
+:deep(.command-chip) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 8px;
+  margin: 0 2px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  vertical-align: baseline;
+  cursor: default;
+  user-select: none;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
+
+  .chip-source-icon {
+    font-size: 1em;
+    line-height: 1;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .chip-label {
+    font-weight: 600;
+  }
+
+  .chip-source-tag {
+    font-size: var(--text-2xs);
+    opacity: 0.7;
+    text-transform: capitalize;
+  }
+
+  // Commands use one blue treatment to distinguish them from user text.
+  background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
+  border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.35);
+  color: var(--accent-primary);
+}
+}

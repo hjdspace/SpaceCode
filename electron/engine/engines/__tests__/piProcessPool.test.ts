@@ -9,6 +9,8 @@
  *
  * Pinned here:
  *   - 四态路由各自的实例化/handler 绑定副作用，含 start 失败的清理与 rethrow
+ *   - 历史接续：pi 会话文件按 SpaceCode sessionId 查/写（进程只活一轮，映射必须落盘），
+ *     以及「死条目重建时旧实例的认知优先于磁盘记录」
  *   - 驱逐阶梯的候选过滤（isRunning / canSafelySuspend）与 lastActivityAt 排序
  *   - routeEvent 的丢弃路径（mapPiEvent null、channel 表未命中、窗口缺失）与
  *     监听器隔离（单 listener 抛错不影响其余）
@@ -47,9 +49,15 @@ const H = vi.hoisted(() => {
     static instances: FakePiProcess[] = []
     static nextStartError: Error | null = null
     static nextResumeError: Error | null = null
+    /** 非空 = 「get_state 问到了会话文件」，空 = 引擎没答上 */
+    static nextCapturedSessionFile: string | null = null
 
     sessionId: string
     config: unknown
+    /** 构造时注入的 pi 会话文件（池从历史记录里查出来的） */
+    resumeSessionFile: string | undefined
+    /** 进程当前绑定的 pi 会话文件；captureSessionFile 模拟「问到了」 */
+    sessionFile: string | null = null
     // 池代码分别读取 isRunning() 与 status，二者解耦以便独立驱动各分支；
     // 但挂起模拟真实语义：isRunning 变 false（否则 startSession 走复用分支）
     status: 'idle' | 'active' | 'suspended' | 'exited' = 'idle'
@@ -75,6 +83,10 @@ const H = vi.hoisted(() => {
     sendMessage = vi.fn(async () => {})
     isRunning = vi.fn(() => this.running)
     canSafelySuspend = vi.fn(() => true)
+    getPiSessionFile = vi.fn(() => this.sessionFile)
+    captureSessionFile = vi.fn(async () => {
+      if (FakePiProcess.nextCapturedSessionFile) this.sessionFile = FakePiProcess.nextCapturedSessionFile
+    })
     on = vi.fn((event: string, handler: (...args: any[]) => void) => {
       const set = this.handlers.get(event) ?? new Set()
       set.add(handler)
@@ -84,9 +96,11 @@ const H = vi.hoisted(() => {
       this.handlers.get(event)?.delete(handler)
     })
 
-    constructor(sessionId: string, config: unknown) {
+    constructor(sessionId: string, config: unknown, resumeSessionFile?: string) {
       this.sessionId = sessionId
       this.config = config
+      this.resumeSessionFile = resumeSessionFile
+      this.sessionFile = resumeSessionFile ?? null
       FakePiProcess.instances.push(this)
     }
 
@@ -101,12 +115,19 @@ const H = vi.hoisted(() => {
     mapPiEvent: vi.fn((_sessionId: string, _raw: unknown) => state.mapped),
     loggerWarn: vi.fn(),
     loggerError: vi.fn(),
+    findPiSessionFile: vi.fn((): string | null => null),
+    rememberPiSessionFile: vi.fn(),
   }
 })
 
 vi.mock('electron', () => ({ BrowserWindow: class {} }))
 
 vi.mock('../PiSessionProcess', () => ({ PiSessionProcess: H.FakePiProcess }))
+
+vi.mock('../piSessionRegistry', () => ({
+  findPiSessionFile: H.findPiSessionFile,
+  rememberPiSessionFile: H.rememberPiSessionFile,
+}))
 
 vi.mock('../PiEventMapper', () => ({ mapPiEvent: H.mapPiEvent }))
 
@@ -150,6 +171,7 @@ beforeEach(() => {
   FakePiProcess.instances = []
   FakePiProcess.nextStartError = null
   FakePiProcess.nextResumeError = null
+  FakePiProcess.nextCapturedSessionFile = null
 })
 
 describe('startSession 四态路由', () => {
@@ -217,6 +239,87 @@ describe('startSession 四态路由', () => {
 
     expect(pool.getProcess('s1')).toBeUndefined()
     expect(FakePiProcess.instances[0].removeListener).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('Pi 历史接续：会话文件映射', () => {
+  const PI_FILE = '/home/u/.pi/agent/sessions/--workspace--/2026-10-18T12-55-29-647Z_abc.jsonl'
+  // 刚起来的探测要等得过 pi 装载扩展与模型表那十几秒
+  const PROBE_TIMEOUT = 30_000
+
+  it('查到历史记录时把它交给新进程，并补写回磁盘以免下次重启再丢', async () => {
+    H.findPiSessionFile.mockReturnValue(PI_FILE)
+    const { pool } = makePool()
+
+    await pool.startSession('s1', CFG)
+
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    expect(proc.resumeSessionFile).toBe(PI_FILE)
+    // 文件已在手，不必再问引擎一次
+    expect(proc.captureSessionFile).not.toHaveBeenCalled()
+    expect(H.rememberPiSessionFile).toHaveBeenCalledWith('s1', PI_FILE, '/workspace')
+  })
+
+  it('无历史记录的新会话起进程后探测一次，问到才落盘', async () => {
+    FakePiProcess.nextCapturedSessionFile = PI_FILE
+    const { pool } = makePool()
+
+    await pool.startSession('s1', CFG)
+
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    expect(proc.resumeSessionFile).toBeUndefined()
+    expect(proc.captureSessionFile).toHaveBeenCalledWith(PROBE_TIMEOUT)
+    expect(H.rememberPiSessionFile).toHaveBeenCalledWith('s1', PI_FILE, '/workspace')
+  })
+
+  it('探测没问到文件时不落盘', async () => {
+    const { pool } = makePool()
+
+    await pool.startSession('s1', CFG)
+
+    expect(H.rememberPiSessionFile).not.toHaveBeenCalled()
+  })
+
+  it('prompt 被 ack 后补探测一次 —— 起进程那趟可能赶在引擎活过来之前就超时了', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    FakePiProcess.nextCapturedSessionFile = PI_FILE
+
+    await pool.sendMessage('seed-0', 'hi')
+
+    expect(proc.captureSessionFile).toHaveBeenLastCalledWith(PROBE_TIMEOUT)
+    expect(H.rememberPiSessionFile).toHaveBeenCalledWith('seed-0', PI_FILE, '/workspace')
+  })
+
+  it('死条目重建时优先带旧实例已知的文件，不再查磁盘', async () => {
+    const { pool } = makePool()
+    const [dead] = await seedSessions(pool, 1)
+    dead.sessionFile = PI_FILE
+    dead.running = false
+    dead.status = 'exited'
+    H.findPiSessionFile.mockClear()
+
+    await pool.startSession('seed-0', CFG)
+
+    const fresh = pool.getProcess('seed-0')! as unknown as FakePiProcessInstance
+    expect(H.findPiSessionFile).not.toHaveBeenCalled()
+    expect(fresh.resumeSessionFile).toBe(PI_FILE)
+    expect(H.rememberPiSessionFile).toHaveBeenCalledWith('seed-0', PI_FILE, '/workspace')
+  })
+
+  it('挂起过的会话复活时把已知文件补写回磁盘', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    proc.sessionFile = PI_FILE
+    proc.status = 'suspended'
+    H.rememberPiSessionFile.mockClear()
+    proc.captureSessionFile.mockClear()
+
+    await pool.resumeSession('seed-0')
+
+    // 文件已在手，不必再问引擎一次
+    expect(proc.captureSessionFile).not.toHaveBeenCalled()
+    expect(H.rememberPiSessionFile).toHaveBeenCalledWith('seed-0', PI_FILE, '/workspace')
   })
 })
 
@@ -425,13 +528,27 @@ describe('会话控制面', () => {
     expect(proc.sendMessage).toHaveBeenCalledWith('hello', [IMG])
   })
 
-  it('abortSession：无条目静默，有条目转发', async () => {
+  it('abortSession：无条目静默，有条目转发并等引擎确认停止', async () => {
     const { pool } = makePool()
-    expect(() => pool.abortSession('ghost')).not.toThrow()
+    await expect(pool.abortSession('ghost')).resolves.toBeUndefined()
 
     const [proc] = await seedSessions(pool, 1)
-    pool.abortSession('seed-0')
+    let releaseAbort!: () => void
+    ;(proc.abort as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise<void>((resolve) => { releaseAbort = resolve }),
+    )
+
+    let settled = false
+    const aborting = pool.abortSession('seed-0').then(() => { settled = true })
+    await Promise.resolve()
+
     expect(proc.abort).toHaveBeenCalledTimes(1)
+    // 引擎的 abort ack 没回来之前，池不许声称"已经停了"—— 渲染层的重发就靠这个串行
+    expect(settled).toBe(false)
+
+    releaseAbort()
+    await aborting
+    expect(settled).toBe(true)
   })
 
   it('suspendSession 转发挂起并路由 user_request 事件', async () => {

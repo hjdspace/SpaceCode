@@ -287,6 +287,7 @@ import {
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
+import { normalizeApiUrl } from '@/utils/apiUrl'
 import { useSettingsStore } from '@/stores/settings'
 import type { AuthMethod, OAuthAccountInfo, ProviderConfig } from '@/stores/settings'
 import SearchableSelect from './SearchableSelect.vue'
@@ -295,7 +296,14 @@ import BaseUrlPresets from './BaseUrlPresets.vue'
 import { PROVIDER_PRESETS } from '@/lib/providerPresets'
 import type { ProviderPreset } from '@/lib/providerPresets'
 import { enrichModels, formatTokenCount } from '@/lib/modelCatalog'
-import type { EnrichedModel, RawModel } from '@/lib/modelCatalog'
+import type { EnrichedModel } from '@/lib/modelCatalog'
+import { providerTargetOf, toRawModels } from '@/lib/providerConnection'
+import {
+  FALLBACK_MODELS,
+  applyCapabilityOverride,
+  applyCapabilityOverrides,
+  enrichRawModels
+} from '@/lib/providerModels'
 import type { ModelCapabilityOverride } from '@/types/profile'
 import { loadModelCatalog } from '@/lib/modelCatalogStore'
 
@@ -458,22 +466,6 @@ const modelCapabilities = computed<Record<string, ModelCapabilityOverride>>(
   () => props.modelValue.modelCapabilities || {},
 )
 
-/** 将用户自定义覆盖应用到单个 EnrichedModel */
-function applyCapabilityOverride(m: EnrichedModel): EnrichedModel {
-  const override = modelCapabilities.value[m.id]
-  if (!override) return m
-  return {
-    ...m,
-    ...(override.contextWindow !== undefined ? { contextWindow: override.contextWindow } : {}),
-    ...(override.supportsImages !== undefined ? { supportsImages: override.supportsImages } : {}),
-  }
-}
-
-/** 对整个列表应用用户覆盖 */
-function applyAllOverrides(models: EnrichedModel[]): EnrichedModel[] {
-  return models.map(applyCapabilityOverride)
-}
-
 /** 更新单个模型的能力覆盖并同步到 Profile */
 function updateModelCapability(modelId: string, patch: Partial<ModelCapabilityOverride>) {
   const current = modelCapabilities.value
@@ -524,58 +516,13 @@ function slotMeta(modelId: string): EnrichedModel | null {
   if (!modelId) return null
   const base = availableModels.value.find((m) => m.id === modelId) ?? null
   if (!base) return null
-  return applyCapabilityOverride(base)
-}
-
-function normalizeApiUrl(baseUrl: string, provider: string): string {
-  let url = baseUrl.replace(/\/+$/, '')
-
-  if (provider === 'anthropic' && !url.includes('/v1')) {
-    url += '/v1'
-  } else if (provider === 'openai' && !url.includes('/v1')) {
-    url += '/v1'
-  }
-
-  return url
+  return applyCapabilityOverride(base, modelCapabilities.value)
 }
 
 const defaultModels = computed(() => {
-  const models: { id: string; name?: string }[] = []
   const baseUrl = activeConfig.value.baseUrl || activePlaceholder.value
   const catalog = catalogData.value ?? {}
-
-  switch (authMethod.value) {
-    case 'anthropic_compatible':
-    case 'claudeai':
-    case 'console':
-      models.push(
-        { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-        { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
-        { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-        { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet' },
-        { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' }
-      )
-      break
-    case 'openai_compatible':
-      models.push(
-        { id: 'gpt-4o', name: 'GPT-4o' },
-        { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-        { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-        { id: 'gpt-4', name: 'GPT-4' },
-        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
-      )
-      break
-    case 'gemini_api':
-      models.push(
-        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
-        { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
-        { id: 'gemini-pro', name: 'Gemini Pro' },
-        { id: 'gemini-pro-vision', name: 'Gemini Pro Vision' }
-      )
-      break
-  }
-
-  return enrichModels(models, baseUrl, catalog)
+  return enrichModels([...FALLBACK_MODELS[providerTargetOf(authMethod.value)]], baseUrl, catalog)
 })
 
 // 默认模型列表的目录数据（异步加载，加载完成后 computed 自动重算补全元数据）
@@ -587,14 +534,14 @@ onMounted(() => {
 })
 
 onMounted(() => {
-  availableModels.value = applyAllOverrides([...defaultModels.value])
+  availableModels.value = applyCapabilityOverrides([...defaultModels.value], modelCapabilities.value)
   // Auto-fetch models from API if API key is configured
   autoFetchModels()
 })
 
 function selectAuthMethod(method: AuthMethod) {
   authMethod.value = method
-  availableModels.value = applyAllOverrides([...defaultModels.value])
+  availableModels.value = applyCapabilityOverrides([...defaultModels.value], modelCapabilities.value)
   // Re-fetch models for the new provider
   autoFetchModels()
 }
@@ -646,14 +593,14 @@ watch(
   },
   () => {
     // 切换 provider 后重置列表为默认模型并重新获取
-    availableModels.value = applyAllOverrides([...defaultModels.value])
+    availableModels.value = applyCapabilityOverrides([...defaultModels.value], modelCapabilities.value)
     autoFetchModels()
   },
 )
 
 // 当用户自定义能力覆盖变化时，重新应用覆盖到已有模型列表
 watch(modelCapabilities, () => {
-  availableModels.value = applyAllOverrides(availableModels.value)
+  availableModels.value = applyCapabilityOverrides(availableModels.value, modelCapabilities.value)
 }, { deep: true })
 
 async function testConnection() {
@@ -762,41 +709,12 @@ async function fetchModels() {
     if (!result) {
       connectionStatus.value = { type: 'error', message: t('auth.httpProxyUnavailable') }
     } else if (result.ok) {
-      const data = JSON.parse(result.data)
-      let models: any[] = []
+      const rawModels = toRawModels(JSON.parse(result.data))
 
-      if (Array.isArray(data)) {
-        models = data
-      } else if (data.data && Array.isArray(data.data)) {
-        models = data.data
-      } else if (data.models && Array.isArray(data.models)) {
-        models = data.models
-      }
-
-      if (models.length > 0) {
-        const rawModels: RawModel[] = models.map((m: any) => ({
-          id: m.id || m.name || String(m),
-          name: m.name || m.id || String(m),
-          context_length: m.context_length,
-          max_context_length: m.max_context_length,
-          context_window: m.context_window,
-          max_model_len: m.max_model_len,
-          max_context_tokens: m.max_context_tokens,
-          max_completion_tokens: m.max_completion_tokens,
-          max_output_tokens: m.max_output_tokens,
-          max_tokens: m.max_tokens,
-          modalities: m.modalities,
-          input_modalities: m.input_modalities,
-          input: m.input,
-          capabilities: m.capabilities,
-          vision: m.vision,
-          supports_vision: m.supports_vision,
-          image_input: m.image_input,
-        }))
+      if (rawModels.length > 0) {
         const catalog = await loadModelCatalog()
-        const rawById = new Map(rawModels.map((m) => [m.id, m]))
-        availableModels.value = applyAllOverrides(enrichModels(rawModels, baseUrl, catalog, rawById))
-        connectionStatus.value = { type: 'success', message: t('auth.fetchedModels', { count: models.length }) }
+        availableModels.value = applyCapabilityOverrides(enrichRawModels(rawModels, baseUrl, catalog), modelCapabilities.value)
+        connectionStatus.value = { type: 'success', message: t('auth.fetchedModels', { count: rawModels.length }) }
       } else {
         connectionStatus.value = { type: 'warning', message: t('auth.noModelsFound') }
       }

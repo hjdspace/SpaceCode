@@ -43,6 +43,7 @@ export default {
     searchPlaceholder: '搜索会话...',
     apiCalls: 'API 调用',
     failed: '失败',
+    duration: '总时长',
     models: '模型',
     loadFailed: '加载追踪数据失败',
     noSessions: '暂无追踪会话',

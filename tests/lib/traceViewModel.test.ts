@@ -150,6 +150,61 @@ describe('traceViewModel — 生命周期噪声与工具字段', () => {
   })
 })
 
+describe('traceViewModel — 事件耗时 durationMs', () => {
+  // 详情页每行的时长读的是叶 span.durationMs（TraceSessionPage.vue:139 / TraceDetailPanel.vue:12）。
+  // 建 span 时不带上 metadata 里的耗时，界面就只能永远空白。
+  it('assistant_turn 的 legacy metadata.duration 变成叶 span 的 durationMs', () => {
+    const vm = buildTraceViewModel([
+      ev({ type: 'assistant_turn', actor: 'assistant', status: 'completed', timestamp: T0, metadata: { duration: 15900 } }),
+    ])
+    const leaf = vm.spans.find(s => s.kind === 'llm')
+
+    expect(leaf?.durationMs).toBe(15900)
+  })
+
+  it('规范键 durationMs 同样生效（engine result 事件走这个键）', () => {
+    const vm = buildTraceViewModel([
+      ev({ type: 'result', actor: 'assistant', status: 'completed', timestamp: T0, metadata: { durationMs: 12000 } }),
+    ])
+    expect(vm.spans.find(s => s.kind === 'llm')?.durationMs).toBe(12000)
+  })
+
+  it('事件时间戳就是结束时刻，不用它加耗时去造一个未来的 completedAt', () => {
+    const vm = buildTraceViewModel([
+      ev({ type: 'user_message', actor: 'user', timestamp: T0 }),
+      ev({ type: 'assistant_turn', actor: 'assistant', status: 'completed', timestamp: T2, metadata: { duration: 60000 } }),
+    ])
+    const leaf = vm.spans.find(s => s.kind === 'llm')
+
+    expect(leaf?.completedAt).toBe(T2)
+    // turn / root 的跨度仍按记录的起止走，不被耗时长尾撑大
+    expect(vm.spansById.get('turn:0')?.durationMs).toBe(2000)
+  })
+
+  it('totalDurationMs 与 traceIpc 同口径：时间窗并集，重叠不双计', () => {
+    const at = (ms: number) => new Date(Date.parse(T0) + ms).toISOString()
+    const vm = buildTraceViewModel([
+      ev({ type: 'assistant_turn', actor: 'assistant', status: 'completed', timestamp: at(0), metadata: { duration: 141803 } }),
+      ev({ type: 'result', actor: 'assistant', status: 'completed', timestamp: at(0), metadata: { durationMs: 102199 } }),
+      ev({ type: 'assistant_turn', actor: 'assistant', status: 'completed', timestamp: at(200_000), metadata: { duration: 22124 } }),
+      ev({ type: 'result', actor: 'assistant', status: 'completed', timestamp: at(200_000), metadata: { durationMs: 13300 } }),
+    ])
+    // 第二个窗口的真实起点在第一个窗口之后（200000-22124 > 0），所以两段分别计入
+    expect(vm.totalDurationMs).toBe(141803 + 22124)
+  })
+
+  it('非法耗时不落 span（避免 NaN 污染聚合）', () => {
+    const vm = buildTraceViewModel([
+      ev({ type: 'assistant_turn', actor: 'assistant', status: 'completed', timestamp: T0, metadata: { duration: '15900' } }),
+    ])
+    const leaf = vm.spans.find(s => s.kind === 'llm')
+
+    expect(leaf?.durationMs).toBeUndefined()
+    expect(leaf?.completedAt).toBeUndefined()
+    expect(vm.totalDurationMs).toBe(0)
+  })
+})
+
 describe('traceViewModel — 诊断 diagnosis', () => {
   it('模型错误 → blocked / model_error', () => {
     const vm = buildTraceViewModel([

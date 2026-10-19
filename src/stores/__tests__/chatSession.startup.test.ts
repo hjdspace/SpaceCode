@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   getSessionStatus: vi.fn(),
   stop: vi.fn().mockResolvedValue(undefined),
   startSession: vi.fn().mockResolvedValue(undefined),
+  getFullSession: vi.fn().mockResolvedValue(null),
+  getTurnCheckpoints: vi.fn().mockResolvedValue({ ok: false, checkpoints: [] }),
 }))
 
 vi.mock('@/services/electronAPI', () => ({
@@ -13,6 +15,7 @@ vi.mock('@/services/electronAPI', () => ({
     claudeCode: mocks,
     image: null,
     trace: { event: vi.fn() },
+    session: { getTurnCheckpoints: mocks.getTurnCheckpoints },
     getCwd: vi.fn().mockResolvedValue(''),
     loadGuiSettings: vi.fn().mockResolvedValue({ success: true, data: null }),
     saveGuiSettings: vi.fn().mockResolvedValue({ success: true }),
@@ -190,6 +193,26 @@ describe('chat session startup', () => {
     }))
   })
 
+  it('pi 引擎的普通会话同样保留真实模型 id，与定时任务共用一条规则', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: 'https://api.example/v1', apiKey: 'test-key', haikuModel: '', sonnetModel: 'kimi-k3', opusModel: '' }
+    settings.engineType = 'pi'
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Test', 'D:/repo', 'pi-engine')
+    mocks.getSessionStatus.mockResolvedValue({ isRunning: false })
+
+    await store.initClaudeCodeSession(session.id)
+
+    // Pi 的 --model 直接给上游，'sonnet' 在它眼里是个不存在的模型
+    expect(mocks.startSession).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      engineType: 'pi',
+      model: 'kimi-k3',
+    }))
+  })
+
   it('设置页高级配置里的上下文窗口（modelCapabilities）同样送达引擎', async () => {
     const { useSettingsStore } = await import('../settings')
     const settings = useSettingsStore()
@@ -303,5 +326,135 @@ describe('chat session startup', () => {
 
     expect(mocks.stop).not.toHaveBeenCalled()
     expect(mocks.startSession).toHaveBeenCalledTimes(1)
+  })
+
+  // ── 切换工作目录后会话记录同步（issue #41 第 11 票）──
+
+  it('显式指定 cwd 时同步 session.workingDirectory，后续 init 不再退回旧目录', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Design', '/tmp/old', 'cwd-switch')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id, { cwd: '/tmp/new', systemPrompt: 'P', agent: 'ui-ux-pro-max' })
+
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({ cwd: '/tmp/new' }))
+    expect(session.workingDirectory).toBe('/tmp/new')
+    // 落盘：重启客户端后 selectSession / DesignChatPane 都读这个值恢复目录
+    store.flushSaveNow()
+    expect((JSON.parse(localStorage.getItem('chat_sessions_v2') || '[]') as any[])[0].workingDirectory).toBe('/tmp/new')
+
+    // 换模型 / 引擎崩溃自动重启 / 重启恢复都不带 cwd，走 session.workingDirectory 兜底
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id)
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({ cwd: '/tmp/new' }))
+  })
+
+  it('会话记录保存归一化后的路径，不把斜杠混写的新目录带进侧边栏分组', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Design', 'D:/old', 'cwd-normalize')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id, { cwd: 'D:/new//design/' })
+
+    // 引擎 spawn 的 cwd 与会话记录必须是同一个字符串，历史记录才能按同一路径找回项目目录
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({ cwd: 'D:\\new\\design' }))
+    expect(session.workingDirectory).toBe('D:\\new\\design')
+  })
+
+  it('未显式指定 cwd 时不把兜底 cwd 写进会话记录', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    // 无项目会话：workingDirectory 与 currentProjectRoot 均空，引擎落到 '/' 兜底
+    const session = store.createSession('Chat', '', 'cwd-fallback')
+    expect(session.workingDirectory).toBeUndefined()
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({ cwd: '/' }))
+    expect(session.workingDirectory).toBeUndefined()
+  })
+
+  it('引擎启动失败时不回写工作目录，记录停在最后一次真实运行的目录', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Design', '/tmp/old', 'cwd-switch-failed')
+    mocks.startSession.mockRejectedValueOnce(new Error('spawn ENOENT'))
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id, { cwd: '/tmp/new' })
+
+    // 切换方据此判据回滚界面（initClaudeCodeSession 内部吞异常，不外抛）
+    expect(session.processStatus).toBe('exited')
+    expect(session.workingDirectory).toBe('/tmp/old')
+
+    // 恢复路径：回滚后下一次发消息 / 激活会话的重启，落在的还是旧目录
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id)
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({ cwd: '/tmp/old' }))
+  })
+
+  it('重启客户端后打开设计会话，落盘记录与项目根都落在新目录', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    store.createSession('Design', '/tmp/old', 'cwd-switch-restart')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession('cwd-switch-restart', { cwd: '/tmp/new', systemPrompt: 'P', agent: 'ui-ux-pro-max' })
+    store.flushSaveNow()
+
+    // 模拟重启：换一份 pinia 让 setup store 重新从 localStorage 载入
+    setActivePinia(createPinia())
+    const reloaded = useChatSessionStore()
+    expect(reloaded.sessions[0].workingDirectory).toBe('/tmp/new')
+
+    // selectSession 拿旧值覆盖 currentProjectRoot 是这条链上最刺眼的表现
+    await reloaded.selectSession('cwd-switch-restart')
+    expect(reloaded.currentProjectRoot).toBe('/tmp/new')
+  })
+
+  it('DEFECT: 换 cwd 时把旧项目目录的 engineSessionId 一起下发给 --resume', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'key-A', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Design', '/tmp/old', 'cwd-switch-resume')
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    await store.initClaudeCodeSession(session.id, { systemPrompt: 'OLD', agent: 'ui-ux-pro-max' })
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: true, engineSessionId: 'engine-in-old-dir' })
+    await store.initClaudeCodeSession(session.id, { systemPrompt: 'NEW', cwd: '/tmp/new', agent: 'ui-ux-pro-max' })
+
+    // 现状钉死（不在本票修复范围）：引擎按 cwd 解析 ~/.claude/projects/<sanitized-cwd>/<id>.jsonl，
+    // 在新目录里找不到旧目录的 transcript，--resume 会静默落空 → 切目录即丢上下文。
+    expect(mocks.startSession).toHaveBeenLastCalledWith(session.id, expect.objectContaining({
+      cwd: '/tmp/new',
+      resumeSessionId: 'engine-in-old-dir',
+    }))
   })
 })

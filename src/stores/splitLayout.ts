@@ -110,6 +110,17 @@ function findParent(
   return null
 }
 
+/**
+ * 把 centerTab id 解析成 leaf 内容，用于固化 kind='main'（跟随全局标签）的 leaf。
+ * 'chat' 只是「跟随当前会话」的别名，必须展开成具体 session —— 否则固化后的 leaf
+ * 仍随 currentSessionId 变化，等于没分屏。
+ */
+export function contentForTab(tabId: string, currentSessionId: string): PaneContent {
+  const resolvedTabId = tabId === 'chat' && currentSessionId ? `session-${currentSessionId}` : tabId
+  const kind: PaneContentKind = resolvedTabId.startsWith('terminal-') ? 'terminal' : 'session'
+  return { kind, tabId: resolvedTabId }
+}
+
 /** 简单深拷贝（结构体里没有响应式 / Symbol，JSON 足够） */
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v))
@@ -279,6 +290,49 @@ export const useSplitLayoutStore = defineStore('splitLayout', () => {
     return newLeaf.id
   }
 
+  /**
+   * 把会话放进一个 pane 并聚焦（侧边栏「分屏」入口）。
+   *
+   * 已绑该 tabId 的 leaf 只聚焦不重开；基准 leaf 为空槽时直接填充；
+   * 已达 MAX_LEAVES 时退化成在基准 leaf 内打开。
+   *
+   * @param tabId 目标会话的 centerTab id（`session-<id>`）
+   * @param followedGlobalTab 全局标签快照：基准 leaf 为 'main' 时它实际跟随的内容，
+   *                          必须在调用方切换会话之前取，否则两个 leaf 会绑到同一会话
+   * @returns 承载该会话的 pane id；无可用 leaf 时返回 null
+   */
+  function openSessionPane(
+    tabId: string,
+    followedGlobalTab: { activeCenterTab: string; currentSessionId: string },
+  ): string | null {
+    const existing = leaves.value.find(l => l.content.tabId === tabId)
+    if (existing) {
+      setActivePane(existing.id)
+      return existing.id
+    }
+
+    const base = activePane.value ?? leaves.value[0]
+    if (!base) return null
+
+    if (base.content.kind === 'main') {
+      const { activeCenterTab, currentSessionId } = followedGlobalTab
+      setPaneContent(base.id, contentForTab(activeCenterTab, currentSessionId))
+    }
+
+    if (base.content.kind === 'empty') {
+      setPaneContent(base.id, { kind: 'session', tabId })
+      setActivePane(base.id)
+      return base.id
+    }
+
+    const newPaneId = splitPane(base.id, 'right', { kind: 'session', tabId })
+    if (newPaneId) return newPaneId
+
+    setPaneContent(base.id, { kind: 'session', tabId })
+    setActivePane(base.id)
+    return base.id
+  }
+
   /** 关闭 pane：移除 leaf，把兄弟节点提升至父节点位置（split → leaf 或保留 split）。
    *
    *  注意：`findParent` 现在同时匹配 leaf 和 split 节点，因此
@@ -367,6 +421,7 @@ export const useSplitLayoutStore = defineStore('splitLayout', () => {
     setPaneContent,
     setActivePane,
     splitPane,
+    openSessionPane,
     closePane,
     setSplitRatio,
     clearLeavesForTab,

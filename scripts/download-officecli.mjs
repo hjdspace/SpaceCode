@@ -49,8 +49,14 @@ async function fetchLatestRelease(tag) {
   const url = tag ? `${GITHUB_API}/tags/${tag}` : `${GITHUB_API}/latest`
   console.log(`[OfficeCLI] Fetching release info from: ${url}`)
 
+  // 匿名请求在 GitHub Actions 的共享出口 IP 上会被限流成 403；URL 固定为 api.github.com，
+  // 下载直链不走这里，凭据不会外流。
+  const headers = { 'User-Agent': 'SpaceCode-OfficeCLI-Downloader' }
+  const token = process.env.GITHUB_TOKEN || ''
+  if (token) headers.Authorization = `Bearer ${token}`
+
   const resp = await fetch(url, {
-    headers: { 'User-Agent': 'SpaceCode-OfficeCLI-Downloader' },
+    headers,
   })
 
   if (!resp.ok) {

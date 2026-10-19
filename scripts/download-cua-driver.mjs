@@ -23,7 +23,7 @@
  *
  * 环境变量：
  *   CUA_DRIVER_GITHUB_MIRROR  GitHub 镜像地址（如 https://ghfast.top）
- *   CUA_DRIVER_VERSION        指定版本（如 0.6.8），不指定则使用 baked 版本或最新
+ *   CUA_DRIVER_VERSION        指定版本（如 0.34.0），不指定则使用 baked 版本或最新
  */
 import { existsSync, mkdirSync, createWriteStream, readdirSync, rmSync, renameSync, statSync } from 'fs'
 import { join, dirname } from 'path'
@@ -51,13 +51,14 @@ const GITHUB_API = `https://api.github.com/repos/${REPO}/releases`
 const TAG_PREFIX = 'cua-driver-rs-v'
 const MIRROR = process.env.CUA_DRIVER_GITHUB_MIRROR || ''
 const FORCE_VERSION = process.env.CUA_DRIVER_VERSION || ''
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ''
 
 /**
  * Baked version — 与官方安装脚本保持同步。
  * 官方 CD workflow 在每次 release 后自动更新此值。
  * 设置后可直接构造下载 URL，无需请求 GitHub API。
  */
-const BAKED_VERSION = '0.6.8'
+const BAKED_VERSION = '0.34.0'
 
 // ── 平台目标定义 ──────────────────────────────────────────────
 
@@ -137,6 +138,11 @@ function httpsGet(url, maxRedirects = 5, allowInsecure = false) {
           'Accept': 'application/vnd.github+json',
         },
       }
+      // 匿名请求在 GitHub Actions 的共享出口 IP 上会被限流成 403，带 token 才能稳。
+      // 按 host 逐跳判断（含重定向后的每一次请求），镜像与下载直链一律不带凭据。
+      if (GITHUB_TOKEN && new URL(url).host === 'api.github.com') {
+        options.headers.Authorization = `Bearer ${GITHUB_TOKEN}`
+      }
       if (insecure) {
         options.agent = new https.Agent({ rejectUnauthorized: false })
       }
@@ -156,8 +162,15 @@ function httpsGet(url, maxRedirects = 5, allowInsecure = false) {
           return
         }
         if (res.statusCode !== 200) {
-          res.resume()
-          reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+          // 只报状态码分不清限流与 404，响应体里才是真原因
+          let body = ''
+          res.setEncoding('utf8')
+          res.on('data', (chunk) => {
+            if (body.length < 400) body += chunk
+          })
+          res.on('end', () => {
+            reject(new Error(`HTTP ${res.statusCode} for ${url}: ${body.slice(0, 400).replace(/\s+/g, ' ')}`))
+          })
           return
         }
         resolve(res)

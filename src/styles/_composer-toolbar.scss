@@ -1,0 +1,19 @@
+/* 聊天输入区底部工具栏按钮的基样式：宿主与 ModelPickerMenu 都要命中同一个
+   .toolbar-btn，scoped 样式跨不过组件边界，所以抽成 partial 各自 @use。 */
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  background: transparent;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+}

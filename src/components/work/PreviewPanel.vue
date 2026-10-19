@@ -75,16 +75,26 @@
             </div>
           </div>
         </div>
-        <div v-else-if="screenshotImages.length === 0" class="preview-empty">{{ t('officePreview.noScreenshots') }}</div>
+        <div v-else-if="screenshotPages.length === 0" class="preview-empty">{{ t('officePreview.noScreenshots') }}</div>
         <div v-else class="screenshot-list">
           <div
-            v-for="(dataUrl, index) in screenshotDataUrls"
-            :key="index"
+            v-for="page in screenshotPages"
+            :key="page.pageNumber"
             class="screenshot-item"
-            @click="openFullSize(screenshotImages[index])"
+            @click="openFullSize(page.path)"
           >
-            <img :src="dataUrl" :alt="`Page ${index + 1}`" loading="lazy" decoding="async" />
-            <span class="page-num">{{ index + 1 }}</span>
+            <div v-if="page.cropped" class="page-crop" :style="pageFrameStyle(page)">
+              <img
+                class="page-sheet"
+                :src="page.dataUrl"
+                :style="pageSheetStyle(page)"
+                :alt="`Page ${page.pageNumber}`"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+            <img v-else :src="page.dataUrl" :alt="`Page ${page.pageNumber}`" loading="lazy" decoding="async" />
+            <span class="page-num">{{ page.pageNumber }}</span>
           </div>
         </div>
       </div>
@@ -132,15 +142,34 @@ const props = defineProps<{
   filePath: string
 }>()
 
+/**
+ * officecli 把一个页区间渲染成「一张竖向拼接的长图」，主进程负责告诉我们这张图
+ * 覆盖第几页到第几页、以及它的像素尺寸；这里按页把长图裁成一项一项。
+ */
+interface ScreenshotPage {
+  /** 文档内的页码，从 1 开始 */
+  pageNumber: number
+  /** 该页所在长图的文件路径 */
+  path: string
+  /** 长图的 base64 data URL（避免 file:// CORS 问题） */
+  dataUrl: string
+  /** 这张长图里叠了几页；1 表示整图即该页，无需裁切 */
+  bandCount: number
+  /** 该页在长图中的序号，0 起 */
+  bandIndex: number
+  imageWidth: number
+  bandHeight: number
+  cropped: boolean
+}
+
 const { t } = useI18n()
 const appStore = useAppStore()
 const loading = ref(false)
 const errorMsg = ref('')
 const currentMode = ref<'html' | 'screenshots' | 'watch'>('html')
 const htmlPreviewUrl = ref('')
-const screenshotImages = ref<string[]>([])
-/** 截图的 base64 data URL 列表（避免 file:// CORS 问题） */
-const screenshotDataUrls = ref<string[]>([])
+/** 截图模式：每页一项，多页共用同一张长图的 base64（同 URL 只解码一次） */
+const screenshotPages = ref<ScreenshotPage[]>([])
 const watchUrl = ref('')
 const watchId = ref('')
 const previewWebviewRef = ref<any>(null)
@@ -202,52 +231,115 @@ const availableModes = computed(() => {
   ]
 })
 
+/**
+ * 一轮渲染的世代号，html / 截图 / watch 三种模式共用一个计数。
+ * 切文件或切模式都会重启一轮，迟到的旧轮次一律不得写回状态——否则就是
+ * 「标题已经是 B.xlsx、预览还是 A.xlsx」。watch 那一轮尤其不能只是丢弃结果：
+ * 那个句柄没人记得，主进程的 officecli 常驻子进程就漏在那里。
+ */
+let renderRun = 0
+
 async function renderHtml() {
+  const run = ++renderRun
+  const filePath = props.filePath
   loading.value = true
   errorMsg.value = ''
   try {
-    const htmlPath = await api.officecli.viewHtml(props.filePath)
+    const htmlPath = await api.officecli.viewHtml(filePath)
+    if (run !== renderRun) return
     htmlPreviewUrl.value = pathToFileURL(htmlPath)
   } catch (err) {
+    if (run !== renderRun) return
     errorMsg.value = extractErrorMessage(err)
     console.error('[OfficePreview] HTML render failed:', err)
   } finally {
-    loading.value = false
+    if (run === renderRun) loading.value = false
   }
 }
 
+/** 每块 8 页 × ~7s，12 块已近 90s；再往上只可能是主进程报回了荒谬的页数。 */
+const MAX_SCREENSHOT_CHUNKS = 12
+
 async function renderScreenshots() {
+  const run = ++renderRun
+  const filePath = props.filePath
+  const tmpDir = `${filePath}.screenshots`
   loading.value = true
   errorMsg.value = ''
+  screenshotPages.value = []
   try {
-    const tmpDir = `${props.filePath}.screenshots`
-    const images = await api.officecli.viewScreenshot(props.filePath, tmpDir)
-    screenshotImages.value = images
-    // Convert file paths to base64 data URLs to bypass file:// CORS in dev mode
-    const dataUrls = await Promise.all(
-      images.map(img => api.officecli.readImageAsDataURL(img))
-    )
-    screenshotDataUrls.value = dataUrls
+    let start = 1
+    let pageCount = 1
+    let chunks = 0
+    // 每块的页数由主进程定，这里按返回的 end 逐块往后要，直到覆盖整个文档。
+    while (start <= pageCount && chunks < MAX_SCREENSHOT_CHUNKS) {
+      const sheet = await api.officecli.viewScreenshot(filePath, tmpDir, start)
+      const dataUrl = await api.officecli.readImageAsDataURL(sheet.path)
+      if (run !== renderRun) return
+      const pages = Math.max(1, sheet.end - sheet.start + 1)
+      // 尺寸读不出来就没法裁；此时整张图当一页，别让每页重复展示同一条长图。
+      const sliceable = sheet.height > 0 && pages > 1
+      const bandCount = sliceable ? pages : 1
+      for (let index = 0; index < bandCount; index++) {
+        screenshotPages.value.push({
+          pageNumber: sheet.start + index,
+          path: sheet.path,
+          dataUrl,
+          bandCount,
+          bandIndex: index,
+          imageWidth: sheet.width,
+          bandHeight: sliceable ? sheet.height / pages : sheet.height,
+          cropped: sliceable,
+        })
+      }
+      // 首块就位就摘掉 loading，后续页边渲染边补进列表
+      loading.value = false
+      pageCount = sheet.pageCount
+      start = Math.max(sheet.end + 1, start + 1)
+      chunks += 1
+    }
   } catch (err) {
+    if (run !== renderRun) return
     errorMsg.value = extractErrorMessage(err)
     console.error('[OfficePreview] Screenshot render failed:', err)
   } finally {
-    loading.value = false
+    if (run === renderRun) loading.value = false
+  }
+}
+
+/** 长图裁到该页：外框定单页比例，内图放大到整块高度后上移到对应页带 */
+function pageFrameStyle(page: ScreenshotPage) {
+  return { aspectRatio: `${page.imageWidth} / ${page.bandHeight}` }
+}
+
+function pageSheetStyle(page: ScreenshotPage) {
+  return {
+    height: `${page.bandCount * 100}%`,
+    top: `${-page.bandIndex * 100}%`,
   }
 }
 
 async function startWatch() {
+  const run = ++renderRun
+  const filePath = props.filePath
   loading.value = true
   errorMsg.value = ''
   try {
-    const handle = await api.officecli.watchStart(props.filePath)
+    const handle = await api.officecli.watchStart(filePath)
+    if (run !== renderRun) {
+      // 这一句之前主进程已经在跑那个子进程了，而切模式/卸载的清理只认 watchId，
+      // 迟到轮次若不主动 stop，句柄就永久没人回收。
+      void api.officecli.watchStop(handle.id).catch(() => {})
+      return
+    }
     watchId.value = handle.id
     watchUrl.value = handle.url
   } catch (err) {
+    if (run !== renderRun) return
     errorMsg.value = extractErrorMessage(err)
     console.error('[OfficePreview] Watch start failed:', err)
   } finally {
-    loading.value = false
+    if (run === renderRun) loading.value = false
   }
 }
 
@@ -357,10 +449,14 @@ function onArtifactsChanged() {
   rerenderDebounceTimer = setTimeout(async () => {
     rerenderDebounceTimer = null
     if (currentMode.value !== 'html') return
+    const run = ++renderRun
+    const filePath = props.filePath
     try {
-      const htmlPath = await api.officecli.viewHtml(props.filePath)
+      const htmlPath = await api.officecli.viewHtml(filePath)
+      if (run !== renderRun) return
       htmlPreviewUrl.value = pathToFileURL(htmlPath)
     } catch (err) {
+      if (run !== renderRun) return
       console.error('[OfficePreview] Re-render failed:', err)
     }
   }, 800)
@@ -374,18 +470,20 @@ watch(() => props.filePath, async (newPath) => {
 
 onMounted(async () => {
   const initialMode = appStore.officePreviewMode || 'html'
-  await switchMode(initialMode)
-  // 监听产物文件变更，实现实时刷新预览
+  // 订阅必须在首轮渲染之前落定：首轮要跑数秒，期间关掉面板的话，
+  // 排在 await 之后注册的监听再也没有实例去摘它。
   artifactsUnsubscribe = api.artifacts.onChanged(() => {
     onArtifactsChanged()
   })
+  await switchMode(initialMode)
 })
 
-onBeforeUnmount(async () => {
+onBeforeUnmount(() => {
+  // 作废在飞轮次：迟到的 startWatch 会自己把句柄 stop 掉，而不是写进一个没人清理的实例。
+  renderRun++
   if (watchId.value) {
-    try {
-      await api.officecli.watchStop(watchId.value)
-    } catch { /* ignore */ }
+    void api.officecli.watchStop(watchId.value).catch(() => {})
+    watchId.value = ''
   }
   if (artifactsUnsubscribe) {
     artifactsUnsubscribe()
@@ -614,6 +712,19 @@ onBeforeUnmount(async () => {
     width: 100%;
     height: auto;
     display: block;
+  }
+
+  // 长图裁切：外框用 aspect-ratio 占住单页比例，内图靠内联样式放大并上移
+  .page-crop {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+
+    img {
+      position: absolute;
+      left: 0;
+      width: 100%;
+    }
   }
 
   .page-num {

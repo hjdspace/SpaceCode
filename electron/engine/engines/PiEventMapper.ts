@@ -5,21 +5,41 @@ export interface PiAgentEvent {
   [key: string]: any
 }
 
+// Pi 的内置工具用小写名（bash/read/write/edit/grep/find），而渲染层的组件、图标、
+// 标签与 trace 分类表一律按 Claude Code 的 PascalCase 名精确匹配。名字不在此归一，
+// 小写名会同时错过专用卡片与终端 UI，退化成通用行 + JSON 直出。
+// find→Glob、grep→Grep 的入参键（pattern/path）本就一致；ls 无对应卡片，故不映射。
+const PI_TOOL_NAME_ALIASES: Record<string, string> = {
+  bash: 'Bash',
+  read: 'Read',
+  write: 'Write',
+  edit: 'Edit',
+  grep: 'Grep',
+  find: 'Glob',
+}
+
+function mapPiToolName(name: unknown): string | undefined {
+  if (typeof name !== 'string' || !name) return undefined
+  return PI_TOOL_NAME_ALIASES[name] ?? name
+}
+
 export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngineEvent | null {
   switch (event.type) {
     case 'agent_start':
       return { sessionId, type: 'system', data: { subtype: 'agent_start' } }
 
-    case 'agent_end':
+    case 'agent_end': {
+      // Pi 的上游拒绝（403/429 等）只写在最后一条 assistant 消息的 stopReason/errorMessage
+      // 上，agent_end 帧本身不标错 —— 不读它就等于报"成功的空结果"，真原因被兜底文案取代。
+      const last = findLastAssistant(event.messages)
       return {
         sessionId,
         type: 'result',
-        data: {
-          result: extractFinalText(event.messages),
-          stop_reason: 'end_turn',
-          messages: event.messages,
-        },
+        data: last?.stopReason === 'error'
+          ? { result: last?.errorMessage || '', is_error: true, stop_reason: 'error', messages: event.messages }
+          : { result: extractFinalText(event.messages), stop_reason: 'end_turn', messages: event.messages },
       }
+    }
 
     case 'turn_start':
       return null
@@ -76,7 +96,7 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
         type: 'tool_use',
         data: {
           id: event.toolCallId,
-          name: event.toolName,
+          name: mapPiToolName(event.toolName),
           input: event.args,
         },
       }
@@ -130,10 +150,18 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
       }
 
     case 'auto_retry_start':
+      // 渲染层的重试卡片只读 api_retry 那套字段。原来这里发的是 pi 的原始 subtype，
+      // 于是引擎正在退避重试而 UI 全程静默 —— 429 看起来就是「卡住没响应」。
       return {
         sessionId,
         type: 'system',
-        data: { subtype: 'auto_retry_start', attempt: event.attempt, maxAttempts: event.maxAttempts },
+        data: {
+          subtype: 'api_retry',
+          attempt: event.attempt,
+          maxRetries: event.maxAttempts,
+          retryInMs: event.delayMs,
+          error: event.errorMessage || 'API error',
+        },
       }
 
     case 'auto_retry_end':
@@ -184,14 +212,23 @@ function mapAssistantMessage(msg: any): any {
   }
 }
 
-function extractFinalText(messages: any[]): string {
-  if (!Array.isArray(messages)) return ''
-  const lastAssistant = [...messages].reverse().find((m: any) => m.role === 'assistant')
-  if (!lastAssistant) return ''
-  const content = lastAssistant.content
+interface PiAssistantMessage {
+  role?: string
+  content?: string | Array<{ type?: string; text?: string }>
+  stopReason?: string
+  errorMessage?: string
+}
+
+function findLastAssistant(messages: unknown): PiAssistantMessage | undefined {
+  if (!Array.isArray(messages)) return undefined
+  return [...messages].reverse().find((m: PiAssistantMessage) => m?.role === 'assistant')
+}
+
+function extractFinalText(messages: unknown): string {
+  const content = findLastAssistant(messages)?.content
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
-    const textBlock = content.find((c: any) => c.type === 'text')
+    const textBlock = content.find((c) => c?.type === 'text')
     return textBlock?.text || ''
   }
   return ''
@@ -245,12 +282,19 @@ function mapStreamDelta(delta: any): any {
         content_block: { type: 'text' },
         partial: delta.partial
       }
-    case 'toolcall_start':
+    case 'toolcall_start': {
+      // pi-ai 的 toolcall_start 只带 { contentIndex, partial } —— id/name 不在事件顶层，
+      // 而是刚被推进 partial.content[contentIndex] 的那个 toolCall 块上（各 provider 与
+      // proxy 均如此）。读顶层的 delta.toolCallId/toolName 恒为 undefined，会让下游
+      // eventHandlers 兜底出随机 id + "Unknown Tool"，造出一张永远等不到 tool_result
+      // 的幽灵卡片，而真卡片随后由 tool_execution_start 另建一条 → 同一次调用渲染两行。
+      const block = delta.partial?.content?.[delta.contentIndex]
       return {
         type: 'content_block_start',
-        content_block: { type: 'tool_use', id: delta.toolCallId, name: delta.toolName },
+        content_block: { type: 'tool_use', id: block?.id, name: mapPiToolName(block?.name) },
         partial: delta.partial
       }
+    }
     case 'toolcall_delta':
       return {
         type: 'content_block_delta',

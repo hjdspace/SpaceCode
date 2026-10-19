@@ -109,8 +109,10 @@ export function createH5Adapter(): ElectronClaudeCodeAPI {
       h5ApiClient.setPermissionMode(sessionId, mode),
     setModel: (sessionId: string, model: string | undefined) =>
       h5ApiClient.setModel(sessionId, model),
-    updateThinkingLevel: (sessionId: string, enabled: boolean) =>
-      h5ApiClient.updateThinkingLevel(sessionId, enabled),
+    updateThinkingLevel: async (sessionId: string, enabled: boolean) => {
+      const res = await h5ApiClient.updateThinkingLevel(sessionId, enabled)
+      return res.timing
+    },
 
     // H5: 查询型方法直接取自引擎真实状态
     getMcpStatus: (sessionId: string) => h5ApiClient.getMcpStatus(sessionId),

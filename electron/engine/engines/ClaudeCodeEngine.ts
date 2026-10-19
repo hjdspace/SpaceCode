@@ -1,7 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
 import { SessionConfig } from '../../session/sessionProcess'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate, ThinkingUpdateTiming } from './types'
 import * as fs from 'fs'
 import * as path from 'path'
 import { info } from '../../infra/logger'
@@ -128,9 +128,10 @@ export class ClaudeCodeEngine implements IEngine {
     return this.pool.setModel(sessionId, model)
   }
 
-  updateThinkingLevel(sessionId: string, enabled: boolean): Promise<void> {
-    this.pool.updateThinkingLevel(sessionId, enabled)
-    return Promise.resolve()
+  // async 而非 Promise.resolve(...)：进程池这一层是同步的，抛出来时要变成 reject，
+  // 别让"返回 Promise 却同步抛错"漏到只写 .catch() 的调用方身上。
+  async updateThinkingLevel(sessionId: string, enabled: boolean): Promise<ThinkingUpdateTiming> {
+    return this.pool.updateThinkingLevel(sessionId, enabled)
   }
 
   getMcpStatus(sessionId: string) {

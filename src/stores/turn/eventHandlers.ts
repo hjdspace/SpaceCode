@@ -14,6 +14,7 @@ import {
 import type { TurnStateMachine } from './turnStateMachine'
 import type { TimelineAssembler } from './timelineAssembler'
 import { createUuid } from '@/utils/uuid'
+import { TRACE_DURATION_KEY } from '@/lib/trace/duration'
 import { needsWorkspaceRootScan } from '@/utils/artifactScope'
 import { isAutoPreviewPath } from '@/utils/artifactFormat'
 import { normalizeAbsolutePath } from '@/utils/normalizePath'
@@ -525,6 +526,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         if (msg) {
           if (!msg.reasoning) {
             msg.reasoning = { content: '', startTime: Date.now(), isExpanded: true }
+          } else if (msg.reasoning.endTime != null) {
+            // 上一段 thinking 已在边界收口（endTime 已写），新块开始须清掉，
+            // 否则 msg 级"是否仍在思考"信号在第二段思考期间就已失真
+            msg.reasoning.endTime = undefined
+            msg.reasoning.isExpanded = true
           }
           ts.currentReasoningEventId = createUuid()
           addTimelineEvent(sessionId, ts, {
@@ -558,6 +564,12 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           ts.accumulatedReasoning += ev.delta.thinking
           ts.currentReasoningContent += ev.delta.thinking
           if (!ts.currentReasoningEventId) {
+            // 指针为空说明上一段已收口；此时又来 thinking_delta = 新块开始
+            // （引擎适配层可能不发 content_block_start），与块开始事件同样要清 endTime
+            if (msg.reasoning.endTime != null) {
+              msg.reasoning.endTime = undefined
+              msg.reasoning.isExpanded = true
+            }
             ts.currentReasoningEventId = createUuid()
             addTimelineEvent(sessionId, ts, {
               id: ts.currentReasoningEventId,
@@ -744,6 +756,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                       content: reasoningEvent?.content || '',
                       status: 'completed'
                     })
+                    if (!msg.reasoning.endTime) {
+                      msg.reasoning.endTime = Date.now()
+                      msg.reasoning.isExpanded = false
+                    }
                     scheduleContentPatch(sessionId, ts)
                     ts.streamingHandledThinking = true
                   }
@@ -808,6 +824,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                   content: `${reasoningEvent?.content || ''}${reasoningContent}`,
                   status: 'completed'
                 })
+                if (!msg.reasoning.endTime) {
+                  msg.reasoning.endTime = Date.now()
+                  msg.reasoning.isExpanded = false
+                }
                 ts.streamingHandledThinking = true
                 sink.persist(sessionId)
               }
@@ -1167,7 +1187,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           title: 'Assistant turn completed',
           output: { content: msg.content },
           metadata: {
-            duration: msg.metadata?.duration,
+            [TRACE_DURATION_KEY]: msg.metadata?.duration,
             model: msg.metadata?.model,
             stopReason: result.stop_reason || '',
             warning: msg.metadata?.warning || '',
@@ -1320,6 +1340,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const handleError = (sessionId: string, ts: TurnState, error: any) => {
     if (ts.settled) return
     flushContentPatch(sessionId, ts)
+    // 回合以任何非 result 方式终结（报错 / 自动重试挂起 / 中止后错误压制）都要
+    // 收口未结束的 thinking：否则 timeline 事件停在 running、
+    // msg.reasoning.endTime 永远为空，思考卡片一直转"思考中"。
+    completeCurrentReasoningEvent(sessionId, ts)
     const elapsed = Date.now() - ts.sendStartTime
     logger.error('ChatStore', `[${sessionId.slice(0, 8)}] error in message flow | elapsed=${elapsed}ms`, { error: String(error) })
 
@@ -1386,6 +1410,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       phase: 'stream',
     })
 
+    const failedDurationMs = Date.now() - ts.sendStartTime
+
     traceEvent({
       sessionId,
       messageId: ts.assistantMessageId,
@@ -1394,13 +1420,14 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       status: 'failed',
       title: hadRetry ? 'Assistant turn failed (retries exhausted)' : 'Assistant turn failed',
       error: { message: classified.technicalDetail },
+      metadata: { [TRACE_DURATION_KEY]: failedDurationMs },
     })
 
     sink.patchMessage(sessionId, ts.assistantMessageId, {
       content: classified.message,
       metadata: {
         model: ts.model || getModel(),
-        duration: Date.now() - ts.sendStartTime,
+        duration: failedDurationMs,
         error: classified,
       }
     })

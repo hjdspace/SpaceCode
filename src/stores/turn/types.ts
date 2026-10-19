@@ -56,3 +56,14 @@ export function createSettledTurn(): TurnState {
     streamingToolJson: new Map(),
   }
 }
+
+/** AI 回复期间排队的待发送消息（turn store 的 pendingMessages 队列元素）。 */
+export interface PendingMessage {
+  id: string
+  content: string
+  attachments: { name: string; path: string; isFolder: boolean }[]
+  images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
+  displayLabel?: string
+  priority: 'now' | 'later'
+  createdAt: number
+}

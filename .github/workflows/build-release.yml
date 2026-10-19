@@ -166,6 +166,8 @@ jobs:
       # 只能退回在线安装 —— 与卡片文案「已随安装包内置，无需额外下载」不符。
       - name: Pre-download bundled cua-driver binary
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/download-cua-driver.mjs
           if [ "$(uname -s)" = "Darwin" ]; then
@@ -191,6 +193,8 @@ jobs:
       # --strict 让正式版在缺这个声明过的资源时直接失败，而不是静默少一个二进制。
       - name: Pre-download bundled OfficeCLI binary
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/download-officecli.mjs --strict
 
       # 注意：这里使用 --publish never，由 publish-release job 统一上传到 release，

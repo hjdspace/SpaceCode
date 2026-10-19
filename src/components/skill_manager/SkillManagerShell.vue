@@ -6,7 +6,7 @@
  * The rail has glyph icons + counts, grouped into Management / Configuration.
  */
 
-import { onMounted, computed, ref, type Component } from 'vue'
+import { onMounted, computed, ref, defineAsyncComponent, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Bot,
@@ -24,14 +24,25 @@ import appIcon from '@/assets/app-icon.svg'
 import { useAppStore } from '@/stores/app'
 import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type { SkillTabId } from '@/types/skillManagerV2'
-import SkillSettingsPage from './SkillSettingsPage.vue'
+import AsyncLoadingState from '@/components/common/AsyncLoadingState.vue'
 import SkillLibraryPage from './SkillLibraryPage.vue'
-import SkillDetailSlider from './SkillDetailSlider.vue'
-import InstallPage from './InstallPage.vue'
-import DiagnosisPage from './DiagnosisPage.vue'
-import AgentManagementPage from './AgentManagementPage.vue'
-import SkillPackPage from './SkillPackPage.vue'
-import BuiltinPacksPage from './BuiltinPacksPage.vue'
+
+// 非默认 tab 的子页面按需加载：library 是默认 tab 保持同步，其余 6 页 + 详情滑出层
+// 首次点击时才拉取对应 chunk，避免 408KB CSS / 194KB JS 一次性解析拖慢首开。
+function lazyPage(loader: () => Promise<{ default: Component }>) {
+  return defineAsyncComponent({
+    loader,
+    loadingComponent: AsyncLoadingState,
+    delay: 0,
+  })
+}
+const SkillSettingsPage = lazyPage(() => import('./SkillSettingsPage.vue'))
+const SkillDetailSlider = lazyPage(() => import('./SkillDetailSlider.vue'))
+const InstallPage = lazyPage(() => import('./InstallPage.vue'))
+const DiagnosisPage = lazyPage(() => import('./DiagnosisPage.vue'))
+const AgentManagementPage = lazyPage(() => import('./AgentManagementPage.vue'))
+const SkillPackPage = lazyPage(() => import('./SkillPackPage.vue'))
+const BuiltinPacksPage = lazyPage(() => import('./BuiltinPacksPage.vue'))
 
 const { t } = useI18n()
 const store = useSkillManagerStore()

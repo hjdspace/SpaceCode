@@ -58,6 +58,18 @@ export class PermissionService {
     return this.pendingPermissions.value.get(sessionId)?.get(toolUseId)
   }
 
+  /**
+   * 跨会话按 toolUseId 查。渲染中的工具卡片只拿到 toolCall，多 pane / 后台会话并发时
+   * 按 currentSessionId 查会漏掉本会话之外的那条请求。toolUseId 由引擎生成，全局唯一。
+   */
+  findPendingPermissionByToolUse(toolUseId: string): PermissionRequest | undefined {
+    for (const byToolUseId of this.pendingPermissions.value.values()) {
+      const request = byToolUseId.get(toolUseId)
+      if (request) return request
+    }
+    return undefined
+  }
+
   hasPendingPermissionForToolUse(toolUseId: string, sessionId?: string): boolean {
     return !!this.getPendingPermissionForToolUse(toolUseId, sessionId)
   }

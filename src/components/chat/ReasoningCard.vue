@@ -20,7 +20,7 @@
     <Transition name="reasoning-reveal">
       <div v-if="isExpanded" class="reasoning-content">
         <div class="reasoning-clip">
-          <div ref="contentRef" class="reasoning-text">{{ reasoning.content }}</div>
+          <div ref="contentRef" class="reasoning-text">{{ displayContent }}</div>
         </div>
       </div>
     </Transition>
@@ -28,10 +28,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { Brain, ChevronDown } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import type { ReasoningBlock } from '@/types'
+import { nextRevealedLength } from '@/utils/textReveal'
 
 const props = defineProps<{
   reasoning: ReasoningBlock
@@ -44,12 +45,55 @@ const isExpanded = ref(isThinking.value)
 const userToggled = ref(false)
 const contentRef = ref<HTMLElement | null>(null)
 
+// 上游网关一批 ~100 字在同一毫秒落地，直接绑 props 就是一段一段蹦。
+// displayContent 只跟随游标放出的前缀，把同一批字摊到几十帧上。
+const displayContent = ref(props.reasoning.content)
+let revealed = props.reasoning.content.length
+let rafId: number | null = null
+let lastFrameAt = 0
+
+function showAll(): void {
+  revealed = props.reasoning.content.length
+  displayContent.value = props.reasoning.content
+}
+
+function stopLoop(): void {
+  if (rafId !== null) cancelAnimationFrame(rafId)
+  rafId = null
+  lastFrameAt = 0
+}
+
+function step(now: number): void {
+  rafId = null
+  const total = props.reasoning.content.length
+  if (revealed >= total) {
+    lastFrameAt = 0
+    return
+  }
+  // 页面切到后台时 rAF 停摆，回前台的这一帧不能按整段挂起时间快进
+  const elapsed = lastFrameAt ? Math.min(now - lastFrameAt, 200) : 16
+  lastFrameAt = now
+  revealed = nextRevealedLength(revealed, total, elapsed)
+  displayContent.value = props.reasoning.content.slice(0, Math.floor(revealed))
+  if (revealed < total) rafId = requestAnimationFrame(step)
+  else lastFrameAt = 0
+}
+
+function ensureLoop(): void {
+  if (rafId !== null || revealed >= props.reasoning.content.length) return
+  rafId = requestAnimationFrame(step)
+}
+
 const summary = computed(() => {
-  const lines = props.reasoning.content.split('\n').filter(line => line.trim())
+  const lines = displayContent.value.split('\n').filter(line => line.trim())
   return isThinking.value ? (lines[lines.length - 1] ?? '') : (lines[0] ?? '')
 })
 
 watch(isThinking, async active => {
+  if (!active) {
+    stopLoop()
+    showAll()
+  }
   if (!userToggled.value) isExpanded.value = active
   if (active && isExpanded.value) {
     await nextTick()
@@ -57,11 +101,26 @@ watch(isThinking, async active => {
   }
 })
 
-watch(() => props.reasoning.content, async () => {
+watch(() => props.reasoning.content, () => {
+  if (!isThinking.value) {
+    showAll()
+    return
+  }
+  // 新的 thinking 块会把内容重置成更短的串，游标和已显示文本一起回到起点
+  if (revealed > props.reasoning.content.length) {
+    revealed = 0
+    displayContent.value = ''
+  }
+  ensureLoop()
+})
+
+watch(displayContent, async () => {
   if (!isThinking.value || !isExpanded.value) return
   await nextTick()
   contentRef.value?.scrollTo({ top: contentRef.value.scrollHeight })
 })
+
+onUnmounted(stopLoop)
 
 function toggleExpand() {
   userToggled.value = true

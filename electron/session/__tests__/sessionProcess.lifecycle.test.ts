@@ -35,9 +35,8 @@ vi.mock('../../infra/proxyManager', () => ({
 }))
 vi.mock('../../tools/mcpConfigStore', () => ({ buildEnabledMcpConfig: vi.fn(() => null) }))
 vi.mock('../../tools/officeCliService', () => ({
-  getOfficeCliBinaryPath: vi.fn(() => '/bundle/officecli'),
-  getOfficeCliInstalledBinary: vi.fn(() => '/office/bin/officecli'),
   getOfficeCliInstallDir: vi.fn(() => '/office/bin'),
+  syncInstalledOfficeCli: vi.fn(() => ({ copied: false, reason: 'up-to-date', bundledVersion: null, installedVersion: null })),
 }))
 vi.mock('../../tools/rtkManager', () => ({
   rtkManager: { isBinaryInstalled: vi.fn(() => false), getBinaryDir: vi.fn(() => '/rtk/bin') },

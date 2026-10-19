@@ -52,10 +52,10 @@
       <input
         v-if="isRenaming"
         ref="renameInputRef"
+        v-model="renameValue"
         class="rename-input"
-        :value="renameValue"
-        @blur="confirmRename"
-        @keydown.enter="confirmRename"
+        @blur="handleRenameBlur"
+        @keydown.enter="handleRenameEnter"
         @keydown.escape="cancelRename"
         @click.stop
         @mousedown.stop
@@ -99,10 +99,12 @@
           :highlight-path="highlightPath"
           :expanded-paths="expandedPaths"
           :git-marks="gitMarks"
+          :rename-request="renameRequest"
           @select="$emit('select', $event)"
           @toggle="$emit('toggle', $event)"
           @expand-path="$emit('expand-path', $event)"
           @contextmenu="$emit('contextmenu', $event, child)"
+          @refresh="$emit('refresh')"
         />
       </div>
     </Transition>
@@ -110,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight, Folder, FolderOpen } from 'lucide-vue-next'
 import { Icon, addCollection } from '@iconify/vue'
@@ -118,6 +120,7 @@ import fileIconSet from '@/assets/vscode-icons.json'
 import { api } from '@/services/electronAPI'
 import { useDialog } from '@/composables/useDialog'
 import { normalizeTreePath } from '@/composables/useGitTreeMarks'
+import { validateNodeName, type NodeNameError } from '@/utils/validateNodeName'
 import { getFileIcon } from './fileIcons'
 import type { GitFileMark, GitFileMarkKind, GitDirMarkKind, GitTreeMarks } from '@/composables/useGitTreeMarks'
 
@@ -133,6 +136,13 @@ interface TreeNode {
   isRoot?: boolean
 }
 
+/**
+ * FileTree 转下来的一次行内改名请求；每次都换新对象，理由见 FileTree 的 renameRequest。
+ */
+interface RenameRequest {
+  path: string
+}
+
 interface Props {
   node: TreeNode
   depth: number
@@ -140,13 +150,15 @@ interface Props {
   highlightPath?: string
   expandedPaths?: Set<string>
   gitMarks?: GitTreeMarks
+  renameRequest?: RenameRequest | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   searchQuery: '',
   highlightPath: '',
   expandedPaths: () => new Set(),
-  gitMarks: () => ({ files: new Map(), dirs: new Map() })
+  gitMarks: () => ({ files: new Map(), dirs: new Map() }),
+  renameRequest: null
 })
 
 const emit = defineEmits<{
@@ -178,8 +190,20 @@ const DIR_MARK_TOOLTIP_KEY: Record<GitDirMarkKind, string> = {
 
 // Rename State
 const isRenaming = ref(false)
+const isSubmitting = ref(false)
 const renameValue = ref('')
 const renameInputRef = ref<HTMLInputElement | null>(null)
+
+const NAME_ERROR_KEY: Record<NodeNameError, string> = {
+  invalidChars: 'fileTree.renameInvalidChars',
+  reservedName: 'fileTree.renameReservedName',
+  tooLong: 'fileTree.renameTooLong'
+}
+
+// 改名请求匹配到本节点时进入行内编辑（见 RenameRequest 注释）。
+watch(() => props.renameRequest, (request) => {
+  if (request?.path === props.node.path) startRename()
+})
 
 // Computed
 const isExpanded = computed(() => {
@@ -246,39 +270,98 @@ function startRename() {
     renameInputRef.value?.focus()
     renameInputRef.value?.select()
   })
+  // 右键菜单收起时会把焦点抢回 body，输入框不一定拿得到焦点，blur 也就不触发。
+  // 「点到别处要收尾」因此挂在 document 上，而不是只靠输入框自己的 blur。
+  document.addEventListener('mousedown', handleOutsideMousedown)
 }
 
-async function confirmRename() {
-  if (!isRenaming.value) return
-  
+function handleOutsideMousedown(e: MouseEvent) {
+  const input = renameInputRef.value
+  if (!input || input.contains(e.target as Node)) return
+  void confirmRename({ keepEditing: false })
+}
+
+function handleRenameEnter(e: KeyboardEvent) {
+  if (e.isComposing) return // 中文输入法选词的回车不是提交
+  void confirmRename({ keepEditing: true })
+}
+
+function handleRenameBlur() {
+  void confirmRename({ keepEditing: false })
+}
+
+/**
+ * keepEditing: 回车提交失败要留在编辑态，让用户改完再按回车；点到别处（blur 或
+ * 外部 mousedown）表示用户已经放弃这一行，失败也收掉，别留下没有焦点的空输入框。
+ */
+async function confirmRename({ keepEditing }: { keepEditing: boolean }) {
+  if (!isRenaming.value || isSubmitting.value) return
+
   const newName = renameValue.value.trim()
   if (!newName || newName === props.node.name) {
-    cancelRename()
+    exitRename()
     return
   }
-  
+
+  const exitOnFail = () => {
+    if (!keepEditing) exitRename()
+  }
+
+  const invalid = validateNodeName(newName)
+  if (invalid) {
+    await showAlert(t(NAME_ERROR_KEY[invalid], { name: newName }))
+    exitOnFail()
+    return
+  }
+
+  isSubmitting.value = true
   try {
+    const target = siblingPath(newName)
+    // renameSync 在 POSIX 上会静默覆盖同名目标，先把冲突拦在下面。
+    // 纯大小写改名跳过检查：忽略大小写的卷上「目标已存在」恰恰是合法改名。
+    const caseOnly = newName.toLowerCase() === props.node.name.toLowerCase()
+    if (!caseOnly && await api.stat(target)) {
+      await showAlert(t('fileTree.renameNameConflict', { name: newName }))
+      exitOnFail()
+      return
+    }
+
     const result = await api.renameFile(props.node.path, newName)
     if (result.success) {
-      console.log('[FileTreeNode] Renamed to:', newName)
       emit('refresh')
+      exitRename()
     } else {
-      await showAlert(`重命名失败：${result.error}`)
-      cancelRename()
+      await showAlert(t('fileTree.renameFailed', { error: result.error ?? '' }))
+      exitOnFail()
     }
   } catch (err) {
     console.error('[FileTreeNode] Rename error:', err)
-    await showAlert('重命名失败，请重试。')
-    cancelRename()
+    await showAlert(t('fileTree.renameFailedRetry'))
+    exitOnFail()
+  } finally {
+    isSubmitting.value = false
   }
-  
-  isRenaming.value = false
 }
 
 function cancelRename() {
+  if (isSubmitting.value) return
+  exitRename()
+}
+
+function exitRename() {
   isRenaming.value = false
   renameValue.value = ''
+  document.removeEventListener('mousedown', handleOutsideMousedown)
 }
+
+// 改名前后同目录，沿用节点路径自己的分隔符风格拼出目标路径。
+function siblingPath(newName: string): string {
+  const cut = Math.max(props.node.path.lastIndexOf('/'), props.node.path.lastIndexOf('\\'))
+  return `${props.node.path.slice(0, cut + 1)}${newName}`
+}
+
+// 编辑中途被刷新掉（节点卸载）时不能留下监听器，否则它会跟着下一次点击去动别的实例。
+onUnmounted(() => document.removeEventListener('mousedown', handleOutsideMousedown))
 
 function handleDragStart(e: DragEvent) {
   if (!e.dataTransfer) return

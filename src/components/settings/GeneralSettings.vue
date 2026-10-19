@@ -35,6 +35,27 @@
       </div>
     </div>
 
+    <!-- First-run guide -->
+    <div class="s-panel">
+      <div class="s-panel-header">
+        <div class="s-panel-header-left">
+          <div class="s-panel-icon engine">
+            <Compass :size="14" />
+          </div>
+          <span class="s-panel-title">{{ $t('onboarding.restart.title') }}</span>
+        </div>
+      </div>
+      <div class="s-panel-body">
+        <div class="guide-row">
+          <span class="guide-desc">{{ $t('onboarding.restart.desc') }}</span>
+          <button class="s-path-action" @click="restartOnboarding">
+            <Compass :size="13" />
+            {{ $t('onboarding.restart.action') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Language Panel -->
     <div class="s-panel">
       <div class="s-panel-header">
@@ -208,12 +229,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  Check, FolderOpen, Globe, MessageSquare, Zap
+  Check, Compass, FolderOpen, Globe, MessageSquare, Zap
 } from 'lucide-vue-next'
 import EngineSourceSettings from './EngineSourceSettings.vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
+import { useOnboardingStore } from '@/stores/onboarding'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 import { useSettingsStore } from '@/stores/settings'
 import type { EngineType } from '@/stores/settings'
@@ -233,6 +255,7 @@ const emit = defineEmits<{
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
+const onboarding = useOnboardingStore()
 const { t, locale } = useI18n()
 
 const showLangDropdown = ref(false)
@@ -260,6 +283,10 @@ const currentLanguageName = computed(() => {
 function selectLanguage(langId: Locale) {
   currentLanguage.value = langId
   showLangDropdown.value = false
+}
+
+function restartOnboarding() {
+  onboarding.start()
 }
 
 const aiSessionTitleEnabled = computed({
@@ -448,6 +475,19 @@ async function browseProjectRoot() {
 </script>
 
 <style lang="scss" scoped>
+
+/* First-run guide row */
+.guide-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.guide-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+}
 
 /* Language Dropdown */
 .lang-dropdown {

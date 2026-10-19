@@ -53,7 +53,7 @@ const mockState = vi.hoisted(() => {
       getSettings: vi.fn(async () => ({})),
       stopEngineTask: vi.fn(async () => {}),
       getPendingPermissionRequestIds: vi.fn(() => []),
-      updateThinkingLevel: vi.fn(async () => {}),
+      updateThinkingLevel: vi.fn(async () => 'now' as const),
       ...overrides,
     }
   }
@@ -197,14 +197,15 @@ describe('engineGateway', () => {
       expect(status).toEqual({ sessionId: 's1', isRunning: true, status: 'active' })
     })
 
-    it('updateThinkingLevel delegates when engine supports it', async () => {
-      const engine = mockState.makeClaudeEngine()
+    it('updateThinkingLevel delegates when engine supports it and passes the timing back', async () => {
+      const updateThinkingLevel = vi.fn(async () => 'next-turn' as const)
+      const engine = mockState.makeClaudeEngine({ updateThinkingLevel })
       engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
       mockState.engines.push(engine)
 
-      await engineGateway.updateThinkingLevel('s1', true)
+      await expect(engineGateway.updateThinkingLevel('s1', true)).resolves.toBe('next-turn')
 
-      expect(engine.updateThinkingLevel).toHaveBeenCalledWith('s1', true)
+      expect(updateThinkingLevel).toHaveBeenCalledWith('s1', true)
     })
   })
 
@@ -383,12 +384,14 @@ describe('engineGateway', () => {
       ).rejects.toThrow(NotImplementedError)
     })
 
-    it('updateThinkingLevel is a no-op when engine lacks it', async () => {
+    // 引擎不支持 = 开关没落到任何进程上。resolve(undefined) 会被界面读成"切换成功"，
+    // 所以这里必须是拒绝（issue #49：失败不能在任何一层被抹平）。
+    it('updateThinkingLevel rejects when engine lacks it', async () => {
       const engine = mockState.makePiEngine()
       engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
       mockState.engines.push(engine)
 
-      await expect(engineGateway.updateThinkingLevel('s1', true)).resolves.toBeUndefined()
+      await expect(engineGateway.updateThinkingLevel('s1', true)).rejects.toThrow(NotImplementedError)
     })
   })
 

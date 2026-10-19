@@ -163,6 +163,22 @@ function reportSaveFailure(err: unknown) {
   toast(t('profile.saveFailed', { reason: err instanceof Error ? err.message : String(err) }), ErrorCategory.CONFIG_ERROR)
 }
 
+/** 三类落地失败在文案里的后缀：配置没进主进程 / 代理没起来 / 方案没写盘。 */
+const failureKeySuffix: Record<ProfileApplyFailure, string> = {
+  settings_save_failed: 'Save',
+  proxy_not_aligned: 'Proxy',
+  profiles_save_failed: 'Profiles',
+}
+
+type ProfileAction = 'switch' | 'update' | 'delete'
+
+/** store 分类过的失败 → 对应动作的文案；没分类时交给调用方的 fallback。 */
+function reportProfileFailure(err: unknown, action: ProfileAction, name: string, fallback: () => void) {
+  const failure = (err as { profileApplyFailure?: ProfileApplyFailure }).profileApplyFailure
+  if (!failure) return fallback()
+  toast(t(`profile.${action}Failed${failureKeySuffix[failure]}`, { name }), ErrorCategory.CONFIG_ERROR)
+}
+
 const expandedSettingsModel = computed<ModelSettingsValue | null>(() => {
   const p = expandedProfile.value
   if (!p) return null
@@ -178,13 +194,14 @@ const expandedSettingsModel = computed<ModelSettingsValue | null>(() => {
 
 function onModelSettingsUpdate(val: ModelSettingsValue) {
   if (!expandedProfile.value) return
+  const name = expandedProfile.value.name
   store.updateProfile(expandedProfile.value.id, {
     authMethod: val.authMethod,
     anthropicConfig: { ...val.anthropicConfig },
     openaiConfig: { ...val.openaiConfig },
     geminiConfig: { ...val.geminiConfig },
     modelCapabilities: val.modelCapabilities ? { ...val.modelCapabilities } : undefined,
-  }).catch(reportSaveFailure)
+  }).catch(err => reportProfileFailure(err, 'update', name, () => reportSaveFailure(err)))
 }
 
 function providerLabel(p: ModelProfile): string {
@@ -231,8 +248,9 @@ function startEditName() {
 
 function commitName() {
   if (!expandedProfile.value) return
-  const trimmed = nameDraft.value.trim()
-  store.updateProfile(expandedProfile.value.id, { name: trimmed || t('profile.untitled') }).catch(reportSaveFailure)
+  const trimmed = nameDraft.value.trim() || t('profile.untitled')
+  store.updateProfile(expandedProfile.value.id, { name: trimmed })
+    .catch(err => reportProfileFailure(err, 'update', trimmed, () => reportSaveFailure(err)))
   editingName.value = false
 }
 
@@ -255,11 +273,7 @@ async function onSelectProfile(id: string) {
     toast(t('profile.switchedToast', { name: profile.name }))
   } catch (error) {
     store.expandedProfileId = previousProfileId
-    const failure = (error as { profileApplyFailure?: ProfileApplyFailure }).profileApplyFailure
-    if (failure === 'settings_save_failed') toast(t('profile.switchFailedSave', { name: profile.name }), ErrorCategory.CONFIG_ERROR)
-    else if (failure === 'proxy_not_aligned') toast(t('profile.switchFailedProxy', { name: profile.name }), ErrorCategory.CONFIG_ERROR)
-    else if (failure === 'profiles_save_failed') toast(t('profile.switchFailedProfiles', { name: profile.name }), ErrorCategory.CONFIG_ERROR)
-    else errorHandler.handleError(error)
+    reportProfileFailure(error, 'switch', profile.name, () => errorHandler.handleError(error))
   } finally {
     switchingProfileId.value = null
   }
@@ -276,12 +290,13 @@ async function onDuplicate() {
 
 async function onDelete() {
   if (!expandedProfile.value || store.profiles.length <= 1) return
+  const profile = expandedProfile.value
   const confirmed = await showConfirm(t('profile.deleteConfirm'), { variant: 'danger' })
   if (!confirmed) return
   try {
-    await store.deleteProfile(expandedProfile.value.id)
+    await store.deleteProfile(profile.id)
   } catch (err) {
-    reportSaveFailure(err)
+    reportProfileFailure(err, 'delete', profile.name, () => reportSaveFailure(err))
   }
 }
 

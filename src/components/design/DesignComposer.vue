@@ -164,7 +164,11 @@
         :systems="designSystems"
         @update:model-value="onDesignSystemChange"
       />
-      <WorkingDirectoryPicker :model-value="workingDirectory" @update:model-value="onWorkingDirectoryChange" />
+      <WorkingDirectoryPicker
+        :model-value="workingDirectory"
+        :locked="workingDirectoryLocked"
+        @update:model-value="onWorkingDirectoryChange"
+      />
     </div>
   </div>
 </template>
@@ -221,6 +225,10 @@ const designSystems = ref<DesignSystemSummary[]>([])
 
 const workingDirectory = computed(() =>
   designStore.designWorkspace || chatSessionStore.workingDirectory || '',
+)
+
+const workingDirectoryLocked = computed(() =>
+  !chatSessionStore.canSwitchWorkingDirectory(designStore.activeSessionId),
 )
 
 const canSend = computed(() => value.value.trim().length > 0 || selectedFiles.value.length > 0)

@@ -8,6 +8,8 @@
  * - 扁平方法（无子命名空间的方法）保留在此文件
  * - 通过 spread 组合命名空间对象到 api 导出
  */
+import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+
 import type {
   CuaDriverStatus,
   CuaDriverUpdateInfo,
@@ -48,6 +50,15 @@ export interface ArtifactEntry {
   ext: string
   size: number
   mtime: number
+}
+
+/**
+ * `artifacts:startWatch` 的如实回报（issue #44）：
+ * `watching=false` 表示实时推送不可用（一个 watcher 都没建成）。
+ */
+export interface ArtifactsWatchStatus {
+  watching: boolean
+  watchCount: number
 }
 
 export interface PreviewPage {
@@ -99,7 +110,6 @@ export interface TraceSessionEntry {
   path: string
   size: number
   modifiedAt: number
-  eventCount: number
 }
 
 export interface AgentTraceEvent {
@@ -550,15 +560,15 @@ export const api = {
     return Promise.resolve({ success: false, error: 'profilesBackupCorrupt not available' })
   },
 
-  loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> => {
+  loadHooksSettings: (scope: string, projectRoot: string): Promise<{ success: boolean; data: string | null; error?: string }> => {
     if (electronAPI?.loadHooksSettings) {
-      return electronAPI.loadHooksSettings(scope)
+      return electronAPI.loadHooksSettings(scope, projectRoot)
     }
     return Promise.resolve({ success: false, data: null, error: 'loadHooksSettings not available' })
   },
-  saveHooksSettings: (hooksJson: string, scope?: string): Promise<{ success: boolean; error?: string }> => {
+  saveHooksSettings: (hooksJson: string, scope: string, projectRoot: string): Promise<{ success: boolean; error?: string }> => {
     if (electronAPI?.saveHooksSettings) {
-      return electronAPI.saveHooksSettings(hooksJson, scope)
+      return electronAPI.saveHooksSettings(hooksJson, scope, projectRoot)
     }
     return Promise.resolve({ success: false, error: 'saveHooksSettings not available' })
   },
@@ -625,11 +635,13 @@ export const api = {
   },
 
   // ClaudeCode bridge methods (flat, delegating to electronAPI.claudeCode)
-  updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<void> => {
+  // 返回引擎的生效时机（now / next-turn），失败按 reject 上抛 —— 调用方要据此回退开关。
+  updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<ThinkingUpdateTiming> => {
     if (electronAPI?.claudeCode?.updateThinkingLevel) {
       return electronAPI.claudeCode.updateThinkingLevel(sessionId, enabled)
     }
-    return Promise.resolve()
+    // 无桥接（纯浏览器预览）时没有引擎可失配：按"已生效"答，别给没有会话的用户报错。
+    return Promise.resolve('now')
   },
 
   getContextUsage: (sessionId: string): Promise<Record<string, unknown> | undefined> => {

@@ -1,5 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 // 执行器模块会连带加载引擎进程池，而它在模块期就要读 app 路径
 vi.mock('electron', () => ({
@@ -12,6 +15,7 @@ import {
   createCronSessionRunner,
   type CronSessionRunnerDeps,
 } from '../cron/cronSessionRunner'
+import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 import type { CronRunContext } from '../cron/cronScheduler'
 
 type Listener = (sessionId: string, eventType: string, data: any) => void
@@ -98,6 +102,66 @@ describe('buildCronEngineConfig', () => {
     expect(buildCronEngineConfig({ cwd: '/w' }, { permissionMode: 'bypassPermissions' }, (m) => m).permissionMode)
       .toBe('bypassPermissions')
   })
+
+  it('把任务运行时的 engineType 交给解析器，别名规则只有一处', () => {
+    const resolve = vi.fn((model: string) => model)
+    buildCronEngineConfig({ cwd: '/w', engineType: 'pi' }, { model: 'qwen-model' }, resolve)
+    expect(resolve).toHaveBeenCalledWith('qwen-model', 'pi')
+
+    const asAlias = vi.fn((model: string) => (model === 'deepseek-v4-flash' ? 'sonnet' : model))
+    buildCronEngineConfig({ cwd: '/w', engineType: 'claude-code' }, { model: 'deepseek-v4-flash' }, asAlias)
+    expect(asAlias).toHaveBeenCalledWith('deepseek-v4-flash', 'claude-code')
+  })
+
+  // 生产依赖注入的就是 engineSessionConfig.resolveEngineModelAlias，用它跑一遍才钉得住
+  // 「pi 任务指定模型」这条真实链路：别名对 Pi 是个不存在的模型，真名才该落到 --model。
+  describe('按引擎分派真实解析器', () => {
+    let configDir: string
+    let homeDir: string
+    const prevEnv: Record<string, string | undefined> = {}
+
+    beforeEach(() => {
+      configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spacecode-cron-settings-'))
+      homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spacecode-cron-home-'))
+      for (const key of ['CLAUDE_CONFIG_DIR', 'HOME', 'USERPROFILE']) prevEnv[key] = process.env[key]
+      process.env.CLAUDE_CONFIG_DIR = configDir
+      process.env.HOME = homeDir
+      process.env.USERPROFILE = homeDir
+      fs.writeFileSync(path.join(configDir, 'gui-settings.json'), JSON.stringify({
+        authMethod: 'openai_compatible',
+        openaiConfig: { sonnetModel: 'qwen-model' },
+        modelCapabilities: { 'qwen-model': { contextWindow: 200_000 } },
+      }), 'utf-8')
+    })
+
+    afterEach(() => {
+      for (const [key, value] of Object.entries(prevEnv)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      fs.rmSync(configDir, { recursive: true, force: true })
+      fs.rmSync(homeDir, { recursive: true, force: true })
+    })
+
+    it('pi：任务里的真实模型名直达引擎，不被换成 sonnet 别名', () => {
+      const base = loadEngineSessionConfig('/w')
+      base.engineType = 'pi'
+      const config = buildCronEngineConfig(base, { model: 'qwen-model' }, resolveEngineModelAlias)
+
+      expect(config.model).toBe('qwen-model')
+      // 真名本来就是 modelContextWindows 的键，无需补别名键
+      expect(config.modelContextWindows).toEqual({ 'qwen-model': 200_000 })
+    })
+
+    it('claude-code：同一份设置仍反查成槽位别名并补上下文窗口', () => {
+      const base = loadEngineSessionConfig('/w')
+      base.engineType = 'claude-code'
+      const config = buildCronEngineConfig(base, { model: 'qwen-model' }, resolveEngineModelAlias)
+
+      expect(config.model).toBe('sonnet')
+      expect(config.modelContextWindows).toMatchObject({ 'qwen-model': 200_000, sonnet: 200_000 })
+    })
+  })
 })
 
 describe('createCronSessionRunner', () => {
@@ -132,7 +196,23 @@ describe('createCronSessionRunner', () => {
     await run
   })
 
-  it('提示词在引擎会话就绪后才发出', async () => {    let resolveStart: (v: null) => void = () => {}
+  it('pi 任务起会话时模型仍是真实模型 id', async () => {
+    const f = fakeDeps({
+      loadConfig: vi.fn((cwd: string) => ({ cwd, engineType: 'pi' as const })),
+      resolveModelAlias: vi.fn((m: string, engineType?: string) => (engineType === 'claude-code' ? 'sonnet' : m)),
+    })
+    const run = createCronSessionRunner(f.deps)('p', '/w', testContext(), { model: 'qwen-model' })
+
+    expect(f.recorder.pushSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'qwen-model' }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(f.recorder.startSession).toHaveBeenCalledWith('sid-1', expect.objectContaining({ model: 'qwen-model' }))
+
+    f.emit('sid-1', 'result', { result: 'done' })
+    await run
+  })
+
+  it('提示词在引擎会话就绪后才发出', async () => {
+    let resolveStart: (v: null) => void = () => {}
     const f = fakeDeps({ startSession: () => new Promise<null>((r) => { resolveStart = r }) })
     const run = createCronSessionRunner(f.deps)('p', '/w', testContext())
 
@@ -168,6 +248,21 @@ describe('createCronSessionRunner', () => {
     await run
 
     expect(f.recorder.stop).toHaveBeenCalledWith('sid-1')
+    expect(f.listenerCount()).toBe(0)
+  })
+
+  it('传进来的 signal 已经取消时，不拉起引擎、不投递提示词、不记成功', async () => {
+    const f = fakeDeps()
+    const controller = new AbortController()
+    controller.abort()
+
+    const run = createCronSessionRunner(f.deps)('p', '/w', testContext({ signal: controller.signal }))
+
+    // 已取消的 signal 不会重放 abort 回调，收口只能靠进来时那一次判读
+    await expect(run).resolves.toEqual({ exitCode: null, stdout: '', stderr: 'Execution cancelled' })
+    expect(f.recorder.pushSession).not.toHaveBeenCalled()
+    expect(f.recorder.startSession).not.toHaveBeenCalled()
+    expect(f.recorder.sendMessage).not.toHaveBeenCalled()
     expect(f.listenerCount()).toBe(0)
   })
 

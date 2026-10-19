@@ -1,8 +1,11 @@
 import { join } from 'path'
 import { existsSync, mkdirSync, appendFileSync, readdirSync, unlinkSync, statSync, readFileSync } from 'fs'
-import { readFile, readdir, stat } from 'fs/promises'
+import { readdir, stat } from 'fs/promises'
 import { app } from 'electron'
 import * as os from 'os'
+import { initTraceSidecar, recordTraceEvent } from './traceSidecar'
+import { parseTraceFile } from './traceParseWorker'
+import type { AgentTraceEventForTrace } from './traceAggregate'
 
 // ============================================================
 // Structured Debug Logger — writes to ~/.claude/debug/
@@ -94,6 +97,10 @@ export function initLogger(): void {
 
   // 检测 --debug 启动参数
   _debugMode = app.commandLine.hasSwitch('debug') || process.argv.includes('--debug')
+
+  // 侧车目录与 trace 目录一致；此后 traceEvent 逐事件增量维护 summary，
+  // trace:list 零解析（见 traceSidecar.ts）。
+  initTraceSidecar(traceDir)
 
   debug('Logger', `Log system initialized | dir=${logDir} | debugMode=${_debugMode} | platform=${process.platform} | arch=${process.arch} | electron=${process.versions.electron} | node=${process.versions.node}`)
 }
@@ -207,7 +214,17 @@ export function traceEvent(event: AgentTraceEvent): void {
       ensureTraceDir()
       appendFileSync(filePath, line, { mode: 0o600 })
     } catch {}
+    return
   }
+  // 追加成功后增量更新 summary 侧车（stat 结果即校验凭据，见 traceSidecar.ts）。
+  // statSync 是微秒级系统调用，相对 appendFileSync 可忽略。
+  try {
+    const st = statSync(filePath)
+    recordTraceEvent(safeSessionId, fullEvent as AgentTraceEventForTrace, {
+      size: st.size,
+      modifiedAt: st.mtime.getTime(),
+    })
+  } catch {}
 }
 
 export function listDebugFiles(): Array<{ name: string; path: string; size: number; modifiedAt: number; kind: 'app' | 'session' | 'trace' }> {
@@ -254,26 +271,40 @@ export function readDebugFile(filePath: string, maxBytes = 1024 * 1024): { succe
   }
 }
 
-export async function listTraceSessions(): Promise<Array<{ sessionId: string; path: string; size: number; modifiedAt: number; eventCount: number }>> {
+export async function listTraceSessions(): Promise<Array<{ sessionId: string; path: string; size: number; modifiedAt: number }>> {
   ensureTraceDir()
-  const sessions: Array<{ sessionId: string; path: string; size: number; modifiedAt: number; eventCount: number }> = []
+  const sessions: Array<{ sessionId: string; path: string; size: number; modifiedAt: number }> = []
   try {
     const names = await readdir(traceDir)
     for (const name of names) {
       if (!name.startsWith('session-') || !name.endsWith('.jsonl')) continue
       const path = join(traceDir, name)
       const statResult = await stat(path)
-      const content = await readFile(path, 'utf8')
       sessions.push({
         sessionId: name.slice('session-'.length, -'.jsonl'.length),
         path,
         size: statResult.size,
         modifiedAt: statResult.mtime.getTime(),
-        eventCount: content.split(/\r?\n/).filter(Boolean).length,
       })
     }
   } catch {}
   return sessions.sort((a, b) => b.modifiedAt - a.modifiedAt)
+}
+
+/**
+ * 轻量 stat 一个 trace 会话文件，用于轮询前的变更检测：
+ * size/mtime 未变化时调用方可跳过全量读取与解析。
+ */
+export async function statTraceSession(sessionId: string): Promise<{ size: number; modifiedAt: number } | null> {
+  try {
+    ensureTraceDir()
+    const filePath = join(traceDir, `session-${sanitizeFilePart(sessionId)}.jsonl`)
+    if (!isAllowedDebugPath(filePath)) return null
+    const statResult = await stat(filePath)
+    return { size: statResult.size, modifiedAt: statResult.mtime.getTime() }
+  } catch {
+    return null
+  }
 }
 
 export async function readTraceEvents(sessionId: string, maxEvents = 1000): Promise<{ success: boolean; events?: AgentTraceEvent[]; error?: string }> {
@@ -283,12 +314,11 @@ export async function readTraceEvents(sessionId: string, maxEvents = 1000): Prom
     if (!isAllowedDebugPath(filePath) || !existsSync(filePath)) {
       return { success: false, error: 'Trace session not found' }
     }
-    const content = await readFile(filePath, 'utf8')
-    const lines = content.split(/\r?\n/).filter(Boolean)
-    const events = lines.slice(Math.max(0, lines.length - maxEvents)).map(line => {
-      try { return JSON.parse(line) as AgentTraceEvent } catch { return null }
-    }).filter(Boolean) as AgentTraceEvent[]
-    return { success: true, events }
+    // 解析在 worker 线程执行（maxEvents=0 表示全量，供侧车冷启动回填）；
+    // 大文件的 split + JSON.parse 不再阻塞主进程事件循环。
+    const result = await parseTraceFile(filePath, maxEvents)
+    if (!result.success) return { success: false, error: result.error }
+    return { success: true, events: result.events as AgentTraceEvent[] }
   } catch (err) {
     return { success: false, error: String(err) }
   }

@@ -539,11 +539,22 @@ describe('H5Server API surface', () => {
     it('forwards model, permission mode and thinking level updates', async () => {
       await call('/api/session/model', { sessionId: 'sess-1', model: 'opus' })
       await call('/api/session/permission-mode', { sessionId: 'sess-1', mode: 'plan' })
-      await call('/api/session/thinking-level', { sessionId: 'sess-1', enabled: true })
+      const thinking = await call('/api/session/thinking-level', { sessionId: 'sess-1', enabled: true })
 
       expect(gatewayStub.setModel).toHaveBeenCalledWith('sess-1', 'opus')
       expect(gatewayStub.setPermissionMode).toHaveBeenCalledWith('sess-1', 'plan')
       expect(gatewayStub.updateThinkingLevel).toHaveBeenCalledWith('sess-1', true)
+      // 生效时机要带回客户端：H5 界面靠它决定提示，光 ok:true 分不清 now / next-turn。
+      expect(jsonOf(thinking)).toEqual({ ok: true, timing: 'now' })
+    })
+
+    it('surfaces a thinking-level failure as a 500 instead of ok:true', async () => {
+      gatewayStub.updateThinkingLevel.mockRejectedValueOnce(new Error('pi process gone'))
+
+      const res = await call('/api/session/thinking-level', { sessionId: 'sess-1', enabled: true })
+
+      expect(res.status).toBe(500)
+      expect(jsonOf(res)).toEqual({ error: 'pi process gone' })
     })
 
     it('projects the pending permission request ids', async () => {

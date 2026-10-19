@@ -64,8 +64,6 @@ export function useContextMenu(options?: {
 }) {
   const showContextMenu = ref(false)
   const contextSearchQuery = ref('')
-  const contextSearchInput = ref<HTMLInputElement | null>(null)
-  const contextListRef = ref<HTMLElement | null>(null)
   const highlightedContextItem = ref<string | null>(null)
   const contextTriggerPosition = ref<number>(-1)
   const contextMenuPosition = ref<{ top?: string; bottom?: string; left: string }>({ top: '0px', left: '0px' })
@@ -123,8 +121,6 @@ export function useContextMenu(options?: {
     // State
     showContextMenu,
     contextSearchQuery,
-    contextSearchInput,
-    contextListRef,
     highlightedContextItem,
     contextTriggerPosition,
     contextMenuPosition,

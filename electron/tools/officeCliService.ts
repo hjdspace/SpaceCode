@@ -39,13 +39,30 @@ export interface OfficeCliWatchHandle {
   id: string
   filePath: string
   port: number
+  /** Empty until the watch server has printed its preview URL. */
   url: string
   process: ChildProcess
+}
+
+export interface OfficeCliScreenshotResult {
+  /** Absolute path of the rendered PNG. */
+  path: string
+  /** Total pages in the document; equals `end` when the count is unavailable. */
+  pageCount: number
+  /** First and last page contained in `path`. */
+  start: number
+  end: number
+  /** Pixel size of `path`; zero when the image is not a readable PNG. */
+  width: number
+  height: number
 }
 
 // ===== Global state =====
 
 const watchProcesses = new Map<string, OfficeCliWatchHandle>()
+
+/** Keeps watch ids unique when several starts land in the same millisecond. */
+let watchIdSeq = 0
 
 // ===== Binary path resolution =====
 
@@ -136,23 +153,123 @@ export function getOfficeCliInstalledBinary(): string {
   return path.join(getOfficeCliInstallDir(), exe)
 }
 
+// ===== User-level copy freshness =====
+
+/** Outcome of reconciling ~/.officecli/bin with the binary this app ships. */
+export interface OfficeCliSyncResult {
+  copied: boolean
+  reason: 'missing' | 'outdated' | 'up-to-date' | 'no-bundle' | 'unknown-version' | 'copy-failed'
+  bundledVersion: string | null
+  installedVersion: string | null
+}
+
+/** Run `<binary> --version` and pull the dotted version out of its output. */
+function readOfficeCliVersion(binaryPath: string): string | null {
+  try {
+    const result = spawnSync(binaryPath, ['--version'], {
+      timeout: 5000,
+      windowsHide: true,
+      encoding: 'utf-8',
+    })
+    if (result.status !== 0 || !result.stdout) return null
+    const match = result.stdout.trim().match(/\d+\.\d+\.\d+/)
+    return match ? match[0] : null
+  } catch {
+    return null
+  }
+}
+
+/** Numeric-segment compare: >0 when `a` outranks `b`. */
+function compareOfficeCliVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+function copyBundledToUserInstall(bundled: string, installed: string): boolean {
+  try {
+    fs.mkdirSync(getOfficeCliInstallDir(), { recursive: true })
+    fs.copyFileSync(bundled, installed)
+    if (process.platform !== 'win32') fs.chmodSync(installed, 0o755)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Reconcile ~/.officecli/bin with the bundled binary.
+ *
+ * That directory is prepended to the CLI child's PATH, so it is the officecli
+ * the agent actually runs. Writing it only when absent pinned every session to
+ * the version from first launch, however far the app moved on: newer bundled
+ * wins now, a user install that outranks the bundle is left alone, and an
+ * unreadable version never triggers a 33 MB rewrite.
+ */
+export function syncInstalledOfficeCli(): OfficeCliSyncResult {
+  const bundled = getOfficeCliBinaryPath()
+  const installed = getOfficeCliInstalledBinary()
+
+  if (!fs.existsSync(bundled)) {
+    return { copied: false, reason: 'no-bundle', bundledVersion: null, installedVersion: null }
+  }
+
+  if (!fs.existsSync(installed)) {
+    const bundledVersion = readOfficeCliVersion(bundled)
+    if (!copyBundledToUserInstall(bundled, installed)) {
+      return { copied: false, reason: 'copy-failed', bundledVersion, installedVersion: null }
+    }
+    return { copied: true, reason: 'missing', bundledVersion, installedVersion: null }
+  }
+
+  const bundledVersion = readOfficeCliVersion(bundled)
+  const installedVersion = readOfficeCliVersion(installed)
+
+  if (!bundledVersion || !installedVersion) {
+    return { copied: false, reason: 'unknown-version', bundledVersion, installedVersion }
+  }
+  if (compareOfficeCliVersions(bundledVersion, installedVersion) <= 0) {
+    return { copied: false, reason: 'up-to-date', bundledVersion, installedVersion }
+  }
+
+  if (!copyBundledToUserInstall(bundled, installed)) {
+    return { copied: false, reason: 'copy-failed', bundledVersion, installedVersion }
+  }
+  return { copied: true, reason: 'outdated', bundledVersion, installedVersion }
+}
+
 // ===== Cross-platform process-tree termination =====
 
 /**
  * Kill a process tree (including children).
  * Windows: taskkill /pid <pid> /T /F (SIGTERM does not kill children)
- * macOS/Linux: process-group kill
+ * macOS/Linux: process-group kill — only valid for children spawned with
+ * `detached`, which makes them a group leader; otherwise the group does not
+ * exist and the signal would be silently lost, so fall back to the pid.
  */
 function killProcessTree(pid: number): void {
   try {
     if (process.platform === 'win32') {
       spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true })
-    } else {
+      return
+    }
+    try {
       process.kill(-pid, 'SIGTERM')
+    } catch {
+      process.kill(pid, 'SIGTERM')
     }
   } catch {
     // process may have already exited
   }
+}
+
+/** Own process group on macOS/Linux so killProcessTree() can reach the tree. */
+function spawnDetached(): boolean {
+  return process.platform !== 'win32'
 }
 
 // ===== Core execution =====
@@ -180,6 +297,7 @@ async function execOfficeCli(options: OfficeCliExecOptions): Promise<OfficeCliEx
       env,
       shell: false,
       windowsHide: true,
+      detached: spawnDetached(),
     })
 
     let stdout = ''
@@ -215,14 +333,99 @@ async function execOfficeCli(options: OfficeCliExecOptions): Promise<OfficeCliEx
   })
 }
 
+// ===== Multi-page screenshot helpers =====
+
+/**
+ * Pages rendered per screenshot call. officecli stacks a page range into ONE
+ * PNG, and a long document would exceed the renderer's per-side texture limit,
+ * so the panel asks for a bounded chunk and repeats it for the next pages.
+ */
+const SCREENSHOT_PAGE_CHUNK = 8
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+/**
+ * How each format reports its total page count. A format missing here has no
+ * countable pages, so it renders exactly one page per call.
+ */
+const PAGE_COUNT_QUERY: Record<string, { args: string[]; key: string }> = {
+  '.pptx': { args: ['stats', '--json'], key: 'slides' },
+  '.docx': { args: ['stats', '--page-count', '--json'], key: 'pages' },
+}
+
+interface OfficeCliStatsPayload {
+  data?: Record<string, unknown>
+}
+
+async function readStatsNumber(
+  filePath: string,
+  args: string[],
+  key: string,
+): Promise<number | null> {
+  try {
+    const result = await execOfficeCli({ args, cwd: path.dirname(filePath), timeout: 30000 })
+    if (result.exitCode !== 0) return null
+    const value = (JSON.parse(result.stdout) as OfficeCliStatsPayload).data?.[key]
+    return typeof value === 'number' && value > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Total pages, or null when the format has no count or the lookup failed —
+ * docx repagination needs Word, so null is a normal outcome, not an error.
+ */
+async function readPageCount(filePath: string): Promise<number | null> {
+  const query = PAGE_COUNT_QUERY[path.extname(filePath).toLowerCase()]
+  if (!query) return null
+  return readStatsNumber(filePath, ['view', filePath, ...query.args], query.key)
+}
+
+function readPngSize(filePath: string): { width: number; height: number } {
+  const unknown = { width: 0, height: 0 }
+  let fd: number | undefined
+  try {
+    const header = Buffer.alloc(26)
+    fd = fs.openSync(filePath, 'r')
+    if (fs.readSync(fd, header, 0, 26, 0) < 26) return unknown
+    if (!header.subarray(0, 8).equals(PNG_SIGNATURE)) return unknown
+    if (header.toString('ascii', 12, 16) !== 'IHDR') return unknown
+    return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) }
+  } catch {
+    return unknown
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd)
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
 // ===== Ensure installed (agent-side PATH) =====
 
 /**
  * Ensure officecli is installed to the user-level PATH (~/.officecli/bin).
- * Idempotent: skips if already installed and version is retrievable.
+ * Idempotent: the bundled copy is (re)written whenever it is newer, so an app
+ * update actually reaches the officecli the agent runs.
  * Call inside app.whenReady(), non-blocking (do not await from the startup path).
  */
 export async function ensureOfficeCliInstalled(): Promise<void> {
+  const sync = syncInstalledOfficeCli()
+  if (sync.copied) {
+    info('OfficeCli', `Installed bundled officecli | reason=${sync.reason} | version=${sync.bundledVersion}`)
+    return
+  }
+  if (sync.reason === 'up-to-date') {
+    debug('OfficeCli', `Already up to date | version=${sync.installedVersion} | path=${getOfficeCliInstalledBinary()}`)
+    return
+  }
+
+  // No bundled binary to copy (or an unreadable version) — ask whichever binary
+  // resolves to install itself, as before.
   const binaryPath = resolveOfficeCliBinary()
 
   // No binary available anywhere — nothing to install
@@ -235,21 +438,6 @@ export async function ensureOfficeCliInstalled(): Promise<void> {
   if (binaryPath === 'officecli' || binaryPath === 'officecli.exe') {
     debug('OfficeCli', 'Using system PATH binary, skipping install')
     return
-  }
-
-  const installedPath = getOfficeCliInstalledBinary()
-
-  // Already installed and executable — skip
-  if (fs.existsSync(installedPath)) {
-    try {
-      const result = await execOfficeCli({ args: ['--version'], timeout: 5000 })
-      if (result.exitCode === 0) {
-        debug('OfficeCli', `Already installed | version=${result.stdout.trim()} | path=${installedPath}`)
-        return
-      }
-    } catch {
-      // version check failed, continue to reinstall
-    }
   }
 
   info('OfficeCli', `Installing | bundled=${binaryPath}`)
@@ -365,26 +553,27 @@ export async function downloadOfficeCliBinary(): Promise<string> {
   const installDir = getOfficeCliInstallDir()
   const installedPath = getOfficeCliInstalledBinary()
 
-  // If already installed and working, skip download
-  if (fs.existsSync(installedPath)) {
-    try {
-      const result = await execOfficeCli({ args: ['--version'], timeout: 5000 })
-      if (result.exitCode === 0) {
-        info('OfficeCli', `Already installed | version=${result.stdout.trim()} | path=${installedPath}`)
-        sendDownloadProgress({ stage: 'done', message: result.stdout.trim(), percent: 100 })
-        return installedPath
-      }
-    } catch {
-      // version check failed, continue to download
-    }
+  // Fetch latest release info
+  sendDownloadProgress({ stage: 'fetching', message: 'Fetching release info...', percent: 0 })
+  const release = (await fetchJson(`${GITHUB_API_URL}/latest`)) as GithubRelease
+  const latestVersion = (release.tag_name || '').replace(/^v/, '')
+
+  // Only a copy that is genuinely current may skip the download. Probing the
+  // resolved binary would report the bundle's version instead of the user
+  // copy's, which made this button a no-op for as long as ~/.officecli/bin
+  // held any runnable file — however stale.
+  const installedVersion = fs.existsSync(installedPath) ? readOfficeCliVersion(installedPath) : null
+  if (installedVersion && latestVersion && compareOfficeCliVersions(latestVersion, installedVersion) <= 0) {
+    info('OfficeCli', `Already up to date | version=${installedVersion} | path=${installedPath}`)
+    sendDownloadProgress({ stage: 'done', message: installedVersion, percent: 100 })
+    return installedPath
+  }
+  if (installedVersion) {
+    info('OfficeCli', `Upgrading user copy | ${installedVersion} → ${latestVersion || 'latest'}`)
   }
 
   // Ensure install directory exists
   fs.mkdirSync(installDir, { recursive: true })
-
-  // Fetch latest release info
-  sendDownloadProgress({ stage: 'fetching', message: 'Fetching release info...', percent: 0 })
-  const release = (await fetchJson(`${GITHUB_API_URL}/latest`)) as GithubRelease
 
   // Find matching asset
   const asset = release.assets?.find((a) => a.name === exeName)
@@ -523,38 +712,46 @@ return resolveOfficeCliBinary() !== null
     return tmpPath
   })
 
-  // Render file as PNG screenshots
-  // NOTE: officecli's -o expects a *file path*, not a directory. Passing a
-  // directory causes officecli to fail with a misleading "No headless browser"
-  // error. We construct a file path inside the caller-provided directory.
-  ipcMain.handle('officecli:viewScreenshot', async (_event, filePath: string, outputDir: string, page?: number): Promise<string[]> => {
+  // Render a chunk of pages as one PNG sheet (pages stacked top-to-bottom).
+  // NOTE: officecli's -o expects a *file path*, not a directory, and always
+  // writes a single file — a page range becomes a vertically stacked sheet,
+  // not one image per page. Passing a directory makes officecli fail with a
+  // misleading "No headless browser" error.
+  ipcMain.handle('officecli:viewScreenshot', async (_event, filePath: string, outputDir: string, start = 1): Promise<OfficeCliScreenshotResult> => {
     // Ensure output directory exists
     fs.mkdirSync(outputDir, { recursive: true })
 
-    const baseName = path.basename(filePath, path.extname(filePath))
-    const pageLabel = page ? `page-${page}` : 'page-1'
-    const outFile = path.join(outputDir, `${baseName}-${pageLabel}.png`)
+    // The range must be settled before rendering: when the page count is
+    // unavailable the sheet has to be a single page, otherwise the panel would
+    // be handed an N-page stack it can only label as page one.
+    const pageCount = await readPageCount(filePath)
+    const last = pageCount === null ? start : Math.min(start + SCREENSHOT_PAGE_CHUNK - 1, pageCount)
 
-    const args = ['view', filePath, 'screenshot', '-o', outFile]
-    if (page) {
-      args.push('--page', String(page))
-    }
-    const result = await execOfficeCli({ args, cwd: path.dirname(filePath), timeout: 60000 })
+    const baseName = path.basename(filePath, path.extname(filePath))
+    const outFile = path.join(outputDir, `${baseName}-pages-${start}-${last}.png`)
+
+    const result = await execOfficeCli({
+      args: ['view', filePath, 'screenshot', '--page', `${start}-${last}`, '-o', outFile],
+      cwd: path.dirname(filePath),
+      timeout: 60000,
+    })
+
     if (result.exitCode !== 0) {
       throw new Error(`Screenshot render failed: ${result.stderr || result.stdout}`)
     }
 
-    // officecli echoes the generated file path in stdout; fall back to our
-    // constructed path if stdout is empty.
-    const generatedPath = result.stdout.trim()
-    const resolvedPath = generatedPath && fs.existsSync(generatedPath)
-      ? generatedPath
-      : (fs.existsSync(outFile) ? outFile : '')
+    // stdout is the generated file path, followed by a "[pages] total=N" note
+    // for pptx — only the first line can be a path.
+    const reported = result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? ''
+    const resolvedPath = [reported, outFile].find((p) => p && fs.existsSync(p)) ?? ''
 
     if (!resolvedPath) {
       throw new Error(`Screenshot produced no output. ${result.stderr || result.stdout}`)
     }
-    return [resolvedPath]
+
+    const { width, height } = readPngSize(resolvedPath)
+
+    return { path: resolvedPath, pageCount: pageCount ?? last, start, end: last, width, height }
   })
 
 // Start watch mode
@@ -586,11 +783,23 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
       cwd: path.dirname(filePath),
       shell: false,
       windowsHide: true,
+      detached: spawnDetached(),
     })
 
+    // 从 spawn 成功那一刻就登记，不等 URL：预览地址可能要等满超时才打印，
+    // 也可能永远不打印，而 watch:stop / stopAll / 退出清理都必须够得着这个进程，
+    // 否则常驻的 watch server 会带着端口活过应用。
+    const id = `watch-${Date.now()}-${++watchIdSeq}`
+    const handle: OfficeCliWatchHandle = {
+      id,
+      filePath,
+      port: port || 26315,
+      url: '',
+      process: child,
+    }
+    watchProcesses.set(id, handle)
+
     return new Promise((resolve, reject) => {
-      const id = `watch-${Date.now()}`
-      let resolvedPort = port || 26315
       let outputBuffer = ''
       let stderrBuffer = ''
       let settled = false
@@ -598,6 +807,7 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
       const timer = setTimeout(() => {
         if (settled) return
         settled = true
+        watchProcesses.delete(id)
         if (child.pid) killProcessTree(child.pid)
         reject(new Error('watch startup timeout'))
       }, 10000)
@@ -607,17 +817,10 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
         const urlMatch = outputBuffer.match(/http:\/\/localhost:(\d+)/)
         if (urlMatch && !settled) {
           settled = true
-          resolvedPort = parseInt(urlMatch[1])
           clearTimeout(timer)
-          const handle: OfficeCliWatchHandle = {
-            id,
-            filePath,
-            port: resolvedPort,
-            url: `http://localhost:${resolvedPort}`,
-            process: child,
-          }
-          watchProcesses.set(id, handle)
-          resolve({ id, filePath, port: resolvedPort, url: handle.url })
+          handle.port = parseInt(urlMatch[1])
+          handle.url = `http://localhost:${handle.port}`
+          resolve({ id, filePath, port: handle.port, url: handle.url })
         }
       })
 
@@ -626,6 +829,7 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
       })
 
       child.on('error', (err: Error) => {
+        watchProcesses.delete(id)
         if (settled) return
         settled = true
         clearTimeout(timer)
@@ -676,11 +880,14 @@ throw new Error('OfficeCLI binary not found. Run `npm run download:officecli` or
 
   // List active watches
   ipcMain.handle('officecli:watch:list', async (): Promise<Array<{ id: string; filePath: string; url: string }>> => {
-    return Array.from(watchProcesses.values()).map(h => ({
-      id: h.id,
-      filePath: h.filePath,
-      url: h.url,
-    }))
+    // url 为空 = 还在启动中，没有可预览的地址，不对外暴露
+    return Array.from(watchProcesses.values())
+      .filter(h => h.url)
+      .map(h => ({
+        id: h.id,
+        filePath: h.filePath,
+        url: h.url,
+      }))
   })
 
   // Read an image file as base64 data URL (bypasses file:// CORS in dev mode)

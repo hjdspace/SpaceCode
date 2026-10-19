@@ -327,4 +327,30 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     expect(previewProps(wrapper)?.previewUrl).toBeFalsy()
     expect(store.previewHtml).toBe('<html><body>mock</body></html>')
   })
+
+  /**
+   * 票 09（原审计第 5 项）的条件渲染那一半：预览组件挂在 `v-else-if="viewMode === 'preview'"`
+   * 上，切到源码就整体卸载。切回来时它是一次全新挂载，没有第二次 watch 触发，所以父层必须
+   * 把 html 与 URL **成对**备好 —— 子组件才能在 onMounted 当场渲染，不再白屏等下一次变更。
+   */
+  it('源码切回预览会重挂载预览组件，且重挂时就拿到成对的 html 与预览 URL', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+    store.designWorkspace = '/workspace'
+
+    const wrapper = mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await vi.waitFor(() => {
+      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    })
+
+    const [previewBtn, sourceBtn] = wrapper.findAll('.ws-toolbar button')
+    await sourceBtn.trigger('click')
+    expect(previewProps(wrapper)).toBeNull()
+
+    await previewBtn.trigger('click')
+    const props = previewProps(wrapper)
+    expect(props?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    expect(props?.html).toBe('<html><body>mock</body></html>')
+  })
 })

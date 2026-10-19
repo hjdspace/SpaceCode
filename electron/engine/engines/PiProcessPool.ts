@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { PiSessionProcess } from './PiSessionProcess'
+import { findPiSessionFile, rememberPiSessionFile } from './piSessionRegistry'
 import type { EngineSessionConfig, EngineSessionStatus, ImageAttachment } from './types'
 import type { ProcessStatus } from '../../session/sessionProcess'
 import { mapPiEvent } from './PiEventMapper'
@@ -11,6 +12,9 @@ import { eventChannelsBySuffix } from '@/shared/channelMap'
 const CLAUDE_CODE_EVENT_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.events, 'claude-code:')
 
 export const MAX_PROCESSES = 20
+
+/** 刚 spawn 的探测可以等多久：pi 装载扩展与模型表就要十几秒，问早了只会白问 */
+const SESSION_FILE_PROBE_TIMEOUT_MS = 30_000
 
 export class PiProcessPool {
   private processes: Map<string, PiSessionProcess> = new Map()
@@ -68,6 +72,9 @@ export class PiProcessPool {
   async startSession(sessionId: string, config: EngineSessionConfig): Promise<void> {
     info('PiProcessPool', `startSession | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd}`)
 
+    // 死条目被驱逐重建时，旧实例问到的会话文件比磁盘记录更新鲜
+    let carryOver: string | null = null
+
     if (this.processes.has(sessionId)) {
       const existing = this.processes.get(sessionId)!
       if (existing.isRunning()) {
@@ -81,13 +88,17 @@ export class PiProcessPool {
       }
       // Dead/exited session entry — drop it so a fresh process can be spawned.
       info('PiProcessPool', `[${sessionId.slice(0, 8)}] Evicting stale session entry | status=${existing.status}`)
+      carryOver = existing.getPiSessionFile()
       this.detachPoolHandlers(sessionId, existing)
       this.processes.delete(sessionId)
     }
 
     this.evictIfNeeded()
 
-    const proc = new PiSessionProcess(sessionId, config)
+    const resumeFile = carryOver ?? findPiSessionFile(sessionId, config.cwd)
+    if (resumeFile) info('PiProcessPool', `[${sessionId.slice(0, 8)}] Resuming Pi history | ${resumeFile}`)
+
+    const proc = new PiSessionProcess(sessionId, config, resumeFile ?? undefined)
     this.processes.set(sessionId, proc)
 
     this.attachPoolHandlers(sessionId, proc)
@@ -95,12 +106,28 @@ export class PiProcessPool {
     try {
       await proc.start()
       info('PiProcessPool', `[${sessionId.slice(0, 8)}] Session started | totalActive=${this.getActiveCount()}`)
+      void this.recordSessionFile(sessionId, proc)
     } catch (err) {
       error('PiProcessPool', `[${sessionId.slice(0, 8)}] Failed to start session`, err)
       this.detachPoolHandlers(sessionId, proc)
       this.processes.delete(sessionId)
       throw err
     }
+  }
+
+  /**
+   * 问一次 pi 它自己的会话文件并记到磁盘。没有这份映射，下次重建进程时
+   * `--session` 就无从拼起，历史会话打开后发一条消息等于重开一个空白会话。
+   *
+   * 已经知道文件（构造时注入的、或挂起前问到的）也要落盘：那份认知此前只活在
+   * 这个实例的内存里，不写出去就还是会在下一次重启时丢掉。
+   */
+  private async recordSessionFile(sessionId: string, proc: PiSessionProcess): Promise<void> {
+    if (!proc.getPiSessionFile()) {
+      await proc.captureSessionFile(SESSION_FILE_PROBE_TIMEOUT_MS)
+    }
+    const sessionFile = proc.getPiSessionFile()
+    if (sessionFile) rememberPiSessionFile(sessionId, sessionFile, proc.config.cwd)
   }
 
   async sendMessage(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
@@ -112,14 +139,17 @@ export class PiProcessPool {
 
     info('PiProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length} | images=${images?.length || 0}`)
     await proc.sendMessage(content, images)
+    // 起进程那趟探测可能赶在 pi 装载完之前就超时了；prompt 被 ack 说明引擎已经
+    // 活过来，这会儿补问一次必定有答。
+    void this.recordSessionFile(sessionId, proc)
   }
 
-  abortSession(sessionId: string): void {
+  async abortSession(sessionId: string): Promise<void> {
     const proc = this.processes.get(sessionId)
     if (!proc) return
 
     info('PiProcessPool', `[${sessionId.slice(0, 8)}] Aborting session`)
-    proc.abort()
+    await proc.abort()
   }
 
   suspendSession(sessionId: string): void {
@@ -146,6 +176,9 @@ export class PiProcessPool {
     try {
       await proc.resume()
       info('PiProcessPool', `[${sessionId.slice(0, 8)}] Session resumed successfully`)
+      // 挂起那趟 get_state 没答上的话，这条会话此刻其实没带 --session —— 补记一次，
+      // 别让下一次重建同样接不上历史。
+      void this.recordSessionFile(sessionId, proc)
     } catch (err) {
       error('PiProcessPool', `[${sessionId.slice(0, 8)}] Failed to resume session`, err)
       throw err

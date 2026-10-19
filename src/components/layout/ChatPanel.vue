@@ -307,6 +307,7 @@ import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 import { initLLMService, llmState } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
+import { resolveModelAliasForEngine } from '@/utils/engineModel'
 import { useChatCommands } from '@/composables/useChatCommands'
 import { useWorkRouter } from '@/composables/useWorkRouter'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
@@ -1127,15 +1128,15 @@ watch(() => paneSession.value?.model, (model) => {
 })
 
 /**
- * 将用户选择的实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
+ * 按引擎解析输入框选择的模型（规则与 chatSession、定时任务同源，见 src/utils/engineModel）。
  *
  * 用户在设置页面配置 haikuModel/sonnetModel/opusModel 为第三方模型名
  * (如 deepseek-v4-flash)。这些值通过 ANTHROPIC_DEFAULT_*_MODEL 环境变量
- * 传递给引擎。引擎的别名解析机制（parseUserSpecifiedModel）会将 `haiku`
- * 别名解析为 getDefaultHaikuModel() 的返回值，即读取对应的环境变量。
+ * 传递给 claude-code 引擎，引擎的别名解析机制（parseUserSpecifiedModel）会把
+ * `haiku` 别名解析为 getDefaultHaikuModel() 的返回值，即读取对应的环境变量。
+ * 直接发送实际模型名给 set_model 会绕过别名解析，导致模型切换不生效。
  *
- * 如果直接发送实际模型名给 set_model，引擎不会通过别名解析机制处理，
- * 可能导致模型切换不生效。
+ * pi 引擎相反：set_model / --model 要的是真实模型 id。
  */
 function resolveModelAlias(modelValue: string): string {
   const getProviderConfig = (): { haikuModel: string; sonnetModel: string; opusModel: string } | null => {
@@ -1146,14 +1147,7 @@ function resolveModelAlias(modelValue: string): string {
       default: return null
     }
   }
-  const providerConfig = getProviderConfig()
-  if (!providerConfig) return modelValue
-
-  if (providerConfig.haikuModel && providerConfig.haikuModel === modelValue) return 'haiku'
-  if (providerConfig.sonnetModel && providerConfig.sonnetModel === modelValue) return 'sonnet'
-  if (providerConfig.opusModel && providerConfig.opusModel === modelValue) return 'opus'
-
-  return modelValue
+  return resolveModelAliasForEngine(modelValue, getProviderConfig(), settingsStore.engineType)
 }
 
 // 处理模型变更 - 通过 setModel control_request 发送到引擎
@@ -1174,12 +1168,8 @@ async function handleModelChange(model: string) {
     // 不应修改全局的 haiku/sonnet/opus 配置。
     // 全局模型配置只在设置页面修改。
 
-    // ★ 将用户选择的实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
-    // 引擎的 set_model control_request 通过别名解析机制（parseUserSpecifiedModel →
-    // getDefaultHaikuModel/getDefaultSonnetModel/getDefaultOpusModel）读取
-    // ANTHROPIC_DEFAULT_*_MODEL 环境变量，正确路由到用户配置的实际模型。
-    // 直接发送实际模型名（如 deepseek-v4-flash）会绕过别名解析，导致引擎
-    // 无法将其与 haiku/sonnet/opus 槽位关联。
+    // ★ 按引擎解析要交给引擎的模型值：claude-code 换成 haiku/sonnet/opus 别名，
+    // 让 set_model 走别名解析路由到用户配置的实际模型；pi 保留真实模型 id。
     const modelAlias = resolveModelAlias(model)
 
     // Store owns both the selected model and the engine update, including

@@ -845,12 +845,15 @@ async function handleOpenFolderPicker() {
   await openProjectFromPicker()
 }
 
-function handleSplitScreen(sessionId: string) {
-  // TODO: Implement split screen functionality
-  // For now, just show a toast notification
-  console.log('[Split Screen] Session:', sessionId)
-  // Could emit an event or call a store method to enable split screen mode
-  window.dispatchEvent(new CustomEvent('split-screen-requested', { detail: { sessionId } }))
+async function handleSplitScreen(sessionId: string) {
+  // 必须在切换会话之前分屏：openSessionPane 要用「切换前」的全局标签固化基准 pane，
+  // 先切换会把两个 pane 绑到同一个会话。
+  const splitLayout = useSplitLayoutStore()
+  splitLayout.openSessionPane(`session-${sessionId}`, {
+    activeCenterTab: appStore.activeCenterTab,
+    currentSessionId: sessionStore.currentSessionId || '',
+  })
+  await handleSelectSession(sessionId)
 }
 
 // 事件处理函数（提升到组件作用域，供 onUnmounted 清理使用）

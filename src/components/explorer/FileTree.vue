@@ -57,6 +57,7 @@
           :highlight-path="highlightPath"
           :expanded-paths="expandedPaths"
           :git-marks="gitMarks"
+          :rename-request="renameRequest"
           @select="handleSelect"
           @toggle="handleToggle"
           @expand-path="handleExpandPath"
@@ -105,6 +106,11 @@ interface TreeNode {
   isRoot?: boolean
 }
 
+/** 下发给节点行的一次行内改名请求（与 FileTreeNode 的同名类型保持一致）。 */
+interface RenameRequest {
+  path: string
+}
+
 interface Props {
   workingDirectory?: string
   highlightPath?: string
@@ -134,6 +140,10 @@ const searchQuery = ref('')
 const expandedPaths = ref<Set<string>>(new Set())
 const abortController = ref<AbortController | null>(null)
 const seekKeyRef = ref<string | null>(null)
+// 一次行内改名请求。右键菜单是单例（不在节点行上），所以「改哪个」只能记在这里再
+// 下发给匹配的节点行。每次请求都换成新对象：常驻的路径状态在节点中途消失时会卡住
+// 不复位，之后对同一路径的请求会被 prop 相等判定吞掉。
+const renameRequest = ref<RenameRequest | null>(null)
 
 // Global Context Menu State (singleton)
 const contextMenuState = reactive({
@@ -372,10 +382,7 @@ function handleAddToChatFromMenu(node: TreeNode) {
 }
 
 function handleRename(node: TreeNode) {
-  // For now, just refresh the tree after rename
-  // TODO: Implement inline rename at FileTree level if needed
-  console.log('[FileTree] Rename requested for:', node.path)
-  refreshTree()
+  renameRequest.value = { path: node.path }
 }
 
 function handleDelete(node: TreeNode) {

@@ -73,7 +73,7 @@ beforeEach(() => {
   previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   previousRemoteDir = process.env.CLAUDE_CODE_REMOTE_MEMORY_DIR
   previousXdgDir = process.env.XDG_CONFIG_HOME
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spacecode-memory-'))
+  configDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'spacecode-memory-')))
   projectsDir = path.join(configDir, 'projects')
   process.env.CLAUDE_CONFIG_DIR = configDir
   delete process.env.CLAUDE_CODE_REMOTE_MEMORY_DIR
@@ -190,6 +190,43 @@ describe('memory:readFile', () => {
     await expect(readFile(projectId, 'notes/manual.txt')).rejects.toThrow('相对路径')
     await expect(readFile(projectId, 'C:/absolute.md')).rejects.toThrow('相对路径')
     await expect(readFile(projectId, 'missing.md')).rejects.toThrow('记忆文件不存在')
+  })
+
+  it('基座目录本身是符号链接时，缺失文件报「不存在」而不是「越界」', async () => {
+    // macOS 默认 TMPDIR 落在 /var/folders（/var → /private/var），Linux 的 /tmp 也常被链接，
+    // Windows 用 junction 构造得出同样的形状。这里把「基座带链接」直接搭出来，
+    // 结论不再取决于本机临时目录长什么样。
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+    const linkedConfigDir = path.join(configDir, 'linked')
+    try {
+      fs.symlinkSync(configDir, linkedConfigDir, linkType)
+    } catch {
+      return
+    }
+    process.env.CLAUDE_CONFIG_DIR = linkedConfigDir
+    const projectId = projectIdFor(linkedConfigDir)
+    const memoryDir = path.join(linkedConfigDir, 'projects', projectId, 'memory')
+    fs.mkdirSync(memoryDir, { recursive: true })
+    fs.mkdirSync(path.join(memoryDir, 'notes'), { recursive: true })
+    fs.writeFileSync(path.join(memoryDir, 'notes', 'manual.md'), '# Manual\n')
+
+    // 报错了地方：文件确实不在，不能因为它没被 realpath 过就判成越界
+    await expect(readFile(projectId, 'missing.md')).rejects.toThrow('记忆文件不存在')
+    // 常规读取不受基座规范化影响
+    await expect(readFile(projectId, 'notes/manual.md')).resolves.toMatchObject({
+      file: { path: 'notes/manual.md' },
+    })
+
+    // 防护没有被削弱：基座带链接时，穿过符号链接读外面依然报越界
+    const outsideDir = path.join(configDir, 'outside')
+    fs.mkdirSync(outsideDir, { recursive: true })
+    fs.writeFileSync(path.join(outsideDir, 'secret.md'), '# secret\n')
+    try {
+      fs.symlinkSync(outsideDir, path.join(memoryDir, 'link'), linkType)
+    } catch {
+      return
+    }
+    await expect(readFile(projectId, 'link/secret.md')).rejects.toThrow('路径越出记忆目录')
   })
 })
 

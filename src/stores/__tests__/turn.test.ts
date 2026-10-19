@@ -99,6 +99,43 @@ describe('Turn engine retry lifecycle', () => {
     await vi.runAllTimersAsync()
   })
 
+  // 引擎（Pi）自己也在为 429 退避重试。应用侧自动重试不等它确认停止就重发，
+  // 那条 prompt 会撞上仍在 streaming 的 run 被引擎整条丢掉 —— 用户看到「发了没反应」。
+  it('auto-retry 重发前先等引擎确认停止', async () => {
+    const fake = makeFakeApi()
+    const order: string[] = []
+    fake.claudeCode.abort = vi.fn(async () => { order.push('abort') })
+    fake.claudeCode.sendMessage = vi.fn((sid: string) => {
+      order.push('send')
+      queueMicrotask(() => fake._handlers.onResult?.({ sessionId: sid, data: {} }))
+      return Promise.resolve(undefined)
+    })
+
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sessionId = 'sess-retry-abort-order'
+    sessionStore.createSession('Test', undefined, sessionId)
+    sessionStore.addMessage({ role: 'user', content: 'go' }, sessionId)
+
+    vi.spyOn(errorHandler, 'classifyError').mockReturnValue({
+      category: ErrorCategory.RATE_LIMIT,
+      title: '请求过于频繁',
+      message: '请求过于频繁',
+      technicalDetail: '429 too many requests',
+      retryable: true,
+      originalError: new Error('429 too many requests'),
+      timestamp: Date.now(),
+    })
+
+    ;(turn as any).beginTurn(sessionId, { isAutonomous: false })
+    fake._handlers.onError?.({ sessionId, data: { message: '429 too many requests' } })
+    await vi.runAllTimersAsync()
+
+    // 最后一次 send 之前必须有一次被 await 的 abort
+    expect(order.slice(-2)).toEqual(['abort', 'send'])
+  })
+
   it('normalizes engine api_retry events and ignores synthetic API error content', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')
@@ -627,6 +664,84 @@ describe('Turn sendMessage', () => {
     } finally {
       ;(turn as any).endTurn('sess-concurrent', existingTs)
     }
+  })
+})
+
+/**
+ * 自动重试期间，handleError 只把 turn 标成 settled 而不 endTurn（重试还要复用同一个
+ * ts）。这条「停在 turnStates 里的 settled turn」必须有人收口 —— 否则 sendMessage 的
+ * 在飞检查会永久吞掉该会话之后的每条消息：用户气泡已经贴上屏幕，引擎却永远收不到，
+ * 表现就是「点了停止之后再发什么都没反应」。
+ */
+describe('Turn 退避中的 auto-retry 不留僵尸 turn', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.useFakeTimers()
+    vi.spyOn(errorHandler, 'classifyError').mockReturnValue({
+      category: ErrorCategory.RATE_LIMIT,
+      title: '请求过于频繁',
+      message: 'API 返回 429 速率限制错误，请稍后重试。',
+      technicalDetail: '429 rpm exhausted',
+      retryable: true,
+      originalError: new Error('429 rpm exhausted'),
+      timestamp: Date.now(),
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('退避期间点停止会收口 parked turn，之后的消息真的送到引擎', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-parked')
+    sessionStore.selectSession('sess-parked')
+
+    // 一轮在飞的 turn 被 429 打断 → handleError 排起自动重试，ts 停在 map 里等退避
+    ;(turn as any).beginTurn('sess-parked', { isAutonomous: false })
+    fake._handlers.onError?.({ sessionId: 'sess-parked', data: { message: '429 rpm exhausted' } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(turn.getIsLoading('sess-parked')).toBe(true)
+
+    await turn.abort()
+    expect(turn.getIsLoading('sess-parked')).toBe(false)
+
+    // 退避到点：重试已被取消，此时若没人收口，这条 turn 会永远挡路
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    fake.claudeCode.sendMessage.mockClear()
+    await turn.sendMessage('继续', undefined, undefined)
+
+    expect(fake.claudeCode.sendMessage).toHaveBeenCalledWith(
+      'sess-parked', '继续', undefined, expect.objectContaining({ clientMessageId: expect.any(String) }),
+    )
+  })
+
+  it('sendMessage 遇到停在 map 里的 settled 僵尸时自行收口，不吞消息', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Test', undefined, 'sess-zombie')
+    sessionStore.selectSession('sess-zombie')
+
+    // 直接摆出 handleError 自动重试分支留下的形状：已 settled，但没被 endTurn
+    const zombie = (turn as any).beginTurn('sess-zombie', { isAutonomous: false })
+    zombie.settled = true
+    let parkedResolved = false
+    zombie.resolve = () => { parkedResolved = true }
+
+    await turn.sendMessage('继续', undefined, undefined)
+
+    expect(fake.claudeCode.sendMessage).toHaveBeenCalledWith(
+      'sess-zombie', '继续', undefined, expect.objectContaining({ clientMessageId: expect.any(String) }),
+    )
+    // 僵尸身上挂着上一次 sendMessage 的 resolve：不叫它就等于让那条 Promise 永远悬着
+    expect(parkedResolved).toBe(true)
   })
 })
 

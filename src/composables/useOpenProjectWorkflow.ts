@@ -4,6 +4,7 @@ import { useChatSessionStore } from '@/stores/chatSession'
 import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/services/electronAPI'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
+import { normalizeAbsolutePath } from '@/utils/normalizePath'
 import { useDialog } from '@/composables/useDialog'
 
 function dispatchSessionCreated() {
@@ -58,20 +59,23 @@ export function useOpenProjectWorkflow() {
     if (!path) return
 
     try {
-      appStore.setProjectRoot(path)
-      recordRecentProjectRoot(path)
-      sessionStore.addProject(path)
-      sessionStore.switchProject(path)
-      syncProjectRootToSettings(path)
+      // 会话记录里的 workingDirectory 是归一化过的，这里若拿原始写法（如 `D:\\AI\\SpaceCode`）
+      // 去比，就永远匹配不上，于是重复建会话、并把未归一化的路径写进 currentProjectRoot。
+      const projectPath = normalizeAbsolutePath(path)
+      appStore.setProjectRoot(projectPath)
+      recordRecentProjectRoot(projectPath)
+      sessionStore.addProject(projectPath)
+      sessionStore.switchProject(projectPath)
+      syncProjectRootToSettings(projectPath)
 
       if (options?.forceNewSession) {
-        const session = sessionStore.createSession(t('common.newChat'), path)
+        const session = sessionStore.createSession(t('common.newChat'), projectPath)
         dispatchSessionCreated()
         return
       }
 
       const inProject = sessionStore.sessions.filter(
-        (s) => (s.workingDirectory || '') === path
+        (s) => (s.workingDirectory || '') === projectPath
       )
       if (inProject.length > 0) {
         const latest = [...inProject].sort(
@@ -79,7 +83,7 @@ export function useOpenProjectWorkflow() {
         )[0]
         sessionStore.selectSession(latest.id)
       } else {
-        const session = sessionStore.createSession(t('common.newChat'), path)
+        const session = sessionStore.createSession(t('common.newChat'), projectPath)
         dispatchSessionCreated()
       }
     } catch (error) {

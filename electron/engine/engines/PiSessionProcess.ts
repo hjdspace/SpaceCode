@@ -13,6 +13,14 @@ import {
   killTree as engineKillTree,
   isProbableBunExecutable as engineIsProbableBunExecutable,
 } from '../../session/engineChildProcess'
+import { toBase64ImagePayload } from '../../session/imageContentBlock'
+
+/** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
+interface PiImageContent {
+  type: 'image'
+  data: string
+  mimeType: string
+}
 
 export class PiSessionProcess extends EventEmitter {
   readonly sessionId: string
@@ -32,11 +40,19 @@ export class PiSessionProcess extends EventEmitter {
   private _requestId: number = 0
   private _pendingRequests: Map<string, { resolve: (response: any) => void; reject: (error: Error) => void }> = new Map()
 
-  constructor(sessionId: string, config: EngineSessionConfig) {
+  /** pi 自己生成的会话文件名：构造时由池注入以接上历史，运行中由 get_state 补记 */
+  private _piSessionFile: string | null
+
+  /**
+   * @param resumeSessionFile 由池按历史记录注入的 pi 会话文件；不传则起一个空白会话。
+   *   走构造参数而不是 config —— config 要跨 IPC，这个路径只该由主进程决定。
+   */
+  constructor(sessionId: string, config: EngineSessionConfig, resumeSessionFile?: string) {
     super()
     this.sessionId = sessionId
     this.config = config
-    debug('PiSessionProcess', `Constructed | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}`)
+    this._piSessionFile = resumeSessionFile ?? null
+    debug('PiSessionProcess', `Constructed | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model}${resumeSessionFile ? ` | resume=${resumeSessionFile}` : ''}`)
   }
 
   async start(): Promise<void> {
@@ -187,12 +203,21 @@ export class PiSessionProcess extends EventEmitter {
 
     info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Sending prompt | contentLen=${content.length} | images=${images?.length || 0}`)
 
-    // 处理图片：保存到临时目录并生成 @-引用
+    // 图片按 pi 的 ImageContent 内联进 prompt 帧。走 `@"路径"` → Read 那条链时，
+    // 非 Anthropic 网关会把 Read 结果里的 image block 整块丢掉，模型只拿到路径拿不到像素。
+    const inlineImages: PiImageContent[] = []
     let imageRefs = ''
     if (images && images.length > 0) {
-      const uploadDir = this.getUploadDir()
+      let uploadDir: string | null = null
       for (const img of images) {
+        const payload = toBase64ImagePayload(img)
+        if (payload) {
+          inlineImages.push({ type: 'image', data: payload.data, mimeType: payload.mediaType })
+          continue
+        }
+        // 内联不了的类型（BMP/SVG/HEIC 等）退回文件路径引用，至少维持原有的可见性
         try {
+          uploadDir ??= this.getUploadDir()
           const savedPath = this.saveImageToTemp(img, uploadDir)
           imageRefs += `@"${savedPath}" `
         } catch (err) {
@@ -206,36 +231,27 @@ export class PiSessionProcess extends EventEmitter {
     if (imageRefs) {
       finalContent = `${imageRefs}${content || 'Please analyze the attached images.'}`.trim()
     }
+    if (inlineImages.length > 0 && !finalContent) {
+      finalContent = 'Please analyze the attached images.'
+    }
 
     try {
-      const id = `req_${++this._requestId}`
-      const command = { id, type: 'prompt', message: finalContent }
-      
-      // Wait for response confirmation
-      const responsePromise = new Promise<any>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          this._pendingRequests.delete(id)
-          reject(new Error('Timeout waiting for prompt response'))
-        }, 30000)
-        
-        this._pendingRequests.set(id, {
-          resolve: (response) => {
-            clearTimeout(timeout)
-            resolve(response)
-          },
-          reject: (error) => {
-            clearTimeout(timeout)
-            reject(error)
-          }
-        })
-      })
-      
-      const message = JSON.stringify(command) + '\n'
-      this._process.stdin?.write(message)
-      
-      // Wait for response
-      const response = await responsePromise
-      
+      const response = await this.rpcRequest(
+        this._process,
+        {
+          type: 'prompt',
+          message: finalContent,
+          // Pi 在 run 进行中收到不带该字段的 prompt 帧会直接抛
+          // "Agent is already processing..."，这条消息就被引擎丢掉了 —— 而宿主此时
+          // 往往已经因为一次 429 结算了 turn，两边对「引擎是否在跑」的判断并不一致。
+          // followUp 让引擎排到当前 run 之后再执行；引擎空闲时该字段被忽略。
+          streamingBehavior: 'followUp',
+          ...(inlineImages.length > 0 ? { images: inlineImages } : {}),
+        },
+        30000,
+        'Timeout waiting for prompt response',
+      )
+
       if (!response.success) {
         this.status = 'idle'
         this._isProcessing = false
@@ -297,23 +313,88 @@ export class PiSessionProcess extends EventEmitter {
 
     info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Aborting current operation`)
     try {
-      const message = JSON.stringify({ type: 'abort' }) + '\n'
-      this._process.stdin?.write(message)
+      // 等 ack 而不是写完就算停：pi 的 session.abort() 内部 await waitForIdle()，
+      // acked 才代表这一轮真的一次性收尾了。自动重试靠它在重发前串行，
+      // 否则重发会撞上还在拆解的 run。超时与进程退出只告警，维持尽力而为的语义。
+      await this.rpcRequest(this._process, { type: 'abort' }, 10_000, 'Timeout waiting for abort response')
     } catch (err) {
       warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Abort failed`, err)
     }
   }
 
   async setThinkingLevel(level: string): Promise<void> {
-    if (!this._process) return
+    if (!this._process) {
+      // 子进程已经没了：这条设置谁都收不到。静默 return 会让上层以为"已下发"，
+      // 界面就停在一个从没生效的开关上。
+      throw new Error(`Pi session ${this.sessionId.slice(0, 8)} has no running process to apply thinking level`)
+    }
 
     info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Setting thinking level | level=${level}`)
     try {
       const message = JSON.stringify({ type: 'set_thinking_level', level }) + '\n'
       this._process.stdin?.write(message)
     } catch (err) {
-      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Set thinking level failed`, err)
+      // 写不进去就是没生效，别降级成 warn 冒充成功。
+      throw new Error(`Failed to write set_thinking_level to pi: ${err instanceof Error ? err.message : String(err)}`)
     }
+  }
+
+  /**
+   * 写一帧 RPC 并按 id 等它的 response。进程在等待期间退出时由 exit 处理器统一 reject。
+   */
+  private rpcRequest(
+    proc: ChildProcess,
+    command: Record<string, unknown>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ): Promise<any> {
+    const id = `req_${++this._requestId}`
+    return new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingRequests.delete(id)
+        reject(new Error(timeoutMessage))
+      }, timeoutMs)
+
+      this._pendingRequests.set(id, {
+        resolve: (response) => {
+          clearTimeout(timer)
+          resolve(response)
+        },
+        reject: (err) => {
+          clearTimeout(timer)
+          reject(err)
+        },
+      })
+
+      proc.stdin?.write(JSON.stringify({ id, ...command }) + '\n')
+    })
+  }
+
+  /**
+   * 向在飞的进程要一次 get_state 并记下它的会话文件。
+   * 拿不到不影响本轮，只是恢复时退回到「新会话」——不阻塞挂起。
+   *
+   * 超时由调用方定：挂起路径要快，进程刚起来那次的探测可以等久一些 ——
+   * pi 装载扩展与模型表可能就要十几秒，这一趟问早了只会白问。
+   */
+  async captureSessionFile(timeoutMs = 3000): Promise<void> {
+    if (!this._process) return
+    try {
+      const response = await this.rpcRequest(this._process, { type: 'get_state' }, timeoutMs, 'Timeout waiting for session state')
+      const sessionFile = response?.data?.sessionFile
+      if (response?.success && typeof sessionFile === 'string' && sessionFile) {
+        this._piSessionFile = sessionFile
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Recorded Pi session file | ${sessionFile}`)
+      } else {
+        warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] get_state returned no sessionFile | success=${response?.success}`)
+      }
+    } catch (err) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to capture Pi session file`, err)
+    }
+  }
+
+  getPiSessionFile(): string | null {
+    return this._piSessionFile
   }
 
   async suspend(): Promise<void> {
@@ -321,8 +402,12 @@ export class PiSessionProcess extends EventEmitter {
 
     info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Suspending | pendingTools=${this._pendingToolCalls.size}`)
 
+    // 状态先行置位：suspend 在池里是 fire-and-forget，多等一次 get_state 期间
+    // 不能让别人把这条会话当成还在跑的进程复用掉。
     this.status = 'suspended'
-    this._process.stdin?.end()
+    const proc = this._process
+    await this.captureSessionFile()
+    proc.stdin?.end()
     this._process = null
   }
 
@@ -674,6 +759,26 @@ export class PiSessionProcess extends EventEmitter {
     return true
   }
 
+  /** 用户没给某个模型配窗口时，沿用 pi 自己在 models.json 里用的默认值。 */
+  private static readonly DEFAULT_CONTEXT_WINDOW = 128000
+
+  /**
+   * 用户在模型设置里为该模型配的上下文窗口（token 数）。
+   *
+   * `modelContextWindows` 以实际模型名（如 kimi-k3）为键，chatSession 会按别名再补一份
+   * 同值键；pi 的 config.model 是真名，所以先按注册用的 modelId（去掉 provider 前缀）查，
+   * 再按原始 config.model 查，都查不到才退回 pi 的默认。
+   */
+  private resolveContextWindow(modelId: string): number {
+    const windows = this.config.modelContextWindows
+    if (!windows) return PiSessionProcess.DEFAULT_CONTEXT_WINDOW
+    for (const key of [modelId, this.config.model]) {
+      const value = key ? windows[key] : undefined
+      if (typeof value === 'number' && value > 0) return value
+    }
+    return PiSessionProcess.DEFAULT_CONTEXT_WINDOW
+  }
+
   /**
    * Write a models.json override so Pi CLI can use custom OpenAI-compatible
    * endpoints.
@@ -732,8 +837,8 @@ export class PiSessionProcess extends EventEmitter {
             id: modelId,
             name: modelId,
             reasoning: false,
-            input: ['text'],
-            contextWindow: 128000,
+            input: ['text', 'image'],
+            contextWindow: this.resolveContextWindow(modelId),
             maxTokens: 16384,
           })
         }
@@ -787,6 +892,8 @@ export class PiSessionProcess extends EventEmitter {
     }
     if (this.config.apiKey) args.push('--api-key', this.config.apiKey)
     if (this.config.thinkingEnabled) args.push('--thinking', 'medium')
+    // 带上 pi 自己的会话文件，否则新进程起来就是一个没有历史的新会话
+    if (this._piSessionFile) args.push('--session', this._piSessionFile)
     if (this.config.systemPrompt) args.push('--system-prompt', this.config.systemPrompt)
     if (this.config.appendSystemPrompt) args.push('--append-system-prompt', this.config.appendSystemPrompt)
 

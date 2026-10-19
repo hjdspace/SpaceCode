@@ -2,6 +2,7 @@
 @use './mixins';
 @use './fonts';
 @use './settings-base';
+@use './onboarding';
 
 *,
 *::before,
@@ -260,6 +261,25 @@ h6 { font-size: 0.75rem; }
     visibility: visible;
     transform: translateX(-50%) translateY(-8px);
   }
+}
+
+/* vHint 指令挂载到 body 的气泡（src/components/common/vHint.ts） */
+.app-hint-bubble {
+  position: fixed;
+  z-index: 2000;
+  max-width: 300px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: var(--leading-normal);
+  white-space: pre-line;
+  pointer-events: none;
+  user-select: none;
 }
 
 .visually-hidden {

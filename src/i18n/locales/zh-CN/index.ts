@@ -66,6 +66,7 @@ import skillManagerV2 from './skillManagerV2'
 import memorySettings from './memorySettings'
 import selectionActions from './selectionActions'
 import sideTask from './sideTask'
+import onboarding from './onboarding'
 
 export default {
   common,
@@ -136,4 +137,5 @@ export default {
   memorySettings,
   selectionActions,
   sideTask,
+  onboarding,
 }

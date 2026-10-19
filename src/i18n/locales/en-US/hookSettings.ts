@@ -23,6 +23,8 @@ export default {
   allTypes: 'All Types',
   confirmDelete: 'Confirm Delete',
   confirmDeleteDesc: 'This will remove the hook from the configuration file. Continue?',
+  noProjectRoot: 'No project is open, so project / local hook settings cannot be read or written',
+  persistFailed: 'Hook settings were not written. Check that a project is open and its folder still exists.',
   hookName: 'Hook Name',
   hookNamePlaceholder: 'e.g. Auto Format',
   eventType: 'Event Type',

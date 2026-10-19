@@ -689,28 +689,35 @@ describe('筛选器 setter', () => {
 // ── init / loadOverview / refresh ──────────────────────────────────
 
 describe('init', () => {
-  it('按 bootstrap → init → getOverview 的顺序初始化并置位 initialized', async () => {
+  it('通过一次 init IPC 初始化并置位 initialized（不再先 bootstrap、再 getOverview）', async () => {
     const store = useSkillManagerStore()
     await store.init()
-    await flushBackground()
 
-    expect(sm.bootstrap).toHaveBeenCalledTimes(1)
+    // 主流程只发一次 init IPC；bootstrap 不再被调用（getOverview 由后台链路负责，
+    // 「主流程不发 getOverview」由下面 api-gone 用例钉住）
     expect(sm.init).toHaveBeenCalledTimes(1)
+    expect(sm.bootstrap).not.toHaveBeenCalled()
     expect(store.overview).not.toBeNull()
     expect(store.settings).toEqual(SETTINGS)
     expect(store.initialized).toBe(true)
     expect(store.loading).toBe(false)
     expect(store.error).toBeNull()
+
+    await flushBackground()
   })
 
-  it('sm.init() 的返回值被丢弃，overview 只来自 getOverview()', async () => {
+  it('overview 与 settings 直接来自 sm.init() 的返回值', async () => {
     const store = useSkillManagerStore()
+    // 后台链路（refresh → loadOverview）会在微任务里写回 overview，全部 arm 成空 skills
+    // 才能隔离出「store.skills 只反映 sm.init() 的返回值」这一断言
     sm.init.mockResolvedValue(overview({ skills: [] }))
+    sm.getOverview.mockResolvedValue(overview({ skills: [] }))
+    sm.refresh.mockResolvedValue(overview({ skills: [] }))
 
     await store.init()
+    await flushBackground()
 
-    expect(store.skills).toHaveLength(4)
-    expect(sm.getOverview.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(store.skills).toHaveLength(0)
   })
 
   it('initialized 之后重复调用不再发 IPC', async () => {
@@ -729,11 +736,11 @@ describe('init', () => {
     const store = useSkillManagerStore()
     await store.init()
     await flushBackground()
-    sm.bootstrap.mockClear()
+    sm.init.mockClear()
 
     await store.init(true)
 
-    expect(sm.bootstrap).toHaveBeenCalledTimes(1)
+    expect(sm.init).toHaveBeenCalledTimes(1)
   })
 
   it('api 缺失时写入固定文案并留在未初始化状态', async () => {
@@ -748,13 +755,13 @@ describe('init', () => {
     })
   })
 
-  it('bootstrap 抛错时记录 message、复位 loading、不置位 initialized', async () => {
+  it('init IPC 抛错时记录 message、复位 loading、不置位 initialized', async () => {
     const store = useSkillManagerStore()
-    sm.bootstrap.mockRejectedValue(new Error('bootstrap failed'))
+    sm.init.mockRejectedValue(new Error('init failed'))
 
     await store.init()
 
-    expect(store.error).toBe('bootstrap failed')
+    expect(store.error).toBe('init failed')
     expect(store.initialized).toBe(false)
     expect(store.loading).toBe(false)
   })
@@ -766,18 +773,6 @@ describe('init', () => {
     await store.init()
 
     expect(store.error).toBe('plain string')
-  })
-
-  it('loadOverview 失败被吞掉：init 仍标记 initialized', async () => {
-    const store = useSkillManagerStore()
-    sm.getOverview.mockRejectedValue(new Error('overview unavailable'))
-
-    await store.init()
-
-    expect(store.error).toBe('overview unavailable')
-    expect(store.initialized).toBe(true)
-    expect(store.overview).toBeNull()
-    expect(store.loading).toBe(false)
   })
 })
 
@@ -884,7 +879,8 @@ describe('后台刷新（经由 init / refresh 触发）', () => {
     await flushBackground()
 
     expect(sm.refresh).toHaveBeenCalledTimes(1)
-    expect(sm.getOverview).toHaveBeenCalledTimes(2)
+    // init 主流程直接采纳 sm.init() 的返回值，getOverview 只由后台链路调用一次
+    expect(sm.getOverview).toHaveBeenCalledTimes(1)
     expect(sm.listAgentSkillInventory).toHaveBeenCalledTimes(1)
     expect(store.agentInventory.map((a) => a.agentId)).toEqual(['codex'])
     expect(store.agentInventoryLoading).toBe(false)
@@ -914,15 +910,17 @@ describe('后台刷新（经由 init / refresh 触发）', () => {
     expect(store.agents.map((a) => a.id)).toEqual(['codex'])
   })
 
-  it('overview 仍为 null 时版本探测结果被丢弃', async () => {
+  it('init 失败时 overview 保持 null，后台探测与全量扫描均不执行', async () => {
     const store = useSkillManagerStore()
-    sm.getOverview.mockRejectedValue(new Error('overview unavailable'))
+    sm.init.mockRejectedValue(new Error('overview unavailable'))
 
     await store.init()
     await flushBackground()
 
     expect(store.overview).toBeNull()
     expect(store.agents).toEqual([])
+    expect(sm.refreshAgentVersions).not.toHaveBeenCalled()
+    expect(sm.refresh).not.toHaveBeenCalled()
   })
 
   it('refreshAgentInventoryInBackground 的 refresh 失败被吞掉，不再重拉 overview', async () => {
@@ -933,7 +931,8 @@ describe('后台刷新（经由 init / refresh 触发）', () => {
     await flushBackground()
 
     expect(store.error).toBeNull()
-    expect(sm.getOverview).toHaveBeenCalledTimes(1)
+    // init 主流程不再调 getOverview，后台 refresh 失败后 loadOverview 也不会跑
+    expect(sm.getOverview).not.toHaveBeenCalled()
     expect(sm.listAgentSkillInventory).not.toHaveBeenCalled()
     expect(store.agentInventory).toEqual([])
   })
@@ -990,7 +989,8 @@ describe('后台刷新（经由 init / refresh 触发）', () => {
   it('init 主流程结束后 api 消失时，后台全量扫描跳过且不发 IPC', async () => {
     const store = useSkillManagerStore()
 
-    await withApiGoneAfterReads(3, async () => {
+    // 存活额度 2：init 主流程读 1 次，后台版本探测读 1 次；全量扫描再读时 api 已消失
+    await withApiGoneAfterReads(2, async () => {
       await store.init()
     })
     await flushBackground()
@@ -998,8 +998,9 @@ describe('后台刷新（经由 init / refresh 触发）', () => {
     expect(store.initialized).toBe(true)
     expect(store.error).toBeNull()
     expect(store.loading).toBe(false)
-    expect(sm.bootstrap).toHaveBeenCalledTimes(1)
-    expect(sm.getOverview).toHaveBeenCalledTimes(1)
+    expect(sm.init).toHaveBeenCalledTimes(1)
+    expect(sm.bootstrap).not.toHaveBeenCalled()
+    expect(sm.getOverview).not.toHaveBeenCalled()
     expect(sm.refreshAgentVersions).toHaveBeenCalledTimes(1)
     expect(sm.refresh).not.toHaveBeenCalled()
     expect(sm.listAgentSkillInventory).not.toHaveBeenCalled()

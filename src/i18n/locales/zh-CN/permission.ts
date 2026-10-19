@@ -10,6 +10,17 @@ export default {
     bypassPermissions: '完全信任 ⚠️',
     bypassPermissionsDesc: '所有操作自动放行',
   },
+  bypassDialog: {
+    title: '允许 SpaceCode 使用完全信任？',
+    lede: '开启后，SpaceCode 可以在当前设备上直接执行高权限操作，包括文件处理、命令执行和联网访问。主要范围包括：',
+    files: '文件和文件夹',
+    filesDesc: '查看、新建、更新、上传或移除设备上的文件与文件夹',
+    commands: '终端命令',
+    commandsDesc: '执行终端命令、安装依赖，并调整必要的系统配置',
+    network: '互联网和已连接的应用',
+    networkDesc: '打开网页、传输数据，并调用你已启用的插件或连接应用',
+    caution: '请只在信任当前任务和上下文时开启；该权限可能增加敏感数据暴露、误操作或提示注入风险，可随时关闭。',
+  },
   card: {
     toolNames: {
       Edit: '编辑文件',

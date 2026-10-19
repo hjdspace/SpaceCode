@@ -8,6 +8,7 @@ import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { findUserMessageForCheckpoint, getCompletedTurnTargets } from '@/utils/turnCheckpointUtils'
+import { resolveModelAliasForEngine } from '@/utils/engineModel'
 import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
 import { api } from '@/services/electronAPI'
 import { errorHandler } from '@/services/errorHandler'
@@ -490,8 +491,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   const pendingInputText = ref<string>('')
 
   /**
-   * 对账后端 permission mode 与用户偏好：若不一致则下发用户偏好。
+   * 对账后端 permission mode 与**该会话自己**的模式：若不一致则下发会话模式。
    * 统一了 initClaudeCodeSession / selectSession / activateSession 三处的对账逻辑。
+   *
+   * 口径刻意不是「全局偏好」：多会话并发时，在会话 B 里切模式不得改写会话 A 正在跑的
+   * 模式（那会把 A 的实现中轮次推进 plan 模式，或反向把 A 提升到完全信任）。
    *
    * status.permissionMode 是宿主记下的**意图**，不代表引擎真跑在这个模式上 ——
    * 引擎在 system/init 里回报过不符（permissionModeVerified === false）时，即便意图
@@ -506,11 +510,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (!status?.permissionMode) return
     const { usePermissionPolicyStore } = await import('./permissionPolicy')
     const policyStore = usePermissionPolicyStore()
-    if (status.permissionMode === policyStore.currentPermissionMode && status.permissionModeVerified !== false) return
+    const intent = policyStore.getPermissionMode(sessionId)
+    if (status.permissionMode === intent && status.permissionModeVerified !== false) return
     try {
-      await api.claudeCode?.setPermissionMode?.(sessionId, policyStore.currentPermissionMode)
+      await api.claudeCode?.setPermissionMode?.(sessionId, intent)
     } catch (e) {
-      logger.warn('ChatStore', `${callerName}: failed to apply preferred mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
+      logger.warn('ChatStore', `${callerName}: failed to apply session mode | id=${sessionId.slice(0, 8)}`, { error: String(e) })
     }
   }
 
@@ -573,6 +578,18 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
   function getWorkingDirectory(sessionId: string | null | undefined): string {
     return getSession(sessionId)?.workingDirectory || currentProjectRoot.value || ''
+  }
+
+  /**
+   * 会话的工作目录只在它还是空会话时可换。引擎的 JSONL 按项目目录存放
+   * （~/.claude/projects/&lt;sanitized-cwd&gt;/&lt;sessionId&gt;.jsonl），一旦有过消息，
+   * 历史记录就落在旧项目目录下，换目录等于把会话挪到引擎找不到的项目里 —— 丢上下文。
+   * 尚未创建会话（sid 为空或查不到）算可换：那就是新会话。
+   */
+  function canSwitchWorkingDirectory(sessionId: string | null | undefined): boolean {
+    const session = getSession(sessionId)
+    if (!session) return true
+    return session.messages.length === 0
   }
 
   function getTeamContext(sessionId: string | null | undefined) {
@@ -860,7 +877,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
     try {
       const config = settingsStore.config
-      const cwd = overrides?.cwd || session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
+      // 归一化后同时用于 spawn cwd 与会话记录：两侧必须是同一个字符串，
+      // 否则引擎按 raw cwd 建项目目录、历史记录却按另一种写法找。
+      const cwd = normalizeAbsolutePath(
+        overrides?.cwd || session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
+      )
       const appliedAgent = overrides?.agent || currentAgent.value || undefined
 
       // ★ 模型别名解析：将实际模型名映射为 claude-code 的 haiku/sonnet/opus 别名。
@@ -888,7 +909,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       session.processStatus = 'starting'
       saveToStorage()
 
-      // 延迟导入获取 currentPermissionMode
+      // 延迟导入获取本会话的权限模式
       const { usePermissionPolicyStore } = await import('./permissionPolicy')
       const policyStore = usePermissionPolicyStore()
 
@@ -916,7 +937,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         provider: config.provider,
         model: effectiveModel,
         effortLevel: config.effortLevel,
-        permissionMode: policyStore.currentPermissionMode,
+        permissionMode: policyStore.getPermissionMode(sessionId),
         agent: appliedAgent,
         thinkingEnabled: settingsStore.thinkingEnabled,
         engineType: desiredEngine,
@@ -935,6 +956,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       session.engineSource = settingsStore.engineSource
       session.provider = config.provider
       session.baseUrl = config.baseUrl || ''
+      // cwd 不在启动配置对账范围内，调用方（设计切换工作目录）只能显式传 overrides.cwd。
+      // 而 init 的 cwd 兜底链、selectSession 恢复项目根、JSONL 历史与产物扫描都以
+      // session.workingDirectory 为准 —— 引擎起来后必须把它对齐到实际 cwd，
+      // 否则下一次不带 cwd 的 init（换模型、崩溃自动重启、重启恢复）会把引擎拉回旧目录。
+      // 兜底链算出的 cwd（api.getCwd() / '/'）不回写：那是进程工作目录而非用户选择。
+      if (overrides?.cwd) session.workingDirectory = cwd
       session.startupFingerprint = buildStartupFingerprint({
         systemPrompt: overrides?.systemPrompt,
         agent: appliedAgent,
@@ -1958,22 +1985,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
 
   /**
-   * 将实际模型名映射回 claude-code 的别名 (haiku/sonnet/opus)。
+   * 按引擎解析要交给 config.model 的值：claude-code 把实际模型名映射回别名
+   * (haiku/sonnet/opus)，pi 保留真名。规则见 src/utils/engineModel，与定时任务同源。
    *
-   * config.model 总是 sonnetModel 的值（如 deepseek-v4-pro）。
-   * 引擎的 --model 参数需要别名（如 'sonnet'）才能通过 parseUserSpecifiedModel
-   * 解析到 ANTHROPIC_DEFAULT_SONNET_MODEL 环境变量配置的实际模型。
+   * claude-code 的 --model 参数和 set_model control_request 都靠别名解析机制
+   * （parseUserSpecifiedModel → getDefault*Model）读 ANTHROPIC_DEFAULT_*_MODEL
+   * 环境变量路由到用户配置的实际模型；直接传实际模型名会绕过此机制。
    */
   function resolveModelAliasFromConfig(modelValue: string | undefined): string | undefined {
     if (!modelValue) return undefined
-    const providerConfig = getActiveProviderSlotConfig()
-    if (!providerConfig) return modelValue
-
-    if (providerConfig.haikuModel && providerConfig.haikuModel === modelValue) return 'haiku'
-    if (providerConfig.sonnetModel && providerConfig.sonnetModel === modelValue) return 'sonnet'
-    if (providerConfig.opusModel && providerConfig.opusModel === modelValue) return 'opus'
-
-    return modelValue
+    return resolveModelAliasForEngine(modelValue, getActiveProviderSlotConfig(), settingsStore.engineType)
   }
 
   /** 当前 authMethod 对应的 haiku/sonnet/opus 槽位配置 */
@@ -2135,12 +2156,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     session.assistantId = assistant.name
     saveToStorage()
 
-    // 模式要在 createSession 之后下发: 那时 currentSessionId 才指向新会话. 否则控制请求
-    // 打到上一个会话的进程上, 超时后 permissionPolicy 还会把 UI 模式回滚.
+    // 助手自带的权限模式落在新会话自己身上（不再依赖 currentSessionId）。
     if (assistant.permission) {
       const { usePermissionPolicyStore } = await import('./permissionPolicy')
       const policyStore = usePermissionPolicyStore()
-      await policyStore.setPermissionMode(assistant.permission as any)
+      await policyStore.setPermissionMode(session.id, assistant.permission as any)
     }
 
     // 不在此处立即展开 Artifacts 面板：用户尚未发送消息、LLM 尚未生成产物。
@@ -2212,6 +2232,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     // 绑定助手到当前会话
     session.assistantId = assistant.name
     session.title = assistant.name
+    // 上面的技能是按 cwd 装进产物区的，会话目录必须跟着走 —— 否则引擎仍在旧目录里
+    // 找不到它们。只在会话仍可换目录时回写（调用方只在空会话上暴露换助手）。
+    if (cwd && canSwitchWorkingDirectory(session.id)) {
+      session.workingDirectory = normalizeAbsolutePath(cwd)
+    }
     saveToStorage()
 
     // 换助手等于换 --agent, 旧进程必须停掉. 不再就地重启: 与
@@ -2231,7 +2256,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (assistant.permission) {
       const { usePermissionPolicyStore } = await import('./permissionPolicy')
       const policyStore = usePermissionPolicyStore()
-      await policyStore.setPermissionMode(assistant.permission as any)
+      await policyStore.setPermissionMode(session.id, assistant.permission as any)
     }
   }
 
@@ -2259,6 +2284,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     getSessionMessages,
     getDisplayMessages,
     getWorkingDirectory,
+    canSwitchWorkingDirectory,
     getTeamContext,
     getViewedAgentTaskId,
     getViewedTeammate,

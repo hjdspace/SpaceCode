@@ -21,7 +21,7 @@
           <div class="file-sub">{{ formatSize(f.size) }} · {{ f.ext.toUpperCase() || 'FILE' }}</div>
         </div>
         <div class="file-actions">
-          <button class="act-btn" :title="t('artifacts.open')" @click.stop="openArtifact(f)">
+          <button class="act-btn" :title="t('artifacts.openExternal')" @click.stop="openExternally(f)">
             <ExternalLink :size="13" />
           </button>
           <button class="act-btn" :title="t('artifacts.reveal')" @click.stop="reveal(f)">
@@ -37,6 +37,7 @@
 import { useI18n } from 'vue-i18n'
 import { PackageCheck, ExternalLink, FolderOpen } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
+import { useDialog } from '@/composables/useDialog'
 import { api } from '@/services/electronAPI'
 import { iconFor, formatSize, isHtmlPreviewPath, isOfficePreviewPath } from '@/utils/artifactFormat'
 import type { ArtifactSummaryEntry } from '@/types'
@@ -47,7 +48,9 @@ defineProps<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showAlert } = useDialog()
 
+/** 行内点击：office/html 走应用内预览，其余交回系统默认程序 */
 function openArtifact(f: ArtifactSummaryEntry) {
   if (isOfficePreviewPath(f.path)) {
     appStore.openOfficePreview(f.path)
@@ -57,7 +60,20 @@ function openArtifact(f: ArtifactSummaryEntry) {
     appStore.openFileInWebview(f.path)
     return
   }
-  void api.artifacts.open(f.path)
+  void openExternally(f)
+}
+
+/** 「外部打开」按钮：调用系统关联程序（shell.openPath），失败必须让用户看见 */
+async function openExternally(f: ArtifactSummaryEntry) {
+  try {
+    const result = await api.artifacts.open(f.path)
+    if (!result.success) {
+      await showAlert(result.error ? `${t('artifacts.openFailed')}: ${result.error}` : t('artifacts.openFailed'))
+    }
+  } catch (err) {
+    console.error('[Artifacts] open failed:', err)
+    await showAlert(t('artifacts.openFailed'))
+  }
 }
 
 async function reveal(f: ArtifactSummaryEntry) {

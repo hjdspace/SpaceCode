@@ -432,8 +432,8 @@ export class H5Server {
 
       case '/api/session/thinking-level':
         if (!this.requireSessionId(res, sessionId)) return
-        await engineGateway.updateThinkingLevel(sessionId, Boolean(body.enabled))
-        this.sendJson(res, 200, { ok: true })
+        // timing 要带回：渲染层靠它决定提示，失败则原样抛给外层 catch 出 500（不能回 ok:true）。
+        this.sendJson(res, 200, { ok: true, timing: await engineGateway.updateThinkingLevel(sessionId, Boolean(body.enabled)) })
         return
 
       // ── 查询 ──

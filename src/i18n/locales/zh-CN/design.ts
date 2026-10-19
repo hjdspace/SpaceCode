@@ -82,6 +82,9 @@ export default {
     replace: '更换目录',
     recent: '最近使用的目录',
     recentEmpty: '暂无最近使用的目录',
+    switchFailed: '工作目录切换失败',
+    switchFailedDesc: '未能在 {path} 重启会话，已回到原工作目录',
+    locked: '当前会话已锁定工作区，无法切换。如需使用其他工作区，请新建会话。',
   },
   linkMenu: {
     designSystem: '插入设计系统上下文',

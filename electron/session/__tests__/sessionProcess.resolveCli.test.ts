@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import { SessionProcess, type SessionConfig } from '../sessionProcess'
 
 /**
@@ -9,7 +10,8 @@ import { SessionProcess, type SessionConfig } from '../sessionProcess'
  * source tree via bun — and a wrong pick here is an instant ENOENT at launch.
  *
  * The precedence the code implements (and that must not regress):
- *   1. installed CLI path wins outright when the caller supplied one
+ *   1. installed CLI path wins outright when the caller supplied one — on Windows a
+ *      `.cmd` shim is first swapped for the native exe it forwards to
  *   2. in dev, `bun run … src/entrypoints/cli.tsx` with macro defines, feature
  *      flags and an optional preload/.env
  *   3. packaged: the single-file `dist-desktop/cli.js` bundle, preferring the
@@ -26,7 +28,7 @@ vi.mock('fs', () => ({
   existsSync: (p: unknown) => exists.has(norm(String(p))),
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
-  readFileSync: () => '{}',
+  readFileSync: (p: unknown) => contents.get(norm(String(p))) ?? '{}',
   readdirSync: () => [],
   realpathSync: (p: unknown) => String(p),
   statSync: () => ({ isFile: () => true, size: 1_000_000 }),
@@ -55,9 +57,8 @@ vi.mock('../../infra/proxyManager', () => ({
 }))
 vi.mock('../../tools/mcpConfigStore', () => ({ buildEnabledMcpConfig: vi.fn(() => null) }))
 vi.mock('../../tools/officeCliService', () => ({
-  getOfficeCliBinaryPath: vi.fn(() => '/bundle/officecli'),
-  getOfficeCliInstalledBinary: vi.fn(() => '/office/bin/officecli'),
   getOfficeCliInstallDir: vi.fn(() => '/office/bin'),
+  syncInstalledOfficeCli: vi.fn(() => ({ copied: false, reason: 'up-to-date', bundledVersion: null, installedVersion: null })),
 }))
 vi.mock('../../tools/rtkManager', () => ({
   rtkManager: { isBinaryInstalled: vi.fn(() => false), getBinaryDir: vi.fn(() => '/rtk/bin') },
@@ -72,6 +73,8 @@ vi.mock('../engineChildProcess', () => ({
 
 const norm = (p: string) => p.replace(/\\/g, '/')
 const exists = new Set<string>()
+const contents = new Map<string, string>()
+const originalPlatform = process.platform
 
 const SRC = norm(path.join('/engine-root', 'src/entrypoints/cli.tsx'))
 const PRELOAD = norm(path.join('/engine-root', 'preload.ts'))
@@ -88,15 +91,21 @@ function resolve(): { command: string; args: string[]; launcherEnv?: Record<stri
   }
 }
 
+const enabledFeatures = (args: string[]) =>
+  args.filter((_, i) => args[i - 1] === '--feature')
+
 beforeEach(() => {
   vi.clearAllMocks()
   exists.clear()
+  contents.clear()
   runtime.isPackaged = false
   bun.dev = 'bun'
   bun.packagedDesktop = null
 })
 
-afterEach(() => {})
+afterEach(() => {
+  Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+})
 
 describe('resolveCliCommand — precedence', () => {
   it('short-circuits to an installed CLI path with no wrapper args', () => {
@@ -180,5 +189,153 @@ describe('resolveCliCommand — precedence', () => {
     runtime.isPackaged = true
 
     expect(resolve()).toEqual({ command: 'claude', args: [] })
+  })
+})
+
+/**
+ * CONTEXT_COLLAPSE ships in the engine as an empty stub — `initContextCollapse()` only
+ * flips a boolean while every collapse fn returns zeros — yet `shouldAutoCompact` returns
+ * false whenever that boolean is set. Spawning the engine with the flag therefore leaves a
+ * long context with neither collapsing nor auto-compaction, which is why the engine's own
+ * default build keeps it commented out (engine/scripts/defines.ts). The two source-launch
+ * paths must not re-enable it.
+ *
+ * The same file is the authoritative ceiling for the whole hand-copied list: every flag the
+ * engine comments out carries a recorded disable reason, and `getFeatureArgs()` re-lighting
+ * one reproduces the CONTEXT_COLLAPSE failure mode — silent, discovered only by users. So the
+ * copy is checked against the engine rather than against someone's memory. `engine/` is
+ * read-only (AGENTS.md); reading it here mutates nothing.
+ */
+const ENGINE_DEFINES = fileURLToPath(new URL('../../../engine/scripts/defines.ts', import.meta.url))
+
+/** Client-only opt-ins: engine defaults exclude them, product code depends on them. */
+const CLIENT_ONLY_FEATURES: string[] = [
+  // src/lib/tool-registry.ts advertises the WebBrowser tool on this flag; the engine's tool is a
+  // self-contained fetch reader with no Bun-only dependency, so it works under both launchers.
+  'WEB_BROWSER_TOOL',
+  // electron/skills/skillsService.ts exposes the bundled `claude-api` skill, which the engine
+  // registers only under this flag (src/skills/bundled/index.ts).
+  'BUILDING_CLAUDE_APPS',
+]
+
+function parseDefaultBuildFeatures(source: string): { enabled: string[]; disabled: string[] } {
+  const declared = source.slice(source.indexOf('export const DEFAULT_BUILD_FEATURES'))
+  const body = declared.slice(declared.indexOf('[') + 1, declared.indexOf(']'))
+  const enabled: string[] = []
+  const disabled: string[] = []
+  for (const line of body.split('\n')) {
+    const names = [...line.matchAll(/'([A-Z][A-Z0-9_]*)'/g)].map((m) => m[1])
+    if (/^\s*\/\//.test(line)) disabled.push(...names)
+    else enabled.push(...names)
+  }
+  return { enabled, disabled }
+}
+
+async function readEngineFeatures() {
+  // 'fs' is mocked away for the launcher under test, so the engine file needs the real one.
+  const { readFileSync } = await vi.importActual<typeof import('fs')>('node:fs')
+  return parseDefaultBuildFeatures(readFileSync(ENGINE_DEFINES, 'utf8'))
+}
+
+describe('resolveCliCommand — feature args', () => {
+  it.each([
+    { label: 'dev source path', isPackaged: false },
+    { label: 'packaged src-fallback path', isPackaged: true },
+  ])('omits CONTEXT_COLLAPSE on the $label', ({ isPackaged }) => {
+    runtime.isPackaged = isPackaged
+    exists.add(SRC)
+
+    const features = enabledFeatures(resolve().args)
+
+    expect(features).toContain('BUDDY')
+    expect(features).not.toContain('CONTEXT_COLLAPSE')
+  })
+
+  it.each([
+    { label: 'dev source path', isPackaged: false },
+    { label: 'packaged src-fallback path', isPackaged: true },
+  ])('keeps the $label feature list inside the engine default list', async ({ isPackaged }) => {
+    runtime.isPackaged = isPackaged
+    exists.add(SRC)
+
+    const features = enabledFeatures(resolve().args)
+    const { enabled, disabled } = await readEngineFeatures()
+
+    // guards the guard: a parser that silently matched nothing would pass every assertion below
+    expect(enabled).toContain('BUDDY')
+    expect(disabled).toContain('CONTEXT_COLLAPSE')
+
+    expect(features.filter((f) => disabled.includes(f))).toEqual([])
+    expect(features.filter((f) => !enabled.includes(f) && !CLIENT_ONLY_FEATURES.includes(f))).toEqual([])
+    // an allowlist entry the engine has since adopted hides real drift — keep it honest
+    expect(CLIENT_ONLY_FEATURES.filter((f) => enabled.includes(f))).toEqual([])
+  })
+})
+
+/**
+ * On Windows the installed CLI is npm's `claude.cmd` shim, which can only be spawned
+ * through a shell — and a shell *concatenates* args without escaping them, so the
+ * multiline `--append-system-prompt` ends the command line at its first newline and
+ * every flag after it (`--session-id`, `--resume`, `--mcp-config`, `--thinking`) is
+ * silently dropped. The engine then opens a brand-new session on every spawn and no
+ * chat ever resumes its history. The shim's real `claude.exe` must be spawned directly.
+ */
+describe('resolveCliCommand — Windows .cmd launcher', () => {
+  const SHIM = 'C:\\tools\\npm\\claude.cmd'
+  const EXE = 'C:\\tools\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe'
+  const NPM_SHIM_BODY = [
+    '@ECHO off',
+    'GOTO start',
+    ':find_dp0',
+    'SET dp0=%~dp0',
+    'EXIT /b',
+    ':start',
+    'SETLOCAL',
+    'CALL :find_dp0',
+    `"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*`,
+    '',
+  ].join('\r\n')
+
+  function resolveInstalled(installedCliPath: string) {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    const proc = new SessionProcess('sess-win', {
+      cwd: '/tmp/ws',
+      engineSource: 'installed',
+      installedCliPath,
+    } as SessionConfig) as any
+    try {
+      return proc.resolveCliCommand()
+    } finally {
+      proc.removeAllListeners()
+    }
+  }
+
+  it('swaps the npm shim for the native exe it forwards to', () => {
+    exists.add(norm(SHIM))
+    exists.add(norm(EXE))
+    contents.set(norm(SHIM), NPM_SHIM_BODY)
+
+    expect(resolveInstalled(SHIM)).toEqual({ command: EXE, args: [] })
+  })
+
+  it('keeps the shim when the exe it forwards to is not actually on disk', () => {
+    exists.add(norm(SHIM))
+    contents.set(norm(SHIM), NPM_SHIM_BODY)
+
+    expect(resolveInstalled(SHIM)).toEqual({ command: SHIM, args: [] })
+  })
+
+  it('keeps the shim when its body does not forward to an exe', () => {
+    exists.add(norm(SHIM))
+    contents.set(norm(SHIM), '@ECHO off\r\nnode "%~dp0\\cli.js" %*\r\n')
+
+    expect(resolveInstalled(SHIM)).toEqual({ command: SHIM, args: [] })
+  })
+
+  it('does not touch a non-shim installed path', () => {
+    const exe = 'C:\\tools\\claude.exe'
+    exists.add(norm(exe))
+
+    expect(resolveInstalled(exe)).toEqual({ command: exe, args: [] })
   })
 })

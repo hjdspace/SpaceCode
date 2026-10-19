@@ -3,7 +3,8 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { warn } from '../infra/logger'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
-import type { EngineSessionConfig } from './engines/types'
+import { resolveModelAliasForEngine } from '@/utils/engineModel'
+import type { EngineSessionConfig, EngineType } from './engines/types'
 
 interface PersistedProviderConfig {
   baseUrl?: string
@@ -112,18 +113,18 @@ export function loadEngineSessionConfig(cwd: string): EngineSessionConfig {
 }
 
 /**
- * 把实际模型名反查成引擎别名 haiku/sonnet/opus，命中不到槽位时原样返回。
+ * 按引擎解析任务/会话指定的模型：规则与渲染进程同源，见 src/utils/engineModel。
  *
- * 与渲染进程 chatSession.resolveModelAliasFromConfig 同规则：代理模式下 sessionProcess
- * 只按别名挑路由（含 opus/haiku 子串才走对应路由），其余一律落到 sonnet 路由，再由
- * 代理把路由映射回槽位模型。直接传任务里存的真名等于没传 —— 指定的模型被静默丢弃。
+ * claude-code 要别名：代理模式下 sessionProcess 只按别名挑路由（含 opus/haiku 子串
+ * 才走对应路由），其余一律落到 sonnet 路由，再由代理把路由映射回槽位模型。直接传
+ * 真名等于没传 —— 指定的模型被静默丢弃。
+ *
+ * pi 要真名：PiSessionProcess 把 config.model 原样拼进 --model，别名对它是个不存在
+ * 的模型，任务里选的 qwen-model 会被换成 sonnet。
+ *
+ * engineType 未落定时按 claude-code 处理（engineGateway 的默认引擎）。
  */
-export function resolveEngineModelAlias(modelValue: string): string {
+export function resolveEngineModelAlias(modelValue: string, engineType?: EngineType): string {
   const settings = readPersistedGuiSettings()
-  const slots = settings ? activeProviderConfig(settings) : undefined
-  if (!slots) return modelValue
-  if (slots.haikuModel && slots.haikuModel === modelValue) return 'haiku'
-  if (slots.sonnetModel && slots.sonnetModel === modelValue) return 'sonnet'
-  if (slots.opusModel && slots.opusModel === modelValue) return 'opus'
-  return modelValue
+  return resolveModelAliasForEngine(modelValue, settings ? activeProviderConfig(settings) : undefined, engineType)
 }

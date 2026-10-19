@@ -20,6 +20,7 @@ import type {
   ProxyStatus,
   InstallProgress,
   ArtifactEntry,
+  ArtifactsWatchStatus,
   DesignSystemSummary,
 } from '@/services/electronAPI'
 import type { GitRendererApi } from '@/shared/channels/git'
@@ -125,9 +126,19 @@ export interface ElectronArtifactsAPI {
   list: (workingDir: string, options?: { scanWorkspaceRoot?: boolean }) => Promise<{ artifacts: ArtifactEntry[] }>
   open: (filePath: string) => Promise<{ success: boolean; error?: string }>
   reveal: (filePath: string) => Promise<{ success: boolean }>
-  startWatch: (artifactsDir: string) => Promise<boolean>
+  startWatch: (artifactsDir: string) => Promise<ArtifactsWatchStatus>
   stopWatch: () => Promise<boolean>
   onChanged: (callback: (data: { eventType: string; filename: string }) => void) => () => void
+}
+
+/** One PNG sheet of stacked pages returned by officecli:viewScreenshot */
+export interface OfficeCliScreenshotResult {
+  path: string
+  pageCount: number
+  start: number
+  end: number
+  width: number
+  height: number
 }
 
 export interface ElectronOfficeCLIAPI {
@@ -137,7 +148,7 @@ download: () => Promise<{ success: boolean; path?: string; error?: string }>
 onDownloadProgress: (callback: (progress: { stage: string; message: string; percent: number }) => void) => () => void
 exec: (options: { args: string[]; cwd?: string; timeout?: number; env?: Record<string, string> }) => Promise<unknown>
   viewHtml: (filePath: string, outputDir?: string) => Promise<string>
-  viewScreenshot: (filePath: string, outputDir: string, page?: number) => Promise<string[]>
+  viewScreenshot: (filePath: string, outputDir: string, start?: number) => Promise<OfficeCliScreenshotResult>
   watchStart: (filePath: string, port?: number) => Promise<{ id: string; filePath: string; port: number; url: string }>
   watchStop: (watchId: string) => Promise<boolean>
   watchStopAll: () => Promise<number>
@@ -167,6 +178,7 @@ export interface ElectronDebugAPI {
 export interface ElectronTraceAPI {
   event: (event: AgentTraceEvent) => void
   list: (params?: { limit?: number; offset?: number; query?: string }) => Promise<TraceSessionList>
+  statSession: (sessionId: string) => Promise<{ size: number; modifiedAt: number } | null>
   getTrace: (sessionId: string) => Promise<{ success: boolean; data?: TraceSession; error?: string }>
   getTraceCall: (sessionId: string, callId: string) => Promise<{ call?: TraceCallRecord } | null>
   getSettings: () => Promise<{ enabled: boolean; storageDir: string } | null>
@@ -458,8 +470,8 @@ export interface ElectronAPI {
   profilesSave: (data: string) => Promise<{ success: boolean; error?: string }>
   profilesBackupCorrupt: (data: string) => Promise<{ success: boolean; backupPath?: string; error?: string }>
 
-  loadHooksSettings: (scope?: string) => Promise<{ success: boolean; data: string | null; error?: string }>
-  saveHooksSettings: (hooksJson: string, scope?: string) => Promise<{ success: boolean; error?: string }>
+  loadHooksSettings: (scope?: string, projectRoot?: string) => Promise<{ success: boolean; data: string | null; error?: string }>
+  saveHooksSettings: (hooksJson: string, scope?: string, projectRoot?: string) => Promise<{ success: boolean; error?: string }>
   getBuiltinHooksRoot: () => Promise<{ success: boolean; path?: string; error?: string }>
   checkNode: () => Promise<{ success: boolean; version?: string; error?: string }>
 

@@ -41,48 +41,19 @@
     />
 
     <!-- Pending Messages Bar（AI 回复期间的消息队列） -->
-    <div v-if="currentPendingMessages.length > 0" class="pending-messages-bar">
-      <div
-        v-for="msg in currentPendingMessages"
-        :key="msg.id"
-        class="pending-message-item"
-        :class="{ 'pending-later': msg.priority === 'later' }"
-      >
-        <Clock :size="14" class="pending-icon" />
-        <span class="pending-text">{{ msg.displayLabel || msg.content }}</span>
-        <span class="pending-priority-tag">{{ msg.priority === 'later' ? t('chatInput.priorityLater') : t('chatInput.priorityNow') }}</span>
-        <button class="pending-action-btn" @click="sendPendingNow(msg.id)" :title="t('chatInput.sendPendingNow')">
-          <ArrowUp :size="14" />
-        </button>
-        <button class="pending-action-btn" @click="recallPendingMsg(msg.id)" :title="t('chatInput.recallPending')">
-          <ArrowDown :size="14" />
-        </button>
-        <button class="pending-action-btn" @click="removePendingMsg(msg.id)" :title="t('chatInput.removePending')">
-          <X :size="14" />
-        </button>
-      </div>
-    </div>
+    <PendingQueueBar
+      :messages="currentPendingMessages"
+      @send-now="sendPendingNow"
+      @recall="recallPendingMsg"
+      @remove="removePendingMsg"
+    />
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
       <!-- 悬浮任务/改动状态栏 -->
       <ComposerStatusBar v-if="!compact" />
 
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
-      <div v-if="attachedQuotes.length > 0" class="quote-attachments">
-        <div
-          v-for="quote in attachedQuotes"
-          :key="quote.id"
-          class="quote-chip"
-          @mouseenter="showQuoteTooltip(quote, $event)"
-          @mouseleave="hideQuoteTooltip"
-        >
-          <Quote :size="13" class="quote-chip-icon" />
-          <span class="quote-chip-text">{{ quote.text }}</span>
-          <button class="quote-chip-delete" :title="t('common.delete')" @click="removeQuoteAttachment(quote.id)">
-            <X :size="12" />
-          </button>
-        </div>
-      </div>
+      <QuoteAttachmentsBar :quotes="attachedQuotes" @remove="removeQuoteAttachment" />
 
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
@@ -112,11 +83,18 @@
             <span>{{ t('chatInput.messageSteered') }}</span>
           </div>
         </Transition>
-        <!-- 思考开关延后生效提示浮层 -->
+        <!-- 思考开关生效时机 / 失败提示浮层 -->
         <Transition name="stash-fade">
-          <div v-if="showThinkingHint" class="steer-hint">
-            <Sparkles :size="14" />
-            <span>{{ t('chatInput.thinkingAppliesNextTurn') }}</span>
+          <div
+            v-if="thinkingHint"
+            class="steer-hint"
+            :class="{ 'steer-hint-error': thinkingHint.isError }"
+            role="status"
+            aria-live="polite"
+          >
+            <AlertTriangle v-if="thinkingHint.isError" :size="14" />
+            <Sparkles v-else :size="14" />
+            <span>{{ thinkingHint.text }}</span>
           </div>
         </Transition>
       </div>
@@ -132,6 +110,7 @@
           <!-- 权限模式选择器 -->
           <PermissionModeSelector
             :model-value="permissionMode"
+            :session-id="editorSessionId"
             @update:model-value="(mode: PermissionMode) => emit('update:permissionMode', mode)"
           />
 
@@ -157,128 +136,8 @@
             <span class="chip-label">{{ t('work.galleryEntry') }}</span>
           </button>
 
-          <!-- 模型选择器 - 使用可搜索下拉 -->
-          <div class="model-selector" ref="modelSelectorRef">
-            <button
-              class="toolbar-btn model-btn"
-              @click="toggleModelDropdown"
-              :class="{ 'is-loading': isLoadingModels, 'has-error': modelLoadError }"
-            >
-              <Loader2 v-if="isLoadingModels" :size="14" class="loading-icon spin" />
-              <span class="model-name">{{ selectedModelLabel }}</span>
-              <span v-if="selectedMode" class="model-mode-pill">{{ modeLabel(selectedMode) }}</span>
-              <ChevronDown :size="14" class="dropdown-icon" :class="{ open: showModelDropdown }" />
-            </button>
-            <!-- 模型下拉菜单 -->
-            <Transition name="dropdown">
-              <div v-if="showModelDropdown" ref="mainDropdownRef" class="model-dropdown" v-click-outside="closeModelDropdown">
-                <!-- 推理深度选择区（合并到模型下拉） -->
-                <div class="dropdown-section">
-                  <div class="dropdown-section-title">{{ t('chat.reasoning') }}</div>
-                  <div class="dropdown-list reasoning-list">
-                    <button
-                      v-for="mode in availableModes"
-                      :key="mode"
-                      class="dropdown-item"
-                      :class="{ active: selectedMode === mode }"
-                      @click="selectMode(mode)"
-                    >
-                      <span class="item-name">{{ modeLabel(mode) }}</span>
-                      <Check v-if="selectedMode === mode" :size="14" class="check-icon" />
-                    </button>
-                  </div>
-                </div>
-                <div class="dropdown-section-divider"></div>
-                <!-- 当前选中模型（点击展开二级菜单） -->
-                <div class="dropdown-section">
-                  <button
-                    ref="modelTriggerRowRef"
-                    class="dropdown-item dropdown-item-trigger"
-                    :class="{ 'submenu-open': showModelSubmenu }"
-                    @click="toggleModelSubmenu"
-                    @mouseenter="showModelSubmenu = true"
-                    @mouseleave="onCurrentModelRowLeave"
-                  >
-                    <span class="item-name">{{ selectedModelLabel || t('model.selectModel') }}</span>
-                    <ChevronRight :size="14" class="check-icon" />
-                  </button>
-                </div>
-              </div>
-            </Transition>
-            <!-- 模型二级子菜单（Teleport 到 body，避免 container-type/overflow/z-index 问题） -->
-            <Teleport to="body">
-            <Transition name="dropdown">
-              <div
-                v-if="showModelSubmenu"
-                ref="modelSubmenuRef"
-                class="model-submenu"
-                :style="modelSubmenuStyle"
-                @mouseenter="onModelSubmenuEnter"
-                @mouseleave="onModelSubmenuLeave"
-                v-click-outside="closeModelSubmenu"
-              >
-                <div class="dropdown-header">
-                  <span>{{ t('auth.model') }}</span>
-                  <button
-                    v-if="canRefreshModels"
-                    class="refresh-btn"
-                    @click="refreshModels"
-                    :disabled="isLoadingModels"
-                    :title="t('chatInput.refreshModels')"
-                  >
-                    <RefreshCw :size="12" :class="{ spin: isLoadingModels }" />
-                  </button>
-                </div>
-                <div class="dropdown-search-box">
-                  <Search :size="14" class="search-icon" />
-                  <input
-                    ref="modelSearchInput"
-                    v-model="modelSearchQuery"
-                    type="text"
-                    :placeholder="t('chatInput.searchModels')"
-                  />
-                  <button v-if="modelSearchQuery" class="clear-btn" @click="modelSearchQuery = ''">
-                    <X :size="12" />
-                  </button>
-                </div>
-                <div class="dropdown-list" ref="modelListRef">
-                  <div v-if="!hasConfiguredModels && filteredModels.length === 0" class="dropdown-empty dropdown-config-prompt">
-                    <Settings :size="16" />
-                    <span>{{ t('chatInput.noModelsConfigured') }}</span>
-                    <button class="config-link-btn" @click="openSettingsModels">
-                      {{ t('chatInput.goToSettings') }}
-                    </button>
-                  </div>
-                  <div v-else-if="isLoadingModels && filteredModels.length === 0" class="dropdown-loading">
-                    <Loader2 :size="16" class="spin" />
-                    <span>{{ t('common.loading') }}</span>
-                  </div>
-                  <div v-else-if="modelLoadError && filteredModels.length === 0" class="dropdown-error">
-                    <AlertCircle :size="16" />
-                    <span>{{ modelLoadError }}</span>
-                    <button v-if="canRefreshModels" class="retry-btn" @click="refreshModels">
-                      {{ t('chatInput.retry') }}
-                    </button>
-                  </div>
-                  <div v-else-if="filteredModels.length === 0" class="dropdown-empty">
-                    <span>{{ t('chatInput.noMatchingModels') }}</span>
-                  </div>
-                  <button
-                    v-for="model in filteredModels"
-                    :key="model.value"
-                    class="dropdown-item"
-                    :class="{ active: selectedModel === model.value, highlighted: highlightedModel === model.value }"
-                    @click="selectModel(model.value)"
-                    @mouseenter="highlightedModel = model.value"
-                  >
-                    <span class="item-name">{{ model.label }}</span>
-                    <Check v-if="selectedModel === model.value" :size="14" class="check-icon" />
-                  </button>
-                </div>
-              </div>
-            </Transition>
-            </Teleport>
-          </div>
+          <!-- 模型选择器（下拉、推理深度、子菜单定位归 ModelPickerMenu） -->
+          <ModelPickerMenu :selector="modelSelector" />
 
           <!-- Thinking 模式开关 -->
           <div class="thinking-toggle-wrapper">
@@ -291,8 +150,6 @@
               <Brain :size="14" />
             </button>
           </div>
-
-
 
           <!-- 提示词优化进行中提示 -->
           <Transition name="optimize-hint">
@@ -384,27 +241,15 @@
         </div>
       </Transition>
     </Teleport>
-
-    <!-- 引用文本附件悬停提示（主题化浮窗，替代原生 title） -->
-    <Teleport to="body">
-      <Transition name="quote-tooltip">
-        <div
-          v-if="quoteTooltip.visible"
-          ref="quoteTooltipRef"
-          class="quote-tooltip"
-          :style="quoteTooltip.style"
-        >{{ quoteTooltip.text }}</div>
-      </Transition>
-    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick } from 'vue'
 import {
-  ArrowUp, ArrowDown, Plus, ChevronDown, Check, Square, X,
-  Search, Loader2, RefreshCw, AlertCircle, Zap, FolderOpen, Brain,
-  Sparkles, Image, ChevronRight, Archive, Clock, LayoutGrid, Settings, Quote
+  ArrowUp, Plus, Square, X,
+  Loader2, Zap, FolderOpen, Brain,
+  Sparkles, Image, Archive, LayoutGrid, AlertTriangle
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import ChatContextToolbar from './ChatContextToolbar.vue'
@@ -414,19 +259,23 @@ import AttachmentMenu from './AttachmentMenu.vue'
 import { useAppStore, type InputInjectPayload } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
+import type { PendingMessage } from '@/stores/turn/types'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useFileToChat } from '@/composables/useFileToChat'
 import PermissionModeSelector from './PermissionModeSelector.vue'
 import ComposerStatusBar from './ComposerStatusBar.vue'
+import ModelPickerMenu from './ModelPickerMenu.vue'
+import PendingQueueBar from './PendingQueueBar.vue'
+import QuoteAttachmentsBar from './QuoteAttachmentsBar.vue'
 
 // ── Composables ──────────────────────────────────────────────────
-import { useModelSelector, type ModelOption } from '@/composables/useModelSelector'
+import { useModelSelector } from '@/composables/useModelSelector'
 import { useSlashCommands, type SlashCommand } from '@/composables/useSlashCommands'
-import { useContextMenu, type ContextItem } from '@/composables/useContextMenu'
+import { useContextMenu, navigateContextItems, type ContextItem } from '@/composables/useContextMenu'
 import { useContentEditor, getMimeTypeFromFileName, serializeQuoteAttachments } from '@/composables/useContentEditor'
-import { usePromptStash, resolveDraftSave, resolveDraftLoad, isMirrorValid } from '@/composables/usePromptStash'
+import { usePromptStash } from '@/composables/usePromptStash'
 import { useDraftPersistence } from '@/composables/useDraftPersistence'
 import { useQuoteAttachments } from '@/composables/useQuoteAttachments'
 import { useDragDrop } from '@/composables/useDragDrop'
@@ -437,13 +286,13 @@ import type { WorkspaceEntry } from '@/composables/useWorkspaceBrowser'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
-import { vClickOutside } from '@/components/common/vClickOutside'
 
 // Re-export types for backward compatibility (other components import from ChatInput)
 export type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@/composables/types'
 
-// Still needed for handleSend
-import { resolveDirectSlash, dispatchCommandChip, type CommandChipData } from '@/lib/message-input-logic'
+// readCommandChips 把 chip 的 DOM 属性读成提交决策的输入
+import type { CommandChipData } from '@/lib/message-input-logic'
+import { resolveComposerSubmission } from '@/lib/composer-submission'
 import type { CommandKind } from '@/lib/constants/commands'
 
 // ── Props & Emits ────────────────────────────────────────────────
@@ -471,7 +320,7 @@ const props = withDefaults(defineProps<{
   compact?: boolean
   /** 'none' = 不读也不写会话草稿。弹窗等临时宿主用它可避免把宿主会话的草稿冲掉 */
   draftScope?: 'session' | 'none'
-  /** 受控权限模式：传入时选择器只 emit，不再读写全局 permissionPolicy store */
+  /** 受控权限模式：传入时选择器只 emit，不再读写本会话的权限模式 */
   permissionMode?: PermissionMode
   /** false = 不渲染右下角发送/优化提示词按钮（宿主自己提供提交入口时用） */
   showActions?: boolean
@@ -500,17 +349,8 @@ const modelSelector = useModelSelector({
   onUpdateModel: (m) => emit('update:model', m),
   onUpdateEffort: (e) => emit('update:effort', e),
 })
-const {
-  selectedModel, selectedMode, showModelDropdown, showModelSubmenu,
-  modelSearchQuery, highlightedModel, isLoadingModels, modelLoadError,
-  modelSearchInput, modelSelectorRef, modelListRef, modelSubmenuRef,
-  mainDropdownRef, modelTriggerRowRef,
-  availableModels, hasConfiguredModels, filteredModels, canRefreshModels, selectedModelLabel, availableModes,
-  selectModel, selectMode, modeLabel, closeModelDropdown, toggleModelDropdown,
-  toggleModelSubmenu, onCurrentModelRowLeave, onModelSubmenuEnter,
-  onModelSubmenuLeave, closeModelSubmenu, navigateModels, handleModelKeydown,
-  fetchModelsFromBaseUrl, refreshModels, initialize: initializeModelSelector,
-} = modelSelector
+// 下拉的开合、键盘导航与子菜单定位归 ModelPickerMenu；宿主只留初始化与外部受控值
+const { selectedModel, initialize: initializeModelSelector } = modelSelector
 
 // Slash commands
 const slashCommands = useSlashCommands({
@@ -621,16 +461,7 @@ const promptOptimizer = usePromptOptimizer()
 const { isOptimizing, optimizePrompt: runOptimizePrompt } = promptOptimizer
 
 // ── Quote attachments (selection bar "add to conversation") ─────
-const {
-  attachedQuotes,
-  quoteTooltipRef,
-  quoteTooltip,
-  addQuoteAttachment,
-  removeQuoteAttachment,
-  clearQuotes,
-  showQuoteTooltip,
-  hideQuoteTooltip,
-} = useQuoteAttachments()
+const { attachedQuotes, addQuoteAttachment, removeQuoteAttachment, clearQuotes } = useQuoteAttachments()
 
 // ── Per-session draft persistence ───────────────────────────────
 const draftPersistence = useDraftPersistence({
@@ -650,7 +481,7 @@ const { editorSessionId, saveDraftForSession, loadDraftForSession, restoreStashD
 
 // ── Local state (not extracted) ──────────────────────────────────
 const showSteerHint = ref(false)
-const showThinkingHint = ref(false)
+const thinkingHint = ref<{ text: string; isError: boolean } | null>(null)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
 const contextMenuRef = ref<InstanceType<typeof ContextMenu> | null>(null)
 
@@ -665,7 +496,6 @@ function closeImagePreview() {
 
 // ── Computed ─────────────────────────────────────────────────────
 const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value) || attachedQuotes.value.length > 0)
-const canSend = computed(() => hasContent.value && !props.isSending)
 
 const currentPendingMessages = computed(() => {
   const sid = editorSessionId.value
@@ -673,60 +503,26 @@ const currentPendingMessages = computed(() => {
   return turnStore.getPendingMessages(sid)
 })
 
-// Model submenu style — with <Teleport to="body">, position: fixed is
-// relative to the viewport, so getBoundingClientRect() values can be used
-// directly without subtracting the container offset.
-// Reading showModelSubmenu ensures the computed re-evaluates with fresh
-// getBoundingClientRect() values every time the submenu opens.
-const MODEL_SUBMENU_WIDTH = 220 // min-width of .model-submenu
-const MODEL_SUBMENU_GAP = 4
-
-const modelSubmenuStyle = computed<Record<string, string>>(() => {
-  // Reactive trigger: re-evaluate when the submenu toggles
-  if (!showModelSubmenu.value) return {}
-
-  const mainDropdown = mainDropdownRef.value
-  const triggerRow = modelTriggerRowRef.value
-  const style: Record<string, string> = {}
-  if (!mainDropdown || !triggerRow) return style
-
-  const mainDropdownRect = mainDropdown.getBoundingClientRect()
-  const triggerRowRect = triggerRow.getBoundingClientRect()
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-
-  style.position = 'fixed'
-  style.bottom = `${viewportHeight - triggerRowRect.bottom}px`
-
-  // Flip to left when there isn't enough space on the right (e.g. when the
-  // right-side env panel is open), otherwise position to the right of the
-  // main dropdown with a small gap.
-  const spaceRight = viewportWidth - mainDropdownRect.right - MODEL_SUBMENU_GAP
-  if (spaceRight >= MODEL_SUBMENU_WIDTH) {
-    style.left = `${mainDropdownRect.right + MODEL_SUBMENU_GAP}px`
-  } else {
-    style.left = `${Math.max(MODEL_SUBMENU_GAP, mainDropdownRect.left - MODEL_SUBMENU_GAP - MODEL_SUBMENU_WIDTH)}px`
-  }
-
-  return style
-})
-
 // ── Pending Messages ─────────────────────────────────────────────
 // 全部按 editorSessionId（本输入框绑定的会话）寻址，而非全局 currentSessionId：
 // 分屏与侧边任务会同时存在多个 ChatInput 实例，用全局 id 会串到别的会话。
+
+/** 排队消息摊回编辑器：召回按钮与空输入框按 ↑ 共用这一份恢复逻辑 */
+function applyPendingSnapshot(msg: PendingMessage) {
+  inputText.value = msg.content
+  if (editorRef.value) {
+    editorRef.value.innerText = msg.content
+  }
+  attachedFiles.value = msg.attachments.map(f => ({ ...f }))
+  attachedImages.value = msg.images.map(img => ({ ...img }))
+  nextTick(() => focusEditor())
+}
+
 function recallPendingMsg(msgId: string) {
   const sid = editorSessionId.value
   if (!sid) return
   const recalled = turnStore.recallPendingMessage(sid, msgId)
-  if (recalled) {
-    inputText.value = recalled.content
-    if (editorRef.value) {
-      editorRef.value.innerText = recalled.content
-    }
-    attachedFiles.value = recalled.attachments.map(f => ({ ...f }))
-    attachedImages.value = recalled.images.map(img => ({ ...img }))
-    nextTick(() => focusEditor())
-  }
+  if (recalled) applyPendingSnapshot(recalled)
 }
 
 function removePendingMsg(msgId: string) {
@@ -747,23 +543,64 @@ function sendPendingNow(msgId: string) {
 }
 
 // ── Thinking toggle ──────────────────────────────────────────────
+let thinkingHintTimer: ReturnType<typeof setTimeout> | undefined
+
+function flashThinkingHint(text: string, isError: boolean) {
+  thinkingHint.value = { text, isError }
+  if (thinkingHintTimer) clearTimeout(thinkingHintTimer)
+  thinkingHintTimer = setTimeout(() => { thinkingHint.value = null }, isError ? 4000 : 2500)
+}
+
+/**
+ * 把开关退回用户点击前的状态。
+ *
+ * 只在"用户眼前还是这次要点的那个选择"时回退：期间又点过一次就别盖掉后来的决定。
+ * 回退要再落一次盘 —— localStorage 在上一次保存时已经写过新值，不重写的话刷新又回到没生效的状态。
+ */
+async function revertThinking(from: boolean) {
+  if (thinkingEnabled.value !== from) return
+  thinkingEnabled.value = !from
+  settingsStore.thinkingEnabled = thinkingEnabled.value
+  const rolled = await settingsStore.saveSettings()
+  // 回滚期间的二次失败比原始失败次要：只记日志，不拿它盖掉真正的失败原因。
+  if (!rolled.success) console.error('[ChatInput] Failed to roll back thinking setting:', rolled.error)
+}
+
 async function toggleThinking() {
   thinkingEnabled.value = !thinkingEnabled.value
   settingsStore.thinkingEnabled = thinkingEnabled.value
+  const intent = thinkingEnabled.value
 
   // 两条都要等：主进程的配置（代理对齐在它后面）和正在跑的引擎会话。
-  // 之前都是 fire-and-forget，界面显示"已开"时这两边可能还是旧值。
-  await settingsStore.saveSettings()
+  // 等还不够，结果必须读 —— 任何一边没落地都要把开关退回去，界面不能停在"看着已开"。
+  const saved = await settingsStore.saveSettings()
+  if (!saved.success) {
+    await revertThinking(intent)
+    flashThinkingHint(t('chatInput.thinkingSaveFailed'), true)
+    return
+  }
+
   const sid = editorSessionId.value
+  let appliesLater = false
   if (sid) {
     // --thinking 只在进程 spawn 时读一次：本轮进行中时不打断，进程会在本轮结束后
-    // 挂起、下一条消息以新参数恢复。这里把"要等下一轮"如实告诉用户。
-    const turnInFlight = turnStore.getIsLoading(sid)
-    await api.updateThinkingLevel(sid, thinkingEnabled.value).catch(() => {})
-    if (turnInFlight) {
-      showThinkingHint.value = true
-      setTimeout(() => { showThinkingHint.value = false }, 2500)
+    // 挂起、下一条消息以新参数恢复。以引擎的答复为准，而不是自己猜会话是否忙。
+    try {
+      appliesLater = (await api.updateThinkingLevel(sid, intent)) === 'next-turn'
+    } catch (err) {
+      console.error('[ChatInput] updateThinkingLevel failed:', err)
+      await revertThinking(intent)
+      flashThinkingHint(t('chatInput.thinkingApplyFailed'), true)
+      return
     }
+  }
+
+  // 一个提示槽位，失败/告警优先于"下一轮生效"这种信息：配置落盘了但代理没对齐，
+  // 用户更该知道的是前者。
+  if (saved.proxyState === 'failed') {
+    flashThinkingHint(t('chatInput.thinkingProxyFailed'), true)
+  } else if (appliesLater) {
+    flashThinkingHint(t('chatInput.thinkingAppliesNextTurn'), false)
   }
 }
 
@@ -935,11 +772,11 @@ function handleEditorKeydown(event: KeyboardEvent) {
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault()
-        navigateContextItems(1)
+        moveContextHighlight(1)
         return
       case 'ArrowUp':
         event.preventDefault()
-        navigateContextItems(-1)
+        moveContextHighlight(-1)
         return
       case 'Enter':
       case 'Tab':
@@ -981,26 +818,12 @@ function handleEditorKeydown(event: KeyboardEvent) {
 
   // ArrowUp: recall pending message when empty
   if (event.key === 'ArrowUp' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
-    const content = getEditorPlainText().trim()
-    if (!content) {
-      const sid = editorSessionId.value
-      if (sid) {
-        const pending = turnStore.getPendingMessages(sid)
-        if (pending.length > 0) {
-          event.preventDefault()
-          const lastMsg = pending[pending.length - 1]
-          const recalled = turnStore.recallPendingMessage(sid, lastMsg.id)
-          if (recalled) {
-            inputText.value = recalled.content
-            if (editorRef.value) {
-              editorRef.value.innerText = recalled.content
-            }
-            attachedFiles.value = recalled.attachments.map(f => ({ ...f }))
-            attachedImages.value = recalled.images.map(img => ({ ...img }))
-            nextTick(() => focusEditor())
-          }
-        }
-      }
+    const sid = editorSessionId.value
+    const pending = sid ? turnStore.getPendingMessages(sid) : []
+    if (sid && pending.length > 0 && !getEditorPlainText().trim()) {
+      event.preventDefault()
+      const recalled = turnStore.recallPendingMessage(sid, pending[pending.length - 1].id)
+      if (recalled) applyPendingSnapshot(recalled)
     }
   }
 
@@ -1114,110 +937,20 @@ function selectContextItem(item: ContextItem) {
   })
 }
 
-// ── Keyboard event routing ───────────────────────────────────────
-function handleSlashKeydown(event: KeyboardEvent) {
-  if (!commandPalette.showMenu.value) return
+// 高亮位移动作：下标运算复用 useContextMenu 的纯函数，这里只管 DOM 滚动
+function moveContextHighlight(direction: number) {
+  const next = navigateContextItems(
+    filteredContextItems.value,
+    highlightedContextItem.value,
+    direction,
+  )
+  if (!next) return
 
-  switch (event.key) {
-    case 'Escape':
-      event.preventDefault()
-      commandPalette.closeMenu()
-      editorRef.value?.focus()
-      break
-    case 'ArrowDown':
-      event.preventDefault()
-      navigateSlashCommands(1)
-      break
-    case 'ArrowUp':
-      event.preventDefault()
-      navigateSlashCommands(-1)
-      break
-    case 'Enter':
-      event.preventDefault()
-      const selectedCmd = commandPalette.getSelectedCommand()
-      if (selectedCmd) {
-        const slashCmd: SlashCommand = {
-          name: selectedCmd.name,
-          description: selectedCmd.description,
-          icon: (selectedCmd.icon && iconMap[selectedCmd.icon]) || Zap,
-          kind: selectedCmd.kind,
-          immediate: selectedCmd.immediate,
-          aliases: selectedCmd.aliases,
-          source: selectedCmd.source,
-        }
-        selectSlashCommand(slashCmd)
-      }
-      break
-    case 'Tab':
-      event.preventDefault()
-      const tabSelectedCmd = commandPalette.getSelectedCommand()
-      if (tabSelectedCmd) {
-        const tabSlashCmd: SlashCommand = {
-          name: tabSelectedCmd.name,
-          description: tabSelectedCmd.description,
-          icon: (tabSelectedCmd.icon && iconMap[tabSelectedCmd.icon]) || Zap,
-          kind: tabSelectedCmd.kind,
-          immediate: tabSelectedCmd.immediate,
-          aliases: tabSelectedCmd.aliases,
-          source: tabSelectedCmd.source,
-        }
-        selectSlashCommand(tabSlashCmd)
-      }
-      break
-  }
-}
-
-function handleContextKeydown(event: KeyboardEvent) {
-  if (!showContextMenu.value) return
-
-  switch (event.key) {
-    case 'Escape':
-      event.preventDefault()
-      closeContextMenu()
-      editorRef.value?.focus()
-      break
-    case 'ArrowDown':
-      event.preventDefault()
-      navigateContextItems(1)
-      break
-    case 'ArrowUp':
-      event.preventDefault()
-      navigateContextItems(-1)
-      break
-    case 'Enter':
-      event.preventDefault()
-      const item = filteredContextItems.value.find(i => i.path === highlightedContextItem.value)
-      if (item) {
-        selectContextItem(item)
-      }
-      break
-    case 'Tab':
-      event.preventDefault()
-      const tabItem = filteredContextItems.value.find(i => i.path === highlightedContextItem.value)
-      if (tabItem) {
-        selectContextItem(tabItem)
-      }
-      break
-  }
-}
-
-// Navigate context items (local orchestration)
-function navigateContextItems(direction: number) {
-  const items = filteredContextItems.value
-  if (items.length === 0) return
-
-  const currentIndex = items.findIndex(i => i.path === highlightedContextItem.value)
-  let newIndex = currentIndex + direction
-
-  if (newIndex < 0) newIndex = items.length - 1
-  if (newIndex >= items.length) newIndex = 0
-
-  highlightedContextItem.value = items[newIndex].path
+  highlightedContextItem.value = next
 
   nextTick(() => {
     const listEl = contextMenuRef.value?.listRef
-    const highlightedEl = listEl?.querySelector('.highlighted')
-    highlightedEl?.scrollIntoView({ block: 'nearest' })
+    listEl?.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' })
   })
 }
 
@@ -1248,14 +981,6 @@ function openSkillsManager() {
   emit('open-skills')
 }
 
-/** Open settings panel and navigate to the Model tab */
-function openSettingsModels() {
-  appStore.toggleSettings()
-  nextTick(() => {
-    window.dispatchEvent(new CustomEvent('settings-navigate', { detail: { tab: 'model' } }))
-  })
-}
-
 // ── Prompt optimization ──────────────────────────────────────────
 async function handleOptimizePrompt() {
   const prompt = getEditorPlainText().trim()
@@ -1280,134 +1005,66 @@ function handleSendOrStop() {
   handleSend()
 }
 
+/** 编辑器里的 command chip DOM → 决策需要的数据（DOM 读取只留在这里） */
+function readCommandChips(): CommandChipData[] {
+  const editorEl = editorRef.value
+  if (!editorEl) return []
+  return Array.from(editorEl.querySelectorAll('.command-chip')).map((el) => ({
+    command: el.getAttribute('data-command') || '',
+    label: (el.getAttribute('data-command') || '').replace(/^\//, ''),
+    kind: (el.getAttribute('data-kind') || 'slash_command') as CommandKind,
+    source: el.getAttribute('data-source') || 'builtin',
+  }))
+}
+
 function handleSend(steerMode = false) {
   if (isOptimizing.value) return
 
-  if (props.isSending) {
-    const content = getEditorPlainText().trim()
-    const allAttachments = collectAllAttachments(attachedFiles.value, attachedImages.value)
-    const quoteBlock = serializeQuoteAttachments(attachedQuotes.value)
-    const sendContent = quoteBlock ? (content ? `${quoteBlock}\n\n${content}` : quoteBlock) : content
+  const decision = resolveComposerSubmission({
+    content: getEditorPlainText().trim(),
+    quoteBlock: serializeQuoteAttachments(attachedQuotes.value),
+    attachments: collectAllAttachments(attachedFiles.value, attachedImages.value),
+    chips: readCommandChips(),
+    isSending: !!props.isSending,
+    steerMode,
+    disabled: !!props.disabled,
+    menuOpen: commandPalette.showMenu.value || showContextMenu.value,
+    hasContent: hasContent.value,
+    sessionId: editorSessionId.value,
+  })
 
-    if (!sendContent && allAttachments.files.length === 0 && allAttachments.images.length === 0) return
-
-    const sid = editorSessionId.value
-    if (!sid) return
-
-    if (steerMode) {
-      emit('send', sendContent, allAttachments)
-      clearEditor()
-      attachedFiles.value = []
-      clearImages()
-      clearQuotes()
-      showSteerHint.value = true
-      setTimeout(() => { showSteerHint.value = false }, 2000)
-    } else {
+  switch (decision.kind) {
+    case 'none':
+      return
+    case 'send':
+      // emit 元数与抽取前一致：不带 options 的发送不会多出一个 undefined
+      if (decision.options) emit('send', decision.content, decision.attachments, decision.options)
+      else emit('send', decision.content, decision.attachments)
+      break
+    case 'slash':
+      if (decision.displayLabel === undefined) {
+        emit('slash-command', decision.command, decision.args, decision.attachments)
+      } else {
+        emit('slash-command', decision.command, decision.args, decision.attachments, decision.displayLabel)
+      }
+      break
+    case 'queue': {
+      const sid = editorSessionId.value
+      if (!sid) return
       turnStore.addPendingMessage(sid, {
         id: crypto.randomUUID(),
-        content: sendContent,
-        attachments: allAttachments.files.map(f => ({ ...f })),
-        images: allAttachments.images.map(img => ({ ...img })),
-        displayLabel: sendContent.slice(0, 80),
+        content: decision.content,
+        attachments: decision.attachments.files.map(f => ({ ...f })),
+        images: decision.attachments.images.map(img => ({ ...img })),
+        displayLabel: decision.displayLabel,
         priority: 'later',
         createdAt: Date.now(),
       })
-      clearEditor()
-      attachedFiles.value = []
-      clearImages()
-      clearQuotes()
+      break
     }
-    return
   }
 
-  if (props.disabled) return
-
-  if (commandPalette.showMenu.value || showContextMenu.value) return
-
-  const content = getEditorPlainText().trim()
-  const allAttachments = collectAllAttachments(attachedFiles.value, attachedImages.value)
-  const quoteBlock = serializeQuoteAttachments(attachedQuotes.value)
-  const sendContent = quoteBlock ? (content ? `${quoteBlock}\n\n${content}` : quoteBlock) : content
-
-  if (!hasContent.value) return
-
-  function cleanupAfterCommand() {
-    clearEditor()
-    attachedFiles.value = []
-    clearImages()
-    clearQuotes()
-  }
-
-  const editorEl = editorRef.value
-  const commandChips = editorEl ? Array.from(editorEl.querySelectorAll('.command-chip')) : []
-
-  if (commandChips.length > 0) {
-    const chips: CommandChipData[] = commandChips.map((el) => ({
-      command: el.getAttribute('data-command') || '',
-      label: (el.getAttribute('data-command') || '').replace(/^\//, ''),
-      kind: (el.getAttribute('data-kind') || 'slash_command') as CommandKind,
-      source: el.getAttribute('data-source') || 'builtin',
-    }))
-
-    if (chips.length === 1 && chips[0].kind === 'sdk_command') {
-      const commandName = chips[0].label
-      const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
-      const chipMarker = `/cmd:"${commandName}":${chips[0].kind}:${chips[0].source}`
-      const displayLabel = userContent ? `${chipMarker} ${userContent}` : chipMarker
-      cleanupAfterCommand()
-      emit('slash-command', commandName, userContent, allAttachments, displayLabel)
-      return
-    }
-
-    if (chips.length === 1 && chips[0].kind === 'immediate') {
-      const commandName = chips[0].label
-      const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
-      const chipMarker = `/cmd:"${commandName}":${chips[0].kind}:${chips[0].source}`
-      const displayLabel = userContent ? `${chipMarker} ${userContent}` : chipMarker
-      cleanupAfterCommand()
-      emit('slash-command', commandName, userContent, allAttachments, displayLabel)
-      return
-    }
-
-    const userContent = content.replace(/\/cmd:"[^"]+":\w+:\w+\s*/g, '').trim()
-    const result = dispatchCommandChip(chips, userContent)
-
-    emit('send', result.prompt, allAttachments, {
-      displayLabel: result.displayLabel
-    })
-
-    cleanupAfterCommand()
-    return
-  }
-
-  const slashResult = resolveDirectSlash(content)
-
-  if (slashResult.action === 'immediate_command') {
-    const commandName = content.slice(1).split(/\s+/)[0]
-    const commandArgs = content.slice(1 + commandName.length).trim()
-    clearEditor()
-    emit('slash-command', commandName, commandArgs, allAttachments)
-  } else if (slashResult.action === 'insert_chip' && slashResult.chip) {
-    // 直接输入 "/command args" 提交：从原文提取参数，避免 args 丢失
-    const commandName = slashResult.chip.label
-    const commandArgs = content.slice(1 + commandName.length).trim()
-
-    if (slashResult.chip.kind === 'sdk_command') {
-      // sdk 命令与 chip 路径行为一致：作为斜杠命令派发（如 /goal <objective>）
-      cleanupAfterCommand()
-      emit('slash-command', commandName, commandArgs, allAttachments)
-      return
-    }
-
-    const result = dispatchCommandChip([slashResult.chip], commandArgs)
-    emit('send', result.prompt, allAttachments, {
-      displayLabel: result.displayLabel
-    })
-    clearEditor()
-  } else {
-    emit('send', sendContent, allAttachments)
-  }
-
+  // 无论走哪条分支，编辑器与附件都要交还给宿主：发送即清空。
   clearEditor()
   attachedFiles.value = []
   clearImages()
@@ -1529,7 +1186,6 @@ function handleChipImagePreview(e: Event) {
 onMounted(() => {
   initializeModelSelector(props.modelValue)
 
-  document.addEventListener('keydown', handleModelKeydown)
   window.addEventListener('session-created', focusEditor)
   window.addEventListener('chip-image-preview', handleChipImagePreview as EventListener)
 
@@ -1543,10 +1199,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleModelKeydown)
   window.removeEventListener('session-created', focusEditor)
   window.removeEventListener('chip-image-preview', handleChipImagePreview as EventListener)
-  hideQuoteTooltip()
+  if (thinkingHintTimer) clearTimeout(thinkingHintTimer)
 })
 
 // Before the DOM is torn down (e.g. when navigating to settings), stash the
@@ -1611,15 +1266,6 @@ watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
   }
 }, { immediate: true })
 
-// Watch model submenu for auto-focus (search clearing is handled by useModelSelector)
-watch(showModelSubmenu, (open) => {
-  if (open) {
-    nextTick(() => {
-      modelSearchInput.value?.focus()
-    })
-  }
-})
-
 // Watch for files added from file tree context menu
 watch(pendingFile, (file) => {
   if (!file) return
@@ -1661,6 +1307,9 @@ defineExpose({ getContent, setContent, focus: focusEditor })
 </script>
 
 <style lang="scss" scoped>
+@use "@/styles/composer-toolbar" as *;
+@use "@/styles/composer-chips" as *;
+
 .chat-input-container {
   padding: 16px 20px 20px;
   background: var(--bg-primary);
@@ -1676,87 +1325,6 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
-}
-
-// Pending Messages Bar
-.pending-messages-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0 20px 8px;
-}
-
-.pending-message-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: 1px dashed var(--accent-primary);
-  border-radius: var(--radius-md);
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-  opacity: 0.85;
-  transition: opacity 0.2s ease;
-
-  &:hover {
-    opacity: 1;
-  }
-
-  .pending-icon {
-    color: var(--accent-primary);
-    flex-shrink: 0;
-  }
-
-  .pending-text {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .pending-priority-tag {
-    font-size: var(--text-2xs);
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: var(--radius-xs);
-    white-space: nowrap;
-    flex-shrink: 0;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-  }
-
-  &.pending-later .pending-priority-tag {
-    color: #6366f1;
-    background: color-mix(in srgb, var(--accent-secondary) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent-secondary) 20%, transparent);
-  }
-
-  &:not(.pending-later) .pending-priority-tag {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.1);
-    border: 1px solid rgba(245, 158, 11, 0.2);
-  }
-
-  .pending-action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: var(--radius-sm);
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all var(--transition-fast);
-
-    &:hover {
-      background: var(--bg-hover);
-      color: var(--text-primary);
-    }
-  }
 }
 
 .input-wrapper {
@@ -1775,7 +1343,9 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   }
 
   &.is-sending {
-    > :not(.composer-status-bar) {
+    // 工具栏内的下拉是后代节点，祖先 opacity 会连整棵子树一起合成，
+    // 面板压不到 1 就会透出底下的聊天流 —— 压暗只针对内容区，不含工具栏
+    > :not(.composer-status-bar):not(.input-toolbar) {
       opacity: 0.8;
     }
   }
@@ -1882,6 +1452,11 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+// 开关没能生效时的同位提示：红底，避免用户把"点了"当成"生效了"
+.steer-hint-error {
+  background: var(--error);
+}
+
 // 提示词优化进行中文字提示
 .optimize-hint {
   display: inline-flex;
@@ -1945,93 +1520,6 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   transform: translateY(2px);
 }
 
-// 引用文本附件条
-.quote-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-// 引用附件悬停提示（Teleport 到 body, 不受 scoped 限制需用 :global 或直接写在全局选择器下）
-.quote-tooltip {
-  position: fixed;
-  z-index: 9999;
-  max-width: 320px;
-  max-height: 180px;
-  padding: 8px 10px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  box-shadow: var(--shadow-lg);
-  overflow-y: auto;
-  overflow-wrap: break-word;
-  white-space: pre-wrap;
-  pointer-events: none;
-  @include scrollbar;
-}
-
-.quote-tooltip-enter-active,
-.quote-tooltip-leave-active {
-  transition: opacity 0.12s ease-out, transform 0.12s ease-out;
-}
-
-.quote-tooltip-enter-from,
-.quote-tooltip-leave-to {
-  opacity: 0;
-  transform: translateY(2px);
-}
-
-.quote-chip {
-  position: relative;
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
-  font-size: var(--text-xs);
-  line-height: var(--leading-normal);
-  cursor: default;
-  user-select: none;
-
-  .quote-chip-icon {
-    flex-shrink: 0;
-    color: var(--text-secondary);
-  }
-
-  .quote-chip-text {
-    max-width: 320px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text-primary);
-  }
-
-  .quote-chip-delete {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: 50%;
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--text-primary);
-    }
-  }
-}
-
 // 文本输入区域
 .textarea-wrapper {
   position: relative;
@@ -2063,140 +1551,7 @@ defineExpose({ getContent, setContent, focus: focusEditor })
       pointer-events: none;
     }
 
-    // Shared delete button styles for chips.
-    // chip 节点由 useContentEditor 动态创建, 无 scoped 属性, 必须 :deep 才能命中
-    :deep(.chip-delete-btn) {
-      position: absolute;
-      top: -1px;
-      right: -1px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 13px;
-      height: 13px;
-      border-radius: 50%;
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-      cursor: pointer;
-      opacity: 0;
-      visibility: hidden;
-      transform: scale(0.85);
-      transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease, background 0.15s ease;
-      pointer-events: none;
-      z-index: 1;
-
-      svg {
-        width: 8px;
-        height: 8px;
-      }
-
-      &:hover {
-        background: var(--surface-hover);
-        color: var(--text-primary);
-      }
-    }
-
-    // Inline mention chip styles
-    :deep(.mention-chip) {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 2px 6px 2px 8px;
-      margin: 0 2px;
-      background: var(--bg-secondary);
-      border: 1px solid var(--surface-border);
-      border-radius: var(--radius-xs);
-      font-size: var(--text-sm);
-      line-height: var(--leading-normal);
-      vertical-align: baseline;
-      cursor: default;
-      user-select: none;
-      font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
-
-      .chip-icon {
-        font-size: var(--text-sm);
-        line-height: 1;
-        flex-shrink: 0;
-      }
-
-      .chip-name {
-        max-width: 260px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      &:hover .chip-delete-btn {
-        opacity: 1;
-        visibility: visible;
-        transform: scale(1);
-        pointer-events: auto;
-      }
-
-      &.is-folder {
-        background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
-        border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
-        color: var(--accent-primary);
-      }
-
-      &.is-image {
-        background: rgba(34, 197, 94, 0.08);
-        border-color: rgba(34, 197, 94, 0.3);
-        color: #22c55e;
-        padding: 2px 6px 2px 2px;
-      }
-
-      .chip-thumb {
-        width: 32px;
-        height: 32px;
-        object-fit: cover;
-        border-radius: 3px;
-        flex-shrink: 0;
-        cursor: zoom-in;
-        display: block;
-      }
-    }
-
-    // Inline command chip styles
-    :deep(.command-chip) {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 2px 6px 2px 8px;
-      margin: 0 2px;
-      border: 1px solid var(--surface-border);
-      border-radius: var(--radius-xs);
-      font-size: var(--text-sm);
-      line-height: var(--leading-normal);
-      vertical-align: baseline;
-      cursor: default;
-      user-select: none;
-      font-family: var(--font-mono, ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace);
-
-      .chip-source-icon {
-        font-size: 1em;
-        line-height: 1;
-        flex-shrink: 0;
-        display: inline-flex;
-        align-items: center;
-      }
-
-      .chip-label {
-        font-weight: 600;
-      }
-
-      .chip-source-tag {
-        font-size: var(--text-2xs);
-        opacity: 0.7;
-        text-transform: capitalize;
-      }
-
-      // Commands use one blue treatment to distinguish them from user text.
-      background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
-      border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.35);
-      color: var(--accent-primary);
-    }
+    @include composer-chips;
   }
 }
 
@@ -2256,23 +1611,6 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   background: transparent;
 }
 
-.toolbar-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-  background: transparent;
-  transition: all var(--transition-fast);
-
-  &:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-}
-
 // Work 模式工具栏 chip：目录 / 画廊入口
 .work-context-chip {
   gap: 5px;
@@ -2316,51 +1654,6 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   }
 }
 
-.model-selector {
-  position: relative;
-  min-width: 0;
-}
-
-.model-btn {
-  background: transparent;
-  min-width: 0;
-
-  .model-name {
-    font-weight: 500;
-    max-width: 120px;
-    @include truncate;
-  }
-
-  .model-mode-pill {
-    flex-shrink: 0;
-    padding: 2px 8px;
-    font-size: var(--text-sm);
-    font-weight: 500;
-    color: var(--text-muted);
-    background: var(--bg-tertiary, rgba(0, 0, 0, 0.04));
-    border-radius: var(--radius-sm);
-    line-height: var(--leading-normal);
-  }
-
-  .dropdown-icon {
-    transition: transform 0.2s ease;
-
-    &.open {
-      transform: rotate(180deg);
-    }
-  }
-
-  &.is-loading {
-    .model-name {
-      opacity: 0.7;
-    }
-  }
-
-  &.has-error {
-    color: var(--error-color, #dc2626);
-  }
-}
-
 .thinking-toggle-wrapper {
   display: flex;
   align-items: center;
@@ -2371,257 +1664,6 @@ defineExpose({ getContent, setContent, focus: focusEditor })
       color: var(--accent-primary);
       background: rgba(var(--accent-primary-rgb), 0.1);
     }
-  }
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-// 下拉菜单通用样式
-.model-dropdown {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  margin-bottom: 8px;
-  min-width: 240px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  z-index: 100;
-  overflow: hidden;
-}
-
-// 模型二级子菜单（Teleport 到 body，fixed 定位，自适应左右弹出）
-.model-submenu {
-  min-width: 220px;
-  max-height: 360px;
-  background: var(--bg-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-  // 被 Teleport 到 body，只能靠视口层级：必须盖过弹窗 overlay（1000），
-  // 又留在确认/提示对话框（10000）之下 —— 与其余 teleported 菜单同为 9999
-  z-index: 9999;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-// 触发二级子菜单的当前模型行
-.dropdown-item-trigger {
-  &.submenu-open {
-    background: var(--surface-hover);
-  }
-}
-
-.dropdown-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px 8px;
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--surface-border);
-}
-
-.refresh-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  background: transparent;
-  transition: all var(--transition-fast);
-
-  &:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-// 搜索框样式
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--surface-border);
-  background: var(--bg-secondary);
-
-  .search-icon {
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    font-size: var(--text-md);
-    outline: none;
-
-    &::placeholder {
-      color: var(--text-muted);
-    }
-  }
-
-  .clear-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2px;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: var(--radius-xs);
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--text-primary);
-    }
-  }
-
-  .ghost-text {
-    color: var(--text-muted);
-    font-size: var(--text-base);
-    opacity: 0.5;
-    pointer-events: none;
-    white-space: nowrap;
-  }
-}
-
-.dropdown-list {
-  max-height: 280px;
-  overflow-y: auto;
-  @include scrollbar-overlay;
-  padding: 4px;
-}
-
-.reasoning-list {
-  max-height: none;
-}
-
-.dropdown-section {
-  padding: 4px 4px 6px;
-}
-
-.dropdown-section-title {
-  padding: 6px 12px 4px;
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-}
-
-.dropdown-section-divider {
-  height: 1px;
-  background: var(--surface-border);
-  margin: 0;
-}
-
-.dropdown-loading,
-.dropdown-error,
-.dropdown-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 24px 16px;
-  color: var(--text-muted);
-  font-size: var(--text-md);
-  text-align: center;
-}
-
-.dropdown-config-prompt {
-  gap: 10px;
-}
-
-.config-link-btn {
-  padding: 6px 16px;
-  background: var(--accent-primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-
-  &:hover {
-    opacity: 0.9;
-  }
-}
-
-.dropdown-error {
-  color: var(--error-color, #dc2626);
-}
-
-.retry-btn {
-  padding: 6px 12px;
-  background: var(--accent-primary);
-  color: white;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  transition: all var(--transition-fast);
-
-  &:hover {
-    background: var(--accent-primary-hover);
-  }
-}
-
-.dropdown-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-md);
-  color: var(--text-primary);
-  background: transparent;
-  transition: all var(--transition-fast);
-  text-align: left;
-
-  &:hover,
-  &.highlighted {
-    background: var(--surface-hover);
-  }
-
-  &.active {
-    background: rgba(var(--accent-primary-rgb), 0.1);
-  }
-
-  .item-name {
-    @include truncate;
-    flex: 1;
-  }
-
-  .check-icon {
-    color: var(--accent-primary);
-    flex-shrink: 0;
-    margin-left: 8px;
   }
 }
 
@@ -2717,72 +1759,6 @@ defineExpose({ getContent, setContent, focus: focusEditor })
 }
 
 
-// dropdown-search-box 仍被模型下拉菜单使用
-.dropdown-search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--surface-border);
-  background: var(--bg-secondary);
-
-  .search-icon {
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    font-size: var(--text-base);
-    outline: none;
-
-    &::placeholder {
-      color: var(--text-muted);
-    }
-  }
-
-  .clear-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2px;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: var(--radius-xs);
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--text-primary);
-    }
-  }
-}
-
-// 过渡动画
-.dropdown-enter-active,
-.dropdown-leave-active {
-  transition: all 0.2s ease;
-}
-
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(4px);
-}
-
-/* 窄面板下模型选择器自适应：缩小模型名、隐藏推理模式 pill */
-@container (max-width: 520px) {
-  .model-btn .model-name {
-    max-width: 70px;
-  }
-  .model-btn .model-mode-pill {
-    display: none;
-  }
-}
 </style>
 
 <style lang="scss">

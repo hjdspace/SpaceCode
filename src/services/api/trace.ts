@@ -27,6 +27,10 @@ export const trace = {
       }
     })()
   },
+  /** 轻量 stat 单个 trace 会话文件（size/mtime），轮询前变更检测用 */
+  statSession: (sessionId: string): Promise<{ size: number; modifiedAt: number } | null> => {
+    return electronAPI?.trace?.statSession(sessionId) ?? Promise.resolve(null)
+  },
   getTrace: (sessionId: string): Promise<{ success: boolean; data?: TraceSession; error?: string }> => {
     if (electronAPI?.trace?.getTrace) return electronAPI.trace.getTrace(sessionId)
     return Promise.resolve({ success: false, error: 'Not available' })

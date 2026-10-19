@@ -73,6 +73,18 @@ describe('resolveEngineModelAlias', () => {
     writeSettings({ authMethod: 'claudeai', anthropicConfig: { sonnetModel: 'kimi-k3' } })
     expect(resolveEngineModelAlias('kimi-k3')).toBe('kimi-k3')
   })
+
+  it('engineType=pi 时保留真实模型 id，反查只属于 claude-code 的代理路由', () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { haikuModel: 'glm-5.2', sonnetModel: 'kimi-k3', opusModel: 'deepseek-v4-flash' },
+      engineType: 'pi',
+    })
+
+    expect(resolveEngineModelAlias('kimi-k3', 'pi')).toBe('kimi-k3')
+    // 同一个设置文件切回 claude-code 仍然要别名
+    expect(resolveEngineModelAlias('kimi-k3', 'claude-code')).toBe('sonnet')
+  })
 })
 
 describe('loadEngineSessionConfig', () => {

@@ -61,6 +61,46 @@ function extractUnsupportedParamsHint(msg: string): string {
   return ` 该服务不接受参数 ${names.map(n => `「${n}」`).join('、')}，请在设置里关闭对应能力或换一个支持它的接口。`
 }
 
+/**
+ * HTTP 状态码识别：结构化字段优先，文本兜底只认带上下文的四种写法 —— 行首裸码（Pi/Bedrock
+ * 与 SDK 的 `429 slow down`、`403 model is not available…`）、状态字段（`API Error: 429`、
+ * `status code 403`）、赋值（`"code":429`）、原因短语（`401 Unauthorized`）。多条都命中时
+ * 取正文里最早出现的那个：引擎总是把真实状态码写在开头。
+ *
+ * 裸 `includes('429')` 会被模型名（foo-429、qwen-500b）、URL 端口、正文里的 token 数命中 ——
+ * 确定性的 400 拒绝因此被当成可重试限流自动重发 5 次，一次正常失败被当成不可重试的鉴权错误。
+ */
+const STATUS_LEADING = /^[\s[("]*(\d{3})(?!\d)/i
+const STATUS_FIELD = /\b(?:api[\s_]?error|http[\s_]?(?:error|status)|http|error[\s_]?code|status[\s_]?code|response[\s_]?status|status)[^A-Za-z0-9]{0,4}(\d{3})(?!\d)/i
+const STATUS_ASSIGNMENT = /\bcode["']?\s*[:=]\s*["']?(\d{3})(?!\d)/i
+const STATUS_REASON = /\b(\d{3})\s+(?:too many requests|unauthorized|forbidden|bad request|internal server error|bad gateway|service unavailable|gateway time(?:d )?out)/i
+const STATUS_TEXT_PATTERNS: readonly RegExp[] = [STATUS_LEADING, STATUS_FIELD, STATUS_ASSIGNMENT, STATUS_REASON]
+
+function toHttpStatus(raw: unknown): number | undefined {
+  const value = typeof raw === 'number'
+    ? raw
+    : typeof raw === 'string' && /^\d{3}$/.test(raw.trim()) ? Number(raw.trim()) : NaN
+  return value >= 100 && value <= 599 ? value : undefined
+}
+
+function readHttpStatus(msg: string, error: unknown): number | undefined {
+  if (error && typeof error === 'object') {
+    const { status, statusCode } = error as { status?: unknown; statusCode?: unknown }
+    const structured = toHttpStatus(status) ?? toHttpStatus(statusCode)
+    if (structured !== undefined) return structured
+  }
+  let earliest: { code: number; index: number } | undefined
+  for (const pattern of STATUS_TEXT_PATTERNS) {
+    const hit = pattern.exec(msg)
+    if (!hit) continue
+    const code = toHttpStatus(hit[1])
+    if (code !== undefined && (earliest === undefined || hit.index < earliest.index)) {
+      earliest = { code, index: hit.index }
+    }
+  }
+  return earliest?.code
+}
+
 function classifyError(error: unknown, context?: ErrorContext): ClassifiedError {
   const msg = error instanceof Error ? error.message : String(error)
   const lowerMsg = msg.toLowerCase()
@@ -68,6 +108,7 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
   // 调用方已经判过可否重试的错误（例如上游失败后回空时合成的那条）带着标记，
   // 不要再靠文本猜一遍。
   const flaggedRetryable = (error as { retryable?: boolean } | null | undefined)?.retryable
+  const status = readHttpStatus(msg, error)
 
   const make = (category: ErrorCategory, overrides?: Partial<ClassifiedError>): ClassifiedError => ({
     category,
@@ -86,13 +127,12 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
   })
 
   // 400 = 服务端拒绝了请求体，重发同一份历史必然复现（例如含 tool_calls 的消息格式
-  // 不被网关接受），所以既不能自动重发 5 次，也不给"重试"入口。放在 429/5xx 的松散
-  // 子串匹配之前 —— 否则 body 里出现 "15000"、"137500" 这类数字就会被误判成可重试。
+  // 不被网关接受），所以既不能自动重发 5 次，也不给"重试"入口。放在 429/5xx 之前 ——
+  // 同一份正文里常既有状态码 400 又有模型名 foo-429，先判 400 才不会把拒绝当成限流。
   // 例外：上下文超限类 400 保持可重试，重发会让引擎先跑一轮自动压缩，确实能恢复。
   const isContextOverflow = /prompt is too long|prompt_too_long|exceed context limit/i.test(msg)
   const isRequestRejected = !isContextOverflow && (
-    /\bAPI Error: 400\b/i.test(msg) ||
-    /\b400 Bad Request\b/i.test(msg) ||
+    status === 400 ||
     lowerMsg.includes('invalid_request_error') ||
     lowerMsg.includes('badrequesterror') ||
     // 网关拒绝某个参数（LiteLLM: UnsupportedParamsError: openai does not support
@@ -118,7 +158,7 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
     })
   }
 
-  if (lowerMsg.includes('429') || lowerMsg.includes('rate_limit') || lowerMsg.includes('rate limit')) {
+  if (status === 429 || lowerMsg.includes('rate_limit') || lowerMsg.includes('rate limit')) {
     // 从 "API Error: 429 {\"error\":{\"message\":\"...\",...}}" 格式中提取友好信息
     const jsonMatch = msg.match(/\{[\s\S]*\}/)
     let friendlyDetail: string | undefined
@@ -141,13 +181,12 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
       technicalDetail,
     })
   }
-  // 只认带上下文的 5xx：裸 /5\d{2}/ 会把 token 数（15000）、模型名里的数字之类
-  // 判成服务器错误，于是确定性的失败被自动重发 5 次。
-  const isServerErrorStatus = /\b(?:api error|status(?: code)?|http(?: error)?|error code)[\s:=]*['"]?5\d{2}\b/i.test(msg)
-  if (isServerErrorStatus || lowerMsg.includes('server error') || lowerMsg.includes('internal server')) {
+  // 5xx 只取 readHttpStatus 认出的状态码：正文里的 token 数（15000）、模型名中的数字
+  // 都不算，否则确定性的失败会被自动重发 5 次。
+  if ((status !== undefined && status >= 500 && status < 600) || lowerMsg.includes('server error') || lowerMsg.includes('internal server')) {
     return make(ErrorCategory.SERVER_ERROR, { retryable: true })
   }
-  if (lowerMsg.includes('401') || lowerMsg.includes('403') || lowerMsg.includes('unauthorized') || lowerMsg.includes('forbidden') || lowerMsg.includes('invalid api key') || lowerMsg.includes('authentication')) {
+  if (status === 401 || status === 403 || lowerMsg.includes('unauthorized') || lowerMsg.includes('forbidden') || lowerMsg.includes('invalid api key') || lowerMsg.includes('authentication')) {
     return make(ErrorCategory.AUTH_ERROR)
   }
   if (lowerMsg.includes('econnrefused') || lowerMsg.includes('enotfound') || lowerMsg.includes('network error') || lowerMsg.includes('fetch failed') || lowerMsg.includes('net::err') || lowerMsg.includes('网络连接')) {

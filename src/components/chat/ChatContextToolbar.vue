@@ -2,14 +2,21 @@
   <div class="chat-context-toolbar">
     <!-- Project Selector -->
     <div class="ctx-selector" ref="projectSelectorRef">
-      <button class="ctx-trigger" :class="{ active: showProjectDropdown }" @click="toggleProjectDropdown">
+      <button
+        class="ctx-trigger"
+        data-testid="ctx-project-trigger"
+        :class="{ active: showProjectDropdown, 'is-locked': projectSwitchLocked }"
+        v-hint="projectTriggerHint"
+        :aria-disabled="projectSwitchLocked || undefined"
+        @click="toggleProjectDropdown"
+      >
         <Folder :size="13" class="ctx-icon" />
         <span class="ctx-label">{{ projectName }}</span>
         <ChevronDown :size="11" class="ctx-arrow" :class="{ open: showProjectDropdown }" />
       </button>
 
       <Transition name="ctx-dropdown">
-        <div v-if="showProjectDropdown" class="ctx-dropdown" v-click-outside="closeProjectDropdown">
+        <div v-if="showProjectDropdown" class="ctx-dropdown" data-testid="ctx-project-dropdown" v-click-outside="closeProjectDropdown">
           <div class="ctx-search">
             <Search :size="13" class="ctx-search-icon" />
             <input
@@ -28,6 +35,7 @@
               v-for="p in filteredProjects"
               :key="p"
               class="ctx-item"
+              data-testid="ctx-project-item"
               :class="{ selected: isCurrent(p) }"
               @click="switchToProject(p)"
             >
@@ -127,6 +135,7 @@ import {
   Search, Check, Plus, X
 } from 'lucide-vue-next'
 import { vClickOutside } from '@/components/common/vClickOutside'
+import { vHint } from '@/components/common/vHint'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useScmStore, type ScmBranch } from '@/stores/scm'
@@ -170,9 +179,50 @@ const isDesignMode = computed(() => appStore.mode === 'design')
 /** 当前模式下的工作目录路径 */
 const currentWorkspacePath = computed(() => {
   if (isLocal.value) return props.workspace || ''
-  if (isWorkMode.value) return appStore.workWorkspace
+  // Work 模式的产物区是 app 级偏好，当前会话实际跑在创建时快照的目录里；
+  // 工具栏必须显示会话的真实目录，否则切了产物区会看起来"切不动"。
+  if (isWorkMode.value) return sessionStore.currentSession?.workingDirectory || appStore.workWorkspace
   if (isDesignMode.value) return designStore.designWorkspace
   return appStore.projectRoot
+})
+
+/**
+ * design 模式的项目目录就是当前会话的 cwd，发过消息后换目录会让引擎的 JSONL
+ * 落在旧项目目录下（--resume 找不到 → 丢上下文），所以锁住。
+ * code 模式选项目走"复用/新建该项目下的会话"，不改当前会话目录；work 模式改的是
+ * app 级产物区 —— 两者都不该被锁。受控模式（定时任务弹窗）是给任务挑目录，更不该锁。
+ */
+const projectSwitchLocked = computed(() =>
+  !isLocal.value &&
+  isDesignMode.value &&
+  !sessionStore.canSwitchWorkingDirectory(sessionStore.currentSessionId),
+)
+
+/** work 模式：会话目录与 app 级产物区不一致时，说明这次切换只对以后的会话生效 */
+const workWorkspaceHint = computed(() => {
+  if (isLocal.value || !isWorkMode.value) return ''
+  const sessionDir = sessionStore.currentSession?.workingDirectory
+  if (!sessionDir || pathsEqual(sessionDir, appStore.workWorkspace)) return ''
+  return t('contextToolbar.workWorkspaceNewSessionOnly', { path: sessionDir })
+})
+
+/**
+ * code 模式选项目走「复用/新建该项目下的会话」，从不改当前会话的目录，所以不锁。
+ * 但它的样子和 design 模式一模一样，用户会以为在改本会话的工作区 —— 说清楚。
+ */
+const codeModeHint = computed(() => {
+  if (isLocal.value || isWorkMode.value || isDesignMode.value) return ''
+  if (sessionStore.canSwitchWorkingDirectory(sessionStore.currentSessionId)) return ''
+  return t('contextToolbar.codeProjectOpensSession')
+})
+
+const projectTriggerHint = computed(() => {
+  const reason = projectSwitchLocked.value
+    ? t('contextToolbar.workspaceLocked')
+    : workWorkspaceHint.value || codeModeHint.value
+  const path = currentWorkspacePath.value
+  if (!reason) return path
+  return path ? `${reason}\n${path}` : reason
 })
 
 // --- Project Selector ---
@@ -229,6 +279,7 @@ function isCurrent(path: string): boolean {
 }
 
 function toggleProjectDropdown() {
+  if (projectSwitchLocked.value) return
   showProjectDropdown.value = !showProjectDropdown.value
   if (showProjectDropdown.value) {
     projectSearch.value = ''
@@ -406,6 +457,12 @@ watch(() => props.workspace, () => {
   white-space: nowrap;
   max-width: 220px;
   line-height: var(--leading-normal);
+
+  /* 锁定态保持可 hover，否则 title 提示出不来 */
+  &.is-locked {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
 
   &:hover {
     background: var(--bg-hover, rgba(0, 0, 0, 0.04));

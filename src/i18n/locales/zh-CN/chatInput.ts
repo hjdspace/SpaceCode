@@ -74,5 +74,8 @@ export default {
   priorityNow: '插队',
   messageSteered: '消息已注入当前对话',
   thinkingAppliesNextTurn: '思考开关将在本轮回复结束后生效',
+  thinkingApplyFailed: '引擎没有接受这次思考开关切换，已恢复原状态',
+  thinkingSaveFailed: '思考设置没能保存到主进程，已恢复原状态',
+  thinkingProxyFailed: '思考设置已保存，但本地代理没有对齐',
   dropImageHint: '拖放图片到此处添加',
 }

@@ -146,7 +146,10 @@ watch(
 )
 
 const canCut = computed(() => props.node !== null)
-const canRename = computed(() => props.node !== null)
+// 根节点就是工作区目录本身，改名会让 projectRoot 指向不存在的路径（会话、git 标记
+// 一起失效），菜单里不给它开重命名。.disabled 只改样式不拦点击，所以 handleRename
+// 还要按同一个 canRename 再挡一次。
+const canRename = computed(() => props.node !== null && props.node.isRoot !== true)
 const canDelete = computed(() => props.node !== null)
 
 type ExternalEditor = 'vscode' | 'visualstudio' | 'cursor' | 'fileExplorer' | 'terminal' | 'gitBash' | 'wsl' | 'androidStudio'
@@ -207,7 +210,7 @@ async function handleOpenInEditor(editor: ExternalEditor) {
 }
 
 function handleRename() {
-  if (!props.node) return
+  if (!canRename.value || !props.node) return
   emit('rename', props.node)
   emit('close')
 }

@@ -85,3 +85,28 @@ describe('DesignPreview — 多文件设计的资源加载', () => {
     expect(frame(wrapper).getAttribute('srcdoc')).toContain('second version')
   })
 })
+
+/**
+ * 票 09（原审计第 5 项）：源码/预览切换会让本组件整体卸载重挂，重挂时 props 早已备好，
+ * watch 不会再触发。审计当时的表现就是初始 `iframe.srcdoc` 是空字符串，必须再 setProps
+ * 一次才出内容（首屏白屏）。现在渲染挪到 onMounted，这两条钉住"挂载即渲染"的契约 ——
+ * 谁把 onMounted 里的 renderPreview 挪回 watch，这里就会红。
+ */
+describe('DesignPreview — 卸载重挂后首屏即渲染', () => {
+  it('预览 URL 已就位：重挂载当场导航，不再等下一次 props 变化', () => {
+    mountPreview({ previewUrl: URL_A, reloadToken: 1 }).unmount()
+
+    const again = mountPreview({ previewUrl: URL_A, reloadToken: 1 })
+
+    expect(frame(again).getAttribute('src')).toBe(`${URL_A}?rev=1`)
+    expect(frame(again).getAttribute('srcdoc')).toBeNull()
+  })
+
+  it('只有 HTML（回退路径）：重挂载当场写入 srcdoc，首屏不白屏', () => {
+    mountPreview({ previewUrl: null }).unmount()
+
+    const again = mountPreview({ previewUrl: null })
+
+    expect(frame(again).getAttribute('srcdoc')).toContain('<h1>already generated</h1>')
+  })
+})

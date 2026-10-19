@@ -136,6 +136,10 @@
                   <AlertCircle :size="10" />
                   <span>{{ item.summary.failedCalls }}</span>
                 </div>
+                <div v-if="item.summary.totalDurationMs > 0" class="stat-pill" :title="t('trace.list.duration')">
+                  <Clock :size="10" />
+                  <span>{{ formatDurationMs(item.summary.totalDurationMs) }}</span>
+                </div>
               </div>
             </div>
 
@@ -196,7 +200,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import type { TraceSessionList } from '@/types/trace'
-import { formatTokenCount } from '@/lib/trace/formatters'
+import { formatDurationMs, formatTokenCount } from '@/lib/trace/formatters'
 import {
   Workflow, RefreshCw, Search, X, Loader2, AlertCircle,
   ChevronRight, ChevronLeft, Zap, Cpu, Layers, Hash,
@@ -208,7 +212,7 @@ type TraceListState =
   | { status: 'error'; message: string }
   | { status: 'ready'; data: TraceSessionList }
 
-const POLL_MS = 5_000
+const POLL_MS = 15_000
 const SEARCH_DEBOUNCE_MS = 250
 const PAGE_SIZE = 20
 
@@ -274,7 +278,11 @@ async function load(options?: { silent?: boolean }) {
 
 function startPolling() {
   stopPolling()
-  pollTimer = setInterval(() => { load({ silent: true }) }, POLL_MS)
+  pollTimer = setInterval(() => {
+    // 窗口不可见时跳过本轮（主进程侧已有 summary 缓存，回到前台下一轮即刷新）
+    if (document.hidden) return
+    load({ silent: true })
+  }, POLL_MS)
 }
 
 function stopPolling() {

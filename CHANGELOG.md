@@ -1,3 +1,75 @@
+## [0.8.10](https://github.com/hjdspace/SpaceCode/compare/v0.8.9...v0.8.10) (2026-10-19)
+
+### Features
+
+- **onboarding:** 首次打开引导配置语言、外观、引擎、模型与工作区，模型档位复用设置页的模型列表与可搜索下拉
+- **权限:** 权限卡片支持计划审批（ExitPlanMode 专用卡片、计划正文按 Markdown 渲染），切到完全信任前先弹权限范围确认
+- **权限:** `allowPermission` 贯通 `updatedPermissions` 与 `permissionSuggestions`，会话级与永久授权真正落到引擎
+- **computer-use:** macOS 支持 `CuaDriver.app` 包安装与权限分组，驱动新增 doctor 自检与 restart
+- **build:** 打包前预下载 cua-driver 与 OfficeCLI 二进制并校验，下载失败可用 `--strict` 直接失败
+- **session:** 会话菜单「分屏」真正打开分屏；工作目录只对空会话开放，发过消息即锁定
+- **project:** 新增默认工作区打开流程（openDefaultProject），不可用时给出应用内提示
+- **proxy:** 上游请求与流式响应支持 `reasoning_content`，思考内容可经网关透传
+- **chatInput:** 思考开关给出「下一轮生效」提示，避免误以为没反应
+- **sessionRestore:** 恢复会话时补齐任务终态，任务卡片不再停留在运行中
+- **transcript:** 新增 `findAgentTranscriptByToolUse` API 与对应端点
+- **settings:** GUI 设置保存改为排队落地，连续保存不再互相覆盖
+- **trace:** 应用退出前刷新追踪侧车，最后一次运行的耗时数据不再丢
+- **scripts:** 新增 `test:changed`，只跑受改动影响的测试
+
+### Bug Fixes
+
+- 思考开关切换失败不再被三层吞掉，界面回退开关并给出可见提示
+- reasoning 的「思考中」状态在 thinking 块结束时即收口；思考文本平滑揭示，消除推理卡片蹦字感
+- 权限模式按会话归属，消除多会话模式串扰；切换后回读校验实际生效值
+- 发送中打开权限/模型下拉不再透底发虚
+- 修复自动重试后残留僵尸 turn 导致消息被永久吞掉，以及重试时 UI 静默、中止未等待确认
+- Pi 历史会话跨进程接续，打开老会话发消息不再是空白会话；恢复带上历史、图片按 ImageContent 内联、上下文窗口用用户配置
+- Pi 工具卡片不再分裂成「Unknown Tool + bash」两行，bash 接回终端卡片；透传上游失败原因，不再把错误报成「成功的空结果」
+- 更新/删除配置方案要等主进程落地才算保存成功，切换失败给出明确错误文案
+- officecli 用户级副本按版本刷新，cua-driver 基线升到 0.34.0
+- officecli 截图预览能翻页，多页文档不再只露第一页；watch 子进程 spawn 即登记，macOS/Linux 才真杀得到
+- 源码启动 `--feature` 名单收回引擎默认名单，摘掉引擎注释禁用的 4 个开关；移除空壳 CONTEXT_COLLAPSE 并恢复 auto compact 判断
+- 错误状态码只认带上下文的写法，429/401/403 不再被响应正文里的数字骗过
+- 已取消的定时任务不再拉起引擎进程；模型解析按 engineType 分派，Pi 保留真实模型 id
+- 产物 `outputs/` 缺失时挂占位监听并如实回报 watcher 状态（#44）
+- 缺失的记忆文件报「不存在」，不再误报路径越界
+- 预览与产物列表不被迟到结果覆盖，「外部打开」真走系统程序
+- 启动闸门等 preload 就位，验证型构建不再清空 `dist-electron`
+- 修复 Windows 下 `.cmd` 启动器参数丢失导致会话无法恢复
+- 计划模式工具卡片在输入为空时不再崩溃
+- 文件树右键重命名接回节点行内编辑
+- 对齐 Trace 耗时字段并把总时长改为时间窗并集（#16）
+- `openProjectByPath` 先归一化路径再比较，避免重复建会话
+- 工作区提示改应用内气泡，并说清 code 模式选项目的语义
+- 项目级 Hooks 落到当前项目根，开关禁用即时回写且条目不再消失；失效项目根不再建目录，内置卡片状态与引擎一致
+- 换工作目录后把 `session.workingDirectory` 对齐到引擎实际 cwd
+- 首次引导品牌位改用内置应用图标，并修向导内容无法滚动
+- 上下文用量随模型选择变化实时同步
+
+### Performance Improvements
+
+- 根治追踪页白屏卡顿，技能页首开提速（P0~P2 全量落地）
+
+### Refactor
+
+- ChatInput 降至 1771 行，自闭合 UI 与提交分支各自归位
+- Trace 耗时读法归入 trace 域，改名并去掉 `any`
+- proxyManager 启动逻辑收敛，支持配置取消
+- computerUse API 统一走 `EMPTY_PERMISSIONS`，macOS 权限结构重整
+- 移除 `copy-mcp-vendor` 脚本及其构建步骤
+
+### Tests
+
+- 补测批次落地：权限卡片与权限服务、proxyManager 生命周期、ClaudeCodeProcessPool 权限模式、PiProcessPool、streamingTransformer 思考行为、errorHandler、ProfileCards、MCP server store、electronAPI facade、打包契约与二进制解析、cua-driver、traceAggregate、uuid、chat-list-utils、useChatCommands 等，并同批上调语句覆盖率地板
+- `src/` 下 10 个平铺测试归位到 `__tests__/`
+
+### Chores
+
+- engine 升级到 v2.8.4，并保留桌面构建定制
+
+---
+
 ## [0.8.9](https://github.com/hjdspace/SpaceCode/compare/v0.8.8...v0.8.9) (2026-10-15)
 
 ### Features

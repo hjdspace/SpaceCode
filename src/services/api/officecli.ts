@@ -1,4 +1,5 @@
 import { electronAPI } from './_context'
+import type { OfficeCliScreenshotResult } from '@/types/electron'
 
 export const officecli = {
   version: (): Promise<string> =>
@@ -13,8 +14,8 @@ export const officecli = {
     electronAPI?.officecli?.exec(options) || Promise.reject('OfficeCLI not available'),
   viewHtml: (filePath: string, outputDir?: string): Promise<string> =>
     electronAPI?.officecli?.viewHtml(filePath, outputDir) || Promise.reject('OfficeCLI not available'),
-  viewScreenshot: (filePath: string, outputDir: string, page?: number): Promise<string[]> =>
-    electronAPI?.officecli?.viewScreenshot(filePath, outputDir, page) || Promise.reject('OfficeCLI not available'),
+  viewScreenshot: (filePath: string, outputDir: string, start?: number): Promise<OfficeCliScreenshotResult> =>
+    electronAPI?.officecli?.viewScreenshot(filePath, outputDir, start) || Promise.reject('OfficeCLI not available'),
   watchStart: (filePath: string, port?: number): Promise<{ id: string; filePath: string; port: number; url: string }> =>
     electronAPI?.officecli?.watchStart(filePath, port) || Promise.reject('OfficeCLI not available'),
   watchStop: (watchId: string): Promise<boolean> =>

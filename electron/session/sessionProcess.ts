@@ -26,7 +26,7 @@ import {
 import { shouldAutoApprovePermission } from './permissionAutoApprove'
 import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
-import { getOfficeCliBinaryPath, getOfficeCliInstalledBinary, getOfficeCliInstallDir } from '../tools/officeCliService'
+import { getOfficeCliInstallDir, syncInstalledOfficeCli } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
 
 /**
@@ -164,6 +164,37 @@ export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exit
 export interface SDKMessage {
   type: string
   [key: string]: any
+}
+
+const isWindowsCmdLauncher = (p: string): boolean =>
+  process.platform === 'win32' && /\.(cmd|bat)$/i.test(p)
+
+/**
+ * npm 装的 `claude.cmd` 不是可执行文件，只是把 `%*` 转发给同包里真正的 `claude.exe` 的壳。
+ * 跑它必须 shell:true（Node 对 .cmd 直接 spawn 会 EINVAL），而 shell 模式只**拼接**参数、
+ * 不做转义 —— `--append-system-prompt` 的值带换行，cmd.exe 在第一个换行处就认为命令行结束，
+ * 其后所有参数（--mcp-config / --thinking / --session-id / --resume）静默丢失。丢掉的正是
+ * 会话身份：每次 spawn 都开一个全新引擎会话，历史永远接不上。
+ * 所以先把壳里的 exe 真身解析出来直接跑（参数逐个传递）；解析不出再退回壳 + shell。
+ */
+function resolveCmdShimTarget(shimPath: string): string | null {
+  let text: string
+  try {
+    text = fs.readFileSync(shimPath, 'utf8')
+  } catch {
+    return null
+  }
+  // 显式用 win32 规则：本函数只在 Windows 路径上运行，测试却要能在任意平台判定。
+  const shimDir = path.win32.dirname(shimPath)
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.includes('%*')) continue
+    const raw = line.match(/"([^"]*\.exe)"/i)?.[1] ?? line.match(/(\S+\.exe)/i)?.[1]
+    if (!raw) continue
+    // %~dp0 / %dp0% / %:dp0% 都指向壳所在目录（npm 的壳先 SET dp0=%~dp0 再用 %dp0%）。
+    const candidate = path.win32.resolve(shimDir, raw.replace(/%[~:]?dp0%?/gi, shimDir + '\\'))
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
 }
 
 export class SessionProcess extends EventEmitter {
@@ -376,6 +407,12 @@ export class SessionProcess extends EventEmitter {
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process env keys=[${Object.keys(env).join(',')}] | provider=${this.config.provider} | model=${this.config.model}`)
 
       const useShell = process.platform === 'win32' && launch.command.toLowerCase().endsWith('.cmd')
+      if (useShell && args.some((a) => a.includes('\n'))) {
+        warn(
+          'SessionProcess',
+          `[${this.sessionId.slice(0, 8)}] Spawning a .cmd launcher through a shell with a multiline argument — cmd.exe ends the command line at the first newline, so every flag after it (--session-id / --resume included) is dropped`,
+        )
+      }
       const proc = spawn(launch.command, args, {
         cwd: this.config.cwd,
         env,
@@ -1553,28 +1590,17 @@ export class SessionProcess extends EventEmitter {
     //
     // In dev mode the bundled binary is named officecli-{platform}-{arch}[.exe] and lives
     // in resources/officecli/. The standard name expected by SKILL.md is `officecli` (or
-    // `officecli.exe` on Windows). We synchronously copy the bundled binary to the
-    // user-level install dir with the correct name, guaranteeing it is available before
-    // the first Bash tool invocation — regardless of whether the async
+    // `officecli.exe` on Windows). The sync writes the bundled binary under that name,
+    // and rewrites it whenever the bundle is newer — otherwise the copy made on first
+    // launch pins every session to that version forever. It runs synchronously so the
+    // file is there before the first Bash tool call, regardless of whether the async
     // ensureOfficeCliInstalled() at startup has completed.
     const officeCliInstallDir = getOfficeCliInstallDir()
-    const officeCliExePath = getOfficeCliInstalledBinary()
-
-    if (!fs.existsSync(officeCliExePath)) {
-      // Binary not yet installed — copy from bundled location synchronously
-      const bundledPath = getOfficeCliBinaryPath()
-      if (fs.existsSync(bundledPath)) {
-        try {
-          fs.mkdirSync(officeCliInstallDir, { recursive: true })
-          fs.copyFileSync(bundledPath, officeCliExePath)
-          if (process.platform !== 'win32') {
-            fs.chmodSync(officeCliExePath, 0o755)
-          }
-          info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Installed officecli binary | from=${bundledPath} | to=${officeCliExePath}`)
-        } catch (err) {
-          warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to copy officecli binary: ${err}`)
-        }
-      }
+    const officeCliSync = syncInstalledOfficeCli()
+    if (officeCliSync.copied) {
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Synced officecli binary | reason=${officeCliSync.reason} | version=${officeCliSync.bundledVersion}`)
+    } else if (officeCliSync.reason === 'copy-failed') {
+      warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to sync officecli binary | ${officeCliSync.bundledVersion} → ${officeCliSync.installedVersion}`)
     }
 
     // Inject ~/.officecli/bin into PATH
@@ -1817,8 +1843,14 @@ export class SessionProcess extends EventEmitter {
 
   private resolveCliCommand(): { command: string; args: string[]; launcherEnv?: Record<string, string> } {
     if (this.config.engineSource === 'installed' && this.config.installedCliPath) {
-      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (installed): ${this.config.installedCliPath}`)
-      return { command: this.config.installedCliPath, args: [] }
+      const launcher = this.config.installedCliPath
+      const native = isWindowsCmdLauncher(launcher) ? resolveCmdShimTarget(launcher) : null
+      if (native) {
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Installed CLI launcher resolved to native exe | ${launcher} -> ${native}`)
+        return { command: native, args: [] }
+      }
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (installed): ${launcher}`)
+      return { command: launcher, args: [] }
     }
 
     const isDev = !app.isPackaged
@@ -1926,6 +1958,10 @@ export class SessionProcess extends EventEmitter {
   }
 
   private getFeatureArgs(): string[] {
+    // 本名单是 engine/scripts/defines.ts 的 DEFAULT_BUILD_FEATURES（权威）的手抄子集，
+    // 只用于源码启动的 dev / packaged src-fallback 两条路径；越界由 resolveCli.test.ts 拦下。
+    // CONTEXT_COLLAPSE / HISTORY_SNIP / FORK_SUBAGENT / UDS_INBOX / LAN_PIPES 缺席 = 引擎注释里写明的禁用理由。
+    // PROACTIVE 缺席 = 引擎 43 处闸全是 feature('PROACTIVE') || feature('KAIROS')，KAIROS 已开，单传它无效果。
     const features = [
       'BUDDY', 'TRANSCRIPT_CLASSIFIER', 'BRIDGE_MODE',
       'AGENT_TRIGGERS_REMOTE', 'CHICAGO_MCP', 'VOICE_MODE',
@@ -1933,10 +1969,10 @@ export class SessionProcess extends EventEmitter {
       'AGENT_TRIGGERS', 'ULTRATHINK', 'BUILTIN_EXPLORE_PLAN_AGENTS',
       'LODESTONE', 'EXTRACT_MEMORIES', 'VERIFICATION_AGENT',
       'KAIROS_BRIEF', 'AWAY_SUMMARY', 'ULTRAPLAN', 'DAEMON',
-      'WORKFLOW_SCRIPTS', 'HISTORY_SNIP', 'CONTEXT_COLLAPSE',
-      'MONITOR_TOOL', 'FORK_SUBAGENT', 'UDS_INBOX', 'KAIROS',
-      'COORDINATOR_MODE', 'LAN_PIPES', 'POOR',
-      'PROACTIVE', 'WEB_BROWSER_TOOL', 'BUILDING_CLAUDE_APPS',
+      'WORKFLOW_SCRIPTS', 'MONITOR_TOOL', 'KAIROS',
+      'COORDINATOR_MODE', 'POOR',
+      // 引擎默认不开、客户端产品面依赖的两个，逐条理由见 resolveCli.test.ts 的 CLIENT_ONLY_FEATURES
+      'WEB_BROWSER_TOOL', 'BUILDING_CLAUDE_APPS',
     ]
     return features.flatMap(f => ['--feature', f])
   }

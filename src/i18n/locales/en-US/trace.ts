@@ -43,6 +43,7 @@ export default {
     searchPlaceholder: 'Search sessions...',
     apiCalls: 'API calls',
     failed: 'failed',
+    duration: 'Total duration',
     models: 'models',
     loadFailed: 'Failed to load trace data',
     noSessions: 'No trace sessions found',

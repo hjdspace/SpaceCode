@@ -23,6 +23,8 @@ export default {
   allTypes: '所有类型',
   confirmDelete: '确认删除',
   confirmDeleteDesc: '此操作将从配置文件中移除该 Hook，确定继续？',
+  noProjectRoot: '未打开项目，无法读写项目级 / 本地级 Hook 配置',
+  persistFailed: 'Hook 配置未能写入，请确认项目已打开且目录仍然存在',
   hookName: 'Hook 名称',
   hookNamePlaceholder: '例如：自动格式化',
   eventType: '事件类型',

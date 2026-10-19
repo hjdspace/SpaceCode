@@ -54,6 +54,15 @@ export interface EngineEvictionBlockedEvent {
 
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 
+/**
+ * 思考开关落到引擎进程的时间点。
+ *
+ * `--thinking` 只在 spawn 时读一次，所以「改成功了」有两种真值：空闲时当场挂起进程、
+ * 下一条消息就带新参数（now）；轮次进行中不打断，本轮跑完才生效（next-turn）。
+ * 界面据此决定要不要提示用户，而不是自己猜会话是否忙。
+ */
+export type ThinkingUpdateTiming = 'now' | 'next-turn'
+
 // ── 权限规则变更（can_use_tool 的 permission_suggestions / 应答的 updatedPermissions）──
 // 形状对齐引擎侧 PermissionUpdateSchema（engine/src/utils/permissions/PermissionUpdateSchema.ts）。
 // 宿主不解释、不重构这些对象，只把引擎发来的原样回传 —— 引擎用 zod discriminated union
@@ -148,7 +157,7 @@ export const claudeCodeNamespace = defineNamespace({
     },
     updateThinkingLevel: {
       req: [] as unknown as [sessionId: string, enabled: boolean],
-      res: null as unknown as void,
+      res: null as unknown as ThinkingUpdateTiming,
     },
     // ── 会话历史 ──
     listProjectSessions: {

@@ -37,6 +37,7 @@ import { registerNotificationIPCHandlers } from './infra/notificationService'
 import {
   initLogger, info, warn, error, debug, isDebugMode,
 } from './infra/logger'
+import { flushTraceSidecars } from './infra/traceSidecar'
 import { proxyManager, buildProxyConfigFromSettings } from './infra/proxyManager'
 import { rtkManager } from './tools/rtkManager'
 import { PetFileService } from './pet/petFileService'
@@ -395,6 +396,7 @@ async function runQuitStep(name: string, step: () => unknown): Promise<void> {
 app.on('before-quit', async () => {
   markQuitting()
   info('App', 'App quitting')
+  await runQuitStep('flushTraceSidecars', flushTraceSidecars)
   await runQuitStep('hideDockIcon', hideDockIcon)
   await runQuitStep('installUpdateOnQuit', installUpdateOnQuit)
   await runQuitStep('cleanupPreviewServer', cleanupPreviewServer)

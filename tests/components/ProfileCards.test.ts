@@ -29,6 +29,11 @@ vi.mock('@/services/electronAPI', () => ({
   },
 }))
 
+// Mock useDialog：删除按钮要过确认弹窗，测试里直接批准
+vi.mock('@/composables/useDialog', () => ({
+  useDialog: () => ({ showConfirm: vi.fn(() => Promise.resolve(true)) }),
+}))
+
 // 提供独立的 i18n 实例，避免 useI18n() 报 "Need to install with app.use"
 const i18n = createI18n({
   legacy: false,
@@ -174,6 +179,52 @@ describe('ProfileCards', () => {
     expect(messages).toContain('本地代理没能按新配置启动')
     expect(messages).not.toContain('已切换到')
     expect(store.expandedProfileId).toBe('p1')
+  })
+
+  // issue #48：更新/删除活跃方案同样要等主进程落地，失败得说清楚并回滚。
+  it('改活跃方案没落地时提示更新失败，不静默成功', async () => {
+    const store = useSettingsStore()
+    store.profiles = [makeProfile({ id: 'p1' })]
+    store.activeProfileId = 'p1'
+    store.expandedProfileId = 'p1'
+    const pushToast = vi.spyOn(errorHandler, 'pushToast').mockImplementation(() => {})
+    vi.spyOn(store, 'updateProfile').mockRejectedValue(Object.assign(
+      new Error('updateProfile("p1") failed: EADDRINUSE 34567'),
+      { profileApplyFailure: 'proxy_not_aligned' },
+    ))
+
+    const wrapper = mount(ProfileCards, mountOptions)
+    await wrapper.vm.$nextTick()
+    await wrapper.find('[data-testid="profile-name-p1"]').trigger('click')
+    const input = wrapper.find('[data-testid="profile-name-input"]')
+    await input.setValue('工作-改')
+    await input.trigger('keyup.enter')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+
+    const messages = pushToast.mock.calls.map(call => call[0].message).join('\n')
+    expect(messages).toContain('「工作-改」没有保存成功')
+    expect(messages).toContain('本地代理没能按新配置启动')
+  })
+
+  it('删活跃方案没落地时提示删除失败', async () => {
+    const store = useSettingsStore()
+    store.profiles = [makeProfile({ id: 'p1' }), makeProfile({ id: 'p2', name: '个人' })]
+    store.activeProfileId = 'p1'
+    store.expandedProfileId = 'p1'
+    const pushToast = vi.spyOn(errorHandler, 'pushToast').mockImplementation(() => {})
+    vi.spyOn(store, 'deleteProfile').mockRejectedValue(Object.assign(
+      new Error('deleteProfile("p1") failed: EPERM gui-settings.json'),
+      { profileApplyFailure: 'settings_save_failed' },
+    ))
+
+    const wrapper = mount(ProfileCards, mountOptions)
+    await wrapper.vm.$nextTick()
+    await wrapper.find('[data-testid="delete-btn"]').trigger('click')
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+
+    const messages = pushToast.mock.calls.map(call => call[0].message).join('\n')
+    expect(messages).toContain('「工作」没有删除成功')
+    expect(messages).toContain('已恢复该配置')
   })
 
   it('只剩 1 个 Profile 时删除按钮禁用', async () => {

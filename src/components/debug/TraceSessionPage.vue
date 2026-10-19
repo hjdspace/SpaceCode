@@ -30,7 +30,7 @@
           <span v-if="totalDuration" class="header-stat duration">{{ totalDuration }}</span>
         </div>
       </div>
-      <button class="icon-btn" @click="loadData" :disabled="loading" :aria-label="t('trace.refresh')">
+      <button class="icon-btn" @click="loadData()" :disabled="loading" :aria-label="t('trace.refresh')">
         <RefreshCw :size="14" :class="{ spin: loading }" aria-hidden="true" />
       </button>
     </header>
@@ -216,8 +216,10 @@ const displayTitle = computed(() => {
 })
 
 const totalDuration = computed(() => {
-  const root = viewModel.value?.spansById.get(rootId)
-  return root?.durationMs ? formatDurationMs(root.durationMs) : ''
+  // 执行时长合计（回合去重累加），与主进程 summary.totalDurationMs 同口径；
+  // root span 的 durationMs 是首尾事件墙钟，含空闲，不适合当"总时长"展示。
+  const total = viewModel.value?.totalDurationMs ?? 0
+  return total > 0 ? formatDurationMs(total) : ''
 })
 
 const selectedSpan = computed(() => {
@@ -269,7 +271,19 @@ function getFilteredSpanIds(spanIds: string[]): string[] {
 function getSpanKind(span: TraceSpan): string { return span.kind }
 function getSpanStatus(span: TraceSpan): string { return span.status }
 
-async function loadData() {
+/** 上次全量加载时文件的 (size, mtime)，轮询先做轻量 stat，未变化则跳过重读与重建 */
+let lastStat: { size: number; modifiedAt: number } | null = null
+
+async function loadData(options?: { force?: boolean }) {
+  // 轮询路径先做轻量变更检测（一次 IPC + 主进程 stat），文件没变就不重读、不重建 viewModel。
+  // statSession 不可用（返回 null 的降级环境）时退回原有全量行为。
+  if (!options?.force) {
+    const st = await api.trace.statSession(props.sessionId)
+    if (st && lastStat && st.size === lastStat.size && st.modifiedAt === lastStat.modifiedAt) {
+      return
+    }
+    lastStat = st
+  }
   loading.value = true
   try {
     const result = await api.debug.readTraceEvents(props.sessionId, 5000)
@@ -338,7 +352,11 @@ function stopResize() {
 
 function startPolling() {
   stopPolling()
-  pollTimer = setInterval(() => { loadData() }, 1500)
+  // stat 前置检查后每轮只剩一次轻量 IPC，间隔从 1.5s 放宽到 2s
+  pollTimer = setInterval(() => {
+    if (document.hidden) return
+    loadData()
+  }, 2000)
 }
 
 function stopPolling() {

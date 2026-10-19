@@ -272,7 +272,7 @@ describe('api H5 localStorage 分支', () => {
 
 describe('api 嵌套命名空间（electronAPI.claudeCode.*）兜底', () => {
   it.each([
-    ['updateThinkingLevel', ['s1', true], undefined],
+    ['updateThinkingLevel', ['s1', true], 'now'],
     ['getContextUsage', ['s1'], undefined],
     ['detectInstalledCli', [], null],
     ['checkEnvironment', [], null],

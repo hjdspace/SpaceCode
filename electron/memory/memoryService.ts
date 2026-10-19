@@ -427,7 +427,11 @@ async function ensureMemoryDirBoundary(projectId: string): Promise<string> {
   if (await directoryExists(memoryDir)) {
     await assertWithinDirectory(memoryDir, projectDir, true)
   }
-  return memoryDir
+  // 交出去的是规范化后的目录。assertWithinDirectory 只在「这一侧存在」时才 realpath，
+  // 缺失文件那侧于是回退成字面路径：macOS 的 /var→/private/var、Linux 的 /tmp 链接、
+  // Windows 的 junction 都会让两种形式相比，把「记忆文件不存在」误报成「路径越出记忆目录」。
+  // 基座先规范化，比较的起点就落在同一个形式上。
+  return await safeRealpath(memoryDir)
 }
 
 /**

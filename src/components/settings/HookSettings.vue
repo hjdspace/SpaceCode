@@ -223,11 +223,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Pencil, Trash2, ChevronDown, Zap, LayoutList, Table2, GitBranch } from 'lucide-vue-next'
 import { useHooksStore } from '@/stores/hooks'
 import { useBuiltinHooksStore } from '@/stores/builtinHooks'
+import { useAppStore } from '@/stores/app'
 import { HOOK_EVENTS, SCOPE_LABELS, getEventDescription } from '@/types/hooks'
 import type { HookEventType, HookScope, HookFlatItem } from '@/types/hooks'
 import HookEditModal from './HookEditModal.vue'
@@ -236,6 +237,13 @@ import BuiltinHooksSection from './BuiltinHooksSection.vue'
 const { t } = useI18n()
 const store = useHooksStore()
 const builtinStore = useBuiltinHooksStore()
+const appStore = useAppStore()
+
+function reloadHooks() {
+  store.loadFromSettingsFile().then(() => {
+    builtinStore.reconcile()
+  })
+}
 
 const viewMode = ref<'cards' | 'table' | 'timeline'>('cards')
 const activeEvent = ref<HookEventType>('PreToolUse')
@@ -321,9 +329,7 @@ function toggleExpand(id: string) {
 
 function switchScope(scope: HookScope) {
   store.activeScope = scope
-  store.loadFromSettingsFile().then(() => {
-    builtinStore.reconcile()
-  })
+  reloadHooks()
 }
 
 function editHook(hook: HookFlatItem) {
@@ -364,11 +370,11 @@ function doDelete() {
   }
 }
 
-onMounted(() => {
-  store.loadFromSettingsFile().then(() => {
-    builtinStore.reconcile()
-  })
-})
+// 项目级/本地级配置落在哪个目录，只有渲染进程知道当前项目；切换项目后重读列表
+watch(() => appStore.projectRoot, (root) => {
+  store.setProjectRoot(root || '')
+  reloadHooks()
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>

@@ -2,7 +2,7 @@ import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, ThinkingUpdateTiming } from './types'
 import { PiProcessPool } from './PiProcessPool'
 import { info, warn, error } from '../../infra/logger'
 
@@ -57,11 +57,12 @@ export class PiEngine implements IEngine {
     }
   }
 
-  async updateThinkingLevel(sessionId: string, enabled: boolean): Promise<void> {
+  async updateThinkingLevel(sessionId: string, enabled: boolean): Promise<ThinkingUpdateTiming> {
     const proc = this.pool.getProcess(sessionId)
     if (!proc) {
+      // 会话还没起进程：没有正在跑的轮次会被旧参数卡住，下一条消息起来就带新配置。
       warn('PiEngine', `updateThinkingLevel: session not found | sessionId=${sessionId.slice(0, 8)}`)
-      return
+      return 'now'
     }
 
     info('PiEngine', `updateThinkingLevel | sessionId=${sessionId.slice(0, 8)} | enabled=${enabled}`)
@@ -72,11 +73,12 @@ export class PiEngine implements IEngine {
       error('PiEngine', `updateThinkingLevel failed | sessionId=${sessionId.slice(0, 8)}`, err)
       throw err
     }
+    return 'now'
   }
 
   async abort(sessionId: string): Promise<void> {
     info('PiEngine', `abort | sessionId=${sessionId.slice(0, 8)}`)
-    this.pool.abortSession(sessionId)
+    await this.pool.abortSession(sessionId)
   }
 
   async stop(sessionId: string): Promise<void> {

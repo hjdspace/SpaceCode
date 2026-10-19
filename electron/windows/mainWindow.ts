@@ -7,6 +7,7 @@
  */
 import { BrowserWindow, app, net } from 'electron'
 import { join } from 'path'
+import { existsSync } from 'fs'
 import { info, warn, error, debug, isDebugMode } from '../infra/logger'
 import { isQuitting, shouldHideOnWindowClose } from '../infra/appLifecycle'
 import { getWindowIconPath, loadIconImage } from './iconUtils'
@@ -23,12 +24,30 @@ const startTime = Date.now()
 
 // ── Vite dev-server polling ─────────────────────────────────────
 
-function waitForViteAndLoad(window: BrowserWindow, url: string, interval = 200): void {
+/**
+ * Navigate only once the Vite server answers *and* the preload script is on
+ * disk. A sandboxed renderer swallows a missing preload as a console error, so
+ * loading early yields a visible window with no contextBridge — and dev shares
+ * `dist-electron/` with `npm run build`, which can remove that file mid-boot.
+ */
+export function waitForViteAndLoad(
+  window: BrowserWindow,
+  url: string,
+  preloadFile: string,
+  interval = 200,
+): void {
   let attempts = 0
   const tryLoad = () => {
     attempts++
     const req = net.request(url)
     req.on('response', () => {
+      if (!existsSync(preloadFile)) {
+        if (attempts === 1 || attempts % 25 === 0) {
+          warn('Startup', `preload script not ready after ${attempts} attempt(s), deferring load: ${preloadFile}`)
+        }
+        setTimeout(tryLoad, interval)
+        return
+      }
       info('Startup', `Vite dev server ready after ${attempts} attempt(s)`)
       window.loadURL(url).catch((err: Error) => {
         error('Startup', `Failed to load URL: ${err.message}`)
@@ -135,6 +154,7 @@ export function createWindow(
   createMenu: () => void,
 ): void {
   const debugMode = isDebugMode()
+  const preloadPath = join(__dirname, 'preload.js')
 
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1400,
@@ -146,7 +166,7 @@ export function createWindow(
     backgroundColor: '#0c0c1d',
     show: false,
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       partition: 'persist:claude-code-desktop',
@@ -208,7 +228,7 @@ export function createWindow(
   })
 
   if (isDev) {
-    waitForViteAndLoad(mainWindow, 'http://127.0.0.1:5173')
+    waitForViteAndLoad(mainWindow, 'http://127.0.0.1:5173', preloadPath)
   } else {
     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
   }

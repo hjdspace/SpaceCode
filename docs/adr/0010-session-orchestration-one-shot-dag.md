@@ -29,6 +29,8 @@ layer must never depend on the pool's eviction to schedule correctly.
   nodes start simultaneously (parallel). No auto-ignition on first message.
 - **Permission follows global policy**: nodes run under whatever permission mode the
   user's global setting dictates. For unattended runs the user opts into bypass globally.
+  *(Superseded by [ADR 0012](0012-permission-mode-is-per-session.md): permission mode is
+  per-session, so nodes follow the mode of the session they belong to.)*
 - **Reuse the session system**: orchestration node sessions are ordinary chat sessions in
   the existing chatSession store (sidebar-listed, persisted, resumable). The graph
   structure itself persists in localStorage alongside them.

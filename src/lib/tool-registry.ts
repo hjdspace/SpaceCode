@@ -316,7 +316,7 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
     category: 'plan',
     description: 'Exit planning mode and proceed to implementation',
     availability: 'always',
-    hasSpecialUI: false,
+    hasSpecialUI: true,
   },
   {
     name: 'VerifyPlanExecution',

@@ -236,6 +236,11 @@ export interface Session {
   assistantId?: string
   /** 用户在当前会话中选择的模型（来自输入框下拉框）。 */
   model?: string
+  /**
+   * 本会话的权限模式。缺省 = 该会话从没主动切过，取全局默认。
+   * 刻意按会话存：一个会话切模式不得改写另一个会话正在跑的模式。
+   */
+  permissionMode?: import('@/shared/channels/claudeCode').PermissionMode
   /** Provider/base URL used by the live engine process for this session. */
   provider?: string
   baseUrl?: string

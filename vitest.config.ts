@@ -90,7 +90,7 @@ export default defineConfig({
         'electron/skills/**': { statements: 55 }, // 60.3% (市场/扫描/本地库三片，skillsService 90.1%)
         'electron/im/**': { statements: 52 }, // 52.2% (feishuAdapter 事件链路补齐后的下界)
         'electron/session/**': { statements: 80 }, // 85.6% (sessionProcess 分帧/spawn/argv/env/生命周期)
-        'electron/tools/**': { statements: 55 }, // 59.7% (browserUse 安装与健康 + rtk 下载/统计)
+        'electron/tools/**': { statements: 65 }, // 68.1% (browserUse 安装与健康 + rtk 下载/统计 + officecli 截图分页与 watch 生命周期)
         'electron/skillManagerV2/**': { statements: 72 }, // 74.8%
       },
     },

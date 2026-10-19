@@ -271,6 +271,9 @@ export const useBuiltinHooksStore = defineStore('builtinHooks', () => {
           h.event === def.event &&
           h.scope === s.scope &&
           h.type === 'command' &&
+          // 禁用项现在会留在管理列表里（引擎配置里才没有它），"在列表里"不再等于
+          // "引擎会执行"——不排掉禁用的，卡片会显示已启用而引擎根本不跑这个 Hook
+          !h.disabled &&
           h.command === expectedCommand,
       )
       if (matched) {

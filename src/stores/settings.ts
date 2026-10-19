@@ -90,6 +90,8 @@ export interface AuthSettings {
   /** 用户最近一次在输入框下拉中选择的模型（实际模型名，非别名）。
    *  持久化以避免 GUI 重启后回退到 sonnet 槽位。 */
   lastSelectedModel?: string
+  /** 首次启动引导是否已走完（走完或用户明确「不再提醒」）。 */
+  hasCompletedOnboarding?: boolean
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -319,6 +321,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const aiSessionTitleEnabled = ref<boolean>(saved.aiSessionTitleEnabled ?? false)
   const showSkillsManagerEntry = ref<boolean>(saved.showSkillsManagerEntry ?? false)
   const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
+  const hasCompletedOnboarding = ref<boolean>(saved.hasCompletedOnboarding === true)
+
+  /** gui-settings.json / .env 的异步读取是否已经落定。
+   *  首启动判定必须等它 — 否则标记还在默认 false，会给所有老用户误弹引导。 */
+  const settingsReady = ref(false)
 
   // ── Profile 管理（多套模型配置切换）──
   const profiles = ref<ModelProfile[]>([])
@@ -552,7 +559,8 @@ export const useSettingsStore = defineStore('settings', () => {
       rtkEnabled: rtkEnabled.value,
       aiSessionTitleEnabled: aiSessionTitleEnabled.value,
       showSkillsManagerEntry: showSkillsManagerEntry.value,
-      lastSelectedModel: lastSelectedModel.value || undefined
+      lastSelectedModel: lastSelectedModel.value || undefined,
+      hasCompletedOnboarding: hasCompletedOnboarding.value
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -613,7 +621,8 @@ export const useSettingsStore = defineStore('settings', () => {
           if (first) {
             activeProfileId.value = first.id
             applyProfileFields(first)
-            saveSettings()
+            // 等主进程落地：界面显示 first、代理却还指着原来那套配置的话，下一条消息会走错接口。
+            await saveSettings()
           } else {
             activeProfileId.value = null
           }
@@ -661,28 +670,44 @@ export const useSettingsStore = defineStore('settings', () => {
     modelCapabilities.value = { ...p.modelCapabilities || {} }
   }
 
-  async function applyProfile(id: string): Promise<void> {
-    const p = profiles.value.find(x => x.id === id)
-    if (!p) return
-    const prevActiveId = activeProfileId.value
-    const prev = prevActiveId ? profiles.value.find(x => x.id === prevActiveId) ?? null : null
+  /**
+   * 方案改动落盘前的状态。
+   * 元素从不原地修改（updateProfile 换新对象、deleteProfile 重建数组），浅拷贝就够，
+   * 回滚后连对象引用都和改动前一致。
+   */
+  type ProfileStateSnapshot = {
+    profiles: ModelProfile[]
+    activeProfileId: string | null
+  }
 
-    activeProfileId.value = id
-    applyProfileFields(p)
+  function snapshotProfileState(): ProfileStateSnapshot {
+    return { profiles: profiles.value.slice(), activeProfileId: activeProfileId.value }
+  }
 
-    // saveSettings 触发主进程写 gui-settings.json + 同步 settings.json + 对齐本地代理，
-    // 那才是"生效"的那一步；它永不 reject，失败信息在返回值里，所以要等它并自己判。
-    const saved = await saveSettings()
+  /**
+   * 把当前方案状态送出去：先等主进程落地（写 gui-settings.json + 同步 settings.json + 对齐本地代理），
+   * 再落 profiles.json。saveSettings 永不 reject、失败只在返回值里，saveProfiles 自己会抛 ——
+   * 两条都不等就等于把"没落地"报成"已落地"。任一步失败都退回快照，并抛带分类的错给界面提示。
+   */
+  async function commitProfileChange(
+    prev: ProfileStateSnapshot,
+    opts: { syncsActive: boolean, label: string },
+  ): Promise<void> {
     let failure: ProfileApplyFailure | null = null
     let reason = ''
 
-    if (!saved.success) {
-      failure = 'settings_save_failed'
-      reason = saved.error ?? 'settings:saveGuiSettings failed'
-    } else if (saved.proxyState === 'failed') {
-      failure = 'proxy_not_aligned'
-      reason = 'local proxy did not align with the new profile'
-    } else {
+    if (opts.syncsActive) {
+      const saved = await saveSettings()
+      if (!saved.success) {
+        failure = 'settings_save_failed'
+        reason = saved.error ?? 'settings:saveGuiSettings failed'
+      } else if (saved.proxyState === 'failed') {
+        failure = 'proxy_not_aligned'
+        reason = 'local proxy did not align with the new profile'
+      }
+    }
+
+    if (!failure) {
       try {
         await saveProfiles()
       } catch (err) {
@@ -693,17 +718,37 @@ export const useSettingsStore = defineStore('settings', () => {
 
     if (!failure) return
 
-    // 回滚：界面不能停在一个没生效的选择上。活动方案与主进程配置一起退回上一个 Profile。
-    activeProfileId.value = prevActiveId
-    if (prev) {
-      applyProfileFields(prev)
-      const rolledBack = await saveSettings()
-      // 回滚期间的二次落盘失败只记日志：它比原始失败次要，不该盖掉真正的失败原因。
-      if (rolledBack.success) await saveProfiles().catch((err) => console.error('[Settings] Failed to persist rollback:', err))
-      else console.error('[Settings] Failed to roll back GUI settings:', rolledBack.error)
-    }
+    await rollbackProfileState(prev, opts.syncsActive)
 
-    throw Object.assign(new Error(`applyProfile("${id}") failed: ${reason}`), { profileApplyFailure: failure })
+    throw Object.assign(new Error(`${opts.label} failed: ${reason}`), { profileApplyFailure: failure })
+  }
+
+  /** 回滚：界面不能停在一个没生效的改动上 —— 内存与主进程配置一起退回改动前的方案。 */
+  async function rollbackProfileState(prev: ProfileStateSnapshot, syncsActive: boolean): Promise<void> {
+    profiles.value = prev.profiles
+    activeProfileId.value = prev.activeProfileId
+    // 没碰活跃方案时主进程那份不用动（profiles.json 这次也没写成，内存退回后即与磁盘一致）
+    if (!syncsActive) return
+    const active = prev.activeProfileId
+      ? prev.profiles.find(p => p.id === prev.activeProfileId) ?? null
+      : null
+    if (!active) return
+    applyProfileFields(active)
+    const rolledBack = await saveSettings()
+    // 回滚期间的二次落盘失败只记日志：它比原始失败次要，不该盖掉真正的失败原因。
+    if (rolledBack.success) await saveProfiles().catch((err) => console.error('[Settings] Failed to persist rollback:', err))
+    else console.error('[Settings] Failed to roll back GUI settings:', rolledBack.error)
+  }
+
+  async function applyProfile(id: string): Promise<void> {
+    const p = profiles.value.find(x => x.id === id)
+    if (!p) return
+    const prev = snapshotProfileState()
+
+    activeProfileId.value = id
+    applyProfileFields(p)
+
+    await commitProfileChange(prev, { syncsActive: true, label: `applyProfile("${id}")` })
   }
 
   async function createProfile(name: string): Promise<string> {
@@ -728,24 +773,24 @@ export const useSettingsStore = defineStore('settings', () => {
   async function updateProfile(id: string, patch: Partial<ModelProfile>): Promise<void> {
     const i = profiles.value.findIndex(x => x.id === id)
     if (i < 0) return
+    const prev = snapshotProfileState()
     profiles.value[i] = { ...profiles.value[i], ...patch, updatedAt: new Date().toISOString() }
-    // 如果更新的是 active profile，同步到当前 config + saveSettings
-    if (id === activeProfileId.value) {
-      applyProfileFields(profiles.value[i])
-      saveSettings()
-    }
-    await saveProfiles()
+    // 改的是活跃方案 → 主进程配置与本地代理要跟着新值走；改别的方案只需落 profiles.json
+    const syncsActive = id === prev.activeProfileId
+    if (syncsActive) applyProfileFields(profiles.value[i])
+    await commitProfileChange(prev, { syncsActive, label: `updateProfile("${id}")` })
   }
 
   async function deleteProfile(id: string): Promise<void> {
     if (profiles.value.length <= 1) return   // 至少保留 1 个
+    const prev = snapshotProfileState()
     profiles.value = profiles.value.filter(x => x.id !== id)
-    if (activeProfileId.value === id) {
+    const syncsActive = id === prev.activeProfileId
+    if (syncsActive) {
       activeProfileId.value = profiles.value[0].id
       applyProfileFields(profiles.value[0])
-      saveSettings()
     }
-    await saveProfiles()
+    await commitProfileChange(prev, { syncsActive, label: `deleteProfile("${id}")` })
   }
 
   async function duplicateProfile(id: string): Promise<string> {
@@ -826,6 +871,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
     if (settings.aiSessionTitleEnabled !== undefined) aiSessionTitleEnabled.value = settings.aiSessionTitleEnabled
     if (settings.showSkillsManagerEntry !== undefined) showSkillsManagerEntry.value = settings.showSkillsManagerEntry
+    if (settings.hasCompletedOnboarding !== undefined) hasCompletedOnboarding.value = settings.hasCompletedOnboarding
   }
 
   async function loadFromGuiSettingsFile() {
@@ -928,6 +974,7 @@ export const useSettingsStore = defineStore('settings', () => {
   loadFromGuiSettingsFile()
     .finally(() => loadFromEnv())
     .finally(() => migrateFontSizeDefault())
+    .finally(() => { settingsReady.value = true })
 
   return {
     authMethod,
@@ -969,6 +1016,8 @@ export const useSettingsStore = defineStore('settings', () => {
     aiSessionTitleEnabled,
     showSkillsManagerEntry,
     lastSelectedModel,
+    hasCompletedOnboarding,
+    settingsReady,
     // Profile 管理
     profiles,
     activeProfileId,

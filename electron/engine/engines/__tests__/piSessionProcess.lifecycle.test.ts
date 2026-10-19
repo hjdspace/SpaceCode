@@ -23,10 +23,15 @@ import { killTree as mockedKillTree } from '../../../session/engineChildProcess'
  *     is what makes stdout flush per line (bun buffers it and streaming dies)
  *   - early exit and spawn error semantics, and how many times `error` reaches the pool
  *   - in-flight prompt requests rejected with the last stderr lines when the child dies
- *   - kill / suspend / resume / abort control frames and the suspend-safety gate
- *   - attachment handling: images are written under the session upload dir and
- *     referenced as `@"path"` in the prompt text; a broken data URL must not sink
- *     the whole message
+ *   - kill / suspend / resume / abort control frames and the suspend-safety gate,
+ *     including that a suspend records Pi's own session file so the respawn can
+ *     carry `--session` back into it — and that a session file handed to the
+ *     constructor (the pool read it off disk after an app restart) goes straight
+ *     into the spawn args
+ *   - attachment handling: inlinable images ride in the prompt frame's `images`
+ *     field (a `@"path"` reference loses the pixels on non-Anthropic gateways),
+ *     only unsupported types fall back to the upload dir, and a broken data URL
+ *     must not sink the whole message
  */
 
 interface FakeChild {
@@ -114,15 +119,23 @@ const BASE: EngineSessionConfig = { cwd: '/ws', provider: 'anthropic', model: 'c
 
 let open: PiSessionProcess[] = []
 
-function newProc(config: Partial<EngineSessionConfig> = {}, sessionId = SESSION_ID): PiSessionProcess {
-  const proc = new PiSessionProcess(sessionId, { ...BASE, ...config })
+function newProc(
+  config: Partial<EngineSessionConfig> = {},
+  sessionId = SESSION_ID,
+  resumeSessionFile?: string,
+): PiSessionProcess {
+  const proc = new PiSessionProcess(sessionId, { ...BASE, ...config }, resumeSessionFile)
   open.push(proc)
   return proc
 }
 
 /** Runs start() through its 500 ms grace window on a faked clock. */
-async function startUp(config: Partial<EngineSessionConfig> = {}, sessionId = SESSION_ID) {
-  const proc = newProc(config, sessionId)
+async function startUp(
+  config: Partial<EngineSessionConfig> = {},
+  sessionId = SESSION_ID,
+  resumeSessionFile?: string,
+) {
+  const proc = newProc(config, sessionId, resumeSessionFile)
   const starting = proc.start()
   await vi.advanceTimersByTimeAsync(500)
   await starting
@@ -137,7 +150,12 @@ function ackFor(id: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ type: 'response', id, command: 'prompt', success: true, ...extra }) + '\n'
 }
 
-function writtenFrames(child: FakeChild): Array<{ id: string; type: string; message?: string }> {
+/** `get_state` 的应答帧；会话文件就藏在这里，恢复要用它。 */
+function stateResponse(data: Record<string, unknown>, id = 'req_1'): string {
+  return JSON.stringify({ type: 'response', id, command: 'get_state', success: true, data }) + '\n'
+}
+
+function writtenFrames(child: FakeChild): Array<Record<string, any>> {
   return child.stdinWrite.mock.calls.map((call) => JSON.parse(String(call[0])))
 }
 
@@ -379,30 +397,97 @@ describe('PiSessionProcess kill, suspend, resume', () => {
     expect(proc.status).toBe('exited')
   })
 
-  it('suspends by closing stdin and resumes by spawning a fresh process', async () => {
+  it('挂起时记下 pi 自己的会话文件，恢复的新进程带 --session 回去', async () => {
     const { proc, child } = await startUp()
+    const sessionFile = '/home/u/.pi/agent/sessions/ws/abc.jsonl'
 
-    await proc.suspend()
+    const suspending = proc.suspend()
+    // 状态先行置位：suspend 在池里是 fire-and-forget，等 get_state 期间不能让人复用这条会话
+    expect(proc.status).toBe('suspended')
+    expect(writtenFrames(child)).toEqual([{ id: 'req_1', type: 'get_state' }])
+
+    feed(child, stateResponse({ sessionFile }))
+    await suspending
 
     expect(child.stdinEnd).toHaveBeenCalledTimes(1)
-    expect(proc.status).toBe('suspended')
     expect(proc.isRunning()).toBe(false)
+    expect(proc.getPiSessionFile()).toBe(sessionFile)
 
     const resuming = proc.resume()
     await vi.advanceTimersByTimeAsync(500)
     await resuming
 
     expect(H.spawnCalls).toHaveLength(2)
+    const respawnArgs = H.spawnCalls[1].args
+    expect(respawnArgs[respawnArgs.indexOf('--session') + 1]).toBe(sessionFile)
     expect(proc.status).toBe('idle')
     expect(proc.isRunning()).toBe(true)
   })
 
-  it('ignores suspend, abort and thinking-level requests before there is a process', async () => {
+  it('get_state 不应答时挂起照样收口，恢复时不带 --session', async () => {
+    const { proc, child } = await startUp()
+
+    const suspending = proc.suspend()
+    await vi.advanceTimersByTimeAsync(3000)
+    await suspending
+
+    expect(child.stdinEnd).toHaveBeenCalledTimes(1)
+    expect(proc.status).toBe('suspended')
+    expect(proc.getPiSessionFile()).toBeNull()
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'PiSessionProcess',
+      expect.stringContaining(`[${SHORT_ID}] Failed to capture Pi session file`),
+      expect.objectContaining({ message: 'Timeout waiting for session state' }),
+    )
+
+    const resuming = proc.resume()
+    await vi.advanceTimersByTimeAsync(500)
+    await resuming
+
+    expect(H.spawnCalls[1].args).not.toContain('--session')
+  })
+
+  it('get_state 成功但没回报 sessionFile 时不记会话文件', async () => {
+    const { proc, child } = await startUp()
+
+    const suspending = proc.suspend()
+    feed(child, stateResponse({}))
+    await suspending
+
+    expect(proc.getPiSessionFile()).toBeNull()
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'PiSessionProcess',
+      expect.stringContaining(`[${SHORT_ID}] get_state returned no sessionFile`),
+    )
+  })
+
+  it('构造时由池注入的会话文件直接进 spawn 参数 —— 重启应用后靠它接上历史', async () => {
+    const piFile = '/home/u/.pi/agent/sessions/--ws--/2026-10-18T12-55-29-647Z_abc.jsonl'
+
+    await startUp({}, SESSION_ID, piFile)
+
+    expect(H.spawnCalls[0].args).toEqual([
+      DEV_CLI, '--mode', 'rpc', '--provider', 'anthropic', '--model', 'claude-sonnet-4', '--session', piFile,
+    ])
+  })
+
+  it('没有进程时探测会话文件直接收口，不往 stdin 写帧', async () => {
+    const proc = newProc()
+
+    await expect(proc.captureSessionFile(30_000)).resolves.toBeUndefined()
+
+    expect(H.spawnCalls).toHaveLength(0)
+    expect(proc.getPiSessionFile()).toBeNull()
+  })
+
+  it('没有进程时 suspend 与 abort 尽力而为，thinking 请求则如实失败', async () => {
     const proc = newProc()
 
     await proc.suspend()
     await proc.abort()
-    await proc.setThinkingLevel('high')
+    // 这两个丢了还有超时与退出事件收尾；思考开关是用户刚点的那一下，静默 return 会被
+    // 上层读成「已下发」，界面就停在一条从没送出的设置上（issue #49）。
+    await expect(proc.setThinkingLevel('high')).rejects.toThrow(/no running process/)
 
     expect(proc.status).toBe('starting')
     expect(H.spawnCalls).toHaveLength(0)
@@ -411,36 +496,78 @@ describe('PiSessionProcess kill, suspend, resume', () => {
   it('writes the abort and thinking-level control frames verbatim', async () => {
     const { proc, child } = await startUp()
 
-    await proc.abort()
+    // abort 走 rpcRequest：带 id，且要等引擎 ack；thinking-level 仍是写完即返回的一帧
+    const aborting = proc.abort()
+    feed(child, JSON.stringify({ type: 'response', id: 'req_1', command: 'abort', success: true }) + '\n')
+    await aborting
     await proc.setThinkingLevel('off')
 
     expect(writtenFrames(child)).toEqual([
-      { type: 'abort' },
+      { id: 'req_1', type: 'abort' },
       { type: 'set_thinking_level', level: 'off' },
     ])
     expect(child.stdinWrite.mock.calls.map((call) => String(call[0]))).toEqual([
-      '{"type":"abort"}\n',
+      '{"id":"req_1","type":"abort"}\n',
       '{"type":"set_thinking_level","level":"off"}\n',
     ])
   })
 
-  it('warns instead of throwing when a control frame cannot be written', async () => {
+  it('abort 在引擎 ack 之前一直等，ack 到达才返回', async () => {
     const { proc, child } = await startUp()
-    child.stdinWrite.mockImplementation(() => {
-      throw new Error('EPIPE: write after end')
-    })
 
-    await expect(proc.abort()).resolves.toBeUndefined()
-    await expect(proc.setThinkingLevel('medium')).resolves.toBeUndefined()
+    const aborting = proc.abort()
+    let settled = false
+    void aborting.then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(9_000)
+    expect(settled).toBe(false)
+
+    feed(child, JSON.stringify({ type: 'response', id: 'req_1', command: 'abort', success: true }) + '\n')
+    await aborting
+    expect(settled).toBe(true)
+  })
+
+  it('abort 的 ack 超时只告警不抛', async () => {
+    const { proc } = await startUp()
+
+    const aborting = proc.abort()
+    await vi.advanceTimersByTimeAsync(10_000)
+    await expect(aborting).resolves.toBeUndefined()
 
     expect(loggerWarn).toHaveBeenCalledWith(
       'PiSessionProcess',
       expect.stringContaining(`[${SHORT_ID}] Abort failed`),
       expect.any(Error),
     )
+  })
+
+  it('进程在 abort 等待期间退出时不抛错', async () => {
+    const { proc, child } = await startUp()
+
+    const aborting = proc.abort()
+    child.child.emit('exit', 1, null)
+    await expect(aborting).resolves.toBeUndefined()
+
     expect(loggerWarn).toHaveBeenCalledWith(
       'PiSessionProcess',
-      expect.stringContaining(`[${SHORT_ID}] Set thinking level failed`),
+      expect.stringContaining(`[${SHORT_ID}] Abort failed`),
+      expect.any(Error),
+    )
+  })
+
+  it('控制帧写不进去时：abort 尽力而为，set_thinking_level 必须抛出', async () => {
+    const { proc, child } = await startUp()
+    child.stdinWrite.mockImplementation(() => {
+      throw new Error('EPIPE: write after end')
+    })
+
+    await expect(proc.abort()).resolves.toBeUndefined()
+    // abort 只是这一轮的收尾，丢了还有超时兜底；思考开关没有别的回收路径 ——
+    // 静默 resolve 会让上层把「没送出去」读成「已生效」（issue #49）。
+    await expect(proc.setThinkingLevel('medium')).rejects.toThrow('EPIPE: write after end')
+
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'PiSessionProcess',
+      expect.stringContaining(`[${SHORT_ID}] Abort failed`),
       expect.any(Error),
     )
   })
@@ -453,7 +580,9 @@ describe('PiSessionProcess prompt round-trip', () => {
     const sending = proc.sendMessage('summarize this')
     expect(child.stdinWrite).toHaveBeenCalledTimes(1)
     expect(String(child.stdinWrite.mock.calls[0][0]).endsWith('\n')).toBe(true)
-    expect(writtenFrames(child)).toEqual([{ id: 'req_1', type: 'prompt', message: 'summarize this' }])
+    expect(writtenFrames(child)).toEqual([
+      { id: 'req_1', type: 'prompt', message: 'summarize this', streamingBehavior: 'followUp' },
+    ])
     expect(proc.status).toBe('active')
     expect(proc.canSafelySuspend()).toBe(false)
 
@@ -538,56 +667,78 @@ describe('PiSessionProcess prompt round-trip', () => {
 })
 
 describe('PiSessionProcess prompt attachments', () => {
-  it('writes each image into the session upload dir and references it in the prompt', async () => {
+  it('把可内联的图片按 ImageContent 放进 prompt 帧，不再落盘成 @ 引用', async () => {
     process.env.CLAUDE_CONFIG_DIR = '/cfg'
-    const uploadDir = path.join('/cfg', 'uploads', SESSION_ID)
     const bytes = Buffer.from('fake-png-payload')
+    const b64 = bytes.toString('base64')
     const { proc, child } = await startUp()
 
-    const sending = proc.sendMessage('', [attachment('diagram v1.png', `data:image/png;base64,${bytes.toString('base64')}`)])
+    const sending = proc.sendMessage('', [attachment('diagram v1.png', `data:image/png;base64,${b64}`)])
 
-    expect(H.mkdirs).toEqual([uploadDir])
-    expect(H.writes).toHaveLength(1)
-    const savedPath = H.writes[0].path
-    expect(path.dirname(savedPath)).toBe(uploadDir)
-    // the sanitised original name is kept whole and the mime-derived extension is
-    // appended, so "diagram v1.png" lands as "<uuid>-diagram_v1.png.png"
-    expect(path.basename(savedPath)).toMatch(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-diagram_v1\.png\.png$/)
-    expect((H.writes[0].data as Buffer).equals(bytes)).toBe(true)
+    // @"路径" → Read 这条链在非 Anthropic 网关上会把图片 block 整块丢掉，模型只拿到路径
+    expect(H.mkdirs).toEqual([])
+    expect(H.writes).toEqual([])
     expect(writtenFrames(child)).toEqual([
-      { id: 'req_1', type: 'prompt', message: `@"${savedPath}" Please analyze the attached images.` },
+      {
+        id: 'req_1',
+        type: 'prompt',
+        message: 'Please analyze the attached images.',
+        streamingBehavior: 'followUp',
+        images: [{ type: 'image', data: b64, mimeType: 'image/png' }],
+      },
     ])
 
     feed(child, ackFor('req_1'))
     await expect(sending).resolves.toBeUndefined()
   })
 
-  it('reuses an existing upload dir and defaults to ~/.claude when the config dir is unset', async () => {
-    const uploadDir = path.join('/home/u', '.claude', 'uploads', SESSION_ID)
-    H.existing.add(uploadDir)
+  it('有正文时正文保持原样，图片挂在同一帧的 images 上', async () => {
+    const b64 = Buffer.from('jpeg-bytes').toString('base64')
     const { proc, child } = await startUp()
 
-    const sending = proc.sendMessage('describe this', [attachment('a.gif', `data:image/gif;base64,${Buffer.from('GIF89a').toString('base64')}`)])
+    const sending = proc.sendMessage('这张图里有什么？', [
+      attachment('photo.jpg', `data:image/jpeg;base64,${b64}`, 'image/jpeg'),
+      attachment('icon.png', `data:image/png;base64,${b64}`, 'image/png'),
+    ])
 
-    expect(H.mkdirs).toEqual([])
-    expect(path.dirname(H.writes[0].path)).toBe(uploadDir)
-    expect(path.basename(H.writes[0].path)).toMatch(/-a\.gif\.gif$/)
-    expect(writtenFrames(child)[0].message).toBe(`@"${H.writes[0].path}" describe this`)
+    const frame = writtenFrames(child)[0]
+    expect(frame.message).toBe('这张图里有什么？')
+    expect(frame.images).toEqual([
+      { type: 'image', data: b64, mimeType: 'image/jpeg' },
+      { type: 'image', data: b64, mimeType: 'image/png' },
+    ])
+    expect(H.writes).toEqual([])
 
     feed(child, ackFor('req_1'))
     await expect(sending).resolves.toBeUndefined()
   })
 
-  it('maps every supported mime type to its extension and defaults unknown ones to png', async () => {
+  it('内联不了的类型退回上传目录加 @ 引用，配置目录缺省时回到 ~/.claude', async () => {
+    const uploadDir = path.join('/home/u', '.claude', 'uploads', SESSION_ID)
+    H.existing.add(uploadDir)
+    const { proc, child } = await startUp()
+
+    const sending = proc.sendMessage('describe this', [
+      attachment('diagram.bmp', `data:image/bmp;base64,${Buffer.from('BMPS').toString('base64')}`, 'image/bmp'),
+    ])
+
+    expect(H.mkdirs).toEqual([])
+    expect(path.dirname(H.writes[0].path)).toBe(uploadDir)
+    expect(path.basename(H.writes[0].path)).toMatch(/-diagram\.bmp\.bmp$/)
+    const frame = writtenFrames(child)[0]
+    expect(frame.message).toBe(`@"${H.writes[0].path}" describe this`)
+    expect(frame.images).toBeUndefined()
+
+    feed(child, ackFor('req_1'))
+    await expect(sending).resolves.toBeUndefined()
+  })
+
+  it('落盘回退时按 mime 选扩展名，未知类型默认 png', async () => {
     process.env.CLAUDE_CONFIG_DIR = '/cfg'
     const b64 = Buffer.from('bytes').toString('base64')
 
     const cases: Array<[string, string]> = [
-      ['image/jpeg', 'jpg'],
-      ['image/png', 'png'],
-      ['image/gif', 'gif'],
       ['image/bmp', 'bmp'],
-      ['image/webp', 'webp'],
       ['image/svg+xml', 'svg'],
       ['application/pdf', 'png'],
     ]
@@ -602,6 +753,24 @@ describe('PiSessionProcess prompt attachments', () => {
       feed(child, ackFor('req_1'))
       await sending
     }
+  })
+
+  it('同一批里可内联的走 images、不能内联的走 @ 引用', async () => {
+    process.env.CLAUDE_CONFIG_DIR = '/cfg'
+    const b64 = Buffer.from('mixed').toString('base64')
+    const { proc, child } = await startUp()
+
+    const sending = proc.sendMessage('两份一起看', [
+      attachment('chart.png', `data:image/png;base64,${b64}`, 'image/png'),
+      attachment('vector.svg', `data:image/svg+xml;base64,${b64}`, 'image/svg+xml'),
+    ])
+
+    const frame = writtenFrames(child)[0]
+    expect(frame.images).toEqual([{ type: 'image', data: b64, mimeType: 'image/png' }])
+    expect(frame.message).toBe(`@"${H.writes[0].path}" 两份一起看`)
+
+    feed(child, ackFor('req_1'))
+    await expect(sending).resolves.toBeUndefined()
   })
 
   it('drops an attachment with a malformed data URL but still sends the message', async () => {
@@ -619,9 +788,10 @@ describe('PiSessionProcess prompt attachments', () => {
       expect.stringContaining(`[${SHORT_ID}] Failed to save image: broken.png`),
       expect.objectContaining({ message: 'Invalid image data format' }),
     )
-    expect(H.writes).toHaveLength(1)
+    expect(H.writes).toEqual([])
     const frames = writtenFrames(child)
-    expect(frames[0].message).toBe(`@"${H.writes[0].path}" compare these`)
+    expect(frames[0].message).toBe('compare these')
+    expect(frames[0].images).toEqual([{ type: 'image', data: good.toString('base64'), mimeType: 'image/png' }])
 
     feed(child, ackFor('req_1'))
     await expect(sending).resolves.toBeUndefined()

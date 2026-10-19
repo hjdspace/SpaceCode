@@ -20,10 +20,15 @@ const i18n = createI18n({
 })
 config.global.plugins = [i18n]
 
+function hintText(): string {
+  return document.querySelector('.app-hint-bubble')?.textContent || ''
+}
+
 describe('WorkingDirectoryPicker', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    document.body.innerHTML = ''
     vi.mocked(api.selectFolder).mockResolvedValue({ canceled: false, filePaths: ['/new/project'] })
   })
 
@@ -71,5 +76,21 @@ describe('WorkingDirectoryPicker', () => {
     await w.vm.$nextTick()
 
     expect(w.find('[data-testid="working-dir-panel"]').exists()).toBe(false)
+  })
+
+  // 用 aria-disabled 而不是 disabled：按钮必须继续接收 hover，否则锁定原因提示不出来。
+  it('locked 时不展开面板，但保留可 hover 的锁定提示', async () => {
+    const w = mount(WorkingDirectoryPicker, { props: { modelValue: '/users/project', locked: true } })
+    const trigger = w.find('[data-testid="working-dir-trigger"]')
+
+    expect(trigger.attributes('aria-disabled')).toBe('true')
+    expect(trigger.attributes('disabled')).toBeUndefined()
+
+    await trigger.trigger('mouseenter')
+    expect(hintText()).toContain('请新建会话')
+
+    await trigger.trigger('click')
+    expect(w.find('[data-testid="working-dir-panel"]').exists()).toBe(false)
+    expect(w.emitted('update:modelValue')).toBeFalsy()
   })
 })

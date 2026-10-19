@@ -464,7 +464,7 @@ const defaultForm = (): FormState => ({
   model: '',
   effort: '',
   agent: '',
-  permissionMode: permissionPolicy.currentPermissionMode,
+  permissionMode: permissionPolicy.defaultPermissionMode,
 })
 
 const form = reactive<FormState>(defaultForm())
@@ -663,7 +663,7 @@ function populateFromTask(task: CronTask) {
   form.model = task.model || ''
   form.effort = task.effort || ''
   form.agent = task.agent || ''
-  form.permissionMode = (task.permissionMode as PermissionMode) || permissionPolicy.currentPermissionMode
+  form.permissionMode = (task.permissionMode as PermissionMode) || permissionPolicy.defaultPermissionMode
 
   const [minuteField, hourField] = task.cron.trim().split(/\s+/)
   if (task.scheduledTime) {

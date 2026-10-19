@@ -557,10 +557,54 @@ describe('writeModelsJsonOverride', () => {
         supportsStrictMode: false,
       },
       models: [
-        { id: 'gpt-4o', name: 'gpt-4o', reasoning: false, input: ['text'], contextWindow: 128000, maxTokens: 16384 },
+        { id: 'gpt-4o', name: 'gpt-4o', reasoning: false, input: ['text', 'image'], contextWindow: 128000, maxTokens: 16384 },
       ],
     })
     expect(H.writes[0].path).toBe(MODELS_JSON)
+  })
+
+  it('registers the user-configured context window instead of pi 的默认 128000', () => {
+    H.existing.add(PI_AGENT_DIR)
+    const proc = newProc({
+      provider: 'openai',
+      baseUrl: 'https://llm.internal.example/v1',
+      model: 'openai/qwen-audit',
+      modelContextWindows: { 'qwen-audit': 32000, 'other-model': 8000 },
+    })
+
+    privates(proc).writeModelsJsonOverride('openai', 'https://llm.internal.example/v1')
+
+    expect(writtenModels().providers['openai-compat'].models).toEqual([
+      { id: 'qwen-audit', name: 'qwen-audit', reasoning: false, input: ['text', 'image'], contextWindow: 32000, maxTokens: 16384 },
+    ])
+  })
+
+  it('窗口按带 provider 前缀的原始模型名也能查到', () => {
+    H.existing.add(PI_AGENT_DIR)
+    const proc = newProc({
+      provider: 'openai',
+      baseUrl: 'https://llm.internal.example/v1',
+      model: 'openai/kimi-k3',
+      modelContextWindows: { 'openai/kimi-k3': 64000 },
+    })
+
+    privates(proc).writeModelsJsonOverride('openai', 'https://llm.internal.example/v1')
+
+    expect(writtenModels().providers['openai-compat'].models?.[0]?.contextWindow).toBe(64000)
+  })
+
+  it('非法窗口值不参与注册', () => {
+    H.existing.add(PI_AGENT_DIR)
+    const proc = newProc({
+      provider: 'openai',
+      baseUrl: 'https://llm.internal.example/v1',
+      model: 'qwen-audit',
+      modelContextWindows: { 'qwen-audit': 0 },
+    })
+
+    privates(proc).writeModelsJsonOverride('openai', 'https://llm.internal.example/v1')
+
+    expect(writtenModels().providers['openai-compat'].models?.[0]?.contextWindow).toBe(128000)
   })
 
   it('omits the model list when the session has no model configured', () => {

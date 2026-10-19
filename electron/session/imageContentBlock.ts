@@ -37,11 +37,12 @@ export interface InlineImageBlock {
 const DATA_URL_RE = /^data:([^;,]+)(?:;[^,]*)?;base64,([\s\S]*)$/
 
 /**
- * 附件可内联时返回 image block，否则返回 null（由调用方决定回退策略）。
+ * 附件可内联时返回归一后的 media_type 与 base64 载荷，否则返回 null。
+ * Anthropic 的 block 与 Pi 的 ImageContent 都从这里取同一份判定。
  *
  * @param img 渲染端传来的附件，`data` 为完整 data URL
  */
-export function toInlineImageBlock(img: { data?: unknown }): InlineImageBlock | null {
+export function toBase64ImagePayload(img: { data?: unknown }): { mediaType: string; data: string } | null {
   if (typeof img.data !== 'string') return null
 
   const matches = img.data.match(DATA_URL_RE)
@@ -51,8 +52,20 @@ export function toInlineImageBlock(img: { data?: unknown }): InlineImageBlock | 
   const base64Data = matches[2].trim()
   if (!mediaType || !base64Data) return null
 
+  return { mediaType, data: base64Data }
+}
+
+/**
+ * 附件可内联时返回 image block，否则返回 null（由调用方决定回退策略）。
+ *
+ * @param img 渲染端传来的附件，`data` 为完整 data URL
+ */
+export function toInlineImageBlock(img: { data?: unknown }): InlineImageBlock | null {
+  const payload = toBase64ImagePayload(img)
+  if (!payload) return null
+
   return {
     type: 'image',
-    source: { type: 'base64', media_type: mediaType, data: base64Data },
+    source: { type: 'base64', media_type: payload.mediaType, data: payload.data },
   }
 }

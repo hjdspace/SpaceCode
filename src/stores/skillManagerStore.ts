@@ -141,9 +141,13 @@ export const useSkillManagerStore = defineStore('skillManagerV2', () => {
         throw new Error('Skill Manager V2 API not available')
       }
 
-      await sm.bootstrap()
-      await sm.init()
-      await loadOverview()
+      // init 的主进程 handler（getService().initScan()）会 lazy-bootstrap 服务，
+      // 且 initScan 的返回值就是完整 overview —— 不必先 bootstrap、也不必再单独
+      // getOverview（原实现三次串行 IPC，且 init 返回值被丢弃）。
+      const data = await sm.init()
+      if (!data) throw new Error('Skill Manager init returned no overview')
+      overview.value = data
+      settings.value = data.settings
       initialized.value = true
       refreshAgentVersionsInBackground()
       refreshAgentInventoryInBackground()

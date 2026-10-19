@@ -219,6 +219,12 @@ import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AppearanceSettings as AppearanceConfig } from '@/stores/settings'
 import { useFontStore } from '@/stores/font'
 import { debounce } from '@/utils/debounce'
+import {
+  ACCENT_COLORS as accentColors,
+  applyAccentColor,
+  applyDensity,
+  resolveEffectiveTheme
+} from '@/lib/appearanceSync'
 
 const { t } = useI18n()
 const emit = defineEmits<{
@@ -258,18 +264,6 @@ const densities = [
   { id: 'compact', name: t('settings.densityCompact') },
   { id: 'default', name: t('settings.densityDefault') },
   { id: 'comfortable', name: t('settings.densityComfortable') }
-]
-
-const accentColors = [
-  { id: 'blue', hex: '#3b82f6' },
-  { id: 'purple', hex: '#8b5cf6' },
-  { id: 'green', hex: '#22c55e' },
-  { id: 'orange', hex: '#f97316' },
-  { id: 'pink', hex: '#ec4899' },
-  { id: 'cyan', hex: '#06b6d4' },
-  { id: 'anthropic-orange', hex: '#d97757' },
-  { id: 'anthropic-blue', hex: '#6a9bcc' },
-  { id: 'anthropic-green', hex: '#788c5d' }
 ]
 
 // Default config
@@ -321,31 +315,8 @@ watch(() => settingsStore.appearance, (newAppearance) => {
   }
 }, { deep: true })
 
-function applyTheme(theme: string) {
-  let effectiveTheme = theme
-  if (theme === 'system') {
-    effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  }
-  document.documentElement.setAttribute('data-theme', effectiveTheme)
-  appStore.setTheme(effectiveTheme as 'light' | 'dark' | 'anthropic' | 'anthropic-dark')
-}
-
-// Apply accent color
-function applyAccentColor(colorId: string) {
-  const color = accentColors.find(c => c.id === colorId)
-  if (color) {
-    document.documentElement.style.setProperty('--accent-primary', color.hex)
-    // Convert hex to RGB for rgba usage
-    const r = parseInt(color.hex.slice(1, 3), 16)
-    const g = parseInt(color.hex.slice(3, 5), 16)
-    const b = parseInt(color.hex.slice(5, 7), 16)
-    document.documentElement.style.setProperty('--accent-primary-rgb', `${r}, ${g}, ${b}`)
-  }
-}
-
-// Apply density
-function applyDensity(density: string) {
-  document.documentElement.setAttribute('data-density', density)
+function applyTheme(theme: AppearanceConfig['theme']) {
+  appStore.setTheme(resolveEffectiveTheme(theme))
 }
 
 // 使用防抖保存到localStorage，避免频繁写入

@@ -10,6 +10,17 @@ export default {
     bypassPermissions: 'Full Trust ⚠️',
     bypassPermissionsDesc: 'Auto-approve all operations',
   },
+  bypassDialog: {
+    title: 'Allow SpaceCode to use Full Trust?',
+    lede: 'Once enabled, SpaceCode can perform privileged operations directly on this device, including file handling, command execution and network access. The main scopes are:',
+    files: 'Files and folders',
+    filesDesc: 'View, create, update, upload or remove files and folders on this device',
+    commands: 'Terminal commands',
+    commandsDesc: 'Run terminal commands, install dependencies and adjust necessary system settings',
+    network: 'Internet and connected apps',
+    networkDesc: 'Open web pages, transfer data and call the plugins or connected apps you have enabled',
+    caution: 'Enable it only when you trust the current task and context. This access can increase the risk of sensitive data exposure, mistaken operations or prompt injection, and can be turned off at any time.',
+  },
   card: {
     toolNames: {
       Edit: 'Edit File',

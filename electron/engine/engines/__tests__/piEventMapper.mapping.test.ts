@@ -13,12 +13,19 @@ import { mapPiEvent } from '../PiEventMapper'
  *    渲染层按 Anthropic content block 形状消费，字段名错一个就静默丢文本；
  *    text/thinking 的取值优先 `delta` 字段，回退到 `text`/`thinking` 旧字段。
  *  - agent_end 的 result 提取规则：最后一条 assistant 消息的文本（string 直取 /
- *    块数组取第一个 text 块），取不到时为空串而不是 undefined。
+ *    块数组取第一个 text 块），取不到时为空串而不是 undefined。该消息 stopReason
+ *    为 'error' 时改产 is_error:true + errorMessage 原文（Pi 的上游拒绝只写在那里）。
  *  - message_start 对 user 消息原样透传，对 assistant 消息做白名单裁剪
  *    （仅 role/content/model/usage）；message_end 不为 user 消息发事件（与
  *    message_start 不对称，user 帧的入口只有 message_start）。
  *  - tool_execution_end 的 output 统一为 string：对象 JSON.stringify(两空格缩进)，
  *    null/undefined → ''，循环引用（JSON 不安全）→ String 兜底。
+ *  - Pi 的小写工具名（bash/read/write/edit/grep/find）在本题翻译点归一为渲染层用的
+ *    PascalCase 名；未收录的名字（如 ls）原样透传。归一放这里是因为渲染层的组件、
+ *    图标、标签与 trace 分类表全部按 PascalCase 精确匹配，小写名会静默退化成
+ *    通用 JSON 行而不是终端/diff 卡片。
+ *  - 帧 fixture 必须照 pi-ai 的真实事件形状构造，不要按"字段应该存在"手写：
+ *    toolcall_start 只带 contentIndex/partial，id/name 在 partial.content 的块上。
  *
  * 纯函数直测，无 mock —— Pi 事件 fixture 直接按帧字面量构造
  * （与 piSessionProcess.stream.test.ts 的 frame 形状一致）。
@@ -72,6 +79,54 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
     expect(noAssistant?.data.result).toBe('')
     expect(notArray?.data.result).toBe('')
     expect(noTextBlock?.data.result).toBe('')
+  })
+
+  // Pi 把上游拒绝写在最后一条 assistant 消息上（stopReason/errorMessage），agent_end
+  // 帧本身不带错误标记。不透传就成了"成功的空结果"，渲染进程只剩笼统的 empty response
+  // 文案，403 这类真原因全部丢失（cron 的执行记录同样看不到）。
+  it('最后一条 assistant 报 error → result 标成失败并带上 errorMessage 原文', () => {
+    const messages = [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [],
+        provider: 'openai-compat',
+        model: 'deepseek-v4.1-flash',
+        stopReason: 'error',
+        errorMessage: '403 model is not available in the current token plan',
+      },
+    ]
+    expect(mapPiEvent(SID, { type: 'agent_end', messages })).toEqual({
+      sessionId: SID,
+      type: 'result',
+      data: {
+        result: '403 model is not available in the current token plan',
+        is_error: true,
+        stop_reason: 'error',
+        messages,
+      },
+    })
+  })
+
+  it('errorMessage 缺失也算失败，文本留空由消费方兜底', () => {
+    const event = mapPiEvent(SID, {
+      type: 'agent_end',
+      messages: [{ role: 'assistant', content: [], stopReason: 'error' }],
+    })
+    expect(event?.data).toMatchObject({ is_error: true, stop_reason: 'error' })
+    expect(event?.data.result).toBe('')
+  })
+
+  it('中途失败但收尾成功的一轮不算失败', () => {
+    const event = mapPiEvent(SID, {
+      type: 'agent_end',
+      messages: [
+        { role: 'assistant', content: [], stopReason: 'error', errorMessage: '429 slow down' },
+        { role: 'assistant', content: '重试后答上了', stopReason: 'stop' },
+      ],
+    })
+    expect(event?.data).toMatchObject({ result: '重试后答上了', stop_reason: 'end_turn' })
+    expect(event?.data.is_error).toBeUndefined()
   })
 
   it('message_start assistant → assistant 事件，message 白名单仅 role/content/model/usage', () => {
@@ -149,20 +204,37 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
 
   it('message_update toolcall 三态 → tool_use content_block_start（含 id/name）/ input_json_delta / content_block_stop', () => {
     const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
-    expect(up({ type: 'toolcall_start', toolCallId: 'tc1', toolName: 'read_file', partial: false })).toEqual({
+    // pi-ai 的 toolcall_start 帧只有 { contentIndex, partial }：id/name 在刚被推进
+    // partial.content[contentIndex] 的 toolCall 块上，不在帧顶层。
+    const partial = {
+      content: [
+        { type: 'text', text: '先看一下' },
+        { type: 'toolCall', id: 'tc1', name: 'bash', arguments: {}, partialJson: '', index: 1 },
+      ],
+    }
+    expect(up({ type: 'toolcall_start', contentIndex: 1, partial })).toEqual({
       type: 'content_block_start',
-      content_block: { type: 'tool_use', id: 'tc1', name: 'read_file' },
-      partial: false,
+      content_block: { type: 'tool_use', id: 'tc1', name: 'Bash' },
+      partial,
     })
-    expect(up({ type: 'toolcall_delta', delta: '{"path":', partial: false })).toEqual({
+    expect(up({ type: 'toolcall_delta', contentIndex: 1, delta: '{"command":', partial })).toEqual({
       type: 'content_block_delta',
-      delta: { type: 'input_json_delta', partial_json: '{"path":' },
-      partial: false,
+      delta: { type: 'input_json_delta', partial_json: '{"command":' },
+      partial,
     })
-    expect(up({ type: 'toolcall_end', partial: false })).toEqual({
+    expect(up({ type: 'toolcall_end', contentIndex: 1, toolCall: partial.content[1], partial })).toEqual({
       type: 'content_block_stop',
       content_block: { type: 'tool_use' },
-      partial: false,
+      partial,
+    })
+  })
+
+  it('toolcall_start 取不到 toolCall 块（contentIndex 越界）→ id/name 留空，不伪造', () => {
+    const up = (ev: any) => mapPiEvent(SID, { type: 'message_update', assistantMessageEvent: ev })?.data.event
+    expect(up({ type: 'toolcall_start', contentIndex: 7, partial: { content: [] } })).toEqual({
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', id: undefined, name: undefined },
+      partial: { content: [] },
     })
   })
 
@@ -174,14 +246,18 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
 })
 
 describe('mapPiEvent — 工具执行事件', () => {
-  it('tool_execution_start → tool_use：id=toolCallId、name=toolName、input=args', () => {
+  it('tool_execution_start → tool_use：id=toolCallId、name=toolName 归一为渲染层词表、input=args', () => {
     expect(
       mapPiEvent(SID, { type: 'tool_execution_start', toolCallId: 'tc9', toolName: 'bash', args: { cmd: 'ls' } }),
     ).toEqual({
       sessionId: SID,
       type: 'tool_use',
-      data: { id: 'tc9', name: 'bash', input: { cmd: 'ls' } },
+      data: { id: 'tc9', name: 'Bash', input: { cmd: 'ls' } },
     })
+    // 无对应卡片的 Pi 工具（ls）原样透传，不硬塞进别的词
+    expect(
+      mapPiEvent(SID, { type: 'tool_execution_start', toolCallId: 'tc10', toolName: 'ls', args: {} })?.data,
+    ).toMatchObject({ name: 'ls' })
   })
 
   it('tool_execution_update → stream_event 内嵌 tool_execution_delta，partialResult 原样', () => {
@@ -235,10 +311,32 @@ describe('mapPiEvent — 系统与终止事件', () => {
       subtype: 'thinking_level_changed', level: 'high',
     })
     expect(mapPiEvent(SID, { type: 'auto_retry_start', attempt: 2, maxAttempts: 5 })?.data).toEqual({
-      subtype: 'auto_retry_start', attempt: 2, maxAttempts: 5,
+      subtype: 'api_retry', attempt: 2, maxRetries: 5, error: 'API error',
     })
     expect(mapPiEvent(SID, { type: 'auto_retry_end', success: true, attempt: 2 })?.data).toEqual({
       subtype: 'auto_retry_end', success: true, attempt: 2,
+    })
+  })
+
+  // 渲染层的重试卡片只读 api_retry 这套字段（src/stores/turn/index.ts 的 onSystem）。
+  // pi 的 auto_retry_start 若不换成这个形状，引擎在退避重试时 UI 全程静默。
+  it('auto_retry_start 换成渲染层的 api_retry 载荷', () => {
+    expect(mapPiEvent(SID, {
+      type: 'auto_retry_start',
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 2000,
+      errorMessage: '429 rate limit exceeded on dimension: rpm',
+    })).toEqual({
+      sessionId: SID,
+      type: 'system',
+      data: {
+        subtype: 'api_retry',
+        attempt: 1,
+        maxRetries: 3,
+        retryInMs: 2000,
+        error: '429 rate limit exceeded on dimension: rpm',
+      },
     })
   })
 

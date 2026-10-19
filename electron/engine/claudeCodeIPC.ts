@@ -54,14 +54,10 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle(CLAUDE_CODE_CHANNELS.listAgents, async (_, cwd?: string, engineType?: string) => engineGateway.listAgents(cwd, engineType as any))
 
-  ipcMain.handle(CLAUDE_CODE_CHANNELS.updateThinkingLevel, async (_, sessionId: string, enabled: boolean) => {
-    info('ClaudeCodeIPC', `→ updateThinkingLevel | sessionId=${sessionId.slice(0, 8)} | enabled=${enabled}`)
-    try {
-      await engineGateway.updateThinkingLevel(sessionId, enabled)
-    } catch (err) {
-      error('ClaudeCodeIPC', `✗ updateThinkingLevel | sessionId=${sessionId.slice(0, 8)}`, { error: String(err) })
-    }
-  })
+  // 与 setModel / setPermissionMode 同构：失败原样抛出，渲染层据此把开关退回点击前的状态。
+  // 曾经这里 try/catch 只记日志并返回 undefined，invoke 永远 resolve 成功，界面就停在
+  // 一个从没生效的开关上（issue #49）。
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.updateThinkingLevel, async (_, sessionId: string, enabled: boolean) => engineGateway.updateThinkingLevel(sessionId, enabled))
 
   ipcMain.handle(CLAUDE_CODE_CHANNELS.isEngineAvailable, async (_, engineType: string) => {
     debug('ClaudeCodeIPC', `→ isEngineAvailable | engine=${engineType}`)

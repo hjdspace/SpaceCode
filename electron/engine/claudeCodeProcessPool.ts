@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { SessionProcess, ProcessStatus, SessionConfig } from '../session/sessionProcess'
 import { info, warn, error, debug } from '../infra/logger'
-import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { claudeCodeNamespace, type ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
 
 // 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
@@ -377,7 +377,7 @@ export class ClaudeCodeProcessPool {
    *
    * @returns now = 本次切换已经落到进程上；next-turn = 当前这一轮跑完后生效。
    */
-  updateThinkingLevel(sessionId: string, enabled: boolean): 'now' | 'next-turn' {
+  updateThinkingLevel(sessionId: string, enabled: boolean): ThinkingUpdateTiming {
     const proc = this.processes.get(sessionId)
     if (!proc) {
       debug('ProcessPool', `[${sessionId.slice(0, 8)}] updateThinkingLevel: no session entry | enabled=${enabled}`)

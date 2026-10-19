@@ -70,6 +70,14 @@ export function createTimelineAssembler(sink: SessionSink): TimelineAssembler {
     if (!ts.currentReasoningEventId) return
     updateTimelineEvent(sessionId, ts, ts.currentReasoningEventId, { status: 'completed' })
     ts.currentReasoningEventId = null
+    // msg.reasoning.endTime 必须与事件同步收口：它是无 reasoning timeline 事件的
+    // 渲染路径（MessageItem.reasoningIsThinking 回退分支）判断"是否仍在思考"的
+    // 唯一信号，只等 result 事件的话，块结束到回合结算之间会一直显示"思考中"。
+    const msg = getAssistantMessage(sessionId, ts)
+    if (msg?.reasoning && !msg.reasoning.endTime) {
+      msg.reasoning.endTime = Date.now()
+      msg.reasoning.isExpanded = false
+    }
   }
 
   const addToolTimelineEvent = (sessionId: string, ts: TurnState, toolCallId: string) => {

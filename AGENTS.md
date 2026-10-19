@@ -70,11 +70,17 @@ CI: `.github/workflows/test.yml` 在 PR 与 push 到 `main` 时运行 `npm run t
 每次代码修改后依次执行, 全部通过才算完成:
 
 ```sh
-npm run build     # vue-tsc --noEmit + vite build (已含类型检查)
-npm run test      # vitest 全部用例
+npm run test:changed  # 只跑受改动影响的测试 (vitest --changed, 基于 import 依赖图)
+npm run build         # vue-tsc --noEmit + vite build (已含类型检查)
 ```
 
-任一失败则修复后重新执行全部命令.
+日常迭代用 `test:changed` 快速验证; 以下情况必须全量 `npm run test`:
+
+- 提交前 / 收尾前 (CI 只认全量)
+- 改动横切面广: `vitest.config.ts`、`package.json` (依赖变更会命中 forceRerunTriggers 强制全量)、`src/shared/`、`src/utils/`、全局类型、i18n locales
+- `test:changed` 显示 0 个受影响测试, 但改动可能通过动态 import / 运行时路径影响其他模块
+
+任一失败则修复后重新执行.
 
 ## Agent skills
 

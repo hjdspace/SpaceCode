@@ -1,6 +1,8 @@
 // src/services/h5ApiClient.ts
 // H5 模式下的 HTTP REST 客户端 — 替代 Electron IPC 调用
 
+import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+
 /** H5 连接配置（从 URL query params 解析） */
 export interface H5ConnectionConfig {
   baseUrl: string // e.g. http://192.168.1.100:34567
@@ -133,7 +135,7 @@ export const h5ApiClient = {
   setModel: (sessionId: string, model: string | undefined) =>
     h5Fetch('/api/session/model', { method: 'POST', body: { sessionId, model } }),
 
-  updateThinkingLevel: (sessionId: string, enabled: boolean) =>
+  updateThinkingLevel: (sessionId: string, enabled: boolean): Promise<{ ok: true; timing: ThinkingUpdateTiming }> =>
     h5Fetch('/api/session/thinking-level', { method: 'POST', body: { sessionId, enabled } }),
 
   stopEngineTask: (sessionId: string, taskId: string) =>

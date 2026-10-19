@@ -4,7 +4,7 @@ import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engi
 import { EngineFactory } from '../engine/engines/EngineFactory'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannels } from '@/shared/channelMap'
-import type { EngineSessionConfig, PermissionMode } from '../engine/engines/types'
+import type { EngineSessionConfig, EngineType, PermissionMode } from '../engine/engines/types'
 import type { H5RemoteUserMessagePayload } from '../h5/h5Types'
 import type { CronExecOptions, CronRunContext, CronRunResult } from './cronScheduler'
 
@@ -20,18 +20,19 @@ const SUPPORTED_PERMISSION_MODES: PermissionMode[] = ['default', 'plan', 'accept
  * （只有 bypassPermissions 才带 --dangerously-skip-permissions），留空会落到 default，
  * 无人值守的任务于是卡在没人应答的权限确认上。显式给值 = 任务自己声明要不要全放行。
  *
- * 任务里存的模型是设置槽位的实际名（如 deepseek-v4-flash），引擎会话要的是别名：
- * 代理模式下真名会落回 sonnet 路由，任务选的模型被静默丢弃。resolveModelAlias
- * 由调用方注入（生产用 engineSessionConfig.resolveEngineModelAlias）。
+ * 任务里存的模型是设置槽位的实际名（如 deepseek-v4-flash），按引擎分派：
+ * claude-code 要换成别名（真名会落回 sonnet 路由，任务选的模型被静默丢弃），
+ * pi 要保留真名（别名对它是个不存在的模型）。规则与聊天路径同源，
+ * resolveModelAlias 由调用方注入（生产用 engineSessionConfig.resolveEngineModelAlias）。
  */
 export function buildCronEngineConfig(
   base: EngineSessionConfig,
   options: CronExecOptions | undefined,
-  resolveModelAlias: (model: string) => string,
+  resolveModelAlias: (model: string, engineType?: EngineType) => string,
 ): EngineSessionConfig {
   const config: EngineSessionConfig = { ...base }
   if (options?.model) {
-    const alias = resolveModelAlias(options.model)
+    const alias = resolveModelAlias(options.model, base.engineType)
     config.model = alias
     // modelContextWindows 以实际模型名为键，别名查不到会让 [1m] 后缀与
     // CLAUDE_CODE_AUTO_COMPACT_WINDOW 失效（同 chatSession 的 initClaudeCodeSession 处理）
@@ -59,7 +60,7 @@ export interface CronSessionPush {
 
 export interface CronSessionRunnerDeps {
   loadConfig: (cwd: string) => EngineSessionConfig
-  resolveModelAlias: (model: string) => string
+  resolveModelAlias: (model: string, engineType?: EngineType) => string
   startSession: (sessionId: string, config: EngineSessionConfig) => Promise<unknown>
   sendMessage: (sessionId: string, content: string) => Promise<void>
   stop: (sessionId: string) => Promise<void>
@@ -148,6 +149,14 @@ export function createCronSessionRunner(
     })
 
     signal.addEventListener('abort', onAbort, { once: true })
+
+    // 已经取消的 signal 不会再叫第二次 abort 回调（AbortSignal 不重放），所以只能
+    // 在这里收口：下面到 startSession 之间没有 await，漏过这一句就会照旧拉起引擎
+    // 进程、投递提示词，最后被 result 记成 completed。
+    if (signal.aborted) {
+      finish(null, '', 'Execution cancelled')
+      return
+    }
 
     deps.pushSession({
       sessionId,

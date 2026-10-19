@@ -94,6 +94,8 @@ const props = defineProps<{
   modelValue: string
   options: Option[]
   placeholder?: string
+  /** 弹层挂在 body 上，被更高栈的浮层（如引导卡 z-index:1000）盖住时由调用方抬高。 */
+  zIndex?: number
 }>()
 
 const emit = defineEmits<{
@@ -106,6 +108,9 @@ const highlightedId = ref<string | null>(null)
 const selectRef = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const optionsList = ref<HTMLElement | null>(null)
+
+// 搜索框 + 选项列表 max-height(240) + 边框，用于判断该朝上还是朝下开。
+const DROPDOWN_MAX_HEIGHT = 286
 
 // Dropdown position style — with <Teleport to="body>, position: fixed is
 // relative to the viewport, so getBoundingClientRect() values can be used
@@ -120,13 +125,22 @@ const dropdownStyle = computed<Record<string, string>>(() => {
   const viewportWidth = window.innerWidth
 
   style.position = 'fixed'
-  style.top = `${rect.bottom + 4}px`
+  // 下方放不下就朝上开：面板靠 bottom 定位即向上生长，不需要先知道自身高度。
+  // 引导卡里三个档位靠下，一律朝下会被窗口底边切掉。
+  const spaceBelow = window.innerHeight - rect.bottom - 8
+  const spaceAbove = rect.top - 8
+  if (spaceBelow < DROPDOWN_MAX_HEIGHT && spaceAbove > spaceBelow) {
+    style.bottom = `${window.innerHeight - rect.top + 4}px`
+  } else {
+    style.top = `${rect.bottom + 4}px`
+  }
   style.left = `${rect.left}px`
   // Width auto-adjusts to content, clamped between trigger width and
   // the available viewport space on the right.
   style.minWidth = `${rect.width}px`
   const maxAvailable = viewportWidth - rect.left - 8
   style.maxWidth = `${Math.min(maxAvailable, 400)}px`
+  if (props.zIndex) style.zIndex = String(props.zIndex)
 
   return style
 })
@@ -135,7 +149,9 @@ const dropdownStyle = computed<Record<string, string>>(() => {
 const selectedLabel = computed(() => {
   if (!props.modelValue) return props.placeholder || t('model.selectModel')
   const option = props.options.find(o => o.id === props.modelValue)
-  return option?.name || option?.id || props.placeholder || t('model.selectModel')
+  // 已选值不在列表里（手填过的模型、端点这次没返回）也要照原样显示，
+  // 否则会退成占位文案，看起来像没选。
+  return option?.name || option?.id || props.modelValue
 })
 
 // 使用shallowRef优化大型列表

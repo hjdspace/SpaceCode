@@ -82,10 +82,21 @@ vi.mock('../../tools/mcpConfigStore', () => ({
   buildEnabledMcpConfig: vi.fn(() => null),
 }))
 
+const officeCli = vi.hoisted(() => ({
+  syncCalls: 0,
+  result: {
+    copied: false as boolean,
+    reason: 'up-to-date' as string,
+    bundledVersion: '1.0.157' as string | null,
+    installedVersion: '1.0.157' as string | null,
+  },
+}))
 vi.mock('../../tools/officeCliService', () => ({
-  getOfficeCliBinaryPath: () => '/bundle/officecli',
-  getOfficeCliInstalledBinary: () => '/office/bin/officecli',
   getOfficeCliInstallDir: () => '/office/bin',
+  syncInstalledOfficeCli: () => {
+    officeCli.syncCalls++
+    return officeCli.result
+  },
 }))
 
 const rtk = vi.hoisted(() => ({ installed: false, dir: '/rtk/bin' }))
@@ -137,6 +148,8 @@ beforeEach(() => {
   net.startCalls = 0
   rtk.installed = false
   rtk.dir = '/rtk/bin'
+  officeCli.syncCalls = 0
+  officeCli.result = { copied: false, reason: 'up-to-date', bundledVersion: '1.0.157', installedVersion: '1.0.157' }
   Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
   for (const k of ENV_KEYS) {
     savedEnv[k] = process.env[k]
@@ -240,13 +253,17 @@ describe('buildEnv — safety defaults & overrides', () => {
 })
 
 describe('buildEnv — tool directory PATH injection', () => {
-  it('copies the bundled officecli when the installed one is missing and prepends its dir to PATH', async () => {
+  it('reconciles the user-level officecli copy before every spawn and prepends its dir to PATH', async () => {
+    // The copy/upgrade decision belongs to officeCliService (see
+    // __tests__/officeCliInstallSync.test.ts); what this seam must guarantee is
+    // that it runs before the CLI child starts, so Bash finds a current binary.
+    officeCli.result = { copied: true, reason: 'outdated', bundledVersion: '1.0.157', installedVersion: '1.0.149' }
     fsp.exists = (p) => {
       const n = norm(p)
-      return n === '/bundle/officecli' || n === '/office/bin' // installed binary still absent
+      return n === '/office/bin'
     }
     const env = await buildEnv({ provider: 'anthropic' })
-    expect(fsp.copies).toEqual([{ from: '/bundle/officecli', to: '/office/bin/officecli' }])
+    expect(officeCli.syncCalls).toBe(1)
     expect(env.PATH?.split(path.delimiter)[0]).toBe('/office/bin')
   })
 

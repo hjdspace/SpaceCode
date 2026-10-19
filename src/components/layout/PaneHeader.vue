@@ -69,7 +69,7 @@ import { X, ClipboardList, Loader2, Columns2, Rows2 } from 'lucide-vue-next'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { useAppStore } from '@/stores/app'
-import { useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
+import { contentForTab, useSplitLayoutStore, type PaneLeaf, type PaneContent } from '@/stores/splitLayout'
 import { useSessionTaskProgress } from '@/composables/useSessionTaskProgress'
 
 const props = defineProps<{
@@ -152,12 +152,7 @@ const { progress: taskProgress } = useSessionTaskProgress(() => resolvedSessionI
 function resolveContentForSplit(): PaneContent {
   const c = props.node.content
   if (c.kind === 'main') {
-    const tabId = appStore.activeCenterTab
-    if (tabId.startsWith('terminal-')) {
-      return { kind: 'terminal', tabId }
-    }
-    // session-xxx 或 'chat'
-    return { kind: 'session', tabId }
+    return contentForTab(appStore.activeCenterTab, sessionStore.currentSessionId || '')
   }
   return { ...c }
 }

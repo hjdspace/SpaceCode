@@ -37,13 +37,13 @@ void main() {
 
   group('qrScannerFailureCopy', () {
     test('权限被拒给权限文案', () {
-      final failure = QrScannerFailure.permissionDenied;
+      const failure = QrScannerFailure.permissionDenied;
       expect(qrScannerFailureTitle(failure), '需要相机权限');
       expect(qrScannerFailureMessage(failure), contains('系统设置'));
     });
 
     test('相机不可用给恢复路径文案', () {
-      final failure = QrScannerFailure.cameraUnavailable;
+      const failure = QrScannerFailure.cameraUnavailable;
       expect(qrScannerFailureTitle(failure), '相机初始化失败');
       expect(qrScannerFailureMessage(failure), contains('手动填写'));
     });

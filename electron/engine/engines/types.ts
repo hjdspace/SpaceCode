@@ -1,8 +1,8 @@
 import type { BrowserWindow } from 'electron'
-import type { PermissionUpdate } from '@/shared/channels/claudeCode'
+import type { PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 
 // 引擎实现统一从本模块取协议类型；定义仍在 src/shared（IPC 单一真相源）。
-export type { PermissionUpdate }
+export type { PermissionUpdate, ThinkingUpdateTiming }
 
 export type EngineType = 'claude-code' | 'pi'
 
@@ -125,8 +125,13 @@ export interface IEngine {
   getSettings?(sessionId: string): Promise<Record<string, unknown> | undefined>
   stopEngineTask?(sessionId: string, taskId: string): Promise<void>
   getPendingPermissionRequestIds?(sessionId: string): string[]
-  /** 切换思考等级（可选；Pi 直接下发给进程，Claude 侧等下次 spawn 生效） */
-  updateThinkingLevel?(sessionId: string, enabled: boolean): Promise<void>
+  /**
+   * 切换思考等级。失败必须抛出 —— 界面靠它把开关退回点击前的状态，
+   * 抹平成 resolve(undefined) 就等于告诉用户「切成功了」。
+   *
+   * @returns now = 已落到进程；next-turn = 当前这一轮跑完才生效。
+   */
+  updateThinkingLevel?(sessionId: string, enabled: boolean): Promise<ThinkingUpdateTiming>
 }
 
 export interface AgentInfo {

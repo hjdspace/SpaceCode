@@ -50,6 +50,9 @@ const traceApi = {
   /** cc-haha 复刻: 获取 trace 会话列表 */
   list: (params?: { limit?: number; offset?: number; query?: string }) =>
     ipcRenderer.invoke('trace:list', params),
+  /** 轻量 stat 单个 trace 会话文件，轮询前变更检测用 */
+  statSession: (sessionId: string) =>
+    ipcRenderer.invoke('trace:statSession', sessionId),
   /** cc-haha 复刻: 获取单个 trace 会话详情 */
   getTrace: (sessionId: string) =>
     ipcRenderer.invoke('trace:getTrace', sessionId),
@@ -214,10 +217,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('profiles:backupCorrupt', data),
 
   // Hooks Settings persistence
-  loadHooksSettings: (scope?: string): Promise<{ success: boolean; data: string | null; error?: string }> =>
-    ipcRenderer.invoke('settings:loadHooksSettings', scope),
-  saveHooksSettings: (hooksJson: string, scope?: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('settings:saveHooksSettings', hooksJson, scope),
+  // projectRoot 由渲染进程显式传入：project/local 的落点属于"当前打开的项目"，主进程无从得知
+  loadHooksSettings: (scope?: string, projectRoot?: string): Promise<{ success: boolean; data: string | null; error?: string }> =>
+    ipcRenderer.invoke('settings:loadHooksSettings', scope, projectRoot),
+  saveHooksSettings: (hooksJson: string, scope?: string, projectRoot?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('settings:saveHooksSettings', hooksJson, scope, projectRoot),
 
   // Builtin hooks
   getBuiltinHooksRoot: (): Promise<{ success: boolean; path?: string; error?: string }> =>
@@ -303,9 +307,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** Render a file as HTML, returns the HTML file path */
     viewHtml: (filePath: string, outputDir?: string) =>
       ipcRenderer.invoke('officecli:viewHtml', filePath, outputDir),
-    /** Render a file as PNG screenshots, returns a list of image paths */
-    viewScreenshot: (filePath: string, outputDir: string, page?: number) =>
-      ipcRenderer.invoke('officecli:viewScreenshot', filePath, outputDir, page),
+    /** Render a chunk of pages as one PNG sheet (pages stacked vertically) */
+    viewScreenshot: (filePath: string, outputDir: string, start?: number) =>
+      ipcRenderer.invoke('officecli:viewScreenshot', filePath, outputDir, start),
     /** Start a live-preview watch server */
     watchStart: (filePath: string, port?: number) =>
       ipcRenderer.invoke('officecli:watch:start', filePath, port),
