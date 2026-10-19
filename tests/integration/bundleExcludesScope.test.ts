@@ -34,4 +34,12 @@ describe('打包依赖守卫脚本与 package.json 同步', () => {
     expect(out).not.toContain('build.files 缺少必要规则')
     expect(out).not.toContain('build.files 有多余规则')
   })
+
+  it('报告 plan 模式扩展的依赖闭包搬得齐', () => {
+    // 少搬一个包不会报类型错，打包后只在子进程 stderr 里留下扩展加载失败，
+    // 而界面照样显示「计划模式」—— 这条 #45 的失败形态与 #52 同构。
+    const out = runValidator()
+    expect(out).toContain('✅ plan 模式扩展闭包走 extraResources')
+    expect(out).not.toContain('plan 模式扩展打包路径已漂移')
+  })
 })

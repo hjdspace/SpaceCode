@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, EngineAvailability, AgentInfo, ImageAttachment, ThinkingUpdateTiming, EffortLevel } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, EngineAvailability, AgentInfo, ImageAttachment, PermissionMode, ThinkingUpdateTiming, EffortLevel } from './types'
 import { toPiThinkingLevel } from '@/shared/effort'
 import { PiProcessPool } from './PiProcessPool'
 import { detectPiCli } from './piCliResolver'
@@ -104,6 +104,15 @@ export class PiEngine implements IEngine {
       throw err
     }
     return 'now'
+  }
+
+  /**
+   * 切换权限模式。四档里只有 plan 做得到，靠的是起进程时装进来的扩展（口径见
+   * piPlanModeExtension）；进不去时进程池抛错 —— 界面据此把选择器退回点击前的状态 (#45)。
+   */
+  async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
+    info('PiEngine', `setPermissionMode | sessionId=${sessionId.slice(0, 8)} | mode=${mode}`)
+    await this.pool.setPermissionMode(sessionId, mode)
   }
 
   async abort(sessionId: string): Promise<void> {

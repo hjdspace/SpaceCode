@@ -51,6 +51,31 @@ const BUNDLED_PI_DEST = 'pi'
 const BUNDLED_PI_REQUIRED_FILTER = ['package.json', 'dist/bundle/**/*']
 
 /**
+ * plan 模式的权限闸扩展 (issue #45)，跟 pi 同一个道理走 extraResources：
+ * 宿主进程从不 require 它，进了 dependencies 就会被拖进 asar。
+ *
+ * 关键是那份闭包必须整个搬到：pi 的 bundle 只把 @earendil-works/* 几个自带包做成虚拟模块，
+ * 扩展自己的运行时依赖（@narumitw/pi-tui-kit 及其下的 diff / highlight.js / grok-mermaid）
+ * 得在盘上按 node 的目录规则解析得到。少搬一个的表现是 dev 一切正常、打包后扩展加载失败，
+ * 而失败只写在子进程 stderr 里 —— 界面照旧显示「计划模式」。
+ */
+const PLAN_MODE_PACKAGE = '@narumitw/pi-plan-mode'
+const PLAN_MODE_ENTRY = path.join('node_modules', PLAN_MODE_PACKAGE, 'dist', 'index.ts')
+/** 扩展里这些裸 import 由 bundle 的虚拟模块满足，不需要落到盘上 */
+const PI_VIRTUAL_MODULES = new Set([
+  '@earendil-works/pi-coding-agent',
+  '@earendil-works/pi-tui',
+  '@earendil-works/pi-ai',
+  '@earendil-works/pi-agent-core',
+  'typebox',
+  'typebox/compile',
+  'typebox/value',
+  '@sinclair/typebox',
+  '@sinclair/typebox/compile',
+  '@sinclair/typebox/value',
+])
+
+/**
  * build.files 中必须包含的基础白名单和原生模块裁剪规则。
  * 这些规则裁剪的是跨平台预编译产物和源码，不影响功能。
  */
@@ -196,6 +221,60 @@ function checkBundledPi(pkg, build) {
   return true
 }
 
+/**
+ * plan 模式扩展的打包路径 (issue #45)：源在 devDependencies、入口在盘上、
+ * 闭包按 node 的解析规则搬齐。断言的是「搬完之后扩展在打包态也加载得起来」，
+ * 而不只是「配置里有条目」。
+ */
+function checkPlanModeExtension(pkg, build) {
+  const deps = Object.keys(pkg.dependencies || {})
+  const devDeps = Object.keys(pkg.devDependencies || {})
+  const problems = []
+
+  if (deps.includes(PLAN_MODE_PACKAGE)) {
+    problems.push(`${PLAN_MODE_PACKAGE} 还在 dependencies：宿主用不到它，只会把闭包拖进 asar`)
+  }
+  if (!devDeps.includes(PLAN_MODE_PACKAGE)) {
+    problems.push(`${PLAN_MODE_PACKAGE} 不在 devDependencies：extraResources 没有可搬的源`)
+  }
+
+  if (!fs.existsSync(path.join(ROOT, PLAN_MODE_ENTRY))) {
+    problems.push(`node_modules 里没有扩展入口 ${path.relative(ROOT, path.join(ROOT, PLAN_MODE_ENTRY))}`)
+  }
+
+  // 条目按包搬；版本冲突时 npm 会把包塞进宿主包的嵌套 node_modules，那份随包一起搬，
+  // 所以「搬没搬齐」要连嵌套层一起认。
+  const stagedNames = new Set(
+    (build.extraResources || [])
+      .filter(r => typeof r === 'object' && typeof r.from === 'string' && typeof r.to === 'string')
+      .filter(r => r.to.startsWith('pi-extensions/node_modules/') && r.from.startsWith('node_modules/'))
+      .map(r => r.from.slice('node_modules/'.length)),
+  )
+  const servedFromTree = (pkgName) => stagedNames.has(pkgName)
+    || [...stagedNames].some(name => fs.existsSync(path.join(ROOT, 'node_modules', name, 'node_modules', pkgName)))
+
+  // 扩展的依赖闭包（虚拟模块除外）都得在 resources/ 下有真实副本 —— 少一个就是
+  // dev 能跑、打包后加载失败
+  const required = [...dependencyClosure([PLAN_MODE_PACKAGE])].filter(spec => !PI_VIRTUAL_MODULES.has(spec))
+
+  for (const pkgName of required) {
+    if (!servedFromTree(pkgName)) {
+      problems.push(`扩展闭包里的 ${pkgName} 没被 extraResources 搬到 pi-extensions/node_modules/ 下`)
+    } else if (!fs.existsSync(path.join(ROOT, 'node_modules', pkgName))) {
+      problems.push(`extraResources 声明了 ${pkgName}，但 node_modules 里找不到源`)
+    }
+  }
+
+  console.log('')
+  if (problems.length === 0) {
+    console.log(`✅ plan 模式扩展闭包走 extraResources（${required.length} 个包全部有源）`)
+    return false
+  }
+  console.error('❌ plan 模式扩展打包路径已漂移:')
+  for (const p of problems) console.error(`   - ${p}`)
+  return true
+}
+
 function main() {
   const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'))
   const build = pkg.build
@@ -268,6 +347,7 @@ function main() {
   console.log(`\n运行时依赖闭包: ${keep.size} 个包`)
 
   const piDrift = checkBundledPi(pkg, build)
+  const planModeDrift = checkPlanModeExtension(pkg, build)
 
   if (process.argv.includes('--fix')) {
     const patterns = [...REQUIRED_FILE_PATTERNS, ...PRUNE_PATTERNS]
@@ -283,7 +363,7 @@ function main() {
 
   // 这些漂移不会报类型错、也只会在打包后的机器上表现为「跑的是用户全局的 pi」，
   // 所以必须让守卫以非 0 退出，CI 才拦得住
-  if (piDrift || missingUnpack.length > 0 || missingPatterns.length > 0 || extraPatterns.length > 0 || missing.length > 0) {
+  if (piDrift || planModeDrift || missingUnpack.length > 0 || missingPatterns.length > 0 || extraPatterns.length > 0 || missing.length > 0) {
     process.exitCode = 1
   }
 }

@@ -195,6 +195,12 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
     case 'queue_update':
       return null
 
+    // 扩展的 UI 帧在 PiSessionProcess 就地处置完了（plan 模式回执 + 对话框应答），
+    // 到宿主这层没有剩下的可渲染东西。显式 null 而不是走 default，免得读代码的人
+    // 以为这里漏了一条映射 (#45)。
+    case 'extension_ui_request':
+      return null
+
     case 'session_info_changed':
       return null
 

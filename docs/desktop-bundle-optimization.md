@@ -223,3 +223,35 @@ node scripts/gen-bundle-excludes.cjs --dry    # 只打印，不改文件
   与 `extraResources` 的源/目标/filter，并在漂移时以非 0 退出。
 - `tests/integration/bundledPiPackaging.test.ts` 按 `build` 配置摆一个假的 `resources/`，断言解析器要找的
   路径与之完全一致。
+
+## 6. plan 模式的权限闸扩展也走 extraResources（issue #45）
+
+Pi 不内置权限闸：1.3.0 的 `docs/security.md` 仍写着 *"it does not ask for approval before every tool call"*，
+命令行里也没有 `--permission-mode` 可拼。界面上的「计划模式」要真的拦住 `write` / `edit` / `mcp__*`，
+唯一的入口是起进程时 `--extension` 加载 `@narumitw/pi-plan-mode`，于是它变成第二个「必须随产物走、
+且必须在 asar 外」的东西。
+
+| 项 | 变化 |
+| --- | --- |
+| `@narumitw/pi-plan-mode` | 进 `devDependencies`（宿主进程从不 require 它） |
+| `build.extraResources` | 新增四条，落成 `resources/pi-extensions/node_modules/{@narumitw/pi-plan-mode,@narumitw/pi-tui-kit,highlight.js,grok-mermaid}`，实测约 3.1 MB |
+| `piPlanModeExtension.ts`（新增） | 打包态只认 `resources/pi-extensions` 下那份入口；解析不到返回 null，由进程池 fail closed |
+| `PiSessionProcess` | 意图是 plan 才拼 `--extension`；非 plan 的会话一律不带（那两个 helper 工具会凭空出现在模型面前） |
+
+为什么闭包必须整个搬：bundle 入口只把 `@earendil-works/pi-coding-agent`、`pi-tui`、`pi-ai`、
+`pi-agent-core` 与 `typebox` 这几个 specifier 做成**虚拟模块**（`dist/core/extensions/loader.js` 的
+`usesEmbeddedModules` + `virtual-modules.js` 的表）。扩展自己的运行时依赖 —— `@narumitw/pi-tui-kit`
+及其嵌套的 `diff`、`highlight.js`、`grok-mermaid` —— 不在那张表上，得按 node 的目录规则在盘上
+解析得到。少搬一个的表现是 dev 一切正常、打包后只在子进程 stderr 里留下一行加载失败，而界面照旧
+显示「计划模式」。
+
+`pi-tui-kit` 下的 `diff` 是嵌套副本（它要 9.x，顶层是 7.x），所以那条条目的 filter 带上
+`node_modules/**/*`。
+
+### 6.1 防线
+
+- `scripts/gen-bundle-excludes.cjs` 增算扩展的依赖闭包，逐个断言「有 extraResources 条目且源在盘上」。
+- `tests/integration/piPlanModePackaging.test.ts` 把 build 配置与 `resolvePlanModeExtensionPath()` 钉成同一个字符串。
+- `electron/engine/engines/__tests__/piSessionProcess.planMode.realPi.test.ts`（`PI_REAL=1`）用真 pi +
+  本地假上游证明：`/plan start` 拿到扩展回执、上游要求的 `write` 没落盘、扩展的 `select` 菜单被宿主取消后
+  命令仍有 ack（不回帧就会整条会话挂死）。

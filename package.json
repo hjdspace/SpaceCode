@@ -62,6 +62,7 @@
     "@iconify-json/vscode-icons": "^1.2.83",
     "@iconify/utils": "^3.1.7",
     "@iconify/vue": "^5.0.3",
+    "@narumitw/pi-plan-mode": "^0.59.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.19",
     "@types/diff": "^7.0.0",
@@ -164,6 +165,42 @@
         "filter": [
           "package.json",
           "dist/bundle/**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@narumitw/pi-plan-mode",
+        "to": "pi-extensions/node_modules/@narumitw/pi-plan-mode",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/@narumitw/pi-tui-kit",
+        "to": "pi-extensions/node_modules/@narumitw/pi-tui-kit",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "node_modules/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/highlight.js",
+        "to": "pi-extensions/node_modules/highlight.js",
+        "filter": [
+          "package.json",
+          "lib/**/*"
+        ]
+      },
+      {
+        "from": "node_modules/grok-mermaid",
+        "to": "pi-extensions/node_modules/grok-mermaid",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "!**/*.map"
         ]
       },
       {

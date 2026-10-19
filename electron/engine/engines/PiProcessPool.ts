@@ -1,7 +1,8 @@
 import { BrowserWindow } from 'electron'
 import { PiSessionProcess } from './PiSessionProcess'
 import { findPiSessionFile, rememberPiSessionFile } from './piSessionRegistry'
-import type { EngineSessionConfig, EngineSessionStatus, ImageAttachment } from './types'
+import { resolvePlanModeExtensionPath } from './piPlanModeExtension'
+import type { EngineSessionConfig, EngineSessionStatus, ImageAttachment, PermissionMode } from './types'
 import type { ProcessStatus } from '../../session/sessionProcess'
 import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error, debug } from '../../infra/logger'
@@ -20,6 +21,12 @@ export class PiProcessPool {
   private processes: Map<string, PiSessionProcess> = new Map()
   private mainWindow: BrowserWindow | null = null
   private routeEventListeners: Array<(sessionId: string, eventType: string, data: any) => void> = []
+
+  /**
+   * 为装上 plan 扩展而重启过哪条会话：扩展在子进程里装不起来时，每条消息都换一个进程
+   * 会把会话打成筛子，所以一条会话只补一次 (#45)。
+   */
+  private planModeRespawnTried = new Set<string>()
 
   private poolHandlers: Map<string, {
     message: (msg: any) => void
@@ -46,8 +53,19 @@ export class PiProcessPool {
 
   getSessionStatus(sessionId: string): EngineSessionStatus | null {
     const proc = this.processes.get(sessionId)
-    if (!proc) return null
+    return proc ? this.toStatus(proc) : null
+  }
 
+  getActiveSessions(): EngineSessionStatus[] {
+    return Array.from(this.processes.values()).map(proc => this.toStatus(proc))
+  }
+
+  /**
+   * plan 之外的三档 Pi 都没有闸可关，所以 verified 只能报 null：说 true 是谎报
+   * 「default 也逐次确认」，说 false 会让渲染层无限重发同一个模式 (#45)。
+   */
+  private toStatus(proc: PiSessionProcess): EngineSessionStatus {
+    const intent = proc.config.permissionMode
     return {
       sessionId: proc.sessionId,
       engineSessionId: null,
@@ -55,18 +73,9 @@ export class PiProcessPool {
       isRunning: proc.isRunning(),
       engineVersion: proc.engineVersion,
       engineVersionCompatible: proc.engineVersionCompatible,
+      permissionMode: intent,
+      permissionModeVerified: intent === 'plan' ? proc.planModeActive : null,
     }
-  }
-
-  getActiveSessions(): EngineSessionStatus[] {
-    return Array.from(this.processes.values()).map(proc => ({
-      sessionId: proc.sessionId,
-      engineSessionId: null,
-      status: proc.status,
-      isRunning: proc.isRunning(),
-      engineVersion: proc.engineVersion,
-      engineVersionCompatible: proc.engineVersionCompatible,
-    }))
   }
 
   getProcess(sessionId: string): PiSessionProcess | undefined {
@@ -104,12 +113,14 @@ export class PiProcessPool {
 
     const proc = new PiSessionProcess(sessionId, config, resumeFile ?? undefined)
     this.processes.set(sessionId, proc)
+    this.planModeRespawnTried.delete(sessionId)
 
     this.attachPoolHandlers(sessionId, proc)
 
     try {
       await proc.start()
       info('PiProcessPool', `[${sessionId.slice(0, 8)}] Session started | totalActive=${this.getActiveCount()}`)
+      await this.reconcilePlanMode(sessionId, proc, 'start')
       void this.recordSessionFile(sessionId, proc)
     } catch (err) {
       error('PiProcessPool', `[${sessionId.slice(0, 8)}] Failed to start session`, err)
@@ -140,6 +151,8 @@ export class PiProcessPool {
       error('PiProcessPool', `[${sessionId.slice(0, 8)}] sendMessage failed: no active process`)
       throw new Error(`Session ${sessionId} has no active process`)
     }
+
+    await this.guardPermissionMode(sessionId, proc)
 
     info('PiProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length} | images=${images?.length || 0}`)
     await proc.sendMessage(content, images)
@@ -180,6 +193,9 @@ export class PiProcessPool {
     try {
       await proc.resume()
       info('PiProcessPool', `[${sessionId.slice(0, 8)}] Session resumed successfully`)
+      // 恢复起来的进程带不带扩展、扩展恢复出来的又是什么模式，都要重新对一次账：
+      // 挂起前收到的那次回执不能替这一次说话。
+      await this.reconcilePlanMode(sessionId, proc, 'resume')
       // 挂起那趟 get_state 没答上的话，这条会话此刻其实没带 --session —— 补记一次，
       // 别让下一次重建同样接不上历史。
       void this.recordSessionFile(sessionId, proc)
@@ -187,6 +203,125 @@ export class PiProcessPool {
       error('PiProcessPool', `[${sessionId.slice(0, 8)}] Failed to resume session`, err)
       throw err
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // plan 模式（权限闸扩展）。扩展的来路与口径见 piPlanModeExtension (issue #45)。
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * 切换会话的权限模式。
+   *
+   * default / acceptEdits / bypassPermissions 在 Pi 侧没有对应物（引擎本来就不问），
+   * 所以这里只对 plan 负责：进去要拿到扩展回执才算成功，拿不到就抛 —— 渲染层据此把
+   * 选择器退回点击前的状态，界面不会停在一个从没生效的模式上。退出尽力而为：退不动
+   * 只是让引擎比界面更保守，不构成风险。
+   */
+  async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
+    const proc = this.processes.get(sessionId)
+    if (!proc) throw new Error(`Session ${sessionId} not found`)
+
+    if (mode !== 'plan') {
+      proc.config.permissionMode = mode
+      if (proc.planModeExtensionLoaded && proc.isRunning()) {
+        try {
+          await proc.setPlanMode(false)
+        } catch (err) {
+          warn('PiProcessPool', `[${sessionId.slice(0, 8)}] Failed to leave plan mode`, { error: String(err) })
+        }
+      }
+      return
+    }
+
+    const previous = proc.config.permissionMode
+    // 先落意图：没带扩展的那次重启要按它重拼 spawn 参数
+    proc.config.permissionMode = mode
+    if (!(await this.reconcilePlanMode(sessionId, proc, 'switch'))) {
+      proc.config.permissionMode = previous
+      throw new Error(
+        `Pi did not confirm plan mode (extension loaded=${proc.planModeExtensionLoaded}, engine=${proc.planModeActive ?? '(no receipt)'})`,
+      )
+    }
+  }
+
+  /**
+   * 让进程真的跑在 plan 上。三条偏差都收在这里，start / resume / switch / send 四条路
+   * 不再各自排一遍重试：
+   *  - 进程没带扩展（起的时候意图不是 plan）：换一次进程，历史靠 --session 接上；
+   *  - 带了扩展但不在 plan（新会话，或上次没进去）：发 `/plan start`，等回执；
+   *  - 回执始终等不到（扩展加载失败 / 引擎正跑着不让切）：返回 false，调用方 fail closed。
+   *
+   * @returns 意图不是 plan 时恒为 true（没有要对账的东西）。
+   */
+  private async reconcilePlanMode(
+    sessionId: string,
+    proc: PiSessionProcess,
+    context: 'start' | 'resume' | 'switch' | 'send',
+  ): Promise<boolean> {
+    const shortSid = sessionId.slice(0, 8)
+    if (proc.config.permissionMode !== 'plan') return true
+    if (!proc.isRunning()) return false
+
+    if (!proc.planModeExtensionLoaded) {
+      if (resolvePlanModeExtensionPath() === null) {
+        warn('PiProcessPool', `[${shortSid}] Plan mode extension not loadable | context=${context}`)
+        return false
+      }
+      if (this.planModeRespawnTried.has(sessionId)) {
+        warn('PiProcessPool', `[${shortSid}] Extension still missing after a respawn, not retrying | context=${context}`)
+        return false
+      }
+      // 轮次跑到一半不换进程：那等于把用户正在等的答案掐了。等下一轮再对账。
+      if (!proc.canSafelySuspend()) {
+        warn('PiProcessPool', `[${shortSid}] Won't swap process mid-turn to load the extension | pendingTools=${proc.getPendingToolCount()} | context=${context}`)
+        return false
+      }
+      this.planModeRespawnTried.add(sessionId)
+      await this.respawnWithPlanModeExtension(sessionId, proc)
+      if (!proc.planModeExtensionLoaded) return false
+    }
+
+    if (proc.planModeActive === true) return true
+
+    try {
+      const applied = await proc.setPlanMode(true)
+      if (!applied) warn('PiProcessPool', `[${shortSid}] Plan mode not confirmed by the extension | context=${context}`)
+      return applied
+    } catch (err) {
+      warn('PiProcessPool', `[${shortSid}] Failed to switch plan mode | context=${context}`, { error: String(err) })
+      return false
+    }
+  }
+
+  /**
+   * 扩展只在 spawn 时装得进来，运行中加不了 —— 想追上意图就得换一个进程。
+   * 问到过 pi 的会话文件就走挂起→恢复（历史接得上），否则直接重起。
+   */
+  private async respawnWithPlanModeExtension(sessionId: string, proc: PiSessionProcess): Promise<void> {
+    const sessionFile = proc.getPiSessionFile()
+    info('PiProcessPool', `[${sessionId.slice(0, 8)}] Swapping process to load the plan mode extension | sessionFile=${sessionFile ?? '(none)'}`)
+    if (sessionFile) {
+      await proc.suspend()
+      await proc.resume()
+      return
+    }
+    await proc.kill()
+    await proc.start()
+  }
+
+  /**
+   * 意图是 plan 而引擎没有闸：这条消息一旦转发，工具就直接改文件，而用户以为在计划模式。
+   * 先救一次，救不回来就拦下并说明原因 —— 宁可不发 (#45)。
+   */
+  private async guardPermissionMode(sessionId: string, proc: PiSessionProcess): Promise<void> {
+    if (proc.config.permissionMode !== 'plan') return
+    // 已经在 plan 时 reconcile 直接返回 true，不会多发一帧命令
+    if (await this.reconcilePlanMode(sessionId, proc, 'send')) return
+
+    const detail = `plan mode is not enforced (extension loaded=${proc.planModeExtensionLoaded}, engine=${proc.planModeActive === null ? 'no receipt' : 'not in plan'})`
+    error('PiProcessPool', `[${sessionId.slice(0, 8)}] Blocked message send: ${detail}`)
+    this.routeEvent(sessionId, 'error', { message: detail })
+    throw new Error(`Session ${sessionId} blocked: ${detail}`)
   }
 
   killSession(sessionId: string): void {

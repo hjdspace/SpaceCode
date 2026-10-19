@@ -16,6 +16,11 @@ import {
 } from '../../session/engineChildProcess'
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
 import { detectPiCli, MIN_PI_VERSION } from './piCliResolver'
+import {
+  PLAN_MODE_ENTER_COMMAND,
+  PLAN_MODE_EXIT_COMMAND,
+  resolvePlanModeExtensionPath,
+} from './piPlanModeExtension'
 
 /** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
 interface PiImageContent {
@@ -23,6 +28,47 @@ interface PiImageContent {
   data: string
   mimeType: string
 }
+
+/**
+ * 扩展报自己模式时用的 statusKey。它在 session_start（含恢复）与各次切换上都会发
+ * 一帧 setStatus —— 这是宿主唯一能拿到的回执，界面敢不敢说「计划模式已生效」就凭它 (#45)。
+ */
+const PLAN_MODE_STATUS_KEY = 'plan-mode'
+
+/**
+ * `formatStatus` 的六种取值里只有这两种落在 `state.enabled === true` 下。「带 statusText」
+ * 不等于在 plan：计划存好或正在实现时报 plan saved / plan implementing，那时写权限是放开的。
+ * 把那种文本当成「在 plan」等于在实现阶段不设闸 (#45)。
+ */
+const PLAN_MODE_ACTIVE_TEXTS = new Set(['plan active', 'plan ready'])
+const PLAN_MODE_INACTIVE_TEXTS = new Set(['plan saved', 'plan implementing'])
+
+/** 认不出的文本算「无从核验」(null)：既不声称生效，也不替引擎编一个状态。 */
+function planModeStateOfStatus(text: unknown): boolean | null {
+  if (typeof text !== 'string' || text.trim() === '') return false
+  if (PLAN_MODE_ACTIVE_TEXTS.has(text)) return true
+  return PLAN_MODE_INACTIVE_TEXTS.has(text) ? false : null
+}
+
+/**
+ * RPC 里会 await 宿主的四类对话框 (docs/rpc-extension-ui.md)。它们不带 toolCallId，
+ * 现有权限卡片没有可挂靠的时间线条目，所以宿主一律回 cancelled：扩展侧拿到
+ * undefined/false，等价于「没批准」，会话不会挂死 (#45)。
+ */
+const EXTENSION_DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor'])
+
+/** pi 发来的扩展 UI 帧：type/id/method 恒有，其余按 method 变化 */
+interface PiExtensionUiRequest {
+  type: 'extension_ui_request'
+  id?: string
+  method?: string
+  title?: string
+  statusKey?: string
+  statusText?: string
+}
+
+/** 等扩展回执的默认时限：实测回执在 ack 之前就到了，这里只兜「扩展没起来」 */
+const PLAN_MODE_RECEIPT_TIMEOUT_MS = 5_000
 
 export class PiSessionProcess extends EventEmitter {
   readonly sessionId: string
@@ -53,6 +99,19 @@ export class PiSessionProcess extends EventEmitter {
   engineVersionCompatible: boolean | null = null
 
   /**
+   * 这次 spawn 有没有把 plan 模式扩展带上（`--extension` 真的拼进了命令行）。
+   * 没带上就没有闸，也没有回执 —— 与「带上了但回执没到」是两件事，分开记才看得出是
+   * 装不上还是没生效 (#45)。
+   */
+  planModeExtensionLoaded = false
+
+  /**
+   * 扩展回执的 plan 状态。null = 还没收到过回执，既不能说生效也不能说没生效；
+   * 界面上的模式徽章在 null/false 而意图是 plan 时都不得声称只读已生效。
+   */
+  planModeActive: boolean | null = null
+
+  /**
    * @param resumeSessionFile 由池按历史记录注入的 pi 会话文件；不传则起一个空白会话。
    *   走构造参数而不是 config —— config 要跨 IPC，这个路径只该由主进程决定。
    */
@@ -66,6 +125,8 @@ export class PiSessionProcess extends EventEmitter {
 
   async start(): Promise<void> {
     this.status = 'starting'
+    // 每次 spawn 重新算：上一次进程收到的回执不能替这一次说话（挂起→恢复走的就是这里）
+    this.planModeActive = null
 
     try {
       const cliPath = this.resolveCliPath()
@@ -376,6 +437,87 @@ export class PiSessionProcess extends EventEmitter {
   }
 
   /**
+   * 进出 plan 模式。扩展没有启动旗子（README: "There is no startup flag."），只能发它的
+   * `/plan` 子命令；命令帧由 pi 直接执行，不进模型也不写历史。
+   *
+   * ack 只说明「命令被接住了」，模式到底生效没有得看扩展发的 setStatus 回执 —— 切换要求
+   * 跑在空档，正跑着的时候 ack 照样是 handled 而回执不会来。等不到就返回 false，
+   * 由调用方 fail closed，不能拿 ack 当生效 (#45)。
+   */
+  async setPlanMode(active: boolean): Promise<boolean> {
+    const proc = this._process
+    if (!proc || this.status === 'exited') {
+      throw new Error(`Pi session ${this.sessionId.slice(0, 8)} has no running process to apply plan mode`)
+    }
+    if (!this.planModeExtensionLoaded) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode requested on a process without the extension | active=${active}`)
+      return false
+    }
+
+    const message = active ? PLAN_MODE_ENTER_COMMAND : PLAN_MODE_EXIT_COMMAND
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Switching plan mode | command=${message}`)
+    await this.rpcRequest(proc, { type: 'prompt', message, streamingBehavior: 'followUp' }, 30_000, `Timeout waiting for ${message}`)
+
+    const applied = await this.waitForPlanModeReceipt(active)
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode receipt | requested=${active} | applied=${applied}`)
+    return applied
+  }
+
+  /** 等扩展把模式改成期望值；进程退出或超时都算没生效。 */
+  private waitForPlanModeReceipt(expected: boolean): Promise<boolean> {
+    if (this.planModeActive === expected) return Promise.resolve(true)
+
+    return new Promise((resolve) => {
+      const finish = (value: boolean) => {
+        clearTimeout(timer)
+        this.off('planModeState', onState)
+        this.off('exit', onExit)
+        resolve(value)
+      }
+      const onState = (state: boolean | null) => {
+        if (state === expected) finish(true)
+      }
+      const onExit = () => finish(false)
+      const timer = setTimeout(() => finish(false), PLAN_MODE_RECEIPT_TIMEOUT_MS)
+
+      this.on('planModeState', onState)
+      this.on('exit', onExit)
+    })
+  }
+
+  /**
+   * pi RPC 的对话框方法会 await 宿主回帧（docs/rpc-extension-ui.md）。宿主不回，扩展侧的
+   * `await` 就永远不返回，整条会话停在那儿 —— 以前这里只 emit 不回，正是 #45 里最坏的
+   * 那种失效形态。四类对话框一律回 cancelled：扩展拿到 undefined/false，等价于「没批准」，
+   * 语义上仍是 fail-closed。
+   */
+  private declineExtensionDialog(event: PiExtensionUiRequest): void {
+    if (!event.method || !EXTENSION_DIALOG_METHODS.has(event.method)) return
+    if (typeof event.id !== 'string' || !event.id) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog request without an id | method=${event.method}`)
+      return
+    }
+
+    this._process?.stdin?.write(JSON.stringify({ type: 'extension_ui_response', id: event.id, cancelled: true }) + '\n')
+    warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog cancelled by host | method=${event.method} | title=${String(event.title ?? '(none)').split('\n')[0].slice(0, 120)}`)
+  }
+
+  /**
+   * 扩展用 setStatus('plan-mode') 报它自己的模式，取值见 PLAN_MODE_ACTIVE_TEXTS。
+   * session_start（含挂起后恢复）也会发一帧，所以这一路同时覆盖「重启后接上的状态」。
+   */
+  private trackPlanModeReceipt(event: PiExtensionUiRequest): void {
+    if (event.method !== 'setStatus' || event.statusKey !== PLAN_MODE_STATUS_KEY) return
+
+    const active = planModeStateOfStatus(event.statusText)
+    if (active === this.planModeActive) return
+
+    this.planModeActive = active
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode receipt | active=${active ?? '(unrecognized)'} | text=${event.statusText ?? '(cleared)'}`)
+    this.emit('planModeState', active)
+  }
+
+  /**
    * 向在飞的进程要一次 get_state 并记下它的会话文件。
    * 拿不到不影响本轮，只是恢复时退回到「新会话」——不阻塞挂起。
    *
@@ -463,6 +605,8 @@ export class PiSessionProcess extends EventEmitter {
     }
 
     if (event.type === 'extension_ui_request') {
+      this.trackPlanModeReceipt(event)
+      this.declineExtensionDialog(event)
       debug('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension UI request | method=${event.method}`)
       this.emit('message', event)
       return
@@ -847,6 +991,19 @@ export class PiSessionProcess extends EventEmitter {
     if (this._piSessionFile) args.push('--session', this._piSessionFile)
     if (this.config.systemPrompt) args.push('--system-prompt', this.config.systemPrompt)
     if (this.config.appendSystemPrompt) args.push('--append-system-prompt', this.config.appendSystemPrompt)
+
+    // plan 的只读语义全靠这个扩展（来路与口径见 piPlanModeExtension）：起进程时不带它，
+    // 就等于「界面显示计划模式、工具照写不误」 (#45)。
+    this.planModeExtensionLoaded = false
+    if (this.config.permissionMode === 'plan') {
+      const extensionPath = resolvePlanModeExtensionPath()
+      if (extensionPath) {
+        args.push('--extension', extensionPath)
+        this.planModeExtensionLoaded = true
+      } else {
+        warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode extension not loadable | plan cannot be enforced for this process`)
+      }
+    }
 
     return args
   }
