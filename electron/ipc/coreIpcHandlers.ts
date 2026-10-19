@@ -679,6 +679,24 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
     }
   })
 
+  ipcMain.handle('session:getSessionFileDiff', async (
+    _event,
+    sessionId: string,
+    filePath: string,
+    projectPath?: string
+  ) => {
+    try {
+      const { getSessionFileDiff } = await import('../session/turnCheckpointService')
+      return await getSessionFileDiff(sessionId, projectPath || '', filePath)
+    } catch (err) {
+      return {
+        state: 'error' as const,
+        path: filePath,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
+  })
+
   ipcMain.handle('session:rewindTurn', async (
     _event,
     sessionId: string,

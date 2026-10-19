@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
-import type { EffortLevel } from '@/shared/effort'
+import { clampEffortLevel, getEngineEffortLevels, type EffortLevel } from '@/shared/effort'
 import { proxyManager, buildProxyConfigFromSettings } from '../infra/proxyManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from '../infra/logger'
 import {
@@ -136,7 +136,7 @@ export interface SessionConfig {
   baseUrl?: string
   /** CLI 支持的权限模式: acceptEdits, bypassPermissions, default, dontAsk, plan */
   permissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
-  /** 推理深度，见 `@/shared/effort`。非法值 CLI 只 warn 并退默认，不会报错退出。 */
+  /** 推理深度，见 `@/shared/effort`。内部引擎对不认的值直接抛错退进程，安装版 CLI 才只是 warn。 */
   effortLevel?: EffortLevel
   systemPrompt?: string
   appendSystemPrompt?: string
@@ -219,7 +219,7 @@ export class SessionProcess extends EventEmitter {
   permissionModeVerified: boolean | null = null
   /** 本次 spawn 实际下发的思考开关；与 config.thinkingEnabled 不等即待重启生效。 */
   spawnedThinkingEnabled?: boolean
-  /** 同上，记的是 --effort：CLI 只在 spawn 时读一次，非法值只 warn 不报错。 */
+  /** 同上，记的是 --effort 的**意图值**而非下发前的钳后值：钳制是确定性的，记钳后值会让池每轮都判定待重启而反复重启。 */
   spawnedEffortLevel?: EffortLevel
 
   // 工具调用状态追踪
@@ -1231,7 +1231,21 @@ export class SessionProcess extends EventEmitter {
     if (permissionMode === 'bypassPermissions') {
       args.push('--dangerously-skip-permissions')
     }
-    if (config.effortLevel) args.push('--effort', config.effortLevel)
+    // 引擎不认的 --effort 值在内部引擎上是 exit 1 而不是警告（词汇表见 @/shared/effort）。
+    // UI 已按引擎过滤过，这里兜住持久化的旧值和其余入口：一次 spawn 换来"引擎进程异常"
+    // 是最低级的那种 bug。spawnedEffortLevel 仍记 config 的原值 —— 钳制是确定性的，
+    // 记成钳后值会让池每轮都判定"待重启生效"而反复重启。
+    if (config.effortLevel) {
+      const accepted = getEngineEffortLevels(config.engineSource)
+      const effort = clampEffortLevel(config.effortLevel, accepted)
+      if (effort && effort !== config.effortLevel) {
+        warn(
+          'SessionProcess',
+          `[${this.sessionId.slice(0, 8)}] --effort ${config.effortLevel} not accepted by the ${config.engineSource ?? 'bundled'} engine — spawning with ${effort}`,
+        )
+      }
+      if (effort) args.push('--effort', effort)
+    }
     if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
 
     // 提前加载 MCP 配置：既用于下方 computer-use 可用性提示，也用于后续
@@ -1857,30 +1871,10 @@ export class SessionProcess extends EventEmitter {
       return { command: launcher, args: [] }
     }
 
-    const isDev = !app.isPackaged
-
-    if (isDev) {
-      const srcCliPath = path.join(this.cliRoot, 'src/entrypoints/cli.tsx')
-      if (fs.existsSync(srcCliPath)) {
-        const defineArgs = this.getMacroDefines()
-        const featureArgs = this.getFeatureArgs()
-        const bunArgs = ['run', ...defineArgs, ...featureArgs]
-        const preloadPath = path.join(this.cliRoot, 'preload.ts')
-        if (fs.existsSync(preloadPath)) {
-          bunArgs.push('--preload', preloadPath)
-        }
-        const envFilePath = path.join(this.cliRoot, '.env')
-        if (fs.existsSync(envFilePath)) {
-          bunArgs.push('--env-file=' + envFilePath)
-        }
-        bunArgs.push(srcCliPath)
-        const bunPath = this.resolveBunPath()
-        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (dev): bun at ${bunPath} | entry=${srcCliPath}`)
-        return { command: bunPath, args: bunArgs }
-      }
-    }
-
-    // Prefer the desktop single-bundle (dist-desktop/cli.js) for packaged builds
+    // 引擎只走预构建产物。源码启动分支（`bun run src/entrypoints/cli.tsx` 配 -d/--feature）
+    // 已移除：Bun 要按进程 cwd 找到 engine/tsconfig.json 才解析得了引擎的 `src/*` 路径别名，
+    // 而 CLI 又把 process.cwd() 当作会话工作区，两个 cwd 需求互斥 —— 在任何项目目录起会话
+    // 都必崩（Cannot find module 'src/bootstrap/state.js'）。CLI 侧无 --cwd 可覆盖工作区。
     const desktopCli = path.join(this.cliRoot, 'dist-desktop/cli.js')
     if (fs.existsSync(desktopCli)) {
       const bunPath = this.resolveBunPathForPackagedDesktop()
@@ -1906,26 +1900,7 @@ export class SessionProcess extends EventEmitter {
       return { command: this.resolveBunPath(), args: ['run', distCli] }
     }
 
-    const srcCliPath = path.join(this.cliRoot, 'src/entrypoints/cli.tsx')
-    if (fs.existsSync(srcCliPath)) {
-      const defineArgs = this.getMacroDefines()
-      const featureArgs = this.getFeatureArgs()
-      const bunArgs = ['run', ...defineArgs, ...featureArgs]
-      const preloadPath = path.join(this.cliRoot, 'preload.ts')
-      if (fs.existsSync(preloadPath)) {
-        bunArgs.push('--preload', preloadPath)
-      }
-      const envFilePath = path.join(this.cliRoot, '.env')
-      if (fs.existsSync(envFilePath)) {
-        bunArgs.push('--env-file=' + envFilePath)
-      }
-      bunArgs.push(srcCliPath)
-      const bunPath = this.resolveBunPath()
-      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (src fallback): bun at ${bunPath} | entry=${srcCliPath}`)
-      return { command: bunPath, args: bunArgs }
-    }
-
-    warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] No CLI found, falling back to global 'claude' command`)
+    warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] No engine artifact under ${this.cliRoot}, falling back to global 'claude' command`)
     return { command: 'claude', args: [] }
   }
 
@@ -1946,38 +1921,5 @@ export class SessionProcess extends EventEmitter {
 
   private resolveBunPath(): string {
     return engineResolveBunPath(this.cliRoot, `SessionProcess[${this.sessionId.slice(0, 8)}]`)
-  }
-
-  private getMacroDefines(): string[] {
-    const defines = [
-      'MACRO.VERSION:2.1.888-dev',
-      `MACRO.BUILD_TIME:${new Date().toISOString()}`,
-      'MACRO.FEEDBACK_CHANNEL:""',
-      'MACRO.ISSUES_EXPLAINER:""',
-      'MACRO.NATIVE_PACKAGE_URL:""',
-      'MACRO.PACKAGE_URL:""',
-      'MACRO.VERSION_CHANGELOG:""',
-    ]
-    return defines.flatMap(d => ['-d', d])
-  }
-
-  private getFeatureArgs(): string[] {
-    // 本名单是 engine/scripts/defines.ts 的 DEFAULT_BUILD_FEATURES（权威）的手抄子集，
-    // 只用于源码启动的 dev / packaged src-fallback 两条路径；越界由 resolveCli.test.ts 拦下。
-    // CONTEXT_COLLAPSE / HISTORY_SNIP / FORK_SUBAGENT / UDS_INBOX / LAN_PIPES 缺席 = 引擎注释里写明的禁用理由。
-    // PROACTIVE 缺席 = 引擎 43 处闸全是 feature('PROACTIVE') || feature('KAIROS')，KAIROS 已开，单传它无效果。
-    const features = [
-      'BUDDY', 'TRANSCRIPT_CLASSIFIER', 'BRIDGE_MODE',
-      'AGENT_TRIGGERS_REMOTE', 'CHICAGO_MCP', 'VOICE_MODE',
-      'SHOT_STATS', 'PROMPT_CACHE_BREAK_DETECTION', 'TOKEN_BUDGET',
-      'AGENT_TRIGGERS', 'ULTRATHINK', 'BUILTIN_EXPLORE_PLAN_AGENTS',
-      'LODESTONE', 'EXTRACT_MEMORIES', 'VERIFICATION_AGENT',
-      'KAIROS_BRIEF', 'AWAY_SUMMARY', 'ULTRAPLAN', 'DAEMON',
-      'WORKFLOW_SCRIPTS', 'MONITOR_TOOL', 'KAIROS',
-      'COORDINATOR_MODE', 'POOR',
-      // 引擎默认不开、客户端产品面依赖的两个，逐条理由见 resolveCli.test.ts 的 CLIENT_ONLY_FEATURES
-      'WEB_BROWSER_TOOL', 'BUILDING_CLAUDE_APPS',
-    ]
-    return features.flatMap(f => ['--feature', f])
   }
 }

@@ -8,6 +8,7 @@ export default {
   earlierTurns: 'Earlier ({count})',
   noUncommittedChange: 'No uncommitted change',
   commandOriginBadge: 'Command / external',
+  outsideRepoBadge: 'Outside git repo',
   openReview: 'Review session changes',
   noChanges: 'No changes',
 }

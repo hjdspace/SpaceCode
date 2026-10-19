@@ -74,6 +74,7 @@ import type {
 import type {
   SessionTurnCheckpoint,
   TurnCheckpointDiffResult,
+  SessionFileDiffResult,
 } from '@/types/turnCheckpoint'
 
 import type {
@@ -206,6 +207,11 @@ export interface ElectronSessionAPI {
     userMessageIndex?: number,
     projectPath?: string
   ) => Promise<TurnCheckpointDiffResult>
+  getSessionFileDiff: (
+    sessionId: string,
+    filePath: string,
+    projectPath?: string
+  ) => Promise<SessionFileDiffResult>
   rewindTurn: (
     sessionId: string,
     options: { targetUserMessageId: string; userMessageIndex?: number },

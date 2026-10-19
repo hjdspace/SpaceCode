@@ -37,6 +37,14 @@ export interface TurnCheckpointDiffResult {
   error?: string
 }
 
+/** 会话累计证据 diff —— 来自引擎的 file-history 备份，不依赖 git 状态。 */
+export interface SessionFileDiffResult {
+  state: 'ok' | 'no_evidence' | 'evidence_lost' | 'error'
+  path: string
+  diff?: string
+  error?: string
+}
+
 export interface TurnChangeCardData {
   checkpoint: SessionTurnCheckpoint
   workDir: string | null

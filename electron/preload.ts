@@ -103,6 +103,8 @@ const sessionApi = {
       userMessageIndex,
       projectPath
     ),
+  getSessionFileDiff: (sessionId: string, filePath: string, projectPath?: string) =>
+    ipcRenderer.invoke('session:getSessionFileDiff', sessionId, filePath, projectPath),
   rewindTurn: (
     sessionId: string,
     options: { targetUserMessageId: string; userMessageIndex?: number },

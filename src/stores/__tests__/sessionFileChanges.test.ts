@@ -160,6 +160,18 @@ describe('sessionFileChanges store', () => {
     expect(mine.external).toBe(true)
   })
 
+  it('仓库外文件透传 inRepo=false，展示层据此收起 git 数字', () => {
+    const store = useSessionFileChangesStore()
+
+    store.syncSession('s1', [
+      assistant([call('Write', 'C:/Users/me/.claude/projects/x/MEMORY.md')]),
+    ], { projectRoot: ROOT })
+
+    const row = store.summaryFor('s1').files[0]
+    expect(row.inRepo).toBe(false)
+    expect(row.stillDirty).toBe(false)
+  })
+
   it('空历史与未知会话都返回空摘要而不是抛错', () => {
     const store = useSessionFileChangesStore()
     expect(store.summaryFor('nope')).toEqual({

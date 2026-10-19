@@ -7,6 +7,7 @@ import {
   listSessionTurnCheckpoints,
   getTurnRewindPreviewFiles,
   getTurnCheckpointDiff,
+  getSessionFileDiff,
   rewindTurn,
 } from '../turnCheckpointService'
 
@@ -634,6 +635,130 @@ describe('turnCheckpointService', () => {
       expect(result.state).toBe('ok')
       expect(result.diff).toContain('-x')
       expect(result.diff).toContain('-y')
+    })
+
+    it('下一轮快照没再跟踪该文件 → after 回落磁盘，而不是渲染成整文件删除', async () => {
+      // buildTurnCodePreview 一直有磁盘兜底，getTurnCheckpointDiff 原来没有：
+      // 缺键时 after 被读成 null，本轮只改了两行的文件会出现一片红色删除。
+      writeSession([
+        userMsg('u1'),
+        assistantMsg('a1'),
+        userMsg('u2'),
+        assistantMsg('a2'),
+        snapshot('u1', { 'a.ts': backup('v1') }),
+        snapshot('u2', {}),
+      ])
+      putBackup('s1', 'v1', 'one\ntwo\n')
+      putWork('a.ts', 'one\nTWO\n')
+
+      const result = await getTurnCheckpointDiff('s1', projectDir, 'u1', 'a.ts')
+      expect(result.state).toBe('ok')
+      expect(result.diff).toContain('-two')
+      expect(result.diff).toContain('+TWO')
+      expect(result.diff).not.toContain('-one')
+    })
+  })
+
+  describe('getSessionFileDiff', () => {
+    it('会话 JSONL 不存在 → state error', async () => {
+      expect(await getSessionFileDiff('nope', projectDir, 'a.ts')).toEqual({
+        state: 'error',
+        path: 'a.ts',
+        error: 'Session file not found',
+      })
+    })
+
+    it('本会话没写过该文件 → no_evidence', async () => {
+      writeSession([userMsg('u1'), assistantMsg('a1'), snapshot('u1', { 'a.ts': backup('b1') })])
+      putBackup('s1', 'b1', 'x\n')
+      putWork('a.ts', 'y\n')
+
+      expect((await getSessionFileDiff('s1', projectDir, 'other.ts')).state).toBe('no_evidence')
+    })
+
+    it('仓库外绝对路径：备份对磁盘出真 diff，全程不查 git', async () => {
+      const outside = path.join(tmpRoot, 'memory', 'MEMORY.md').normalize('NFC')
+      // 引擎把绝对路径原样写进 trackingPath，且带本机分隔符
+      writeSession([userMsg('u1'), assistantMsg('a1'), delta('u1', outside, 'mb1')])
+      putBackup('s1', 'mb1', 'one\ntwo\n')
+      fs.mkdirSync(path.dirname(outside), { recursive: true })
+      fs.writeFileSync(outside, 'one\nTWO\n', 'utf8')
+
+      const result = await getSessionFileDiff('s1', projectDir, outside.replace(/\\/g, '/'))
+      expect(result.state).toBe('ok')
+      expect(result.diff).toContain('-two')
+      expect(result.diff).toContain('+TWO')
+    })
+
+    it('盘符大小写不一致时仍能匹配跟踪键', async () => {
+      const abs = path.join(projectDir, 'a.ts').normalize('NFC')
+      const flipped = abs.replace(/^[a-zA-Z]/, c => (c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()))
+      writeSession([userMsg('u1'), assistantMsg('a1'), delta('u1', abs, 'b1')])
+      putBackup('s1', 'b1', 'x\n')
+      putWork('a.ts', 'y\n')
+
+      const result = await getSessionFileDiff('s1', projectDir, flipped.replace(/\\/g, '/'))
+      expect(result.state).toBe('ok')
+      expect(result.diff).toContain('+y')
+    })
+
+    it('before 取会话第一次动手前的状态，不是最近一轮', async () => {
+      writeSession([
+        userMsg('u1'),
+        assistantMsg('a1'),
+        userMsg('u2'),
+        assistantMsg('a2'),
+        snapshot('u1', { 'a.ts': backup('v1') }),
+        snapshot('u2', { 'a.ts': backup('v2') }),
+      ])
+      putBackup('s1', 'v1', 'base\n')
+      putBackup('s1', 'v2', 'middle\n')
+      putWork('a.ts', 'final\n')
+
+      const result = await getSessionFileDiff('s1', projectDir, 'a.ts')
+      expect(result.state).toBe('ok')
+      expect(result.diff).toContain('-base')
+      expect(result.diff).toContain('+final')
+      expect(result.diff).not.toContain('-middle')
+    })
+
+    it('本会话新建的文件整份算新增', async () => {
+      writeSession([userMsg('u1'), assistantMsg('a1'), delta('u1', 'new.ts', null)])
+      putWork('new.ts', 'a\nb\n')
+
+      const result = await getSessionFileDiff('s1', projectDir, 'new.ts')
+      expect(result.state).toBe('ok')
+      expect(result.diff).toContain('+a')
+      const removed = (result.diff ?? '').split('\n').filter(l => l.startsWith('-') && !l.startsWith('---'))
+      expect(removed).toEqual([])
+    })
+
+    it('会话之后文件被删掉 → 整份算删除', async () => {
+      writeSession([userMsg('u1'), assistantMsg('a1'), snapshot('u1', { 'a.ts': backup('b1') })])
+      putBackup('s1', 'b1', 'x\ny\n')
+
+      const result = await getSessionFileDiff('s1', projectDir, 'a.ts')
+      expect(result.state).toBe('ok')
+      expect(result.diff).toContain('-x')
+      expect(result.diff).toContain('-y')
+    })
+
+    it('备份文件已被清理 → evidence_lost，不能冒充"编辑前不存在"的全新增', async () => {
+      // 跟踪表记着 b1 但 file-history 目录不在：按 null 内容处理会把整个文件报成本会话新增
+      writeSession([userMsg('u1'), assistantMsg('a1'), snapshot('u1', { 'a.ts': backup('b1') })])
+      putWork('a.ts', 'x\ny\n')
+
+      const result = await getSessionFileDiff('s1', projectDir, 'a.ts')
+      expect(result.state).toBe('evidence_lost')
+      expect(result.diff).toBeUndefined()
+    })
+
+    it('改动已被撤销（前后一致）→ no_evidence', async () => {
+      writeSession([userMsg('u1'), assistantMsg('a1'), snapshot('u1', { 'a.ts': backup('b1') })])
+      putBackup('s1', 'b1', 'same\n')
+      putWork('a.ts', 'same\n')
+
+      expect((await getSessionFileDiff('s1', projectDir, 'a.ts')).state).toBe('no_evidence')
     })
   })
 

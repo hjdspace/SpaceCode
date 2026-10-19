@@ -2,7 +2,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
 import { SessionProcess, type SessionConfig } from '../sessionProcess'
+
+const requireFromHere = createRequire(import.meta.url)
 
 /**
  * CLI launcher resolution. Which command/args we spawn with decides whether the
@@ -12,13 +15,20 @@ import { SessionProcess, type SessionConfig } from '../sessionProcess'
  * The precedence the code implements (and that must not regress):
  *   1. installed CLI path wins outright when the caller supplied one — on Windows a
  *      `.cmd` shim is first swapped for the native exe it forwards to
- *   2. in dev, `bun run … src/entrypoints/cli.tsx` with macro defines, feature
- *      flags and an optional preload/.env
- *   3. packaged: the single-file `dist-desktop/cli.js` bundle, preferring the
- *      bundled bun, falling back to Electron-as-Node when bun looks unusable
- *   4. the split `dist/cli.js` build
- *   5. the source tree again (packaged but no build artifacts)
- *   6. a bare global `claude` command as a last resort
+ *   2. the single-file `dist-desktop/cli.js` bundle, in dev and packaged alike,
+ *      preferring the bundled bun and falling back to Electron-as-Node when bun
+ *      looks unusable
+ *   3. the split `dist/cli.js` build
+ *   4. a bare global `claude` command as a last resort
+ *
+ * There is deliberately no source-tree launch (`bun run … src/entrypoints/cli.tsx`).
+ * It cannot work: Bun resolves the engine's `src/*` tsconfig path aliases from the
+ * *process* cwd, while the CLI also takes the session's workspace from
+ * `process.cwd()` — the two cwd requirements are mutually exclusive, so any session
+ * opened on a real project died with `Cannot find module 'src/bootstrap/state.js'`.
+ * The engine has no `--cwd` to relocate the workspace either (`--workspace` only
+ * defaults cwd for sessions that omit it). MACRO defines and feature flags are
+ * therefore baked in by scripts/build-engine-desktop.cjs, not passed per spawn.
  */
 
 const runtime = vi.hoisted(() => ({ isPackaged: false }))
@@ -91,9 +101,6 @@ function resolve(): { command: string; args: string[]; launcherEnv?: Record<stri
   }
 }
 
-const enabledFeatures = (args: string[]) =>
-  args.filter((_, i) => args[i - 1] === '--feature')
-
 beforeEach(() => {
   vi.clearAllMocks()
   exists.clear()
@@ -118,29 +125,30 @@ describe('resolveCliCommand — precedence', () => {
     proc.removeAllListeners()
   })
 
-  it('runs the source tree through bun in dev, with macros, features, preload and env-file', () => {
+  it('runs the desktop bundle in dev even when the engine source tree is present', () => {
+    exists.add(SRC)
+    exists.add(PRELOAD)
+    exists.add(ENVFILE)
+    exists.add(DESKTOP)
+    bun.packagedDesktop = '/engine-root/bin/bun'
+
+    const r = resolve()
+
+    expect(r).toEqual({ command: '/engine-root/bin/bun', args: ['run', path.join('/engine-root', 'dist-desktop/cli.js')] })
+    // 源码启动的三类参数一并消失。-d 尤其不能回来：值未经 JSON 编码时 Bun 会把它
+    // 写进内部的 defines.json 并在解析期当场崩（`Unexpected 2.1.888-dev`），侥幸不崩
+    // 的版本也只是把 MACRO.VERSION 静默截成数字 2.1。
+    expect(r.args).not.toContain('-d')
+    expect(r.args).not.toContain('--feature')
+    expect(r.args).not.toContain('--preload')
+  })
+
+  it('does not launch the source tree when no compiled artifact exists', () => {
     exists.add(SRC)
     exists.add(PRELOAD)
     exists.add(ENVFILE)
 
-    const r = resolve()
-
-    expect(r.command).toBe('bun')
-    expect(r.args[0]).toBe('run')
-    expect(r.args).toEqual(expect.arrayContaining(['-d', 'MACRO.VERSION:2.1.888-dev', '--feature', 'BUDDY']))
-    expect(r.args).toContain('--preload')
-    expect(norm(r.args[r.args.indexOf('--preload') + 1])).toBe(PRELOAD)
-    expect(r.args).toContainEqual('--env-file=' + path.join('/engine-root', '.env'))
-    expect(norm(r.args[r.args.length - 1])).toBe(SRC)
-  })
-
-  it('omits the preload/env-file flags when those files are absent', () => {
-    exists.add(SRC)
-
-    const r = resolve()
-
-    expect(r.args).not.toContain('--preload')
-    expect(norm(r.args[r.args.length - 1])).toBe(SRC)
+    expect(resolve()).toEqual({ command: 'claude', args: [] })
   })
 
   it('prefers the packaged desktop bundle through the bundled bun when it is usable', () => {
@@ -175,16 +183,6 @@ describe('resolveCliCommand — precedence', () => {
     expect(r).toEqual({ command: '/engine-root/bin/bun', args: ['run', path.join('/engine-root', 'dist/cli.js')] })
   })
 
-  it('resorts to the source tree in a packaged build missing every compiled artifact', () => {
-    runtime.isPackaged = true
-    exists.add(SRC)
-
-    const r = resolve()
-
-    expect(r.command).toBe('bun')
-    expect(norm(r.args[r.args.length - 1])).toBe(SRC)
-  })
-
   it('falls back to a global claude command when nothing on disk is found', () => {
     runtime.isPackaged = true
 
@@ -193,30 +191,27 @@ describe('resolveCliCommand — precedence', () => {
 })
 
 /**
- * CONTEXT_COLLAPSE ships in the engine as an empty stub — `initContextCollapse()` only
- * flips a boolean while every collapse fn returns zeros — yet `shouldAutoCompact` returns
- * false whenever that boolean is set. Spawning the engine with the flag therefore leaves a
- * long context with neither collapsing nor auto-compaction, which is why the engine's own
- * default build keeps it commented out (engine/scripts/defines.ts). The two source-launch
- * paths must not re-enable it.
- *
- * The same file is the authoritative ceiling for the whole hand-copied list: every flag the
- * engine comments out carries a recorded disable reason, and `getFeatureArgs()` re-lighting
- * one reproduces the CONTEXT_COLLAPSE failure mode — silent, discovered only by users. So the
- * copy is checked against the engine rather than against someone's memory. `engine/` is
- * read-only (AGENTS.md); reading it here mutates nothing.
+ * Feature flags are baked into the bundle at build time now, so the client's only lever is
+ * the FEATURE_* set injected by scripts/build-engine-desktop.cjs. CONTEXT_COLLAPSE ships in
+ * the engine as an empty stub — `initContextCollapse()` only flips a boolean while every
+ * collapse fn returns zeros — yet `shouldAutoCompact` returns false whenever that boolean is
+ * set, so re-lighting it leaves a long context with neither collapsing nor auto-compaction.
+ * Every flag the engine comments out carries a recorded disable reason, which is why the
+ * client's opt-ins are checked against the engine file rather than against someone's memory.
+ * `engine/` is read-only (AGENTS.md); reading it here mutates nothing.
  */
 const ENGINE_DEFINES = fileURLToPath(new URL('../../../engine/scripts/defines.ts', import.meta.url))
 
-/** Client-only opt-ins: engine defaults exclude them, product code depends on them. */
-const CLIENT_ONLY_FEATURES: string[] = [
-  // src/lib/tool-registry.ts advertises the WebBrowser tool on this flag; the engine's tool is a
-  // self-contained fetch reader with no Bun-only dependency, so it works under both launchers.
-  'WEB_BROWSER_TOOL',
-  // electron/skills/skillsService.ts exposes the bundled `claude-api` skill, which the engine
-  // registers only under this flag (src/skills/bundled/index.ts).
-  'BUILDING_CLAUDE_APPS',
-]
+/**
+ * Read the opt-in list and its injection off the build script itself. Asserting against a
+ * copy here would let the guard and the flags that actually ship drift apart — a hand-copied
+ * list drifting from the engine's authoritative one is exactly the failure this file exists
+ * to catch.
+ */
+const { CLIENT_ONLY_FEATURES, withClientFeatureEnv } = requireFromHere('../../../scripts/build-engine-desktop.cjs') as {
+  CLIENT_ONLY_FEATURES: string[]
+  withClientFeatureEnv: (base: Record<string, string>) => Record<string, string>
+}
 
 function parseDefaultBuildFeatures(source: string): { enabled: string[]; disabled: string[] } {
   const declared = source.slice(source.indexOf('export const DEFAULT_BUILD_FEATURES'))
@@ -237,38 +232,29 @@ async function readEngineFeatures() {
   return parseDefaultBuildFeatures(readFileSync(ENGINE_DEFINES, 'utf8'))
 }
 
-describe('resolveCliCommand — feature args', () => {
-  it.each([
-    { label: 'dev source path', isPackaged: false },
-    { label: 'packaged src-fallback path', isPackaged: true },
-  ])('omits CONTEXT_COLLAPSE on the $label', ({ isPackaged }) => {
-    runtime.isPackaged = isPackaged
-    exists.add(SRC)
-
-    const features = enabledFeatures(resolve().args)
-
-    expect(features).toContain('BUDDY')
-    expect(features).not.toContain('CONTEXT_COLLAPSE')
-  })
-
-  it.each([
-    { label: 'dev source path', isPackaged: false },
-    { label: 'packaged src-fallback path', isPackaged: true },
-  ])('keeps the $label feature list inside the engine default list', async ({ isPackaged }) => {
-    runtime.isPackaged = isPackaged
-    exists.add(SRC)
-
-    const features = enabledFeatures(resolve().args)
+describe('engine build — feature opt-ins', () => {
+  it('stays inside the engine default list and never re-lights a disabled flag', async () => {
     const { enabled, disabled } = await readEngineFeatures()
 
     // guards the guard: a parser that silently matched nothing would pass every assertion below
     expect(enabled).toContain('BUDDY')
     expect(disabled).toContain('CONTEXT_COLLAPSE')
 
-    expect(features.filter((f) => disabled.includes(f))).toEqual([])
-    expect(features.filter((f) => !enabled.includes(f) && !CLIENT_ONLY_FEATURES.includes(f))).toEqual([])
-    // an allowlist entry the engine has since adopted hides real drift — keep it honest
+    expect(CLIENT_ONLY_FEATURES.length).toBeGreaterThan(0)
+    expect(CLIENT_ONLY_FEATURES.filter((f) => disabled.includes(f))).toEqual([])
+    // an opt-in the engine has since adopted by default hides real drift — keep it honest
     expect(CLIENT_ONLY_FEATURES.filter((f) => enabled.includes(f))).toEqual([])
+  })
+
+  it('injects every opt-in as FEATURE_* env — the only channel build-desktop.ts reads', () => {
+    const env = withClientFeatureEnv({ PATH: '/bin' })
+
+    // 只声明不注入，bundle 里对应的代码会被整段裁掉 —— 名单和构建产物就此脱节。
+    expect(env.PATH).toBe('/bin')
+    expect(CLIENT_ONLY_FEATURES.length).toBeGreaterThan(0)
+    for (const feature of CLIENT_ONLY_FEATURES) {
+      expect(env[`FEATURE_${feature}`]).toBe('1')
+    }
   })
 })
 

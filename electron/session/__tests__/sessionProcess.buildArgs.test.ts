@@ -179,6 +179,24 @@ describe('buildArgs — base protocol flags', () => {
     expect(args.slice(i, i + 3)).toEqual(['--allowedTools', 'Bash', 'Read'])
   })
 
+  /**
+   * 档位必须先跟**引擎**词汇表求交再下发。内部引擎（bundle 2.8.4）对不认的 `--effort`
+   * 值抛 InvalidArgumentError 让进程 exit 1，安装版 CLI（2.1.227）才只是 warn 后回落默认 ——
+   * 所以传一个它不认的档不是"降级"而是"引擎进程异常"。UI 那层过滤挡不住持久化的旧值，
+   * 这一道是兜底。探针见 src/shared/__tests__/effort.engineProbe.test.ts。
+   */
+  it.each([
+    { engineSource: undefined, effortLevel: 'xhigh', expect: 'high', why: '缺省按 bundled 算' },
+    { engineSource: 'bundled', effortLevel: 'xhigh', expect: 'high', why: '内部引擎没有 xhigh，向下取最近一档' },
+    { engineSource: 'bundled', effortLevel: 'max', expect: 'max', why: 'max 是内部引擎认的最高档，不动它' },
+    { engineSource: 'installed', effortLevel: 'xhigh', expect: 'xhigh', why: '安装版认 xhigh，不该被误钳' },
+  ] as const)(
+    'spawns --effort $expect on $engineSource when the config says $effortLevel ($why)',
+    ({ engineSource, effortLevel, expect: expected }) => {
+      expect(flag(buildArgs({ engineSource, effortLevel }), '--effort')).toBe(expected)
+    },
+  )
+
   it('omits --allowedTools entirely when the list is empty so the engine allows all', () => {
     expect(buildArgs({ allowedTools: [] })).not.toContain('--allowedTools')
   })
