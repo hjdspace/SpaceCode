@@ -23,24 +23,53 @@ export function normalizeEffortLevel(value: unknown, fallback: EffortLevel = 'hi
  * 一档都不可用，给它们渲染可点档位就是装饰品。
  *
  * 未知模型名按 CLI 的口径默认全档透传，所以这里不做桌面侧钳制：引擎才是钳制的唯一真相，
- * 我们只负责不呈现引擎根本不接受的选项。
+ * 我们只负责不呈现引擎根本不接受的选项 —— 而"引擎根本不接受哪几档"是引擎维度、不是模型
+ * 维度，见下，必须由调用方显式传进来。
  */
 const MODEL_EFFORT_LEVELS: ReadonlyArray<readonly [RegExp, ReadonlyArray<EffortLevel>]> = [
   [/haiku|sonnet-4-5|sonnet-4@|claude-3/, []],
   [/sonnet-4-6/, ['low', 'medium', 'high', 'max']],
 ]
 
+/**
+ * 引擎侧 `--effort` 到底认哪几档，实测自两个二进制（探针 `--effort bogus --version`，
+ * 不花凭据）。两者差的不只是集合，还有**失败模式**：
+ *
+ *   内部引擎 bundle 2.8.4 —— low|medium|high|max，没有 xhigh；不认的值走 commander 的
+ *     argParser 抛 InvalidArgumentError，进程 exit 1，会话根本起不来。
+ *   安装版 CLI 2.1.227 —— 五档全收，且不认的值只 warn 一句再回落默认。
+ *
+ * 所以在内部引擎上传一个它不认的档不是"降级"，是崩。EFFORT_LEVELS 是桌面的全集，
+ * 呈现和下发都必须先跟这一维求交。
+ */
+export const BUNDLED_ENGINE_EFFORT_LEVELS: ReadonlyArray<EffortLevel> = ['low', 'medium', 'high', 'max']
+export const INSTALLED_ENGINE_EFFORT_LEVELS: ReadonlyArray<EffortLevel> = EFFORT_LEVELS
+
+/**
+ * `engineSource` 缺省即 bundled —— resolveCliCommand 只在显式 'installed' 时才走安装版 CLI。
+ * 未知时取保守那套：少一档只是选项变少，多一档是把会话弄死。
+ */
+export function getEngineEffortLevels(
+  engineSource: 'bundled' | 'installed' | undefined,
+): ReadonlyArray<EffortLevel> {
+  return engineSource === 'installed' ? INSTALLED_ENGINE_EFFORT_LEVELS : BUNDLED_ENGINE_EFFORT_LEVELS
+}
+
 export function getSupportedEffortLevels(
   model: string | undefined,
+  engineLevels: ReadonlyArray<EffortLevel>,
   overrides?: Record<string, EffortLevel[]>,
 ): ReadonlyArray<EffortLevel> {
-  if (!model) return EFFORT_LEVELS
-  if (overrides?.[model]) return overrides[model]
-  const m = model.toLowerCase()
-  for (const [pattern, levels] of MODEL_EFFORT_LEVELS) {
-    if (pattern.test(m)) return levels
-  }
-  return EFFORT_LEVELS
+  const forModel = (() => {
+    if (!model) return EFFORT_LEVELS
+    if (overrides?.[model]) return overrides[model]
+    const m = model.toLowerCase()
+    for (const [pattern, levels] of MODEL_EFFORT_LEVELS) {
+      if (pattern.test(m)) return levels
+    }
+    return EFFORT_LEVELS
+  })()
+  return forModel.filter((level) => engineLevels.includes(level))
 }
 
 /**
