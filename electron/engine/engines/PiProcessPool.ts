@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import { PiSessionProcess } from './PiSessionProcess'
 import { findPiSessionFile, rememberPiSessionFile } from './piSessionRegistry'
 import { resolvePlanModeExtensionPath } from './piPlanModeExtension'
-import type { EngineSessionConfig, EngineSessionStatus, ImageAttachment, PermissionMode } from './types'
+import type { EngineSessionConfig, EngineSessionStatus, ExtensionDialogAnswer, ImageAttachment, PermissionMode } from './types'
 import type { ProcessStatus } from '../../session/sessionProcess'
 import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error, debug } from '../../infra/logger'
@@ -32,6 +32,7 @@ export class PiProcessPool {
     message: (msg: any) => void
     exit: (code: number | null, signal?: NodeJS.Signals | null, stderrTail?: string) => void
     error: (err: Error) => void
+    extensionDialogClosed: (data: any) => void
   }> = new Map()
 
   setMainWindow(window: BrowserWindow): void {
@@ -172,6 +173,18 @@ export class PiProcessPool {
 
     info('PiProcessPool', `[${sessionId.slice(0, 8)}] Aborting session`)
     await proc.abort()
+  }
+
+  /**
+   * 把用户的应答送回那条会话。会话不在了也照样抛出去：界面正靠这次调用的成败
+   * 决定卡片是收起还是退回可重试态，抹平成成功等于谎报「已经答上了」 (#54)。
+   */
+  respondExtensionDialog(sessionId: string, dialogId: string, answer: ExtensionDialogAnswer): void {
+    const proc = this.processes.get(sessionId)
+    if (!proc) {
+      throw new Error(`No pi session process for ${sessionId.slice(0, 8)}; extension dialog ${dialogId.slice(0, 8)} has nowhere to go`)
+    }
+    proc.respondExtensionDialog(dialogId, answer)
   }
 
   suspendSession(sessionId: string): void {
@@ -334,6 +347,9 @@ export class PiProcessPool {
     if (!proc) return
 
     info('PiProcessPool', `[${sessionId.slice(0, 8)}] Killing session`)
+    // 对话框账要在摘处理器之前结：摘了之后 emit 的 extension_dialog_closed 没人接，
+    // 界面会留一张谁也答不了的卡，而它对应的进程早没了 (#54)。
+    proc.cancelPendingExtensionDialogs('process_exit')
     this.detachPoolHandlers(sessionId, proc)
     proc.kill()
     this.processes.delete(sessionId)
@@ -341,6 +357,7 @@ export class PiProcessPool {
 
   killAll(): void {
     this.processes.forEach((proc, sessionId) => {
+      proc.cancelPendingExtensionDialogs('process_exit')
       this.detachPoolHandlers(sessionId, proc)
       proc.kill()
     })
@@ -388,12 +405,16 @@ export class PiProcessPool {
         this.routeEvent(sessionId, 'exit', { code, signal, stderr: stderrTail })
       },
       error: (err: Error) => this.routeEvent(sessionId, 'error', { message: err.message }),
+      // 对话框退场是宿主自己记账的结果（超时、看门狗、abort、进程没了），不是 pi 的帧，
+      // 所以它不走 message 那条路，得单独接 (#54)。
+      extensionDialogClosed: (data: any) => this.routeEvent(sessionId, 'extension_dialog_closed', data),
     }
 
     this.poolHandlers.set(sessionId, handlers)
     proc.on('message', handlers.message)
     proc.on('exit', handlers.exit)
     proc.on('error', handlers.error)
+    proc.on('extension_dialog_closed', handlers.extensionDialogClosed)
 
     debug('PiProcessPool', `[${sessionId.slice(0, 8)}] Pool handlers attached`)
   }
@@ -405,6 +426,7 @@ export class PiProcessPool {
     proc.removeListener('message', handlers.message)
     proc.removeListener('exit', handlers.exit)
     proc.removeListener('error', handlers.error)
+    proc.removeListener('extension_dialog_closed', handlers.extensionDialogClosed)
     this.poolHandlers.delete(sessionId)
 
     debug('PiProcessPool', `[${sessionId.slice(0, 8)}] Pool handlers detached`)
