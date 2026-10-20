@@ -102,6 +102,35 @@ export default {
   cliLoadedHint: 'Changes take effect on the next conversation.',
   yourServers: 'Your Servers',
   enabled: 'Enabled',
+  // Where MCP config lands for the Pi engine (projected into ~/.pi/agent/mcp.json)
+  piLoadedSummary: '{count} MCP server(s) will be loaded into Pi:',
+  piLoadedHint: 'Changes are written to Pi’s config file and take effect on the next Pi session.',
+  piSkipReason: {
+    'unsupported-transport': 'Pi does not support the legacy SSE transport — use the streamable HTTP /mcp URL instead.',
+    'invalid-name': 'Not usable as a Pi server name (letters, digits, underscore and hyphen only).',
+    'missing-target': 'No command or URL, so Pi cannot connect.',
+    'name-conflict': 'Pi’s config file already defines this server name; that entry keeps it and this one was not written.',
+  },
+  piForeignTitle: 'Servers in Pi’s config file',
+  piForeignSubtitle: 'From {path}, written by the Pi CLI or another tool. The switch here only changes that entry’s enabled flag — it does not take over its configuration.',
+  piForeignTransport: {
+    stdio: 'stdio',
+    http: 'HTTP',
+    unknown: 'unknown',
+  },
+  piForeignInvalid: {
+    'legacy-sse': 'Pi does not support the legacy SSE transport, so this entry never connects.',
+    'missing-target': 'Missing command (stdio) or url (HTTP); Pi skips this entry.',
+    'stdio-type-conflict': 'type conflicts with command, so Pi reports a configuration error.',
+    'http-type-unsupported': 'type is not accepted by Pi — only http or streamable-http.',
+    'not-an-object': 'The entry is not an object, so Pi skips it.',
+  },
+  piToggleFailed: {
+    unreadable: 'Pi’s config file is missing or unreadable, so the switch was not saved.',
+    'not-found': 'That server is no longer in Pi’s config file, so the switch was not saved.',
+    'managed-by-panel': 'This server is managed by the MCP panel — toggle it in the list above.',
+    'write-failed': 'Writing to Pi’s config file failed, so the switch was not saved.',
+  },
   builtin: {
     'cdp-bridgeDesc': 'Bridge to the real browser session you are already using (with login state, cookies, page state). Lets the model read tabs, scan pages, execute JS, screenshot, and navigate. Requires the companion Chromium extension.',
     'chrome-devtoolsDesc': 'Control and inspect a live Chrome browser via Chrome DevTools. Supports performance traces, network debugging, screenshots, and console logs. Great for automation and debugging.',
