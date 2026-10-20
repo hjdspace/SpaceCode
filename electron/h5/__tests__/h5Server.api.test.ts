@@ -337,6 +337,49 @@ describe('H5Server API surface', () => {
       expect(gatewayStub.submitToolAnswer).toHaveBeenCalledWith('sess-1', 'tool-1', { colour: 'blue' })
       expect(gatewayStub.skipToolAnswer).toHaveBeenCalledWith('sess-1', 'tool-2')
     })
+
+    /**
+     * pi 扩展对话框的应答 (issue #54)。H5 与桌面共用同一张卡片，差别只在回帧走 REST。
+     * 这里钉的是「失败要回非 2xx」：渲染层靠它把卡片退回可重试态，回 200 等于骗用户。
+     */
+    it('forwards an extension dialog answer keyed by the pi-side id', async () => {
+      const res = await call('/api/session/extension-dialog/respond', {
+        sessionId: 'sess-1',
+        dialogId: 'uuid-1',
+        answer: { kind: 'value', value: 'Implement here' },
+      })
+
+      expect(res.status).toBe(200)
+      expect(gatewayStub.respondExtensionDialog).toHaveBeenCalledWith('sess-1', 'uuid-1', {
+        kind: 'value',
+        value: 'Implement here',
+      })
+    })
+
+    it('400s the dialog route without a dialogId', async () => {
+      const res = await call('/api/session/extension-dialog/respond', {
+        sessionId: 'sess-1',
+        answer: { kind: 'cancel' },
+      })
+
+      expect(res.status).toBe(400)
+      expect(gatewayStub.respondExtensionDialog).not.toHaveBeenCalled()
+    })
+
+    it('500s when the dialog is already gone, so the client can roll the card back', async () => {
+      gatewayStub.respondExtensionDialog.mockImplementationOnce(() => {
+        throw new Error('No pending extension dialog id=uuid-1')
+      })
+
+      const res = await call('/api/session/extension-dialog/respond', {
+        sessionId: 'sess-1',
+        dialogId: 'uuid-1',
+        answer: { kind: 'confirmed', confirmed: true },
+      })
+
+      expect(res.status).toBe(500)
+      expect(jsonOf(res)).toEqual({ error: 'No pending extension dialog id=uuid-1' })
+    })
   })
 
   describe('requireSessionId', () => {
@@ -352,6 +395,7 @@ describe('H5Server API surface', () => {
       '/api/session/pending-permissions',
       '/api/session/task-stop',
       '/api/session/agent-transcript',
+      '/api/session/extension-dialog/respond',
     ]
 
     it.each(guarded)('400s %s when the sessionId is absent', async (pathname) => {
