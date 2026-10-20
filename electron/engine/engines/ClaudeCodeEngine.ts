@@ -3,6 +3,7 @@ import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
 import { SessionConfig } from '../../session/sessionProcess'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate, ThinkingUpdateTiming, EffortLevel } from './types'
 import { discoverAgentDefinitions, toAgentInfos } from './agentDefinitions'
+import { resolveSideTaskContextPath } from '../../session/transcriptDigest'
 import { info } from '../../infra/logger'
 
 const BUILTIN_AGENTS: AgentInfo[] = [
@@ -54,6 +55,8 @@ export class ClaudeCodeEngine implements IEngine {
   }
 
   async startSession(sessionId: string, config: EngineSessionConfig): Promise<void> {
+    // 侧边任务：先按继承来源把主会话 transcript 压成快照文件（失败降级为普通新会话）
+    const sideTaskContextPath = await resolveSideTaskContextPath(sessionId, config)
     const sessionConfig: SessionConfig = {
       cwd: config.cwd,
       provider: config.provider as SessionConfig['provider'],
@@ -71,6 +74,7 @@ export class ClaudeCodeEngine implements IEngine {
       installedCliPath: config.installedCliPath,
       modelContextWindows: config.modelContextWindows,
       rtkEnabled: config.rtkEnabled,
+      sideTaskContextPath,
     }
     await this.pool.startSession(sessionId, sessionConfig)
   }
