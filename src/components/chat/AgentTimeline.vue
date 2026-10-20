@@ -336,6 +336,11 @@
                 @dismiss="handleDismissError"
               />
             </template>
+
+            <!-- pi 扩展对话框：会话级的一次提问，没有 toolCall 可挂，只能自己成一条 (#54) -->
+            <template v-else-if="item.event!.type === 'extension_dialog' && item.event!.dialog">
+              <ExtensionDialogCard :dialog="item.event!.dialog" />
+            </template>
           </div>
         </div>
       </template>
@@ -389,6 +394,8 @@ import { computed, markRaw, onMounted, onUnmounted, reactive, watch, ref } from 
 import { useI18n } from 'vue-i18n'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
 import PermissionRequestCard from './tools/PermissionRequestCard.vue'
+import ExtensionDialogCard from './tools/ExtensionDialogCard.vue'
+import { type ExtensionDialog } from '@/services/extensionDialogService'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
@@ -430,7 +437,7 @@ function handleToolSkip(toolId: string) {
 
 interface TimelineEvent {
   id: string
-  type: 'reasoning' | 'text' | 'tool_call' | 'metadata' | 'error'
+  type: 'reasoning' | 'text' | 'tool_call' | 'metadata' | 'error' | 'extension_dialog'
   status: 'running' | 'completed' | 'error' | 'pending'
   icon: Component
   label: string
@@ -442,6 +449,8 @@ interface TimelineEvent {
   metadata?: MessageMetadata
   specialComponent?: Component
   classifiedError?: ClassifiedError
+  /** type 为 extension_dialog 时的那条 pi 扩展对话框；它不属于任何 message，只属于会话 */
+  dialog?: ExtensionDialog
 }
 
 const props = defineProps<{
@@ -454,6 +463,14 @@ const props = defineProps<{
    * - 不传：原样渲染所有文本内容。
    */
   mode?: 'design'
+  /**
+   * 本组消息名下要渲染的扩展对话框，由 MessageList 按会话与消息分组分配。
+   *
+   * 组件不能自己读全局 service：会话里每条 assistant 消息都挂一个 AgentTimeline，
+   * 各实例都读全量、都把自己没放下的卡片追加到末尾，别的分组的卡片就会在本组
+   * 重复出现 (#54)。
+   */
+  dialogs?: ExtensionDialog[]
 }>()
 
 const expandedEvents = reactive<Record<string, boolean>>({})
@@ -604,6 +621,72 @@ function normalizeMessageEvents(events: TimelineEvent[], from: number, designMod
   events.splice(from, events.length - from, ...normalized)
 }
 
+function toDialogEvent(dialog: ExtensionDialog): TimelineEvent {
+  return {
+    id: `extension-dialog-${dialog.dialogId}`,
+    type: 'extension_dialog',
+    status: dialog.state === 'pending' ? 'running' : 'completed',
+    icon: markRaw(MessageCircle),
+    label: dialog.title,
+    content: '',
+    dialog,
+  }
+}
+
+/**
+ * 把这一轮问出来的扩展对话框插回它发生的位置 (issue #54)。
+ *
+ * 游标是 store 在收到帧的那一刻记下的（当时该消息最后一个 timeline 事件，通常就是触发
+ * 提问的那个工具行）。`anchorAtStart` 表示提问发生时消息还没有事件，卡片要排在本消息
+ * 全部事件之前；只有事件游标已经不存在时才退到消息末尾 —— 关键是别退到全局末尾：
+ * 卡片吊在最后，用户答完之后 LLM 的续写就全被它压在下面，看着像这张卡永远挂在底部。
+ *
+ * 必须在 normalizeMessageEvents 之前插：归一化会把相邻 text 块并成一个文档，插在那之后
+ * 游标就对不上了；插在那之前，卡片本身成为两个 text run 的边界，答复不会被错并成一坨。
+ */
+function insertDialogEvents(
+  events: TimelineEvent[],
+  from: number,
+  messageId: string,
+  dialogs: ExtensionDialog[],
+  placed: Set<string>,
+): void {
+  const startAnchored = dialogs.filter(dialog =>
+    !placed.has(dialog.dialogId) &&
+    dialog.anchorAtStart &&
+    dialog.anchorMessageId === messageId,
+  )
+  for (const dialog of startAnchored) {
+    placed.add(dialog.dialogId)
+  }
+
+  const byAnchorEvent = new Map<string, ExtensionDialog[]>()
+  for (const dialog of dialogs) {
+    if (dialog.anchorAtStart || !dialog.anchorEventId || placed.has(dialog.dialogId)) continue
+    const bucket = byAnchorEvent.get(dialog.anchorEventId)
+    if (bucket) bucket.push(dialog)
+    else byAnchorEvent.set(dialog.anchorEventId, [dialog])
+  }
+
+  const merged: TimelineEvent[] = startAnchored.map(toDialogEvent)
+  for (const event of events.slice(from)) {
+    merged.push(event)
+    for (const dialog of byAnchorEvent.get(event.id) ?? []) {
+      if (placed.has(dialog.dialogId)) continue
+      placed.add(dialog.dialogId)
+      merged.push(toDialogEvent(dialog))
+    }
+  }
+
+  for (const dialog of dialogs) {
+    if (placed.has(dialog.dialogId) || dialog.anchorMessageId !== messageId) continue
+    placed.add(dialog.dialogId)
+    merged.push(toDialogEvent(dialog))
+  }
+
+  events.splice(from, events.length - from, ...merged)
+}
+
 function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
   const toolStateKey = msgs
     .flatMap(msg => (msg.toolCalls || []).map(tool => [
@@ -646,11 +729,26 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
       tlKey,
     ].join(':')
   }).join(';')
+  // pi 的扩展对话框属于会话而不是某条消息（它不带 toolCallId，也没有对应工具条目），
+  // 所以只能作为视图层合成的事件插进时间线 —— 与 ErrorCard 同一条路子 (#54)。
+  // 会话/分组归属已由 MessageList 分配；这里再按消息 id 兜一层：锚在别组消息上的
+  // 卡片即使被误传进来，也不能挂到本组末尾。
+  const messageIds = new Set(msgs.map(msg => msg.id))
+  const dialogs = (props.dialogs ?? []).filter(dialog =>
+    !dialog.anchorMessageId || messageIds.has(dialog.anchorMessageId))
+  // 卡片状态一变（答了、超时了、下一轮菜单来了）就要重算，因此必须进缓存键，
+  // 否则命中旧数组、卡片停在原地不动。
+  const dialogStateKey = dialogs
+    .map(dialog => [dialog.dialogId, dialog.state, dialog.outcomeText ?? '', dialog.closedReason ?? ''].join(':'))
+    .join('|')
+  // 插到「问出来那一刻」的位置，而不是统统吊在末尾：存的是已插入的 dialogId (#54)
+  const placedDialogIds = new Set<string>()
+
   const finalMetadataMessageId = props.loading ? '' : getFinalMetadataMessageId(msgs)
   const modeKey = props.mode || 'default'
   const key = msgs.length > 0
-    ? `${modeKey}-${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${metadataStateKey}-${contentStateKey}-${finalMetadataMessageId}`
-    : `empty-${modeKey}`
+    ? `${modeKey}-${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${metadataStateKey}-${contentStateKey}-${finalMetadataMessageId}-${dialogStateKey}`
+    : `empty-${modeKey}-${dialogStateKey}`
 
   if (_cachedTimelineEvents && _cachedTimelineKey === key) {
     return _cachedTimelineEvents
@@ -762,6 +860,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
       }
     }
 
+    insertDialogEvents(events, msgEventsStart, msg.id, dialogs, placedDialogIds)
     normalizeMessageEvents(events, msgEventsStart, props.mode === 'design')
 
     if (msg.id === finalMetadataMessageId && hasFinalMetadata(msg.metadata)) {
@@ -787,6 +886,14 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
         classifiedError: msg.metadata.error,
       })
     }
+  }
+
+  // 没锚到任何一条消息的（会话刚起就来的确认框、或那一轮的消息已被换掉）才落到末尾。
+  // pi 的菜单是连着问的（选一项→再问一轮），答过的收成一行既让出视线，
+  // 也保住「问过什么、答了什么」这条痕迹。
+  for (const dialog of dialogs) {
+    if (placedDialogIds.has(dialog.dialogId)) continue
+    events.push(toDialogEvent(dialog))
   }
 
   _cachedTimelineEvents = events
