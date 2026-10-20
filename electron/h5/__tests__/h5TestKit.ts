@@ -249,6 +249,8 @@ export const gatewayStub = {
   denyPermission: vi.fn(async (_s: string, _r: string, _m?: unknown, _o?: unknown): Promise<void> => undefined),
   submitToolAnswer: vi.fn(async (_s: string, _t: string, _a?: unknown): Promise<void> => undefined),
   skipToolAnswer: vi.fn(async (_s: string, _t: string): Promise<void> => undefined),
+  // pi 扩展对话框的应答在网关是同步的（写 stdin 不 await 回执），stub 跟着同步 (#54)
+  respondExtensionDialog: vi.fn((_s: string, _d: string, _a?: unknown): void => undefined),
   suspendSession: vi.fn((_sessionId: string): void => undefined),
   resumeSession: vi.fn(async (_sessionId: string): Promise<unknown> => ({ status: 'idle' })),
   setPermissionMode: vi.fn(async (_s: string, _m?: unknown): Promise<void> => undefined),
