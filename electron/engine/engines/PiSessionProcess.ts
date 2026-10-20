@@ -23,6 +23,7 @@ import {
 } from './piPlanModeExtension'
 import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
 import { findAgentDefinition } from './agentDefinitions'
+import { syncPiMcpConfigFromStore } from '../../tools/piMcpProjection'
 
 /** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
 interface PiImageContent {
@@ -147,6 +148,11 @@ export class PiSessionProcess extends EventEmitter {
       const cliPath = this.resolveCliPath()
       const baseArgs = this.buildArgs()
       const env = { ...process.env, ...this.buildEnv() }
+
+      // 面板里的 MCP 配置要落到 pi 读得到的地方。pi 没有 `--mcp-config`，用户级
+      // mcp.json 是唯一入口，所以这份投影必须在这台进程 spawn 之前完成 ——
+      // 和下面 models.json 同理：进程实际加载的就是磁盘上这一刻的内容 (#53)。
+      this.projectMcpConfig()
 
       // Determine spawn command based on what resolveCliPath returned
       let command: string
@@ -967,6 +973,29 @@ export class PiSessionProcess extends EventEmitter {
       fs.writeFileSync(modelsJsonPath, JSON.stringify(existing, null, 2), 'utf-8')
     } catch (err) {
       warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write models.json override`, err)
+    }
+  }
+
+  /**
+   * 把 MCP 面板的配置投影到 pi 读得到的用户级 mcp.json (#53)。
+   *
+   * 失败不阻塞会话启动 —— 没有 MCP 的会话照样能用 —— 但日志要能说清
+   * 「面板上启用了、对话里调不到」是哪一步断的。
+   */
+  private projectMcpConfig(): void {
+    try {
+      const result = syncPiMcpConfigFromStore()
+      if (result.error) {
+        warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] MCP projection skipped | ${result.error}`)
+        return
+      }
+      const enabled = result.written.filter(w => w.entry.enabled !== false).map(w => w.name)
+      info(
+        'PiSessionProcess',
+        `[${this.sessionId.slice(0, 8)}] MCP projected | path=${result.path} | enabled=${enabled.join(',') || '(none)'} | skipped=${result.skipped.map(s => `${s.key}:${s.reason}`).join(',') || '(none)'}`,
+      )
+    } catch (err) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] MCP projection threw`, err)
     }
   }
 
