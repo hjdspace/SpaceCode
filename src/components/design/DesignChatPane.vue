@@ -11,6 +11,7 @@
         v-else
         :messages="activeMessages"
         :loading="isLoading"
+        :session-id="activeSessionId || undefined"
         mode="design"
         @open-artifact="openArtifact"
         @submit-form="submitForm"
