@@ -118,6 +118,9 @@ const H = vi.hoisted(() => {
       this.running = false
     })
     abort = vi.fn()
+    /** #54：池把用户的应答转交给持有这条 stdin 的进程 */
+    respondExtensionDialog = vi.fn()
+    cancelPendingExtensionDialogs = vi.fn()
     sendMessage = vi.fn(async () => {})
     isRunning = vi.fn(() => this.running)
     canSafelySuspend = vi.fn(() => true)
@@ -221,7 +224,7 @@ beforeEach(() => {
 })
 
 describe('startSession 四态路由', () => {
-  it('无条目时新建进程：实例化、config 透传、挂三个事件 handler、调用 start', async () => {
+  it('无条目时新建进程：实例化、config 透传、挂四个事件 handler、调用 start', async () => {
     const { pool } = makePool()
 
     await pool.startSession('s1', CFG)
@@ -231,7 +234,8 @@ describe('startSession 四态路由', () => {
     expect(proc.sessionId).toBe('s1')
     expect(proc.config).toBe(CFG)
     expect(proc.start).toHaveBeenCalledTimes(1)
-    expect([...proc.handlers.keys()].sort()).toEqual(['error', 'exit', 'message'])
+    // 第四个是 extension_dialog_closed：对话框退场由宿主记账产生，不走 message (#54)
+    expect([...proc.handlers.keys()].sort()).toEqual(['error', 'exit', 'extension_dialog_closed', 'message'])
     expect(proc.handlers.get('message')!.size).toBe(1)
   })
 
@@ -270,7 +274,7 @@ describe('startSession 四态路由', () => {
     await pool.startSession('seed-0', CFG)
 
     expect(FakePiProcess.instances).toHaveLength(2)
-    expect(dead.removeListener).toHaveBeenCalledTimes(3)
+    expect(dead.removeListener).toHaveBeenCalledTimes(4)
     expect(dead.kill).not.toHaveBeenCalled()
     const fresh = pool.getProcess('seed-0')!
     expect(fresh).not.toBe(dead)
@@ -284,7 +288,7 @@ describe('startSession 四态路由', () => {
     await expect(pool.startSession('s1', CFG)).rejects.toThrow('boom')
 
     expect(pool.getProcess('s1')).toBeUndefined()
-    expect(FakePiProcess.instances[0].removeListener).toHaveBeenCalledTimes(3)
+    expect(FakePiProcess.instances[0].removeListener).toHaveBeenCalledTimes(4)
   })
 })
 
@@ -652,7 +656,7 @@ describe('会话控制面', () => {
     pool.killSession('seed-0')
 
     expect(proc.kill).toHaveBeenCalledTimes(1)
-    expect(proc.removeListener).toHaveBeenCalledTimes(3)
+    expect(proc.removeListener).toHaveBeenCalledTimes(4)
     expect(pool.getProcess('seed-0')).toBeUndefined()
   })
 
@@ -664,8 +668,8 @@ describe('会话控制面', () => {
 
     expect(a.kill).toHaveBeenCalledTimes(1)
     expect(b.kill).toHaveBeenCalledTimes(1)
-    expect(a.removeListener).toHaveBeenCalledTimes(3)
-    expect(b.removeListener).toHaveBeenCalledTimes(3)
+    expect(a.removeListener).toHaveBeenCalledTimes(4)
+    expect(b.removeListener).toHaveBeenCalledTimes(4)
     expect(pool.getProcess('seed-0')).toBeUndefined()
     expect(pool.getProcess('seed-1')).toBeUndefined()
 
@@ -885,5 +889,59 @@ describe('plan 模式权限闸编排 (#45)', () => {
     await expect(pool.sendMessage('s1', '写个文件')).rejects.toThrow(/plan mode is not enforced/)
 
     expect(H.mapPiEvent).toHaveBeenCalledWith('s1', expect.objectContaining({ type: 'error' }))
+  })
+})
+
+/**
+ * 扩展对话框在池这一侧的编排 (#54)。
+ *
+ * 池既不认识 pi 的 UUID，也不写 stdin —— 它只管两件事：把用户的应答交给真正持有
+ * 这条 stdin 的进程，以及把对话框的退场通知送到渲染层。第二条要紧过第一条：
+ * killSession 是先摘事件处理器再拆进程的，账若在那之后才结，通知就没人接，
+ * 界面会留一张谁也点不动的卡片。
+ */
+describe('扩展对话框的池侧编排 (#54)', () => {
+  it('应答转发给持有该会话的进程，按 pi 的 id 原样传下去', async () => {
+    const { pool } = makePool()
+    await pool.startSession('s1', CFG)
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+
+    pool.respondExtensionDialog('s1', 'uuid-1', { kind: 'value', value: 'Allow' })
+
+    expect(proc.respondExtensionDialog).toHaveBeenCalledWith('uuid-1', { kind: 'value', value: 'Allow' })
+  })
+
+  it('会话不在了要抛错：界面靠这次失败把卡片退回可重试态', async () => {
+    const { pool } = makePool()
+
+    expect(() => pool.respondExtensionDialog('ghost', 'uuid-1', { kind: 'cancel' })).toThrow(/No pi session process/)
+  })
+
+  it('对话框退场送到渲染层，channel 由事件表反查', async () => {
+    const { pool, win } = makePool()
+    await pool.startSession('s1', CFG)
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    H.state.mapped = { type: 'extension_dialog_closed', data: { dialogId: 'uuid-1', method: 'select', reason: 'timeout' } }
+
+    proc.emit('extension_dialog_closed', { dialogId: 'uuid-1', method: 'select', reason: 'timeout' })
+
+    expect(win!.webContents.send).toHaveBeenCalledWith(
+      CHANNEL_BY_SUFFIX['extension_dialog_closed'],
+      { sessionId: 's1', data: { dialogId: 'uuid-1', method: 'select', reason: 'timeout' } },
+    )
+  })
+
+  it('killSession 在摘处理器之前结对话框的账', async () => {
+    const { pool } = makePool()
+    await pool.startSession('s1', CFG)
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+
+    pool.killSession('s1')
+
+    // 顺序错了就是发了没人收的通知：摘掉 handler 之后 emit 的 extension_dialog_closed
+    // 到不了窗口，界面留一张谁也点不动的卡 (#54)
+    expect(proc.cancelPendingExtensionDialogs).toHaveBeenCalledWith('process_exit')
+    expect(proc.cancelPendingExtensionDialogs.mock.invocationCallOrder[0])
+      .toBeLessThan(proc.removeListener.mock.invocationCallOrder[0])
   })
 })
