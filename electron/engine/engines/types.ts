@@ -1,9 +1,9 @@
 import type { BrowserWindow } from 'electron'
-import type { EngineAvailability, EngineUnavailableReason, PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EngineAvailability, EngineUnavailableReason, ExtensionDialogAnswer, ExtensionDialogCloseReason, ExtensionDialogMethod, PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
 // 引擎实现统一从本模块取协议类型；定义仍在 src/shared（IPC 单一真相源）。
-export type { EngineAvailability, EngineUnavailableReason, PermissionUpdate, ThinkingUpdateTiming }
+export type { EngineAvailability, EngineUnavailableReason, ExtensionDialogAnswer, ExtensionDialogCloseReason, ExtensionDialogMethod, PermissionUpdate, ThinkingUpdateTiming }
 export type { EffortLevel }
 
 export type EngineType = 'claude-code' | 'pi'
@@ -59,6 +59,8 @@ export interface UnifiedEngineEvent {
     | 'permission_request'
     | 'permission_request_cancelled'
     | 'elicitation_request'
+    | 'extension_dialog_request'
+    | 'extension_dialog_closed'
   data: any
 }
 
@@ -154,6 +156,14 @@ export interface IEngine {
   getSettings?(sessionId: string): Promise<Record<string, unknown> | undefined>
   stopEngineTask?(sessionId: string, taskId: string): Promise<void>
   getPendingPermissionRequestIds?(sessionId: string): string[]
+  /**
+   * 应答一条在飞的扩展对话框（pi 的 `extension_ui_request`）。它不带 toolUseId，
+   * 走的是引擎自己的对话框协议，与上面的 can_use_tool 是两条路。
+   *
+   * 会话已无此对话框时必须抛出：界面靠它把卡片退回可重试态，
+   * 抹平成 resolve() 等于告诉用户「已经答上了」。
+   */
+  respondExtensionDialog?(sessionId: string, dialogId: string, answer: ExtensionDialogAnswer): void
   /**
    * 切换思考等级。失败必须抛出 —— 界面靠它把开关退回点击前的状态，
    * 抹平成 resolve(undefined) 就等于告诉用户「切成功了」。
