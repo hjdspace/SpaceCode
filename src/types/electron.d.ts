@@ -219,6 +219,34 @@ export interface ElectronSessionAPI {
   ) => Promise<{ ok: boolean; error: string | null }>
 }
 
+/** pi 的用户级 mcp.json 里一条不由 SpaceCode 管理的 server（用户自己或别的工具写的） */
+export interface PiForeignServerInfo {
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'http' | 'unknown'
+  /** 展示用的一行启动命令或 URL */
+  target: string
+  description?: string
+  /** pi 会拒掉这一条的原因码；null = 看起来合法 */
+  invalid:
+    | 'legacy-sse'
+    | 'missing-target'
+    | 'stdio-type-conflict'
+    | 'http-type-unsupported'
+    | 'not-an-object'
+    | null
+}
+
+/** SpaceCode 的 MCP 面板配置投影到 pi 时的落点实况 (issue #53) */
+export interface PiMcpState {
+  path: string
+  /** 会被写进 mcp.json 的条目；name 是 pi 侧最终名字，sourceKey 是面板里的 key */
+  configured: Array<{ name: string; sourceKey: string; enabled: boolean }>
+  /** 面板里存在、但进不了 pi 的条目及原因码（SSE、缺 command/url、撞名） */
+  skipped: Array<{ key: string; reason: string; detail?: string }>
+  foreign: PiForeignServerInfo[]
+}
+
 export interface ElectronMcpAPI {
   getServers: () => Promise<unknown>
   addServer: (name: string, server: unknown) => Promise<void>
@@ -232,6 +260,8 @@ export interface ElectronMcpAPI {
   installDependency: (command: 'uv') => Promise<unknown>
   onInstallProgress: (callback: (progress: unknown) => void) => () => void
   getActiveMcpNames: () => Promise<string[]>
+  getPiState: () => Promise<PiMcpState>
+  setPiServerEnabled: (name: string, enabled: boolean) => Promise<{ ok: boolean; reason?: string }>
 }
 
 export interface ElectronPetAPI {
