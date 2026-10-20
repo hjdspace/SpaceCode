@@ -81,8 +81,8 @@ export default defineConfig({
         'src/lib/**': { statements: 80 }, // 83.9% (trace/sse + request 解析后)
         'src/utils/**': { statements: 65 }, // 67.2%
         'src/stores/**': { statements: 55 }, // 59.1% (chatSession 会话/消息/rewind/teammate 四片)
-        'src/services/**': { statements: 56 }, // 58.0% (electronAPI 门面三路分发 + teamTranscriptService 子代理转录归一化与轮询)
-        'electron/cron/**': { statements: 70 }, // 72.7%
+        'src/services/**': { statements: 72 }, // 74.3% (electronAPI 门面三路分发 + teamTranscriptService 子代理转录归一化与轮询 + h5 客户端层三件套 client/ws/bootstrap)
+        'electron/cron/**': { statements: 88 }, // 90.4% (cronService IPC 编排/附件落盘/通知 + 调度器与文件仓)
         'electron/git/**': { statements: 85 }, // 91.9% (exec 传输/status/分支/argv/diff 合成/worker 降级)
         'electron/h5/**': { statements: 64 }, // 67.3% (h5Server 从 0% 起：静态/API 门/ws/fs + fs 可信根闸门 + 凭据剥离 + SSRF 解析校验)
         'electron/infra/**': { statements: 45 }, // 52.4% (proxyManager 配置映射/生命周期/脚本/健康阶梯)
