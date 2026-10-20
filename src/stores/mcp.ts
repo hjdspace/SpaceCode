@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import type { PiMcpState } from '@/types/electron'
 import {
   BUILTIN_MCP_PRESETS,
   BUILTIN_MCP_SOURCE,
@@ -287,6 +288,49 @@ export const useMcpStore = defineStore('mcp', () => {
     }
   }
 
+  // ── Pi 引擎的 MCP 实况 (#53) ──
+  /** null = 尚未拉取，或当前引擎不是 pi */
+  const piState = ref<PiMcpState | null>(null)
+
+  /** 会被 pi 连上的服务器（按面板 key），和 activeMcpNames 是两条引擎各自的账 */
+  const piActiveNames = computed(() =>
+    (piState.value?.configured ?? []).filter(item => item.enabled).map(item => item.sourceKey),
+  )
+
+  async function fetchPiState(): Promise<void> {
+    try {
+      const state = await api.mcp.getPiState()
+      piState.value = state && typeof state === 'object' ? state : null
+    } catch (err) {
+      console.warn('Failed to fetch pi MCP state:', err)
+      piState.value = null
+    }
+  }
+
+  /**
+   * 开关一条用户自有的 pi server：只改那一条的 enabled，不把它的配置接管过来。
+   *
+   * 失败原因原样带回，由调用方把开关弹回原位并出本地化文案 —— 界面不能显示一个
+   * 磁盘上没发生过的状态。
+   */
+  async function togglePiForeignServer(
+    name: string,
+    enabled: boolean,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const result = await api.mcp.setPiServerEnabled(name, enabled)
+    if (!result?.ok) return { ok: false, reason: result?.reason || 'write-failed' }
+    await fetchPiState()
+    return { ok: true }
+  }
+
+  /**
+   * 面板改动会让主进程重新投影，所以正在展示 pi 实况时要跟着刷新。
+   * 只在已经拉过时刷新 —— 纯 Claude 的配置没有理由去读用户自己的 pi 文件。
+   */
+  function refreshPiStateIfShown(): void {
+    if (piState.value !== null) fetchPiState().catch(() => {})
+  }
+
   async function checkAllBuiltinDependencies() {
     const commands = new Set<string>()
     for (const preset of BUILTIN_MCP_PRESETS) {
@@ -410,6 +454,7 @@ export const useMcpStore = defineStore('mcp', () => {
       await api.mcp.addServer(name, toPlain(server))
       servers.value = { ...servers.value, [name]: newServer }
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
+      refreshPiStateIfShown()
     } catch (err) {
       console.error('Failed to add MCP server:', err)
       throw err
@@ -432,6 +477,7 @@ export const useMcpStore = defineStore('mcp', () => {
       await api.mcp.updateServers(toPlain(updated))
       servers.value = updated
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
+      refreshPiStateIfShown()
       return true
     } catch (err) {
       console.error('Failed to update MCP server:', err)
@@ -451,6 +497,7 @@ export const useMcpStore = defineStore('mcp', () => {
       delete updated[name]
       servers.value = updated
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
+      refreshPiStateIfShown()
       return true
     } catch (err) {
       console.error('Failed to delete MCP server:', err)
@@ -474,6 +521,7 @@ export const useMcpStore = defineStore('mcp', () => {
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
       // 启用/禁用会改变下次 CLI spawn 时实际加载的 MCP 列表，立刻刷新一次
       fetchActiveMcpNames().catch(() => {})
+      refreshPiStateIfShown()
     } catch (err) {
       console.error('Failed to toggle MCP server:', err)
       await fetchServers()
@@ -522,6 +570,7 @@ export const useMcpStore = defineStore('mcp', () => {
       await api.mcp.updateServers(toPlain(merged))
       servers.value = merged
       localStorage.setItem(MCP_STORAGE_KEY, JSON.stringify(servers.value))
+      refreshPiStateIfShown()
     } catch (err) {
       console.error('Failed to save MCP config:', err)
       throw err
@@ -659,5 +708,10 @@ export const useMcpStore = defineStore('mcp', () => {
     // CLI 已加载的 MCP 服务器名列表（用于「已加载到 Claude Code」徽标）
     activeMcpNames,
     fetchActiveMcpNames,
+    // pi 引擎的 MCP 实况（投影结果 + 用户级 mcp.json 里的外部条目）
+    piState,
+    piActiveNames,
+    fetchPiState,
+    togglePiForeignServer,
   }
 })
