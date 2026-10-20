@@ -26,6 +26,7 @@ import {
 } from './controlProtocol'
 import { shouldAutoApprovePermission } from './permissionAutoApprove'
 import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
+import { readSideTaskContextFile, discardSideTaskContextFile } from './transcriptDigest'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
 import { getOfficeCliInstallDir, syncInstalledOfficeCli } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
@@ -158,6 +159,8 @@ export interface SessionConfig {
   modelContextWindows?: Record<string, number>
   /** 是否启用 RTK (Rust Token Killer) token 优化 */
   rtkEnabled?: boolean
+  /** 侧边任务继承的主会话 transcript 快照文件；首条消息包裹注入后即清除（一次性）。 */
+  sideTaskContextPath?: string
 }
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
@@ -583,6 +586,9 @@ export class SessionProcess extends EventEmitter {
     await this.start()
   }
 
+  /** 侧边任务快照只随本进程首条消息注入一次；进程重建后不重复（历史里已带）。 */
+  private sideTaskContextConsumed = false
+
   sendMessage(content: string, images?: any[]): void {
     if (!this.process?.stdin?.writable) throw new Error('No active process')
     
@@ -619,6 +625,26 @@ export class SessionProcess extends EventEmitter {
     }
 
     let text = content
+    // 侧边任务上下文继承：首条消息把主会话 transcript 快照包在用户问题前面
+    // （注入式而非 fork，主会话历史保持只读）。读取后即清除 config 上的路径 ——
+    // 进程级一次性；之后靠 --resume 的历史续聊（首条已含快照），进程重建不重复注入。
+    // 写入失败时回滚标记与路径，下一条消息补注入。
+    let injectedContextPath: string | null = null
+    if (!this.sideTaskContextConsumed) {
+      this.sideTaskContextConsumed = true
+      const contextPath = this.config.sideTaskContextPath
+      delete this.config.sideTaskContextPath
+      if (contextPath) {
+        const contextBlock = readSideTaskContextFile(contextPath)
+        if (contextBlock) {
+          text = `${contextBlock}\n\n---\n\n${text}`
+          injectedContextPath = contextPath
+          info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Side task context injected | len=${contextBlock.length}`)
+        } else {
+          warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Side task context file unreadable | path=${contextPath}`)
+        }
+      }
+    }
     if (pathRefs.length > 0) {
       text = `${pathRefs.join(' ')} ${text || 'Please analyze the attached images.'}`.trim()
     }
@@ -636,7 +662,14 @@ export class SessionProcess extends EventEmitter {
     try {
       this.process.stdin!.write(msg)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Message written to stdin successfully`)
+      // 注入已落地：快照使命完成，清理临时文件
+      if (injectedContextPath) discardSideTaskContextFile(injectedContextPath)
     } catch (err) {
+      if (injectedContextPath) {
+        // 写入失败：回滚一次性标记与路径，下一条消息补注入
+        this.sideTaskContextConsumed = false
+        this.config.sideTaskContextPath = injectedContextPath
+      }
       error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write to stdin`, { error: String(err) })
       throw err
     }
