@@ -15,6 +15,7 @@ import {
   isProbableBunExecutable as engineIsProbableBunExecutable,
 } from '../../session/engineChildProcess'
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
+import { readSideTaskContextFile, discardSideTaskContextFile } from '../../session/transcriptDigest'
 import { detectPiCli, MIN_PI_VERSION } from './piCliResolver'
 import {
   PLAN_MODE_ENTER_COMMAND,
@@ -279,6 +280,9 @@ export class PiSessionProcess extends EventEmitter {
     }
   }
 
+  /** 侧边任务快照只随本进程首条 prompt 注入一次；进程重建后不重复（历史里已带）。 */
+  private sideTaskContextConsumed = false
+
   async sendMessage(content: string, images?: ImageAttachment[]): Promise<void> {
     if (!this._process || this.status === 'exited') {
       throw new Error(`Session ${this.sessionId} has no active process`)
@@ -315,8 +319,28 @@ export class PiSessionProcess extends EventEmitter {
 
     // 构建最终消息内容，添加 @-引用前缀
     let finalContent = content
+    // 侧边任务上下文继承：首条 prompt 把主会话 transcript 快照包在用户问题前面
+    // （注入式而非 fork）。读取后即清除 config 上的路径 —— 进程级一次性，进程重建
+    // 不重复注入（--session 接续的历史里首条已带快照）。prompt 被拒时回滚，下一条补注入。
+    let injectedContextPath: string | null = null
+    if (!this.sideTaskContextConsumed) {
+      this.sideTaskContextConsumed = true
+      const contextPath = this.config.sideTaskContextPath
+      delete this.config.sideTaskContextPath
+      if (contextPath) {
+        const contextBlock = readSideTaskContextFile(contextPath)
+        if (contextBlock) {
+          finalContent = `${contextBlock}\n\n---\n\n${finalContent}`
+          injectedContextPath = contextPath
+          info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Side task context injected | len=${contextBlock.length}`)
+        } else {
+          warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Side task context file unreadable | path=${contextPath}`)
+        }
+      }
+    }
     if (imageRefs) {
-      finalContent = `${imageRefs}${content || 'Please analyze the attached images.'}`.trim()
+      // 在已包裹（或原始）的正文前加引用前缀，而不是拿原始 content 重建 —— 否则会把上面的快照丢掉
+      finalContent = `${imageRefs}${finalContent || 'Please analyze the attached images.'}`.trim()
     }
     if (inlineImages.length > 0 && !finalContent) {
       finalContent = 'Please analyze the attached images.'
@@ -344,9 +368,16 @@ export class PiSessionProcess extends EventEmitter {
         this._isProcessing = false
         throw new Error(response.error || 'Prompt failed')
       }
-      
+
       info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Prompt accepted`)
+      // 注入已落地：快照使命完成，清理临时文件
+      if (injectedContextPath) discardSideTaskContextFile(injectedContextPath)
     } catch (err) {
+      if (injectedContextPath) {
+        // prompt 未被引擎接受：回滚一次性标记与路径，下一条消息补注入
+        this.sideTaskContextConsumed = false
+        this.config.sideTaskContextPath = injectedContextPath
+      }
       this.status = 'idle'
       this._isProcessing = false
       error('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Prompt failed`, err)
