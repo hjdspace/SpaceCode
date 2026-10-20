@@ -52,6 +52,9 @@ const probe = vi.hoisted(() => {
     execSync: vi.fn<(cmd: string) => string>(() => {
       throw new Error('command not found')
     }),
+    execFileSync: vi.fn<(cmd: string, args: string[]) => string>(() => {
+      throw new Error('command not found')
+    }),
     logger: {
       debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
       listDebugFiles: vi.fn(() => ['debug-1.log']),
@@ -114,7 +117,7 @@ vi.mock('fs', () => ({
   rmSync: probe.fs.rmSync,
 }))
 
-vi.mock('child_process', () => ({ execSync: probe.execSync }))
+vi.mock('child_process', () => ({ execSync: probe.execSync, execFileSync: probe.execFileSync }))
 
 vi.mock('../../infra/logger', () => probe.logger)
 
@@ -194,6 +197,9 @@ beforeEach(() => {
   probe.electron.showOpenDialog.mockClear().mockResolvedValue({ canceled: false, filePaths: ['/picked'] })
   probe.electron.netFetch.mockClear().mockImplementation(async () => ({ ok: true, status: 200, text: async () => 'body' }))
   probe.execSync.mockClear().mockImplementation(() => {
+    throw new Error('command not found')
+  })
+  probe.execFileSync.mockClear().mockImplementation(() => {
     throw new Error('command not found')
   })
   for (const fn of Object.values(probe.logger)) (fn as any).mockClear()
@@ -620,27 +626,18 @@ describe('app:getClaudeCliPath 优先级阶梯', () => {
 })
 
 describe('app:getPiCliPath 优先级阶梯', () => {
-  it('全局 pi 可用 → "pi"', async () => {
+  it('全局 pi 可用 → "pi"（命中路径须在盘上，再探针核验版本）', async () => {
+    const piPath = process.platform === 'win32' ? 'C:\\tools\\pi.cmd' : '/usr/local/bin/pi'
     probe.execSync.mockImplementation((cmd: string) => {
-      if (cmd === (process.platform === 'win32' ? 'where pi' : 'which pi')) return ''
+      if (cmd === (process.platform === 'win32' ? 'where pi' : 'which pi')) return piPath
       throw new Error('not found')
     })
+    probe.execFileSync.mockImplementation(() => '1.3.0\n')
+    probe.fs.existsSync.mockImplementation((p: string) => p === piPath)
     await expect(H('app:getPiCliPath')(ev())).resolves.toBe('pi')
   })
 
-  it('pi 缺失但 bun 可用 → bunx，否则 npx，否则 null', async () => {
-    probe.execSync.mockImplementation((cmd: string) => {
-      if (cmd === 'bun --version') return ''
-      throw new Error('not found')
-    })
-    await expect(H('app:getPiCliPath')(ev())).resolves.toBe('bunx @mariozechner/pi-coding-agent')
-
-    probe.execSync.mockImplementation((cmd: string) => {
-      if (cmd === 'npx --version') return ''
-      throw new Error('not found')
-    })
-    await expect(H('app:getPiCliPath')(ev())).resolves.toBe('npx @mariozechner/pi-coding-agent')
-
+  it('一切皆无 → null（#52：不再退回 bunx/npx 拉第三份版本）', async () => {
     probe.execSync.mockImplementation(() => {
       throw new Error('not found')
     })
