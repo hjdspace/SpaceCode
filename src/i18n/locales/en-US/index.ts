@@ -43,6 +43,7 @@ import computerUse from './computerUse'
 import errors from './errors'
 import trace from './trace'
 import permission from './permission'
+import piExtensionDialog from './piExtensionDialog'
 import hookSettings from './hookSettings'
 import agents from './agents'
 import update from './update'
@@ -114,6 +115,7 @@ export default {
   errors,
   trace,
   permission,
+  piExtensionDialog,
   hookSettings,
   agents,
   update,

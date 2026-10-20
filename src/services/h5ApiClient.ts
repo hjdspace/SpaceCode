@@ -1,7 +1,7 @@
 // src/services/h5ApiClient.ts
 // H5 模式下的 HTTP REST 客户端 — 替代 Electron IPC 调用
 
-import type { EngineAvailability, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EngineAvailability, ExtensionDialogAnswer, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
 /** H5 连接配置（从 URL query params 解析） */
@@ -99,6 +99,9 @@ export const h5ApiClient = {
 
   skipToolAnswer: (sessionId: string, toolCallId: string) =>
     h5Fetch('/api/session/tool-skip', { method: 'POST', body: { sessionId, toolCallId } }),
+
+  respondExtensionDialog: (sessionId: string, dialogId: string, answer: ExtensionDialogAnswer) =>
+    h5Fetch('/api/session/extension-dialog/respond', { method: 'POST', body: { sessionId, dialogId, answer } }),
 
   allowPermission: (
     sessionId: string,

@@ -24,7 +24,7 @@ import {
 import { loadGuiSettings } from '../ipc/settingsIpc'
 import { installPiSdk } from './piInstaller'
 import { engineGateway } from './engineGateway'
-import { claudeCodeNamespace, type PermissionUpdate } from '@/shared/channels/claudeCode'
+import { claudeCodeNamespace, type ExtensionDialogAnswer, type PermissionUpdate } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 import { channelNames, eventChannels } from '@/shared/channelMap'
 
@@ -146,6 +146,14 @@ export function registerClaudeCodeIPC() {
     CLAUDE_CODE_CHANNELS.respondPermission,
     async (_, sessionId: string, requestId: string, decision: any) =>
       engineGateway.respondPermission(sessionId, requestId, decision),
+  )
+
+  // 应答失败必须让 invoke reject：渲染层靠它把对话框退回可重试态，
+  // 回一个被吞掉的异常等于把「没答上」显示成「答好了」(#54)。
+  ipcMain.handle(
+    CLAUDE_CODE_CHANNELS.respondExtensionDialog,
+    (_, sessionId: string, dialogId: string, answer: ExtensionDialogAnswer) =>
+      engineGateway.respondExtensionDialog(sessionId, dialogId, answer),
   )
 
   ipcMain.handle(

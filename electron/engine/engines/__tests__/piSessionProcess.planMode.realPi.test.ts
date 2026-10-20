@@ -149,6 +149,29 @@ function waitForAgentEnd(proc: PiSessionProcess, timeoutMs = 120_000): Promise<v
 }
 
 /**
+ * 等真 pi 发来的扩展对话框帧 (#54)。
+ *
+ * 订阅要在发命令之前挂上：pi 的 `/plan` 命令 handler 里就 await 着这张卡，
+ * ack 更晚才到，事后追监听只会等到一个已经没人应答的帧。
+ */
+function waitForExtensionDialog(proc: PiSessionProcess, method: string, timeoutMs = 60_000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer)
+      proc.off('message', onMessage)
+      proc.off('exit', onExit)
+    }
+    const timer = setTimeout(() => { cleanup(); reject(new Error(`真 pi 未在时限内发出 ${method} 对话框`)) }, timeoutMs)
+    const onMessage = (event: any) => {
+      if (event?.type === 'extension_ui_request' && event?.method === method) { cleanup(); resolve(event) }
+    }
+    const onExit = (code: unknown) => { cleanup(); reject(new Error(`pi 进程提前退出 | code=${String(code)}`)) }
+    proc.on('message', onMessage)
+    proc.on('exit', onExit)
+  })
+}
+
+/**
  * 杀进程并等它真的退出。pi 的 MCP 子进程是随它一起收的，而 Windows 上目录要等
  * 那些句柄放开才删得掉 —— 不等的话 afterAll 会 EPERM，临时目录留在 %TEMP% 里。
  */
@@ -279,14 +302,25 @@ describe.skipIf(!ENABLED)('真 pi 子进程核验：plan 模式写不进文件 (
     )
   }, 240_000)
 
-  it('扩展的菜单对话框不会把会话挂死：/plan 弹出的 select 被宿主取消后命令才有 ack', async () => {
+  it('真 pi 探针：/plan 弹出的 select 宿主收得到、也答得回去，答完命令才有 ack (#54)', async () => {
     const proc = makeProcess()
     await proc.start()
     await expect(proc.setPlanMode(true)).resolves.toBe(true)
 
-    // pi 要等命令 handler 跑完才发这条 ack，而 handler 里 await 着扩展的 select ——
-    // 宿主不回 extension_ui_response 的话，这一趟就是 30s 超时（#45 里最坏的失效形态）。
-    await expect(proc.sendMessage('/plan')).resolves.toBeUndefined()
+    // 监听先挂上再发命令：pi 要等命令 handler 跑完才发 ack，而 handler 里 await 着这张卡。
+    // #45 时代这里靠宿主抢答 cancelled 才不挂死；#54 之后要验的是真往返。
+    const dialog = waitForExtensionDialog(proc, 'select')
+    const sending = proc.sendMessage('/plan')
+
+    const frame = await dialog
+    // 界面要拿得出可点的行：选项是扩展给的原文，宿主不替它编
+    expect(frame.id, '对话框帧没带 id，宿主无从应答').toBeTruthy()
+    expect(Array.isArray(frame.options) && frame.options.length >= 2, `select 只给了 ${JSON.stringify(frame.options)}`).toBe(true)
+
+    // 用「关闭」收场而不是选一项：菜单收到 undefined 即退回，不触发任何副作用，
+    // 又能证明 pi 真的把这一帧解开了 —— 卡在这里不解锁的话下面这句就是 30s 超时。
+    proc.respondExtensionDialog(frame.id, { kind: 'cancel' })
+    await expect(sending).resolves.toBeUndefined()
 
     await killAndWait(proc)
   }, 240_000)

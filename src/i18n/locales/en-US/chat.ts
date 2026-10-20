@@ -24,6 +24,8 @@ export default {
   waitingQuestionNotifyBody: 'Waiting for your answer: {detail}',
   waitingQuestionNotifyBodyPlain: 'Waiting for your answer, click to view',
   waitingPermissionNotifyBody: 'Your approval is needed: {detail}',
+  // pi extension dialog: the engine is parked on this prompt awaiting an answer (see #54)
+  waitingExtensionNotifyBody: 'An extension is waiting on you: {detail}',
   waitingPlanNotifyBody: 'Plan is ready for your review',
   startConversation: 'Start a conversation',
   startConversationDesc: 'Type a message to begin working with Claude Code',

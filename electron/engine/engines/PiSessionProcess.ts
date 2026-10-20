@@ -7,7 +7,8 @@ import { app } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { StringDecoder } from 'string_decoder'
 import type { ProcessStatus } from '../../session/sessionProcess'
-import type { EngineSessionConfig, ImageAttachment } from './types'
+import type { EngineSessionConfig, ExtensionDialogAnswer, ExtensionDialogCloseReason, ExtensionDialogMethod, ImageAttachment } from './types'
+import { EXTENSION_DIALOG_METHODS } from './PiEventMapper'
 import { toPiThinkingLevel } from '@/shared/effort'
 import { info, warn, error, debug } from '../../infra/logger'
 import {
@@ -20,6 +21,7 @@ import { detectPiCli, MIN_PI_VERSION } from './piCliResolver'
 import {
   PLAN_MODE_ENTER_COMMAND,
   PLAN_MODE_EXIT_COMMAND,
+  PLAN_MODE_HELPER_TOOL_MODIFIERS,
   resolvePlanModeExtensionPath,
 } from './piPlanModeExtension'
 import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
@@ -55,24 +57,63 @@ function planModeStateOfStatus(text: unknown): boolean | null {
 }
 
 /**
- * RPC 里会 await 宿主的四类对话框 (docs/rpc-extension-ui.md)。它们不带 toolCallId，
- * 现有权限卡片没有可挂靠的时间线条目，所以宿主一律回 cancelled：扩展侧拿到
- * undefined/false，等价于「没批准」，会话不会挂死 (#45)。
+ * pi 发来的扩展 UI 帧：type/id/method 恒有，其余按 method 变化。
+ *
+ * 其中会 await 宿主回帧的四类（见 PiEventMapper 的 EXTENSION_DIALOG_METHODS）不带
+ * toolCallId，挂不上按 toolUseId 索引的现有权限卡片，所以过去宿主一律回 cancelled (#45)；
+ * #54 给它们做了专门的卡片，cancelled 退回成「没人可应答时的兜底」而不是默认动作。
  */
-const EXTENSION_DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor'])
-
-/** pi 发来的扩展 UI 帧：type/id/method 恒有，其余按 method 变化 */
 interface PiExtensionUiRequest {
   type: 'extension_ui_request'
   id?: string
   method?: string
   title?: string
+  message?: string
+  options?: unknown
+  placeholder?: string
+  prefill?: string
+  timeout?: unknown
   statusKey?: string
   statusText?: string
+  notifyType?: string
+}
+
+/** 一条在飞的对话框：pi 停在那儿等 stdin，回之前这一轮不会往下走 */
+interface PendingExtensionDialog {
+  method: ExtensionDialogMethod
+  timer: NodeJS.Timeout
+}
+
+/**
+ * 没带 timeout 的对话框在宿主这边最多等多久。pi 只对显式给了 timeout 的帧自己兜底，
+ * 其余的会永远 await —— 窗口关了、H5 掉线时没人应答，会话就死停在那儿，池也腾不出来。
+ * 到点补一帧 cancelled 并按 watchdog 关掉卡片，把 #45 那条「绝不挂死」的核验保住。
+ */
+const EXTENSION_DIALOG_WATCHDOG_MS = 5 * 60_000
+
+/**
+ * 日志用的单行摘要。pi 会把整段提问塞进 title（`runRpcConfirmation` 拼的是
+ * `title + \n + 正文`），留换行的话一条日志撑成一段，看不出问的是什么。
+ */
+function previewDialogText(value: unknown): string {
+  const flat = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return flat ? flat.slice(0, 120) : '(none)'
 }
 
 /** 等扩展回执的默认时限：实测回执在 ack 之前就到了，这里只兜「扩展没起来」 */
 const PLAN_MODE_RECEIPT_TIMEOUT_MS = 5_000
+
+/**
+ * 进程首条 prompt 的等待时限。
+ *
+ * pi 在回 prompt ack 之前要先完成模型表、扩展与直连 MCP 服务器的启动；MCP 扩展自己的
+ * 启动等待就有 10s，冷启动实测 40s+。固定 30s 会把一次正常的冷启动判成「引擎卡死」，
+ * 用户看到 30 秒后报错，而 pi 随后才真正开始跑 (#45/#54)。
+ */
+const FIRST_PROMPT_TIMEOUT_MS = 120_000
+
+/** 本进程已经答过 prompt 之后，引擎应当立刻回 ack；30s 还等不到才是真的卡住了。 */
+const PROMPT_TIMEOUT_MS = 30_000
 
 export class PiSessionProcess extends EventEmitter {
   readonly sessionId: string
@@ -81,7 +122,11 @@ export class PiSessionProcess extends EventEmitter {
 
   private _process: ChildProcess | null = null
   private _pendingToolCalls: Set<string> = new Set()
+  /** 在飞的扩展对话框，按 pi 给的 id 索引；pi 认这个 id，不认宿主编的任何东西 */
+  private _pendingExtensionDialogs: Map<string, PendingExtensionDialog> = new Map()
   private _isProcessing: boolean = false
+  /** 本进程是否已经接过一条 prompt；每次 spawn 都重新经历一次冷启动 */
+  private _promptAccepted: boolean = false
   lastActivityAt: number = Date.now()
   private _stdoutDecoder: StringDecoder = new StringDecoder('utf8')
   private _stdoutBuffer: string = ''
@@ -144,6 +189,10 @@ export class PiSessionProcess extends EventEmitter {
     this.status = 'starting'
     // 每次 spawn 重新算：上一次进程收到的回执不能替这一次说话（挂起→恢复走的就是这里）
     this.planModeActive = null
+    this._promptAccepted = false
+    // 上一代进程的对话框不属于这一代：pi 恢复后不会重发那些帧，留着就是张答不了的卡。
+    // 正常路径上 suspend/kill 已经结过账，这里扫的是「没结干净」的那种。
+    this.cancelPendingExtensionDialogs('process_restart')
 
     try {
       const cliPath = this.resolveCliPath()
@@ -233,6 +282,10 @@ export class PiSessionProcess extends EventEmitter {
           }
           this._pendingRequests.clear()
         }
+
+        // 进程没了，还没答的对话框就永远收不到回帧：先收账再发 exit，
+        // 否则界面留着一张谁也点不动的卡片，而扩展那侧早就散了 (#54)。
+        this.cancelPendingExtensionDialogs('process_exit')
 
         this.emit('exit', code, signal, this._stderrBuffer.trim())
       })
@@ -359,9 +412,11 @@ export class PiSessionProcess extends EventEmitter {
           streamingBehavior: 'followUp',
           ...(inlineImages.length > 0 ? { images: inlineImages } : {}),
         },
-        30000,
+        this._promptAccepted ? PROMPT_TIMEOUT_MS : FIRST_PROMPT_TIMEOUT_MS,
         'Timeout waiting for prompt response',
       )
+      // 拿到 response 就说明进程已经过了冷启动，后面的 prompt 不必再等两分钟
+      this._promptAccepted = true
 
       if (!response.success) {
         this.status = 'idle'
@@ -431,6 +486,10 @@ export class PiSessionProcess extends EventEmitter {
 
     info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Aborting current operation`)
     try {
+      // 先关对话框再发 abort：pi 的 session.abort() 内部 await waitForIdle()，而这一轮
+      // 很可能正卡在某张对话框上 —— 顺序反过来就是拿 abort 去等一张已经没人要答的卡。
+      // 扩展那侧的 select 也带 signal，abort 会把它解成取消，所以这里同时是结自己的账。
+      this.cancelPendingExtensionDialogs('aborted')
       // 等 ack 而不是写完就算停：pi 的 session.abort() 内部 await waitForIdle()，
       // acked 才代表这一轮真的一次性收尾了。自动重试靠它在重发前串行，
       // 否则重发会撞上还在拆解的 run。超时与进程退出只告警，维持尽力而为的语义。
@@ -538,20 +597,86 @@ export class PiSessionProcess extends EventEmitter {
   }
 
   /**
-   * pi RPC 的对话框方法会 await 宿主回帧（docs/rpc-extension-ui.md）。宿主不回，扩展侧的
-   * `await` 就永远不返回，整条会话停在那儿 —— 以前这里只 emit 不回，正是 #45 里最坏的
-   * 那种失效形态。四类对话框一律回 cancelled：扩展拿到 undefined/false，等价于「没批准」，
-   * 语义上仍是 fail-closed。
+   * 登记一条在飞对话框，等渲染层应答（docs/rpc-extension-ui.md）。
+   *
+   * pi 侧 `await` 这一帧，宿主不回它这一轮就永远停在这儿 —— #45 为了不挂死，这里改成
+   * 了一律立刻回 cancelled。#54 补上了真能应答的卡片，于是「立刻取消」退回它该在的位置：
+   * 只在确实没人能答时兜底。带 timeout 的帧按 pi 给的时长收（它自己会在那一刻解成
+   * undefined/false），没给的按宿主看门狗收，两条路都从 closeExtensionDialog 走。
    */
-  private declineExtensionDialog(event: PiExtensionUiRequest): void {
+  private openExtensionDialog(event: PiExtensionUiRequest): void {
     if (!event.method || !EXTENSION_DIALOG_METHODS.has(event.method)) return
-    if (typeof event.id !== 'string' || !event.id) {
+    const dialogId = event.id
+    if (typeof dialogId !== 'string' || !dialogId) {
       warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog request without an id | method=${event.method}`)
       return
     }
 
-    this._process?.stdin?.write(JSON.stringify({ type: 'extension_ui_response', id: event.id, cancelled: true }) + '\n')
-    warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog cancelled by host | method=${event.method} | title=${String(event.title ?? '(none)').split('\n')[0].slice(0, 120)}`)
+    const piTimeoutMs = typeof event.timeout === 'number' && event.timeout > 0 ? event.timeout : null
+    const timer = setTimeout(() => {
+      // pi 给了时长 = 它自己也会在那一刻解掉，卡片算「超时」；没给 = 没人应答，宿主兜底
+      this.closeExtensionDialog(dialogId, piTimeoutMs ? 'timeout' : 'watchdog')
+    }, piTimeoutMs ?? EXTENSION_DIALOG_WATCHDOG_MS)
+    // 别让一张没人答的卡把事件循环按住；可选调用是因为测试里换的是假计时器
+    timer.unref?.()
+
+    this._pendingExtensionDialogs.set(dialogId, { method: event.method as ExtensionDialogMethod, timer })
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog opened | method=${event.method} | closesIn=${piTimeoutMs ? `${piTimeoutMs}ms (pi)` : `${EXTENSION_DIALOG_WATCHDOG_MS}ms (host)`} | title=${previewDialogText(event.title)}`)
+  }
+
+  /**
+   * 用户答了一条对话框。id 不认识必须抛 —— 界面靠这次失败把卡片退回可重试态，
+   * 静默返回等于谎报「已经答上了」。
+   */
+  respondExtensionDialog(dialogId: string, answer: ExtensionDialogAnswer): void {
+    if (!this._pendingExtensionDialogs.has(dialogId)) {
+      throw new Error(`No pending extension dialog id=${dialogId} in pi session ${this.sessionId.slice(0, 8)}`)
+    }
+    if (!this._process?.stdin?.writable) {
+      throw new Error(`Cannot answer extension dialog id=${dialogId}: pi stdin is not writable (session ${this.sessionId.slice(0, 8)})`)
+    }
+    this.closeExtensionDialog(dialogId, answer.kind === 'cancel' ? 'cancelled' : 'answered', answer)
+  }
+
+  /** 收掉一条对话框并写回帧；`reason` 决定写的是用户给的值还是 cancelled */
+  private closeExtensionDialog(dialogId: string, reason: ExtensionDialogCloseReason, answer?: ExtensionDialogAnswer): void {
+    const dialog = this._pendingExtensionDialogs.get(dialogId)
+    if (!dialog) return
+    clearTimeout(dialog.timer)
+    this._pendingExtensionDialogs.delete(dialogId)
+
+    const frame: Record<string, unknown> = { type: 'extension_ui_response', id: dialogId }
+    if (reason === 'answered' && answer?.kind === 'value') frame.value = answer.value
+    else if (reason === 'answered' && answer?.kind === 'confirmed') frame.confirmed = answer.confirmed
+    // 没答（取消 / 超时 / 进程没了）一律 cancelled：扩展侧拿到 undefined/false，
+    // 等价于「没批准」，fail-closed 的语义和 #45 定下来时一致
+    else frame.cancelled = true
+    this.writeFrame(frame)
+
+    this.emit('extension_dialog_closed', { dialogId, method: dialog.method, reason })
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog closed | method=${dialog.method} | reason=${reason}`)
+  }
+
+  /**
+   * 进程不在了，在飞的对话框永远等不到回帧：逐条关掉，卡片随之退场。
+   * 调用时机要紧 —— 得在拆 stdin、摘事件处理器之前，否则补的那帧只写在空气里，
+   * 而界面留着一张谁也点不动的卡。
+   */
+  cancelPendingExtensionDialogs(reason: ExtensionDialogCloseReason): void {
+    for (const dialogId of Array.from(this._pendingExtensionDialogs.keys())) {
+      this.closeExtensionDialog(dialogId, reason)
+    }
+  }
+
+  /**
+   * 往子进程 stdin 写一帧。写不进去（进程已没、stdin 已关）返回 false 而不抛，
+   * 由调用方决定是当失败上报还是当作没送到。
+   */
+  private writeFrame(frame: Record<string, unknown>): boolean {
+    const stdin = this._process?.stdin
+    if (!stdin?.writable) return false
+    stdin.write(JSON.stringify(frame) + '\n')
+    return true
   }
 
   /**
@@ -599,13 +724,16 @@ export class PiSessionProcess extends EventEmitter {
   async suspend(): Promise<void> {
     if (!this._process) return
 
-    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Suspending | pendingTools=${this._pendingToolCalls.size}`)
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Suspending | pendingTools=${this._pendingToolCalls.size} | pendingDialogs=${this._pendingExtensionDialogs.size}`)
 
     // 状态先行置位：suspend 在池里是 fire-and-forget，多等一次 get_state 期间
     // 不能让别人把这条会话当成还在跑的进程复用掉。
     this.status = 'suspended'
     const proc = this._process
     await this.captureSessionFile()
+    // 在 stdin 关掉之前把在飞的对话框结掉：回帧要写进这条管道，晚一步就只写在空气里。
+    // 恢复后 pi 不会重发这些帧，所以它们是随这次挂起一起过期了，不是「用户拒了」。
+    this.cancelPendingExtensionDialogs('suspended')
     proc.stdin?.end()
     this._process = null
   }
@@ -616,6 +744,9 @@ export class PiSessionProcess extends EventEmitter {
   }
 
   async kill(): Promise<void> {
+    // 先结对话框账再拆进程：这会儿 stdin 还能写，cancelled 送得出去；
+    // 底下那个 exit 监听器随后也会扫一遍，map 已空，重复调用没有副作用。
+    this.cancelPendingExtensionDialogs('process_exit')
     if (this._process) {
       engineKillTree(this._process, `PiSessionProcess[${this.sessionId.slice(0, 8)}]`)
       this._process = null
@@ -626,7 +757,9 @@ export class PiSessionProcess extends EventEmitter {
   }
 
   canSafelySuspend(): boolean {
-    return this._pendingToolCalls.size === 0 && !this._isProcessing
+    // 有对话框在飞时不算「安全」：pi 正卡在 await 上等这一帧，池把它挂起等于
+    // 把还没出口的问题连人带卡一起撕掉，而 evictIfNeeded 是趁你不注意时发生的。
+    return this._pendingToolCalls.size === 0 && this._pendingExtensionDialogs.size === 0 && !this._isProcessing
   }
 
   getPendingToolCount(): number {
@@ -657,8 +790,14 @@ export class PiSessionProcess extends EventEmitter {
     }
 
     if (event.type === 'extension_ui_request') {
+      // notify 是 fire-and-forget，PiEventMapper 不往渲染层送；但扩展拒绝 plan 的
+      // 原因往往只在这里说一句（helper 工具不可用、正在跑回合等），丢了就只剩
+      // 宿主那句「没有回执」，用户和日志都看不出为什么 (#45)。
+      if (event.method === 'notify') {
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension notify | level=${event.notifyType ?? 'info'} | ${previewDialogText(event.message)}`)
+      }
       this.trackPlanModeReceipt(event)
-      this.declineExtensionDialog(event)
+      this.openExtensionDialog(event)
       debug('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension UI request | method=${event.method}`)
       this.emit('message', event)
       return
@@ -1074,6 +1213,9 @@ export class PiSessionProcess extends EventEmitter {
       const extensionPath = resolvePlanModeExtensionPath()
       if (extensionPath) {
         args.push('--extension', extensionPath)
+        // 旧会话的 transcript 里没有 plan 的两个 helper；不补回去，pi 恢复工具集后
+        // 扩展会拒绝 /plan start，宿主只能等到一次超时 (#45)。
+        args.push('--tools', PLAN_MODE_HELPER_TOOL_MODIFIERS)
         this.planModeExtensionLoaded = true
       } else {
         warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode extension not loadable | plan cannot be enforced for this process`)

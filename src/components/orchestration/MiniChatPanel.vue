@@ -5,6 +5,7 @@
       <MessageList
         :messages="messages"
         :loading="isLoading"
+        :session-id="sessionId"
         @tool-submit="handleToolSubmit"
         @tool-skip="handleToolSkip"
         @rewind="handleRewind"

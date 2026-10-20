@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
-import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, EngineAvailability, AgentInfo, ImageAttachment, PermissionMode, ThinkingUpdateTiming, EffortLevel } from './types'
+import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, EngineAvailability, AgentInfo, ExtensionDialogAnswer, ImageAttachment, PermissionMode, ThinkingUpdateTiming, EffortLevel } from './types'
 import { toPiThinkingLevel } from '@/shared/effort'
 import { PiProcessPool } from './PiProcessPool'
 import { discoverAgentDefinitions, toAgentInfos } from './agentDefinitions'
@@ -118,6 +118,15 @@ export class PiEngine implements IEngine {
   async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
     info('PiEngine', `setPermissionMode | sessionId=${sessionId.slice(0, 8)} | mode=${mode}`)
     await this.pool.setPermissionMode(sessionId, mode)
+  }
+
+  /**
+   * 应答一条 pi 扩展对话框。没有 `async`：写 stdin 是同步的，而这次调用的成败
+   * 正是界面决定「收起卡片」还是「退回可重试」的唯一依据 (#54)。
+   */
+  respondExtensionDialog(sessionId: string, dialogId: string, answer: ExtensionDialogAnswer): void {
+    info('PiEngine', `respondExtensionDialog | sessionId=${sessionId.slice(0, 8)} | dialogId=${dialogId.slice(0, 8)} | kind=${answer.kind}`)
+    this.pool.respondExtensionDialog(sessionId, dialogId, answer)
   }
 
   async abort(sessionId: string): Promise<void> {

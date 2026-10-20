@@ -1,14 +1,17 @@
 // src/services/waitNotification.ts
 // 会话因"等用户处理"而停住时的桌面系统通知。
 // 三类中断（工具授权 / AskUserQuestion 提问 / ExitPlanMode 计划确认）都经
-// permission_request 到达（见 src/stores/turn/index.ts 的 onPermissionRequest），
+// permission_request 到达（见 src/stores/turn/index.ts 的 onPermissionRequest）；
+// 第四类是 pi 的扩展对话框，经 extension_dialog_request 到达，它没有 toolName 可分类，
+// 走 notifyExtensionDialogWaiting 这条独立入口（见 #54）。
 // 本模块只负责分类、文案与去重；发送通道与任务完成通知完全一致（api.showNotification）。
 
 import { api } from '@/services/electronAPI'
 import { i18n } from '@/i18n'
+import type { ExtensionDialogRequest } from '@/shared/channels/claudeCode'
 import type { PermissionRequest } from '@/services/permissionService'
 
-export type WaitingKind = 'question' | 'plan' | 'permission'
+export type WaitingKind = 'question' | 'plan' | 'permission' | 'extension'
 /** 通知决策结果，供调用方打日志（渲染层日志不落盘，出问题时靠它定位） */
 export type WaitingNotifyResult = 'sent' | 'disabled' | 'deduped'
 
@@ -81,9 +84,38 @@ export function notifyWaitingForUser(
   request: PermissionRequest,
   env: WaitingNotifyEnv,
 ): WaitingNotifyResult {
+  return sendWaitingNotice(sessionId, classifyWaitingRequest(request.toolName), buildWaitingMessage(request), env)
+}
+
+/**
+ * pi 的扩展对话框在等用户回答（select / confirm / input / editor，见 #54）。
+ *
+ * 这类请求不带 toolName，也挂不上权限卡片，所以走独立入口；但共用同一张去重表 ——
+ * 会话同时被工具授权和扩展菜单按住时该只响一次，而不是两类各响一次。
+ */
+export function notifyExtensionDialogWaiting(
+  sessionId: string,
+  dialog: ExtensionDialogRequest,
+  env: WaitingNotifyEnv,
+): WaitingNotifyResult {
+  const detail = truncate(dialog.title) || toolNameFallback(dialog.method)
+  return sendWaitingNotice(
+    sessionId,
+    'extension',
+    String(i18n.global.t('chat.waitingExtensionNotifyBody', { detail })),
+    env,
+  )
+}
+
+function sendWaitingNotice(
+  sessionId: string,
+  kind: WaitingKind,
+  message: string,
+  env: WaitingNotifyEnv,
+): WaitingNotifyResult {
   if (!env.enabled()) return 'disabled'
 
-  const key = `${sessionId}:${classifyWaitingRequest(request.toolName)}`
+  const key = `${sessionId}:${kind}`
   const now = Date.now()
   const last = notifiedAt.get(key)
   if (last && now - last < NOTIFY_DEDUPE_MS) return 'deduped'
@@ -91,7 +123,14 @@ export function notifyWaitingForUser(
 
   api.showNotification({
     title: String(i18n.global.t('chat.waitingNotifyTitle', { session: env.sessionTitle() })),
-    message: buildWaitingMessage(request),
+    message,
   })
   return 'sent'
+}
+
+/** 标题为空时的兜底（pi 允许只有选项没有提问的 select） */
+function toolNameFallback(method: string): string {
+  const key = `piExtensionDialog.card.methods.${method}`
+  const translated = i18n.global.t(key)
+  return translated === key ? method : String(translated)
 }

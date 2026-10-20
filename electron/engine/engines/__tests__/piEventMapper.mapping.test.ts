@@ -393,3 +393,63 @@ describe('mapPiEvent — 系统与终止事件', () => {
     }
   })
 })
+
+/**
+ * 扩展对话框帧的翻译 (issue #54)。#45 时代这里对 extension_ui_request 一律返回 null，
+ * 因为宿主在 PiSessionProcess 里就把它 cancelled 掉了；现在会 await 宿主的那四类要变成
+ * 渲染层能应答的事件，而发了不回头的五类仍然没有可渲染的东西。
+ */
+describe('mapPiEvent — 扩展对话框', () => {
+  it('select 带上选项与标题，dialogId 用 pi 给的那个', () => {
+    expect(mapPiEvent(SID, {
+      type: 'extension_ui_request',
+      id: 'uuid-1',
+      method: 'select',
+      title: 'Allow dangerous command?',
+      options: ['Allow', 'Block'],
+    })).toEqual({
+      sessionId: SID,
+      type: 'extension_dialog_request',
+      data: { dialogId: 'uuid-1', method: 'select', title: 'Allow dangerous command?', options: ['Allow', 'Block'] },
+    })
+  })
+
+  it('confirm / input / editor 各带自己那几个字段，缺的不补空值', () => {
+    expect(mapPiEvent(SID, { type: 'extension_ui_request', id: 'u2', method: 'confirm', title: 'Clear?', message: 'All messages will be lost.' })?.data)
+      .toEqual({ dialogId: 'u2', method: 'confirm', title: 'Clear?', message: 'All messages will be lost.' })
+    expect(mapPiEvent(SID, { type: 'extension_ui_request', id: 'u3', method: 'input', title: 'Enter a value', placeholder: 'type...' })?.data)
+      .toEqual({ dialogId: 'u3', method: 'input', title: 'Enter a value', placeholder: 'type...' })
+    expect(mapPiEvent(SID, { type: 'extension_ui_request', id: 'u4', method: 'editor', title: 'Edit', prefill: 'Line 1\nLine 2' })?.data)
+      .toEqual({ dialogId: 'u4', method: 'editor', title: 'Edit', prefill: 'Line 1\nLine 2' })
+  })
+
+  it('fire-and-forget 的五类仍然不透传：没有要用户答的东西', () => {
+    for (const method of ['notify', 'setStatus', 'setWidget', 'setTitle', 'set_editor_text']) {
+      expect(mapPiEvent(SID, { type: 'extension_ui_request', id: 'ui-x', method })).toBeNull()
+    }
+  })
+
+  it('没有 id 的对话框帧不成事件：回帧按 id 匹配，挂上去只会造出一张点了必失败的卡', () => {
+    expect(mapPiEvent(SID, { type: 'extension_ui_request', method: 'confirm', title: 'Allow?' })).toBeNull()
+    expect(mapPiEvent(SID, { type: 'extension_ui_request', id: '', method: 'select', title: 'A', options: ['x'] })).toBeNull()
+  })
+
+  it('非字符串的选项被剔掉：回传不了的值不该出现在可点的行里', () => {
+    const mapped = mapPiEvent(SID, {
+      type: 'extension_ui_request',
+      id: 'ui-y',
+      method: 'select',
+      title: 'Pick',
+      options: ['Real', { nested: true }, '', 'Also real'],
+    })
+    expect(mapped?.data.options).toEqual(['Real', 'Also real'])
+  })
+
+  it('退场通知按字段透传，不把内部的 type 漏进 payload', () => {
+    expect(mapPiEvent(SID, { type: 'extension_dialog_closed', dialogId: 'ui-9', method: 'select', reason: 'timeout' })).toEqual({
+      sessionId: SID,
+      type: 'extension_dialog_closed',
+      data: { dialogId: 'ui-9', method: 'select', reason: 'timeout' },
+    })
+  })
+})

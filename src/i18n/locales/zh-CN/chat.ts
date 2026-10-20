@@ -24,6 +24,8 @@ export default {
   waitingQuestionNotifyBody: 'AI 在等你回答：{detail}',
   waitingQuestionNotifyBodyPlain: 'AI 在等你回答，点击查看',
   waitingPermissionNotifyBody: '需要你授权：{detail}',
+  // pi 的扩展对话框：引擎正停在这一次提问上等回答（见 #54）
+  waitingExtensionNotifyBody: '扩展在等你选择：{detail}',
   waitingPlanNotifyBody: '计划已就绪，等待你确认',
   startConversation: '开始对话',
   startConversationDesc: '输入消息开始与 Claude Code 协作',

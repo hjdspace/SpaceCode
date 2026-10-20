@@ -72,6 +72,7 @@
                 v-show="!showWelcomeHero"
                 :messages="paneMessages"
                 :loading="paneIsLoading"
+                :session-id="paneSessionId"
                 @tool-submit="handleToolSubmit"
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"

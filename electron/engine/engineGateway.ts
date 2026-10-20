@@ -8,6 +8,7 @@ import type {
   IEngine,
   EngineSessionConfig,
   EngineSessionStatus,
+  ExtensionDialogAnswer,
   ImageAttachment,
   PermissionDecision,
   PermissionMode,
@@ -198,6 +199,23 @@ export const engineGateway = {
     const engine = findEngineForSession(sessionId)
     const fn = requireAction<(sid: string, rid: string, d: PermissionDecision) => Promise<void>>(engine, 'respondPermission')
     await fn(sessionId, requestId, decision)
+  }),
+
+  /**
+   * 应答一条 pi 扩展对话框（`extension_ui_request`）。它按 pi 自己的 UUID 匹配，
+   * 与 can_use_tool 那套 requestId/toolUseId 无关，所以另起一条动作。
+   *
+   * 用 requireAction 而不是可选探测：界面会答的对话框只可能来自认得这个协议的引擎，
+   * 落到没实现的引擎上是接线错了，得让它响亮地失败，而不是静默吞掉一次点击。
+   */
+  respondExtensionDialog: withLogging('respondExtensionDialog', (
+    sessionId: string,
+    dialogId: string,
+    answer: ExtensionDialogAnswer,
+  ): void => {
+    const engine = findEngineForSession(sessionId)
+    const fn = requireAction<(sid: string, did: string, a: ExtensionDialogAnswer) => void>(engine, 'respondExtensionDialog')
+    fn(sessionId, dialogId, answer)
   }),
 
   setPermissionMode: withLogging('setPermissionMode', async (sessionId: string, mode: PermissionMode): Promise<void> => {

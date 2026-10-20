@@ -11,7 +11,9 @@ import { useFileWriteLedgerStore } from '../fileWriteLedger'
 import type { SessionSink } from '../turnSink'
 import { ErrorCategory } from '@/types'
 import { permissionService, type PermissionRequest, type PermissionUpdate } from '@/services/permissionService'
-import { notifyWaitingForUser } from '@/services/waitNotification'
+import { extensionDialogService, type ExtensionDialog } from '@/services/extensionDialogService'
+import type { ExtensionDialogAnswer, ExtensionDialogClosedEvent, ExtensionDialogRequest } from '@/shared/channels/claudeCode'
+import { notifyExtensionDialogWaiting, notifyWaitingForUser } from '@/services/waitNotification'
 import {
   isTeammateRawMessage,
   isSidechainMessage,
@@ -773,6 +775,77 @@ export function useTurnStore(injectedApi?: any) {
       return permissionService.consumePermissionFor(toolUseId, sessionId)
     }
 
+    // ── pi 扩展对话框（extension_ui_request，见 #54） ──
+
+    function getExtensionDialogs(sessionId?: string): ExtensionDialog[] {
+      const sid = sessionId ?? sessionStore.currentSessionId
+      return sid ? extensionDialogService.list(sid) : []
+    }
+
+    /**
+     * 记下这张卡问出来时时间线走到了哪一步。
+     *
+     * 扩展对话框不带 toolCallId，也不属于任何一条 message，渲染层没有别的办法判断它该
+     * 插在哪个条目之后。这里取当前轮 assistant 消息的最后一个 timeline 事件当游标 ——
+     * 那通常正是触发这次提问的工具行。
+     *
+     * 两种拿不到事件游标的情况都不能退到「消息末尾」或「全局末尾」：
+     * - turn 已结算（turnStates 已删）时退到最后一条 assistant 消息，而不是返回空锚；
+     * - 该消息还没有任何事件（`/plan` 菜单在首个 token 之前弹出）时记 anchorAtStart，
+     *   之后流式产生的输出才会排在卡片下面，而不是把卡片顶到最底 (#54)。
+     */
+    function captureDialogAnchor(
+      sessionId: string,
+    ): { anchorMessageId?: string; anchorEventId?: string; anchorAtStart?: boolean } {
+      const messages = sink.get(sessionId)?.messages ?? []
+      const activeMessageId = turnStates.get(sessionId)?.assistantMessageId
+      const message = activeMessageId
+        ? messages.find(m => m.id === activeMessageId)
+        : [...messages].reverse().find(m => m.role === 'assistant')
+      if (!message) return {}
+      const lastEvent = message.timelineEvents?.[message.timelineEvents.length - 1]
+      return lastEvent
+        ? { anchorMessageId: message.id, anchorEventId: lastEvent.id }
+        : { anchorMessageId: message.id, anchorAtStart: true }
+    }
+
+    /**
+     * 答一条扩展对话框。`outcomeText` 是用户在那个按钮上看到的原文，直接留在卡片上当回执，
+     * 不再按 method 二次翻译 —— pi 把确认框也拼成 `select([确认项, 取消项])`，
+     * 界面对四种方法的记法是同一套。
+     *
+     * 先落回执再发 IPC，失败时撤回 pending：引擎按 pi 的 UUID 认账，第二次提交它会报
+     * "no pending dialog"，所以重复作答只能靠界面先收起卡片来挡；而没送达的那次
+     * 不能留在界面上冒充已经答上 (#54)。
+     */
+    async function answerExtensionDialog(
+      sessionId: string,
+      dialogId: string,
+      answer: ExtensionDialogAnswer,
+      outcomeText: string,
+    ): Promise<void> {
+      const sid = sessionId || sessionStore.currentSessionId
+      if (!sid) return
+      const claudeCode = resolvedApi.claudeCode
+      if (!claudeCode?.respondExtensionDialog) {
+        sessionStore.logger.error('ChatStore', 'answerExtensionDialog: claudeCode.respondExtensionDialog not available')
+        return
+      }
+
+      extensionDialogService.resolve(sid, dialogId, outcomeText)
+      try {
+        // answer 里的 value 可能取自 reactive 的选项数组：过一遍 JSON 往返剥掉 Proxy，
+        // 否则 Electron 的序列化器直接抛 "An object could not be cloned"。
+        const safeAnswer = JSON.parse(JSON.stringify(answer)) as ExtensionDialogAnswer
+        await claudeCode.respondExtensionDialog(sid, dialogId, safeAnswer)
+        sessionStore.logger.info('ChatStore', `extension dialog answered | sessionId=${sid.slice(0, 8)} | dialogId=${dialogId.slice(0, 8)} | kind=${safeAnswer.kind}`)
+      } catch (error) {
+        extensionDialogService.revertToPending(sid, dialogId)
+        sessionStore.logger.error('ChatStore', 'answerExtensionDialog failed', { error: String(error) })
+        throw error
+      }
+    }
+
     /**
      * @param updatedPermissions 要交回引擎落地的权限规则（"始终允许"）。缺省 = 只放行这一次。
      *        取值应是请求里的 `permissionSuggestions` 原样回传，不要宿主侧自己构造。
@@ -1093,6 +1166,9 @@ export function useTurnStore(injectedApi?: any) {
         handleResult(event.sessionId, ts, event.data ?? {})
       })
       claudeCodeApi.onExit((event: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => {
+        // 进程没了，它欠的对话框就再也答不了。主进程本来会逐条发 closed 通知，这里再兜一次：
+        // 走的是 killSession 那条先摘事件处理器再拆进程的路时，通知是发不出来的 (#54)。
+        extensionDialogService.closeAllForSession(event.sessionId, 'process_exit')
         const ts = turnStates.get(event.sessionId)
         if (!ts) return
         handleExit(event.sessionId, ts, event.data)
@@ -1140,6 +1216,37 @@ export function useTurnStore(injectedApi?: any) {
           permissionService.removePermissionByRequestId(sid, cancelledRequestId)
         })
       }
+
+      // ── pi 扩展对话框订阅（extension_ui_request → 宿主应答，见 #54） ──
+      if (typeof (claudeCodeApi as any).onExtensionDialogRequest === 'function') {
+        ;(claudeCodeApi as any).onExtensionDialogRequest((evt: { sessionId: string; data: ExtensionDialogRequest }) => {
+          const sid = evt.sessionId
+          const request = evt.data
+          // 回帧按 dialogId 匹配，没有它就没人能答这张卡：丢掉并留一行日志，
+          // 别用编出来的 id 挂上去——那会造出一张点了必然失败的卡。
+          if (!sid || typeof request?.dialogId !== 'string' || !request.dialogId) {
+            sessionStore.logger.warn('ChatStore', `extension_dialog_request without dialogId | sessionId=${String(sid).slice(0, 8)}`)
+            return
+          }
+          sessionStore.logger.info('ChatStore', `extension_dialog_request | sessionId=${sid.slice(0, 8)} | dialogId=${request.dialogId.slice(0, 8)} | method=${request.method} | options=${request.options?.length ?? 0}`)
+          extensionDialogService.open(sid, { ...request, ...captureDialogAnchor(sid) })
+          const notifyResult = notifyExtensionDialogWaiting(sid, request, {
+            // 与工具授权共用同一个开关；旧存档没这个键时按默认开启算
+            enabled: () => settingsStore.appearance?.desktopNotifyOnWaiting !== false,
+            sessionTitle: () => sessionTitle(sid),
+          })
+          sessionStore.logger.info('ChatStore', `waiting notification | sessionId=${sid.slice(0, 8)} | dialog=${request.dialogId.slice(0, 8)} | result=${notifyResult}`)
+        })
+      }
+      if (typeof (claudeCodeApi as any).onExtensionDialogClosed === 'function') {
+        ;(claudeCodeApi as any).onExtensionDialogClosed((evt: { sessionId: string; data: ExtensionDialogClosedEvent }) => {
+          const sid = evt.sessionId
+          const dialogId = evt.data?.dialogId
+          if (!sid || !dialogId) return
+          sessionStore.logger.info('ChatStore', `extension_dialog_closed | sessionId=${sid.slice(0, 8)} | dialogId=${dialogId.slice(0, 8)} | reason=${evt.data?.reason || '(none)'}`)
+          extensionDialogService.close(sid, dialogId, evt.data.reason)
+        })
+      }
     }
 
     return {
@@ -1161,6 +1268,8 @@ export function useTurnStore(injectedApi?: any) {
       hasPendingPermissionForToolUse,
       findPendingPermissionByToolUse,
       consumePermissionFor,
+      getExtensionDialogs,
+      answerExtensionDialog,
       getIsLoading,
       getStreamingContent,
       pendingMessages,

@@ -13,7 +13,7 @@ import { H5AuthService } from './h5AuthService'
 import { engineGateway } from '../engine/engineGateway'
 import { isEffortLevel } from '@/shared/effort'
 import { EngineFactory } from '../engine/engines/EngineFactory'
-import type { EngineType, PermissionMode } from '../engine/engines/types'
+import type { EngineType, ExtensionDialogAnswer, PermissionMode } from '../engine/engines/types'
 import { SessionHistoryManager } from '../session/sessionHistoryManager'
 import { info, warn, error, debug } from '../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
@@ -404,6 +404,20 @@ export class H5Server {
         await engineGateway.skipToolAnswer(sessionId!, toolCallId!)
         this.sendJson(res, 200, { ok: true })
         return
+
+      // pi 扩展对话框的应答。抛错时交给 handleApi 那层的 catch 回 5xx ——
+      // H5 端要的是这次点击失败了的信号，好把卡片退回可重试态 (#54)。
+      case '/api/session/extension-dialog/respond': {
+        if (!this.requireSessionId(res, sessionId)) return
+        const dialogId = body.dialogId as string | undefined
+        if (!dialogId) {
+          this.sendJson(res, 400, { error: 'dialogId required' })
+          return
+        }
+        engineGateway.respondExtensionDialog(sessionId, dialogId, body.answer as ExtensionDialogAnswer)
+        this.sendJson(res, 200, { ok: true })
+        return
+      }
 
       // ── 挂起 / 恢复 ──
       // H5 端与桌面端共用同一进程池：挂起会释放 CLI 进程，恢复会重新拉起。

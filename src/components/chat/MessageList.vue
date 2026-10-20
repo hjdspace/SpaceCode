@@ -28,6 +28,7 @@
           <div v-else-if="item.type === 'assistant-group'" :data-minimap-id="item.group!.messages[0]?.id" class="minimap-anchor">
             <AgentTimeline
               :messages="item.group!.messages"
+              :dialogs="dialogsForGroup(item.group!)"
               :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
               :mode="mode === 'design' ? 'design' : undefined"
               @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
@@ -52,11 +53,20 @@
             v-else-if="item.type === 'artifact-card'"
             :artifacts="item.artifacts!"
           />
-      </template>
+        </template>
 
-      <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
-        <ThinkingState :start-time="turnStartTime" />
-      </div>
+        <!-- 没有任何 assistant 分组时（会话刚起就弹确认框），对话框没有时间线可挂 -->
+        <div v-if="ungroupedDialogs.length" class="session-dialog-list">
+          <ExtensionDialogCard
+            v-for="dialog in ungroupedDialogs"
+            :key="dialog.dialogId"
+            :dialog="dialog"
+          />
+        </div>
+
+        <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
+          <ThinkingState :start-time="turnStartTime" />
+        </div>
     </div>
     </div>
   </div>
@@ -74,6 +84,8 @@ import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import ConversationMinimap from './ConversationMinimap.vue'
 import ThinkingState from './ThinkingState.vue'
+import ExtensionDialogCard from './tools/ExtensionDialogCard.vue'
+import { extensionDialogService, type ExtensionDialog } from '@/services/extensionDialogService'
 import { MessageSquare } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -105,6 +117,11 @@ const emit = defineEmits<{
 const props = defineProps<{
   messages: Message[]
   loading: boolean
+  /**
+   * 这批消息实际属于哪个会话。分屏 pane、design pane、mini chat 都可能渲染非当前
+   * 会话；扩展对话框必须按这个 id 取，不能用 sessionStore.currentSessionId (#54)。
+   */
+  sessionId?: string
   /**
    * 渲染模式：
    * - `design`：assistant 消息用 MessageItem(mode=design) 渲染 buildBlocks，跳过 turn-card；
@@ -200,6 +217,39 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
 
 const messageGroups = computed<MessageGroup[]>(() => {
   return buildMessageGroups(props.messages)
+})
+
+// 扩展对话框按会话存放，再按 assistant 分组分配：锚在本组的留在本组；没有锚或锚到
+// 已被替换掉的旧消息的，只在最后一组出现一次，避免每个 AgentTimeline 各挂一份 (#54)。
+const sessionDialogs = computed<ExtensionDialog[]>(() =>
+  props.sessionId ? extensionDialogService.list(props.sessionId) : [],
+)
+
+const renderedMessageIds = computed(() => new Set(props.messages.map(m => m.id)))
+
+const lastAssistantGroupId = computed(() => {
+  for (let i = messageGroups.value.length - 1; i >= 0; i -= 1) {
+    if (messageGroups.value[i].type === 'assistant') return messageGroups.value[i].id
+  }
+  return ''
+})
+
+function dialogsForGroup(group: MessageGroup): ExtensionDialog[] {
+  const groupMessageIds = new Set(group.messages.map(m => m.id))
+  const includeUnowned = group.id === lastAssistantGroupId.value
+  return sessionDialogs.value.filter(dialog => {
+    if (dialog.anchorMessageId) {
+      if (groupMessageIds.has(dialog.anchorMessageId)) return true
+      return includeUnowned && !renderedMessageIds.value.has(dialog.anchorMessageId)
+    }
+    return includeUnowned
+  })
+}
+
+const ungroupedDialogs = computed<ExtensionDialog[]>(() => {
+  if (lastAssistantGroupId.value) return []
+  return sessionDialogs.value.filter(dialog =>
+    !dialog.anchorMessageId || !renderedMessageIds.value.has(dialog.anchorMessageId))
 })
 
 // loading=true 时判断是否已有 assistant 内容可渲染。
@@ -581,6 +631,11 @@ onUnmounted(() => {
   > * {
     flex-shrink: 0;
   }
+}
+
+.session-dialog-list {
+  display: flex;
+  flex-direction: column;
 }
 
 .empty-state {

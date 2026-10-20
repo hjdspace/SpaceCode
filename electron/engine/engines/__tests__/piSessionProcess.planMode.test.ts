@@ -11,8 +11,9 @@ import type { EngineSessionConfig } from '../types'
  *   1. spawn 时把权限闸扩展带上 —— Pi 没有 `--permission-mode` 可拼，`--extension` 是唯一入口；
  *   2. 相信扩展的回执而不是自己的命令行 —— 扩展用 `setStatus('plan-mode')` 报它在不在 plan，
  *      宿主只有收到「在」才敢把界面写成计划模式已生效；
- *   3. 应答扩展的对话框 —— RPC 里 select/confirm/input/editor 会 await 宿主回帧，宿主不回，
- *      整条会话就停在那儿，比「plan 下还能写文件」更糟。
+ *   3. 别抢答扩展的对话框 —— RPC 里 select/confirm/input/editor 会 await 宿主回帧，
+ *      宿主不回，整条会话就停在那儿；但宿主抢着回 cancelled 等于把交互全拒掉，
+ *      现在这两头由界面来答（往返见 piSessionProcess.extensionDialog.test.ts，#54）。
  *
  * 只 fake 子进程与文件系统；分帧、回执判定、扩展路径解析都跑真实现 —— 解析扩展的候选序列
  * 与打包态那条路径本身就是被测的一部分。
@@ -51,7 +52,7 @@ vi.mock('child_process', async (importOriginal) => {
       const child: any = new Emitter()
       child.stdout = new Emitter()
       child.stderr = new Emitter()
-      child.stdin = { write: vi.fn(), end: vi.fn() }
+      child.stdin = { write: vi.fn(), end: vi.fn(), writable: true }
       child.pid = 42000 + H.spawnCalls.length
       child.killed = false
       child.kill = vi.fn(() => true)
@@ -89,8 +90,6 @@ vi.mock('../../../session/engineChildProcess', () => ({
 vi.mock('../../../infra/logger', () => ({
   info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(),
 }))
-
-import { warn as loggerWarn } from '../../../infra/logger'
 
 const BASE: EngineSessionConfig = { cwd: '/ws', provider: 'anthropic', model: 'claude-sonnet-4' }
 
@@ -152,12 +151,24 @@ describe('spawn 参数里的权限闸扩展', () => {
     expect(args[at + 1]).toBe(DEV_EXT)
   })
 
+  it('同时用 + 修饰符把两个 plan helper 补回恢复出来的工具集', async () => {
+    // 旧会话的 transcript 没声明这两个工具，pi 恢复时会把它们滤掉；
+    // 扩展启动前要求它们 active，不补就是「扩展开着，/plan start 永远被拒」。
+    await startedSession({ permissionMode: 'plan' })
+
+    const args = H.spawnCalls[0].args
+    const at = args.indexOf('--tools')
+    expect(at).toBeGreaterThanOrEqual(0)
+    expect(args[at + 1]).toBe('+plan_mode_question,+plan_mode_complete')
+  })
+
   it('非 plan 的会话一律不带扩展 —— 那两个 plan helper 工具不该凭空出现在模型面前', async () => {
     for (const permissionMode of ['default', 'acceptEdits', 'bypassPermissions'] as const) {
       H.spawnCalls = []
       const { proc } = await startedSession({ permissionMode })
 
       expect(H.spawnCalls[0].args).not.toContain('--extension')
+      expect(H.spawnCalls[0].args).not.toContain('--tools')
       expect(proc.planModeExtensionLoaded).toBe(false)
     }
   })
@@ -238,17 +249,19 @@ describe('plan 模式回执', () => {
   })
 })
 
-describe('扩展对话框的往返（宿主不回帧就挂死）', () => {
-  it.each(['select', 'confirm', 'input', 'editor'])('%s 一律立即回 cancelled', async (method) => {
+describe('扩展对话框交给界面，不再抢答', () => {
+  /**
+   * #45 定下来时这里是「四类一律立即回 cancelled」（宿主不回帧就挂死，抢答是不挂死的
+   * 唯一办法）。#54 给它们做了能应答的卡片，抢答就退化成「自动拒绝」—— 正是这条
+   * 路把 pi-plan-mode 的菜单全废掉的元凶。往返回合的核验在
+   * piSessionProcess.extensionDialog.test.ts，这里只守住 plan 模式下不再抢答。
+   */
+  it('plan 菜单的 select 不落任何回帧：等的是用户，不是宿主', async () => {
     const { child } = await startedSession({ permissionMode: 'plan' })
 
-    feed(child, { type: 'extension_ui_request', id: 'ui-9', method, title: 'Plan mode — what next?', options: ['A', 'B'] })
+    feed(child, { type: 'extension_ui_request', id: 'ui-9', method: 'select', title: 'Plan mode — what next?', options: ['A', 'B'] })
 
-    expect(writtenFrames(child)).toEqual([{ type: 'extension_ui_response', id: 'ui-9', cancelled: true }])
-    expect(loggerWarn).toHaveBeenCalledWith(
-      'PiSessionProcess',
-      expect.stringContaining(`Extension dialog cancelled by host | method=${method}`),
-    )
+    expect(writtenFrames(child)).toEqual([])
   })
 
   it('fire-and-forget 的方法不该被应答', async () => {
@@ -259,18 +272,6 @@ describe('扩展对话框的往返（宿主不回帧就挂死）', () => {
     feed(child, { type: 'extension_ui_request', id: 'ui-w', method: 'setWidget', widgetKey: 'plan-mode-plan', widgetLines: ['x'] })
 
     expect(child.stdinWrite).not.toHaveBeenCalled()
-  })
-
-  it('没有 id 的对话框帧无从应答：记一行 warn，不写坏帧', async () => {
-    const { child } = await startedSession({ permissionMode: 'plan' })
-
-    feed(child, { type: 'extension_ui_request', method: 'confirm', title: 'Allow?' })
-
-    expect(child.stdinWrite).not.toHaveBeenCalled()
-    expect(loggerWarn).toHaveBeenCalledWith(
-      'PiSessionProcess',
-      expect.stringContaining('Extension dialog request without an id'),
-    )
   })
 })
 
