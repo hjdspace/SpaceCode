@@ -17,6 +17,7 @@ const mockState = vi.hoisted(() => {
     allowPermission?: ReturnType<typeof vi.fn>
     denyPermission?: ReturnType<typeof vi.fn>
     respondPermission?: ReturnType<typeof vi.fn>
+    respondExtensionDialog?: ReturnType<typeof vi.fn>
     setPermissionMode?: ReturnType<typeof vi.fn>
     setModel?: ReturnType<typeof vi.fn>
     getMcpStatus?: ReturnType<typeof vi.fn>
@@ -67,6 +68,8 @@ const mockState = vi.hoisted(() => {
       stop: vi.fn(async () => {}),
       getSessionStatus: vi.fn(() => null),
       getActiveSessions: vi.fn(() => []),
+      // 只有 pi 认得扩展对话框协议；Claude 那侧连这个方法都不该存在 (#54)
+      respondExtensionDialog: vi.fn(),
       ...overrides,
     }
   }
@@ -354,6 +357,30 @@ describe('engineGateway', () => {
       await expect(
         engineGateway.submitToolAnswer('s1', 't1', {}),
       ).rejects.toThrow(NotImplementedError)
+    })
+
+    /**
+     * 扩展对话框是 pi 独有的协议（#54）。方向与其它动作相反：pi 有、Claude 没有，
+     * 所以这里钉的是「Claude 会话上应答 = 响亮地失败」，而不是静默吞掉一次点击 ——
+     * 网关按会话归属选引擎，接错线只能是 bug。
+     */
+    it('respondExtensionDialog throws on an engine that has no such protocol', () => {
+      const engine = mockState.makeClaudeEngine({ respondExtensionDialog: undefined })
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      expect(() => engineGateway.respondExtensionDialog('s1', 'uuid-1', { kind: 'cancel' }))
+        .toThrow(NotImplementedError)
+    })
+
+    it('respondExtensionDialog delegates to pi with the pi-side id', () => {
+      const engine = mockState.makePiEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      engineGateway.respondExtensionDialog('s1', 'uuid-1', { kind: 'value', value: 'Allow' })
+
+      expect(engine.respondExtensionDialog).toHaveBeenCalledWith('s1', 'uuid-1', { kind: 'value', value: 'Allow' })
     })
 
     it('setPermissionMode throws when engine lacks it', async () => {
