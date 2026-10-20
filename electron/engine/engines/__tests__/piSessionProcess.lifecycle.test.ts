@@ -16,7 +16,8 @@ import { killTree as mockedKillTree } from '../../../session/engineChildProcess'
  * holding a session that can never answer a prompt. In the other direction a
  * prompt is fire-and-check: the frame goes to stdin and the call stays pending
  * until the engine acks it by request id — so every exit path has to release those
- * waiters, otherwise the UI sits on a spinner until the 30 s timeout.
+ * waiters, otherwise the UI sits on a spinner until the first-prompt window (120 s;
+ * cold start waits for MCP) or the normal 30 s timeout.
  *
  * Pinned here:
  *   - spawn command / args / env assembly, including ELECTRON_RUN_AS_NODE, which
@@ -637,14 +638,25 @@ describe('PiSessionProcess prompt round-trip', () => {
     )
   })
 
-  it('gives up on a prompt that is never acked and drops the late ack', async () => {
+  it('does not fail the first prompt while MCP servers are still connecting', async () => {
+    const { proc, child } = await startUp()
+
+    const sending = proc.sendMessage('go')
+    // 实测量级：冷启动 40s+ 才回 ack，30s 时 pi 还在等 MCP
+    await vi.advanceTimersByTimeAsync(45_000)
+    feed(child, ackFor('req_1'))
+
+    await expect(sending).resolves.toBeUndefined()
+  })
+
+  it('gives up on a first prompt that is never acked after the cold-start window', async () => {
     const { proc, child } = await startUp()
     const seen: unknown[] = []
     proc.on('message', (m) => seen.push(m))
 
     const sending = proc.sendMessage('go')
     const rejected = expect(sending).rejects.toThrow('Timeout waiting for prompt response')
-    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.advanceTimersByTimeAsync(120_000)
 
     await rejected
     expect(proc.status).toBe('idle')
@@ -652,6 +664,19 @@ describe('PiSessionProcess prompt round-trip', () => {
 
     feed(child, ackFor('req_1'))
     expect(seen).toHaveLength(0)
+  })
+
+  it('returns to the normal timeout once this process has answered a prompt', async () => {
+    const { proc, child } = await startUp()
+
+    const first = proc.sendMessage('one')
+    feed(child, ackFor('req_1'))
+    await expect(first).resolves.toBeUndefined()
+
+    const second = proc.sendMessage('two')
+    const rejected = expect(second).rejects.toThrow('Timeout waiting for prompt response')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await rejected
   })
 
   it('refuses to prompt a session with no live process', async () => {
