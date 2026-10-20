@@ -3,6 +3,7 @@
 
 import { h5ApiClient } from './h5ApiClient'
 import { h5WebSocketClient } from './h5WebSocketClient'
+import type { ExtensionDialogAnswer } from '@/shared/channels/claudeCode'
 import type { ElectronClaudeCodeAPI } from '@/types/electron'
 
 type EventCallback = (data: { sessionId: string; data: any }) => void
@@ -64,6 +65,11 @@ export function createH5Adapter(): ElectronClaudeCodeAPI {
 
     skipToolAnswer: (sessionId: string, toolCallId: string) =>
       h5ApiClient.skipToolAnswer(sessionId, toolCallId),
+
+    // pi 扩展对话框：H5 与桌面共用同一张卡片，应答走 REST。
+    // 服务端抛错时 h5Fetch 会 reject，store 据此把卡片退回可重试态 (#54)。
+    respondExtensionDialog: (sessionId: string, dialogId: string, answer: ExtensionDialogAnswer) =>
+      h5ApiClient.respondExtensionDialog(sessionId, dialogId, answer),
 
     allowPermission: (
       sessionId: string,
@@ -206,6 +212,12 @@ export function createH5Adapter(): ElectronClaudeCodeAPI {
 
     onElicitationRequest: (callback: (data: { sessionId: string; data: any }) => void) =>
       h5WebSocketClient.on('elicitation_request', callback),
+
+    onExtensionDialogRequest: (callback: (data: { sessionId: string; data: any }) => void) =>
+      h5WebSocketClient.on('extension_dialog_request', callback),
+
+    onExtensionDialogClosed: (callback: (data: { sessionId: string; data: any }) => void) =>
+      h5WebSocketClient.on('extension_dialog_closed', callback),
 
     onError: (callback: (data: { sessionId: string; data: any }) => void) =>
       h5WebSocketClient.on('error', callback),
