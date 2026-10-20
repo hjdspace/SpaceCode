@@ -247,6 +247,12 @@ export interface Session {
   lastActivityAt: number
   /** Temporary: set when switching engines to resume the previous session on the new engine. */
   _resumeSessionId?: string
+  /**
+   * Temporary: 侧边任务继承的主会话 id 与其引擎类型。首启时下发给引擎用于
+   * 压制 transcript 快照（见 electron/session/transcriptDigest），成功后即清除（一次性）。
+   */
+  _sideTaskSourceSessionId?: string
+  _sideTaskSourceEngine?: SessionEngineType
   /** Work / Code / Design 模式归属（旧会话无此字段时视为 'code'）。 */
   mode?: 'work' | 'code' | 'design'
   /** Work 模式下绑定的专业助手 id。 */
