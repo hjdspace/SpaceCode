@@ -16,8 +16,9 @@ import { mapPiEvent } from '../PiEventMapper'
  *    块数组取第一个 text 块），取不到时为空串而不是 undefined。该消息 stopReason
  *    为 'error' 时改产 is_error:true + errorMessage 原文（Pi 的上游拒绝只写在那里）。
  *  - message_start 对 user 消息原样透传，对 assistant 消息做白名单裁剪
- *    （仅 role/content/model/usage）；message_end 不为 user 消息发事件（与
- *    message_start 不对称，user 帧的入口只有 message_start）。
+ *    （仅 role/content/model/usage）**且 content 一律清空** —— pi 那一帧的 content 是
+ *    流式进行中的活数组，带进来会让渲染层把半截 thinking 落成一张独立推理卡（详见映射器注释）；
+ *    message_end 不为 user 消息发事件（与 message_start 不对称，user 帧的入口只有 message_start）。
  *  - tool_execution_end 的 output 统一为 string：对象 JSON.stringify(两空格缩进)，
  *    null/undefined → ''，循环引用（JSON 不安全）→ String 兜底。
  *  - Pi 的小写工具名（bash/read/write/edit/grep/find）在本题翻译点归一为渲染层用的
@@ -132,10 +133,12 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
     expect(event?.data.is_error).toBeUndefined()
   })
 
-  it('message_start assistant → assistant 事件，message 白名单仅 role/content/model/usage', () => {
+  it('message_start assistant → assistant 事件，白名单仅 role/content/model/usage 且 content 清空', () => {
+    // pi 的 "start" 帧在推入异步队列后仍被就地写入，宿主取到时 content 已经带上了
+    // 第一个 thinking 块和它的第一个分片 —— 这正是首张推理卡只有 "The" 的来源。
     const msg = {
       role: 'assistant',
-      content: 'hi',
+      content: [{ type: 'thinking', thinking: 'The', thinkingSignature: 'reasoning_content' }],
       model: 'pi-model',
       usage: { input: 1, output: 2 },
       providerMetadata: { junk: true },
@@ -144,7 +147,16 @@ describe('mapPiEvent — 生命周期与消息事件', () => {
     expect(mapPiEvent(SID, { type: 'message_start', message: msg })).toEqual({
       sessionId: SID,
       type: 'assistant',
-      data: { message: { role: 'assistant', content: 'hi', model: 'pi-model', usage: { input: 1, output: 2 } } },
+      data: { message: { role: 'assistant', content: [], model: 'pi-model', usage: { input: 1, output: 2 } } },
+    })
+  })
+
+  it('message_start 清空 content 不影响 message_end 的完整快照', () => {
+    const finalContent = [{ type: 'thinking', thinking: 'The user is asking' }, { type: 'text', text: '答复' }]
+    expect(mapPiEvent(SID, { type: 'message_end', message: { role: 'assistant', content: finalContent, model: 'm' } })).toEqual({
+      sessionId: SID,
+      type: 'assistant',
+      data: { message: { role: 'assistant', content: finalContent, model: 'm', usage: undefined } },
     })
   })
 
