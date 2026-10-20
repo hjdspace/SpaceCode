@@ -14,6 +14,14 @@ import {
   detectBuiltinFromConfig,
   resolveBuiltinMcp,
 } from '../tools/mcpConfigResolver'
+import {
+  piMcpJsonPath,
+  projectMcpForPi,
+  readPiForeignServers,
+  setPiForeignServerEnabled,
+  syncPiMcpConfigFromStore,
+} from '../tools/piMcpProjection'
+import { loadGuiSettings } from '../ipc/settingsIpc'
 import { installPiSdk } from './piInstaller'
 import { engineGateway } from './engineGateway'
 import { claudeCodeNamespace, type PermissionUpdate } from '@/shared/channels/claudeCode'
@@ -30,6 +38,27 @@ let mainWindow: BrowserWindow | null = null
 export function setMainWindow(window: BrowserWindow) {
   mainWindow = window
   EngineFactory.setMainWindow(window)
+}
+
+/**
+ * MCP 面板改动之后同步 pi 读的那份 mcp.json (issue #53)。
+ *
+ * 只在当前选的是 pi 引擎时落盘 —— 那份文件同时属于用户自己跑的 `pi` CLI，
+ * 一个只用 Claude 的配置没有理由往别人文件里写东西。Claude 那条路一直是
+ * spawn 时 `--mcp-config <tmpfile>`，这里不动它。
+ *
+ * pi 会话 spawn 前 PiSessionProcess 还会再投影一次（那才是权威落点）；这里只是
+ * 让 `pi mcp list`、独立 pi、以及面板上的 pi 实况立刻跟上开关动作。
+ */
+async function syncPiMcpIfPiSelected(action: string): Promise<void> {
+  try {
+    const settings = await loadGuiSettings()
+    if (settings?.engineType !== 'pi') return
+    const result = syncPiMcpConfigFromStore()
+    if (result.error) warn('ClaudeCodeIPC', `MCP sync for pi skipped after ${action} | ${result.error}`)
+  } catch (err) {
+    warn('ClaudeCodeIPC', `MCP sync for pi failed after ${action}: ${err}`)
+  }
 }
 
 export function registerClaudeCodeIPC() {
@@ -282,11 +311,13 @@ ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
     const servers = loadMcpConfig()
     servers[name] = { ...server, _source: 'settings.json' }
     saveMcpConfig(servers)
+    await syncPiMcpIfPiSelected('addServer')
     return { success: true }
   })
 
   ipcMain.handle('mcp:updateServers', async (_event, servers: Record<string, any>) => {
     saveMcpConfig(servers)
+    await syncPiMcpIfPiSelected('updateServers')
     return { success: true }
   })
 
@@ -294,6 +325,8 @@ ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
     const servers = loadMcpConfig()
     delete servers[name]
     saveMcpConfig(servers)
+    // 磁盘上不再有这一条，下次投影会把它从 pi 的 mcp.json 里摘掉
+    await syncPiMcpIfPiSelected('deleteServer')
     return { success: true }
   })
 
@@ -302,6 +335,7 @@ ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
     if (servers[name]) {
       servers[name].enabled = enabled
       saveMcpConfig(servers)
+      await syncPiMcpIfPiSelected('toggleEnabled')
     }
     return { success: true }
   })
@@ -316,6 +350,36 @@ ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
     const cfg = buildEnabledMcpConfig()
     return cfg ? Object.keys(cfg.mcpServers) : []
   })
+
+  /**
+   * pi 引擎下 MCP 的实况 (issue #53)。三件事一起返回，因为它们回答的是同一个问题
+   * ——「面板上的开关在 pi 里算不算数」：
+   * - configured: 投影进 mcp.json 的条目，含最终落盘的 server 名（可能被清洗过）
+   * - skipped:    面板里启用了、却被 pi 的 schema 挡在外面的（SSE、缺 command/url、撞名）
+   * - foreign:    文件里不由本项目管理的条目。它们在我们的 pi 会话里会真的起子进程，
+   *               不列出来就等于「一个没被任何界面认领的外部进程」。
+   */
+  ipcMain.handle('mcp:getPiState', async () => {
+    const projection = projectMcpForPi(loadMcpConfig())
+    return {
+      path: piMcpJsonPath(),
+      configured: projection.entries.map(item => ({
+        name: item.name,
+        sourceKey: item.sourceKey,
+        enabled: item.entry.enabled !== false,
+      })),
+      skipped: projection.skipped,
+      foreign: readPiForeignServers(),
+    }
+  })
+
+  /**
+   * 开关一条用户自有的 pi server：就地只改 enabled，不去接管它的 command/env。
+   * 口径跟着 pi 自己的 `/mcp` —— 改动保存回定义这个 server 的那份文件。
+   */
+  ipcMain.handle('mcp:setPiServerEnabled', async (_event, name: string, enabled: boolean) =>
+    setPiForeignServerEnabled(name, enabled),
+  )
 }
 
 export function getPool(): { killAll: () => void } | null {

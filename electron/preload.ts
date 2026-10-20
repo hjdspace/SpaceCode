@@ -409,6 +409,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     // 查询当前会被注入到 CLI 的 MCP 服务器名列表（用于「已加载」标记）
     getActiveMcpNames: () => ipcRenderer.invoke('mcp:getActiveMcpNames'),
+    // pi 引擎的 MCP 实况：投影结果 + 用户级 mcp.json 里不由本项目管理的条目 (#53)
+    getPiState: () => ipcRenderer.invoke('mcp:getPiState'),
+    setPiServerEnabled: (name: string, enabled: boolean) => ipcRenderer.invoke('mcp:setPiServerEnabled', name, enabled),
   },
 
   // Pet API — 桌面宠物系统（配置读写、桌面窗口控制、状态同步、偏好/会话事件）

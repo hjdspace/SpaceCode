@@ -102,6 +102,35 @@ export default {
   cliLoadedHint: '改动会在下一次对话生效。',
   yourServers: '你的服务器',
   enabled: '已启用',
+  // Pi 引擎的 MCP 落点（投影到 ~/.pi/agent/mcp.json）
+  piLoadedSummary: '将有 {count} 个 MCP 服务器加载到 Pi：',
+  piLoadedHint: '改动会写入 Pi 的配置文件，下一次 Pi 会话生效。',
+  piSkipReason: {
+    'unsupported-transport': 'Pi 不支持 legacy SSE，请改用 streamable HTTP 的 /mcp 地址。',
+    'invalid-name': '名字无法作为 Pi 的服务器名（只允许字母、数字、下划线和连字符）。',
+    'missing-target': '缺少启动命令或 URL，Pi 无法连接。',
+    'name-conflict': 'Pi 的配置文件里已有同名服务器，该名字归用户自有配置，本条未写入。',
+  },
+  piForeignTitle: 'Pi 配置文件里的服务器',
+  piForeignSubtitle: '来自 {path}，由 Pi CLI 或其他工具写入。这里的开关只改那一条的 enabled，不会接管它的配置。',
+  piForeignTransport: {
+    stdio: 'stdio',
+    http: 'HTTP',
+    unknown: '未知',
+  },
+  piForeignInvalid: {
+    'legacy-sse': 'Pi 不支持 legacy SSE transport，这一条不会连接。',
+    'missing-target': '缺少 command（stdio）或 url（HTTP），Pi 会跳过这一条。',
+    'stdio-type-conflict': 'type 与 command 冲突，Pi 会报配置错误。',
+    'http-type-unsupported': 'type 不被 Pi 接受，只认 http 或 streamable-http。',
+    'not-an-object': '条目不是一个对象，Pi 会跳过它。',
+  },
+  piToggleFailed: {
+    unreadable: 'Pi 的配置文件不存在或无法解析，开关未保存。',
+    'not-found': 'Pi 的配置文件里已经找不到这个服务器，开关未保存。',
+    'managed-by-panel': '这个服务器由 MCP 面板管理，请在上方列表里开关。',
+    'write-failed': '写入 Pi 的配置文件失败，开关未保存。',
+  },
   builtin: {
     'cdp-bridgeDesc': '连接你正在使用的真实浏览器（已登录态、Cookie、页面状态），让模型读取标签页、扫描页面、执行 JS、截图与导航。需配合配套的 Chromium 扩展使用。',
     'chrome-devtoolsDesc': '通过 Chrome DevTools 控制和检查实时 Chrome 浏览器，支持性能分析、网络调试、截图与控制台日志，适合自动化与调试场景。',

@@ -16,7 +16,10 @@ import { warn as loggerWarn } from '../../../infra/logger'
  * 测试，临时文件名也是命令行的一部分。扫描与去重本身的口径钉在 agentDefinitions.test.ts。
  */
 
-const HOME = '/home/u'
+// 必须 hoisted：PiSessionProcess 现在经 piMcpProjection 拉起 mcpConfigStore，
+// 后者在模块作用域就调用 app.getPath('userData')，而 electron 的 mock 工厂跑得
+// 比本文件的普通 const 早。
+const HOME = vi.hoisted(() => '/home/u')
 const PI_AGENT_AGENTS = path.join(HOME, '.pi', 'agent', 'agents')
 const CWD = 'D:/repo'
 const CLAUDE_DIR = path.join(CWD, '.claude', 'agents')

@@ -69,13 +69,26 @@
             <div class="cli-loaded-banner">
               <Info :size="13" />
               <span class="cli-loaded-text">
-                {{ t('mcpSettings.cliLoadedSummary', { count: mcpStore.activeMcpNames.length }) }}
-                <strong v-if="mcpStore.activeMcpNames.length > 0">
-                  {{ mcpStore.activeMcpNames.join(', ') }}
+                {{ isPiEngine
+                  ? t('mcpSettings.piLoadedSummary', { count: engineActiveNames.length })
+                  : t('mcpSettings.cliLoadedSummary', { count: engineActiveNames.length }) }}
+                <strong v-if="engineActiveNames.length > 0">
+                  {{ engineActiveNames.join(', ') }}
                 </strong>
               </span>
-              <span class="cli-loaded-hint">{{ t('mcpSettings.cliLoadedHint') }}</span>
+              <span class="cli-loaded-hint">
+                {{ isPiEngine ? t('mcpSettings.piLoadedHint') : t('mcpSettings.cliLoadedHint') }}
+              </span>
             </div>
+
+            <!-- 面板里启用了、但 pi 的 schema 不收的条目：不说出来就是「开了却调不到」 (#53) -->
+            <ul v-if="isPiEngine && piSkipped.length > 0" class="pi-skipped">
+              <li v-for="item in piSkipped" :key="item.key">
+                <XCircle :size="12" />
+                <span class="pi-skipped-name">{{ item.key }}</span>
+                <span class="pi-skipped-reason">{{ t(`mcpSettings.piSkipReason.${item.reason}`) }}</span>
+              </li>
+            </ul>
 
             <div class="builtin-grid">
               <div
@@ -254,6 +267,49 @@
             @toggle-enabled="handleToggleEnabled"
             @reconnect="handleReconnect"
           />
+
+          <!-- pi 自己那份 mcp.json 里由外部写入的条目。它们在 pi 会话里会真的起子进程，
+               不列出来就是「一个没被任何界面认领的外部进程」，开关也够不着 (#53)。 -->
+          <section v-if="isPiEngine && piForeignServers.length > 0" class="pi-foreign-section">
+            <div class="pi-foreign-header">
+              <div class="pi-foreign-title">
+                <Boxes :size="16" />
+                <span>{{ t('mcpSettings.piForeignTitle') }}</span>
+              </div>
+              <span class="pi-foreign-subtitle">
+                {{ t('mcpSettings.piForeignSubtitle', { path: mcpStore.piState?.path || '~/.pi/agent/mcp.json' }) }}
+              </span>
+            </div>
+            <ul class="pi-foreign-list">
+              <li
+                v-for="server in piForeignServers"
+                :key="server.name"
+                class="pi-foreign-row"
+                :class="{ off: !server.enabled }"
+              >
+                <div class="pi-foreign-main">
+                  <div class="pi-foreign-head">
+                    <span class="pi-foreign-name">{{ server.name }}</span>
+                    <span class="pi-foreign-tag">{{ t(`mcpSettings.piForeignTransport.${server.transport}`) }}</span>
+                  </div>
+                  <code class="pi-foreign-target">{{ server.target }}</code>
+                  <p v-if="server.invalid" class="pi-foreign-invalid">
+                    {{ t(`mcpSettings.piForeignInvalid.${server.invalid}`) }}
+                  </p>
+                </div>
+                <label class="builtin-toggle">
+                  <input
+                    type="checkbox"
+                    :checked="server.enabled"
+                    @change="handlePiForeignToggle(server.name, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span class="builtin-toggle-label">
+                    {{ server.enabled ? t('mcpSettings.enabled') : t('mcpSettings.disabled') }}
+                  </span>
+                </label>
+              </li>
+            </ul>
+          </section>
         </template>
       </div>
 
@@ -373,6 +429,7 @@ import {
 } from 'lucide-vue-next'
 import { useMcpStore, type McpToolInfo, type MCPServer } from '@/stores/mcp'
 import { useAppStore } from '@/stores/app'
+import { useSettingsStore } from '@/stores/settings'
 import { BUILTIN_MCP_PRESETS, findBuiltinPreset } from '@/lib/builtinMcp'
 import { useDialog } from '@/composables/useDialog'
 import { api } from '@/services/electronAPI'
@@ -383,6 +440,7 @@ import ConfigEditor from './ConfigEditor.vue'
 const { t } = useI18n()
 const mcpStore = useMcpStore()
 const appStore = useAppStore()
+const settingsStore = useSettingsStore()
 const { showAlert, showConfirm } = useDialog()
 
 const tab = ref<'list' | 'json'>('list')
@@ -465,6 +523,33 @@ const hasBuiltinServers = computed(() =>
   Object.values(servers.value).some(s => s._source === 'builtin')
 )
 
+// ── Pi 引擎的 MCP 实况 (#53) ──
+const isPiEngine = computed(() => settingsStore.engineType === 'pi')
+
+/**
+ * 「已加载」标记要跟着当前引擎的账：Claude 看下次 spawn 的 --mcp-config，
+ * pi 看投影进 ~/.pi/agent/mcp.json 的那份。混用会显示一个另一台引擎的状态。
+ */
+const engineActiveNames = computed(() =>
+  isPiEngine.value ? mcpStore.piActiveNames : mcpStore.activeMcpNames,
+)
+
+/**
+ * 只报「已启用却进不去」的条目：关着的服务器现在不构成问题，
+ * 把它的 SSE 不兼容摆在面板上只是噪音。
+ */
+const piSkipped = computed(() =>
+  (mcpStore.piState?.skipped ?? []).filter(item => servers.value[item.key]?.enabled !== false)
+)
+const piForeignServers = computed(() => mcpStore.piState?.foreign ?? [])
+
+async function handlePiForeignToggle(name: string, enabled: boolean) {
+  const result = await mcpStore.togglePiForeignServer(name, enabled)
+  if (!result.ok) {
+    await showAlert(t(`mcpSettings.piToggleFailed.${result.reason ?? 'write-failed'}`))
+  }
+}
+
 /** 内置 MCP 预设 + 当前启用状态的合并视图，供「内置 MCP」面板渲染 */
 const builtinEntries = computed(() => {
   return BUILTIN_MCP_PRESETS.map(preset => {
@@ -491,7 +576,7 @@ const builtinEntries = computed(() => {
       isInstallingDep: isInstallingThis,
       installProgress: isInstallingThis ? mcpStore.installProgress : null,
       // 这个服务器是否已经写到了下次 CLI spawn 的 --mcp-config（即 Claude Code 真正能调到）
-      activeInCli: mcpStore.activeMcpNames.includes(preset.key),
+      activeInCli: engineActiveNames.value.includes(preset.key),
     }
   })
 })
@@ -698,6 +783,9 @@ function getProbeError(name: string): string | undefined {
 onMounted(() => {
   mcpStore.fetchServers()
   mcpStore.fetchRuntimeStatus()
+  // 只有 pi 引擎才去读用户级 mcp.json —— 那是一份属于外部工具的文件，
+  // 纯 Claude 的配置没有理由为它开一次盘 (#53)
+  if (isPiEngine.value) mcpStore.fetchPiState()
 })
 </script>
 
@@ -1537,5 +1625,117 @@ onMounted(() => {
       background: var(--accent-primary-hover);
     }
   }
+}
+
+/* ── Pi 引擎的 mcp.json 实况 (#53) ── */
+.pi-skipped {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--text-secondary);
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    background: rgba(220, 53, 69, 0.06);
+    border-radius: 4px;
+  }
+
+  svg { color: var(--error); flex-shrink: 0; }
+}
+
+.pi-skipped-name {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+}
+
+.pi-foreign-section {
+  margin-top: 16px;
+}
+
+.pi-foreign-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pi-foreign-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+
+  svg { color: var(--accent-primary); }
+}
+
+.pi-foreign-subtitle {
+  font-size: 11px;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.pi-foreign-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pi-foreign-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+
+  &.off { opacity: 0.6; }
+}
+
+.pi-foreign-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pi-foreign-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pi-foreign-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-tertiary, var(--bg-primary));
+  color: var(--text-secondary);
+}
+
+.pi-foreign-target {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.pi-foreign-invalid {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: var(--error);
+  line-height: 1.4;
 }
 </style>

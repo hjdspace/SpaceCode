@@ -25,4 +25,8 @@ export const mcp = {
     electronAPI?.mcp?.onInstallProgress?.(callback) || (() => {}),
   getActiveMcpNames: (): Promise<string[]> =>
     electronAPI?.mcp?.getActiveMcpNames?.() || Promise.resolve([]),
+  getPiState: (): Promise<any> =>
+    electronAPI?.mcp?.getPiState?.() || Promise.resolve(null),
+  setPiServerEnabled: (name: string, enabled: boolean): Promise<any> =>
+    electronAPI?.mcp?.setPiServerEnabled?.(name, enabled) || Promise.resolve({ ok: false, error: 'electronAPI unavailable' }),
 }
