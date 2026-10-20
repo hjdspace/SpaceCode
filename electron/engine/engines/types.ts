@@ -29,6 +29,14 @@ export interface EngineSessionConfig {
   modelContextWindows?: Record<string, number>
   /** 是否启用 RTK (Rust Token Killer) token 优化 */
   rtkEnabled?: boolean
+  /**
+   * 侧边任务上下文继承来源：主会话 id 及其引擎类型。startSession 时由
+   * transcriptDigest 据此把主会话 transcript 压成快照文件（见 resolveSideTaskContextPath）。
+   */
+  sideTaskSourceSessionId?: string
+  sideTaskSourceEngine?: EngineType
+  /** 已解析出的快照文件路径；引擎在首条用户消息中包裹注入，注入后即清除（一次性）。 */
+  sideTaskContextPath?: string
 }
 
 export interface UnifiedEngineEvent {

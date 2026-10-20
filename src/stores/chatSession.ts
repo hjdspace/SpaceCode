@@ -947,6 +947,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         engineSource: settingsStore.engineSource,
         installedCliPath: settingsStore.installedCliPath ?? undefined,
         resumeSessionId: session._resumeSessionId,
+        sideTaskSourceSessionId: session._sideTaskSourceSessionId,
+        sideTaskSourceEngine: session._sideTaskSourceEngine,
         systemPrompt: overrides?.systemPrompt,
         // 展开为普通对象，避免 Vue 响应式 Proxy 无法通过 Electron IPC 结构化克隆
         modelContextWindows: modelContextWindowsForEngine,
@@ -954,6 +956,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       })
 
       delete session._resumeSessionId
+      // 侧边任务继承来源是一次性的：快照已在本次 startSession 里压好，
+      // 之后的重启（换引擎/换模型）靠 --resume 的历史续聊，不重复注入
+      delete session._sideTaskSourceSessionId
+      delete session._sideTaskSourceEngine
 
       // 「我把参数发下去了」不等于「引擎按它跑了」：agent 落到没有，凭引擎回报的状态对账 (#46)。
       let agentVerdict: Record<string, unknown> | null = null
