@@ -64,6 +64,7 @@ beforeEach(() => {
     currentSessionId: 'main-session' as string | null,
     workingDirectory: '',
     currentProjectRoot: '',
+    sessions: [{ id: 'main-session', engineType: 'claude-code' }],
     createSession: vi.fn(() => ({ id: `eph-${++probe.ephCount}` })),
     deleteSession: vi.fn(),
   })
