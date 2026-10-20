@@ -3,33 +3,38 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { createServer, type Server } from 'node:http'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * 真 pi 子进程核验（issue #42 第 3、4、6 项）。
+ * issue #45 的验收项：真 pi 子进程 + 本地假 OpenAI 兼容上游。
  *
- * 单元层只能证明「我们把帧拼对了」，证明不了 pi 认不认这些帧。这里起真的
- * `pi --mode rpc`，把它的上游指到一个本地假 OpenAI 兼容接口上，然后看接口
- * 真正收到了什么：
- *  - 图片是不是作为 image_url 进了请求体（而不是 @"路径"）
- *  - 用户配的 32000 上下文窗口有没有被模型注册信息采用
- *  - 挂起再恢复之后，第二次请求体里还在不在第一轮的用户消息
- *  - 进程整个换掉（应用重启那条路）之后，只凭会话文件路径还接不接得上历史
+ * 单元层只能证明「帧拼对了、回执判定对了」。plan 下到底写不写得进文件，取决于
+ * `@narumitw/pi-plan-mode` 在真进程里装没装进来、它认不认我们发的 `/plan start`、
+ * 以及它拦不拦得住 `write` —— 这三件事只有真的跑一遍才知道。
  *
- * 不进 CI：需要本机装有 @earendil-works/pi-coding-agent，且会起子进程。显式跑：
- *   PI_REAL=1 npx vitest run electron/engine/engines/__tests__/piSessionProcess.realPi.test.ts
- * 全程用临时 HOME，不碰真实的 ~/.pi；假上游不含任何真实凭据。
+ * 上游第一轮只回一个 write 工具调用（写 workspace 里的 out.txt），第二轮收尾。
+ * 断言的是：目标文件没出现、宿主收到了扩展「plan active」的回执、而工具结果是失败而非成功。
+ *
+ * issue #53 的验收项也放在这里：MCP 工具（`mcp__*`）在 plan 下能不能真的被挡住。
+ * 那个闸是白名单式的（非 builtin 工具属 user-opt-in，默认策略只收 builtin 的安全工具），
+ * 只有连上真 server、真把工具声明出来、真调一次，才分得清「被策略挡了」和「压根没这工具」。
+ * 配一条对照组：同一个工具不在 plan 下确实能写文件，探针不是空转。
+ *
+ * 不进 CI：需要本机装有 @earendil-works/pi-coding-agent 与 @narumitw/pi-plan-mode，且会起子进程。
+ * 显式跑：
+ *   PI_REAL=1 npx vitest run electron/engine/engines/__tests__/piSessionProcess.planMode.realPi.test.ts
+ * 全程用临时 HOME 与临时工作区，不碰真实的 ~/.pi，也不碰仓库。
  */
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const CLI = path.join(REPO_ROOT, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
-const ENABLED = process.env.PI_REAL === '1' && fs.existsSync(CLI)
+const EXTENSION = path.join(REPO_ROOT, 'node_modules', '@narumitw', 'pi-plan-mode', 'dist', 'index.ts')
+const ENABLED = process.env.PI_REAL === '1' && fs.existsSync(CLI) && fs.existsSync(EXTENSION)
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => process.cwd(), getPath: () => process.cwd() },
 }))
 
-// 日志模块自己会决定落盘位置；探针里只要能在失败时看见内容就够
 vi.mock('../../../infra/logger', () => ({
   info: (...args: unknown[]) => console.log('[info]', ...args),
   warn: (...args: unknown[]) => console.warn('[warn]', ...args),
@@ -38,29 +43,64 @@ vi.mock('../../../infra/logger', () => ({
 }))
 
 import { PiSessionProcess } from '../PiSessionProcess'
-import type { EngineSessionConfig, ImageAttachment } from '../types'
+import type { EngineSessionConfig } from '../types'
 
-const MODEL = 'audit-model'
-const TURN1 = '第一轮：请记住关键词 banana'
-const TURN2 = '第二轮：我刚才让你记住的关键词是什么'
-const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+const MODEL = 'plan-probe-model'
+const TARGET = 'out.txt'
+const PROMPT = '把 hello 写进 out.txt，直接用 write 工具'
+
+/** 探针 MCP server 的一个可变工具，pi 侧命名规则是 `mcp__<server>__<tool>` */
+const MCP_SERVER = path.join(__dirname, 'fixtures', 'piMcpProbeServer.mjs')
+const MCP_TOOL = 'mcp__probe__note'
+const MCP_PROMPT = '用 mcp 的 note 工具把 hello 写进文件'
+/** 两条用例各写各的文件：共用一个名字的话，对照组先跑就会把 plan 组的断言弄脏 */
+const MCP_FILE_PLAN = 'mcp-plan.txt'
+const MCP_FILE_OPEN = 'mcp-open.txt'
 
 let probeHome: string
 let workspace: string
 let server: Server
 let port = 0
-/** 上游收到的每一个请求体（原文），顺序即到达顺序 */
+/** 上游收到的请求体，顺序即到达顺序 */
 let captured: string[] = []
 
-function sseChunk(content: string): string {
-  return `data: ${JSON.stringify({
+function sse(data: unknown): string {
+  return `data: ${JSON.stringify(data)}\n\n`
+}
+
+function chunk(delta: Record<string, unknown>, finish: string | null): string {
+  return sse({
     id: 'probe-1',
     object: 'chat.completion.chunk',
     created: 1,
     model: MODEL,
-    choices: [{ index: 0, delta: content === null ? {} : { role: 'assistant', content }, finish_reason: content === null ? 'stop' : null }],
-  })}\n\n`
+    choices: [{ index: 0, delta, finish_reason: finish }],
+  })
 }
+
+/** 第一轮：只回一个工具调用；调哪个由用例改 firstTurnStream */
+function toolCallStream(name: string, args: Record<string, unknown>): string {
+  return [
+    chunk({ role: 'assistant', tool_calls: [{
+      index: 0,
+      id: 'call-write-1',
+      type: 'function',
+      function: { name, arguments: JSON.stringify(args) },
+    }] }, null),
+    chunk({}, 'tool_calls'),
+  ].join('')
+}
+
+const WRITE_CALL = toolCallStream('write', { path: TARGET, content: 'hello from plan mode' })
+
+/** 当前这趟会话第一轮该回的工具调用；用例各自设置 */
+let firstTurnStream = WRITE_CALL
+
+/** 其余轮：收尾 */
+const FINAL_STREAM = [
+  chunk({ role: 'assistant', content: '好。' }, null),
+  chunk({}, 'stop'),
+].join('')
 
 function startFakeUpstream(): Promise<void> {
   return new Promise((resolve) => {
@@ -70,29 +110,18 @@ function startFakeUpstream(): Promise<void> {
         res.end('{}')
         return
       }
-      const chunks: Buffer[] = []
-      req.on('data', (c: Buffer) => chunks.push(c))
+      const parts: Buffer[] = []
+      req.on('data', (c: Buffer) => parts.push(c))
       req.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8')
+        const raw = Buffer.concat(parts).toString('utf8')
         captured.push(raw)
-        const wantsStream = /"stream"\s*:\s*true/.test(raw)
-        if (wantsStream) {
-          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
-          res.write(sseChunk('收到'))
-          res.write(sseChunk(null as unknown as string))
-          res.write('data: [DONE]\n\n')
-          res.end()
-          return
-        }
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({
-          id: 'probe-1',
-          object: 'chat.completion',
-          created: 1,
-          model: MODEL,
-          choices: [{ index: 0, message: { role: 'assistant', content: '收到' }, finish_reason: 'stop' }],
-          usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
-        }))
+        const body = JSON.parse(raw) as { messages: Array<{ role: string; tool_calls?: unknown[] }> }
+        const alreadyRanTool = body.messages.some(m => m.role === 'tool' || (Array.isArray(m.tool_calls) && m.tool_calls.length > 0))
+
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
+        res.write(alreadyRanTool ? FINAL_STREAM : firstTurnStream)
+        res.write('data: [DONE]\n\n')
+        res.end()
       })
     })
     server.listen(0, '127.0.0.1', () => {
@@ -102,34 +131,34 @@ function startFakeUpstream(): Promise<void> {
   })
 }
 
-/** sendMessage 只在"帧被接受"时返回，一轮真正跑完要看 agent_end */
-function waitForTurnEnd(proc: PiSessionProcess, timeoutMs = 90_000): Promise<void> {
+function waitForAgentEnd(proc: PiSessionProcess, timeoutMs = 120_000): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup()
-      reject(new Error('真 pi 一轮未在时限内结束'))
-    }, timeoutMs)
-    const onMessage = (event: any) => {
-      if (event?.type === 'agent_end') {
-        cleanup()
-        resolve()
-      }
-    }
-    const onExit = (code: unknown) => {
-      cleanup()
-      reject(new Error(`pi 进程提前退出 | code=${String(code)}`))
-    }
     const cleanup = () => {
       clearTimeout(timer)
       proc.off('message', onMessage)
       proc.off('exit', onExit)
     }
+    const timer = setTimeout(() => { cleanup(); reject(new Error('真 pi 一轮未在时限内结束')) }, timeoutMs)
+    const onMessage = (event: any) => {
+      if (event?.type === 'agent_end') { cleanup(); resolve() }
+    }
+    const onExit = (code: unknown) => { cleanup(); reject(new Error(`pi 进程提前退出 | code=${String(code)}`)) }
     proc.on('message', onMessage)
     proc.on('exit', onExit)
   })
 }
 
-function makeProcess(sessionId: string, resumeSessionFile?: string): PiSessionProcess {
+/**
+ * 杀进程并等它真的退出。pi 的 MCP 子进程是随它一起收的，而 Windows 上目录要等
+ * 那些句柄放开才删得掉 —— 不等的话 afterAll 会 EPERM，临时目录留在 %TEMP% 里。
+ */
+async function killAndWait(proc: PiSessionProcess, timeoutMs = 10_000): Promise<void> {
+  const exited = new Promise<void>(resolve => proc.once('exit', () => resolve()))
+  await proc.kill()
+  await Promise.race([exited, new Promise(resolve => setTimeout(resolve, timeoutMs))])
+}
+
+function makeProcess(overrides: Partial<EngineSessionConfig> = {}, sessionId = 'pi-plan-real-1'): PiSessionProcess {
   const config: EngineSessionConfig = {
     cwd: workspace,
     provider: 'openai',
@@ -138,31 +167,58 @@ function makeProcess(sessionId: string, resumeSessionFile?: string): PiSessionPr
     apiKey: 'probe-key-not-a-secret',
     thinkingEnabled: false,
     engineType: 'pi',
-    modelContextWindows: { [MODEL]: 32000 },
+    permissionMode: 'plan',
+    ...overrides,
   }
-  const proc = new PiSessionProcess(sessionId, config, resumeSessionFile)
+  const proc = new PiSessionProcess(sessionId, config)
   proc.on('error', () => {})
   return proc
 }
 
-function pngAttachment(): ImageAttachment {
-  return {
-    id: 'img-1',
-    name: 'pixel.png',
-    type: 'image',
-    mimeType: 'image/png',
-    previewUrl: '',
-    data: `data:image/png;base64,${PNG_B64}`,
-  }
+/**
+ * 往探针的 pi agent 目录放一个「用户自有」的 MCP server（不带 `_spacecode` 标记）。
+ *
+ * 故意不走面板那套投影：这条用例只该验一件事 —— pi 连上了 server、工具被声明出来、
+ * plan 闸按白名单挡住了它。顺带也证明我们的投影不会动不属于它的条目（start 时会重算一次）。
+ */
+function seedProbeMcpServer(): void {
+  const dir = path.join(probeHome, '.pi', 'agent')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        probe: {
+          command: process.execPath,
+          args: [MCP_SERVER],
+          env: { PI_MCP_PROBE_DIR: workspace },
+          // 不写的话 pi 默认 codemode，工具压根不会声明给模型，
+          // 于是「被挡住」和「没这个东西」就分不开了。
+          exposure: 'direct',
+        },
+      },
+    }, null, 2),
+    'utf8',
+  )
 }
 
-describe.skipIf(!ENABLED)('真 pi 子进程核验', () => {
+/**
+ * 上游收到的每一条 tool 结果。模型就是看着这句话决定「写不进去」的，
+ * 而它也是「write 真的进过执行流程」的唯一凭据 —— 没有它，文件不存在只说明上游没调工具。
+ */
+function toolResults(): string[] {
+  return captured.flatMap(body => {
+    const parsed = JSON.parse(body) as { messages?: Array<{ role: string; content?: unknown }> }
+    return (parsed.messages ?? []).filter(m => m.role === 'tool').map(m => String(m.content))
+  })
+}
+
+describe.skipIf(!ENABLED)('真 pi 子进程核验：plan 模式写不进文件 (#45)', () => {
   beforeAll(async () => {
     if (!ENABLED) return
-    probeHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pi-probe-home-')))
+    probeHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pi-plan-home-')))
     workspace = path.join(probeHome, 'ws')
     fs.mkdirSync(workspace, { recursive: true })
-    // PiSessionProcess 用 os.homedir() 定位 ~/.pi/agent/models.json，pi 也按同一个 HOME 取配置目录
     process.env.HOME = probeHome
     process.env.USERPROFILE = probeHome
     process.env.PI_CODING_AGENT_DIR = path.join(probeHome, '.pi', 'agent')
@@ -173,84 +229,102 @@ describe.skipIf(!ENABLED)('真 pi 子进程核验', () => {
     await startFakeUpstream()
   }, 120_000)
 
-  afterAll(() => {
-    if (!server) return
-    server.close()
-    if (probeHome) fs.rmSync(probeHome, { recursive: true, force: true })
+  afterAll(async () => {
+    if (server) server.close()
+    if (!probeHome) return
+    // Windows：pi 的 MCP 子进程刚被杀时，它对 workspace 目录的句柄可能还没放开，
+    // rmSync 会 EPERM。句柄放开是毫秒级的事，重试几次就干净了；清临时目录失败
+    // 不该把这组用例判成不过。
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        fs.rmSync(probeHome, { recursive: true, force: true })
+        return
+      } catch (err) {
+        if (attempt === 5) console.warn('[probe] failed to clean', probeHome, String(err))
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
+    }
   })
 
-  it('图片进得了请求体、用户配的窗口进得了模型注册、挂起恢复后历史还在', async () => {
-    const proc = makeProcess('pi-probe-1')
+  // 两条用例各自只看自己那趟上游请求
+  beforeEach(() => {
+    captured = []
+    firstTurnStream = WRITE_CALL
+  })
+
+  it('带上扩展起进程 → /plan start 拿到回执 → write 被拦且文件没出现', async () => {
+    const proc = makeProcess()
     await proc.start()
 
-    // 第 4 项：图片必须作为图像内容送到上游（而不是 @"路径"）
-    const firstTurn = waitForTurnEnd(proc)
-    await proc.sendMessage(TURN1, [pngAttachment()])
-    await firstTurn
-    const withImage = captured.find((body) => body.includes('image_url') && body.includes(PNG_B64))
-    expect(withImage, '上游请求体里没有 image_url 载荷').toBeTruthy()
-    expect(withImage).toContain('banana')
-    expect(withImage).not.toContain('@\\\\"')
+    // 1. 扩展真的随 spawn 装进来了
+    expect(proc.planModeExtensionLoaded, '命令行没带上权限闸扩展').toBe(true)
 
-    // 第 6 项：注册给 pi 的模型带上用户配置的上下文窗口
-    const models = await (proc as any).rpcRequest(
-      (proc as any)._process,
-      { type: 'get_available_models' },
-      10_000,
-      'Timeout waiting for models',
+    // 2. 宿主发的命令帧拿到了扩展的模式回执，而不只是 pi 的 ack
+    await expect(proc.setPlanMode(true)).resolves.toBe(true)
+    expect(proc.planModeActive).toBe(true)
+
+    // 3. 上游按要求调 write
+    const turn = waitForAgentEnd(proc)
+    await proc.sendMessage(PROMPT)
+    await turn
+
+    const results = toolResults()
+    await killAndWait(proc)
+
+    expect(fs.existsSync(path.join(workspace, TARGET)), `plan 模式下 ${TARGET} 还是被写出来了`).toBe(false)
+    // 没有这条就说明 write 压根没进执行流程 —— 那测的是「上游没调工具」，不是「闸拦住了」。
+    // 实测扩展回给模型的原文：Plan mode blocks mutating tool 'write'.
+    expect(results, '上游没收到工具结果，write 没被执行流程受理').toContainEqual(
+      expect.stringMatching(/blocks mutating tool 'write'/i),
     )
-    const registered = (models?.data?.models ?? []).find((m: any) => m.id === MODEL)
-    expect(registered?.contextWindow).toBe(32000)
-
-    // 第 3 项：挂起→恢复之后，上游要还能看见第一轮的用户消息
-    await proc.suspend()
-    expect(proc.getPiSessionFile()).toMatch(/\.jsonl$/)
-
-    const beforeResume = captured.length
-    await proc.resume()
-    const secondTurn = waitForTurnEnd(proc)
-    await proc.sendMessage(TURN2)
-    await secondTurn
-
-    expect(captured.length).toBeGreaterThan(beforeResume)
-    const resumedRequests = captured.slice(beforeResume)
-    const lastRequest = resumedRequests[resumedRequests.length - 1]
-    // 历史连着图片一起带回来：第二轮的请求体里既有第一轮的消息，也有第一轮的图
-    expect(lastRequest).toContain(TURN2)
-    expect(lastRequest).toContain('banana')
-    expect(lastRequest).toContain(PNG_B64)
-
-    await proc.kill()
   }, 240_000)
 
-  it('进程被丢掉重建（应用重启那条路）后，带 --session 的新进程还接得上第一轮', async () => {
-    const proc = makeProcess('pi-probe-restart')
+  it('扩展的菜单对话框不会把会话挂死：/plan 弹出的 select 被宿主取消后命令才有 ack', async () => {
+    const proc = makeProcess()
+    await proc.start()
+    await expect(proc.setPlanMode(true)).resolves.toBe(true)
+
+    // pi 要等命令 handler 跑完才发这条 ack，而 handler 里 await 着扩展的 select ——
+    // 宿主不回 extension_ui_response 的话，这一趟就是 30s 超时（#45 里最坏的失效形态）。
+    await expect(proc.sendMessage('/plan')).resolves.toBeUndefined()
+
+    await killAndWait(proc)
+  }, 240_000)
+
+  it('plan 挡得住 MCP 工具：白名单不含非 builtin 工具，调用被 block 且没落盘 (#53)', async () => {
+    seedProbeMcpServer()
+    firstTurnStream = toolCallStream(MCP_TOOL, { file: MCP_FILE_PLAN, text: 'hello via mcp' })
+
+    const proc = makeProcess({ permissionMode: 'plan' }, 'pi-plan-real-mcp')
+    await proc.start()
+    await expect(proc.setPlanMode(true)).resolves.toBe(true)
+
+    const turn = waitForAgentEnd(proc)
+    await proc.sendMessage(MCP_PROMPT)
+    await turn
+    const results = toolResults()
+    await killAndWait(proc)
+
+    // 这句回执同时证明两件独立的事：工具确实注册上了（server 连上了），
+    // 以及挡住它的是 plan 的工具白名单 —— 而不是「压根没这个工具」。
+    expect(results, `${MCP_TOOL} 没进执行流程，等于测的是上游没调工具`).toContainEqual(
+      expect.stringMatching(/blocks tool 'mcp__probe__note'[\s\S]*not selected by the Plan policy/i),
+    )
+    expect(fs.existsSync(path.join(workspace, MCP_FILE_PLAN)), 'plan 模式下 MCP 还是写出了文件').toBe(false)
+  }, 240_000)
+
+  it('对照：不开 plan 时同一个 MCP 工具真能写文件（证明探针不是空转）', async () => {
+    seedProbeMcpServer()
+    firstTurnStream = toolCallStream(MCP_TOOL, { file: MCP_FILE_OPEN, text: 'hello via mcp' })
+
+    const proc = makeProcess({ permissionMode: 'default' }, 'pi-plan-real-mcp-open')
     await proc.start()
 
-    const firstTurn = waitForTurnEnd(proc)
-    await proc.sendMessage(TURN1)
-    await firstTurn
-    expect(captured[captured.length - 1]).toContain('banana')
+    const turn = waitForAgentEnd(proc)
+    await proc.sendMessage(MCP_PROMPT)
+    await turn
+    await killAndWait(proc)
 
-    // 不问一次 get_state 就没人知道这份历史写在哪个文件上 —— 这个动作原先只有挂起路径有
-    await proc.captureSessionFile(30_000)
-    const sessionFile = proc.getPiSessionFile()
-    expect(sessionFile, '没问到 pi 的会话文件').toMatch(/\.jsonl$/)
-
-    await proc.kill() // 模拟应用退出：进程连同它内存里那份路径一起没了
-
-    const beforeRespawn = captured.length
-    const respawned = makeProcess('pi-probe-restart', sessionFile!)
-    await respawned.start()
-    const secondTurn = waitForTurnEnd(respawned)
-    await respawned.sendMessage(TURN2)
-    await secondTurn
-
-    const respawnRequests = captured.slice(beforeRespawn)
-    const lastRequest = respawnRequests[respawnRequests.length - 1]
-    expect(lastRequest).toContain(TURN2)
-    expect(lastRequest, '重建的进程没把第一轮历史带进去').toContain('banana')
-
-    await respawned.kill()
+    expect(fs.existsSync(path.join(workspace, MCP_FILE_OPEN)), '探针 MCP server 没跑起来，上一条的「没写出来」就无从解释').toBe(true)
   }, 240_000)
 })
