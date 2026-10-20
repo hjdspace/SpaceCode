@@ -50,10 +50,18 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
     case 'message_start': {
       const msg = event.message
       if (msg?.role === 'assistant') {
+        // content 必须抹掉：这一帧带的是**流式进行中的活对象**。pi-ai 在
+        // `stream.push({type:'start', partial: output})` 之后继续原地改 output.content
+        // （ensureThinkingBlock 往里 push 块、再 `block.thinking += delta`），而
+        // agent-loop 是从异步队列里取到 "start" 才转发 —— 所以宿主收到的时候，
+        // content 里已经躺着半截 thinking（运行时日志的 msgContentLen=1 就是它）。
+        // 渲染层此刻还没有任何 timeline 事件，会把这半截当成一条完整消息落成一张推理卡，
+        // 紧接着真正的 thinking_start 又开一张：同一段思考渲染两遍，第一张只剩开头几个字。
+        // 这一帧可信的只有 model/usage；完整 content 由 message_end 那条负责。
         return {
           sessionId,
           type: 'assistant',
-          data: { message: mapAssistantMessage(msg) },
+          data: { message: { ...mapAssistantMessage(msg), content: [] } },
         }
       }
       if (msg?.role === 'user') {
