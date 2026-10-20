@@ -53,6 +53,56 @@ export interface EngineEvictionBlockedEvent {
   data: { reason: string; pendingTools: number }
 }
 
+/**
+ * pi 扩展对话框 (`extension_ui_request`) 里会 await 宿主回帧的四类方法。
+ * 口径见 @earendil-works/pi-coding-agent 的 docs/rpc-extension-ui.md：`confirm` 在
+ * pi 的 RPC 适配层里也是发 `select([确认项, 取消项])`，所以真正高频的是 select。
+ */
+export type ExtensionDialogMethod = 'select' | 'confirm' | 'input' | 'editor'
+
+/** 引擎问用户的一句话；`dialogId` 是 pi 自己的 UUID，与 toolUseId 无关 */
+export interface ExtensionDialogRequest {
+  dialogId: string
+  method: ExtensionDialogMethod
+  title: string
+  /** confirm 的正文 */
+  message?: string
+  /** select 的可选项，原样回传其中一条即为应答 */
+  options?: string[]
+  /** input 的占位文案 */
+  placeholder?: string
+  /** editor 的初始正文 */
+  prefill?: string
+}
+
+/** 对话框不再需要应答：用户答了、被取消、超时，或进程没了 */
+export interface ExtensionDialogClosedEvent {
+  dialogId: string
+  method: ExtensionDialogMethod
+  reason: ExtensionDialogCloseReason
+}
+
+/**
+ * 对话框怎么退的。`timeout` = pi 自己按帧上的 timeout 解掉了；`watchdog` = 帧没带
+ * timeout 又一直没人应答，宿主按 #45 那条「绝不挂死」兜的底。两者对扩展侧都是 cancelled，
+ * 但界面上得区分：前者是「引擎没再问」，后者是「这题过期了」。
+ */
+export type ExtensionDialogCloseReason =
+  | 'answered'
+  | 'cancelled'
+  | 'timeout'
+  | 'watchdog'
+  | 'aborted'
+  | 'suspended'
+  | 'process_exit'
+  | 'process_restart'
+
+/** 渲染层答回来的值；`kind` 与发起的 method 对应，cancel 表示「没有答案」 */
+export type ExtensionDialogAnswer =
+  | { kind: 'value'; value: string }
+  | { kind: 'confirmed'; confirmed: boolean }
+  | { kind: 'cancel' }
+
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
 
 /**
@@ -236,6 +286,10 @@ export const claudeCodeNamespace = defineNamespace({
       req: [] as unknown as [sessionId: string, requestId: string, decision: unknown],
       res: null as unknown,
     },
+    respondExtensionDialog: {
+      req: [] as unknown as [sessionId: string, dialogId: string, answer: ExtensionDialogAnswer],
+      res: null as unknown,
+    },
     setPermissionMode: {
       req: [] as unknown as [sessionId: string, mode: PermissionMode],
       res: null as unknown,
@@ -297,6 +351,8 @@ export const claudeCodeNamespace = defineNamespace({
     onPermissionRequest: { channel: 'permission_request', args: [] as unknown as [data: EngineEvent] },
     onPermissionRequestCancelled: { channel: 'permission_request_cancelled', args: [] as unknown as [data: EngineEvent] },
     onElicitationRequest: { channel: 'elicitation_request', args: [] as unknown as [data: EngineEvent] },
+    onExtensionDialogRequest: { channel: 'extension_dialog_request', args: [] as unknown as [data: EngineEvent] },
+    onExtensionDialogClosed: { channel: 'extension_dialog_closed', args: [] as unknown as [data: EngineEvent] },
     onInstallProgress: { channel: 'installProgress', args: [] as unknown as [progress: InstallProgress] },
   },
 })
