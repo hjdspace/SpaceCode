@@ -14,6 +14,16 @@ export const PLAN_MODE_PACKAGE = '@narumitw/pi-plan-mode'
 export const PLAN_MODE_ENTER_COMMAND = '/plan start'
 export const PLAN_MODE_EXIT_COMMAND = '/plan exit'
 
+/**
+ * 扩展启动前要求这两个 helper 处于 active tools，否则 `/plan start` 直接拒绝
+ * （"plan_mode_question and plan_mode_complete are unavailable"）。
+ *
+ * 恢复已有会话时，pi 会用 transcript 里 system message 的 toolsAdded 覆盖工具集；
+ * 会话第一次创建时扩展还没加载，那份清单里没有这两个名字。必须用 `--tools +name`
+ * 把它们补回恢复出来的 loadout，否则扩展开着也进不了 plan，宿主只看到「没有回执」。
+ */
+export const PLAN_MODE_HELPER_TOOL_MODIFIERS = '+plan_mode_question,+plan_mode_complete'
+
 /** 包清单 `pi.extensions` 指向的入口；Pi 的 jiti 直接吃 TypeScript。 */
 const ENTRY_SEGMENTS = ['dist', 'index.ts']
 
