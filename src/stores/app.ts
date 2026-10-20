@@ -385,6 +385,17 @@ export const useAppStore = defineStore('app', () => {
       undefined,
       { ephemeral: true, activate: false },
     )
+    // 记住主会话作为上下文继承来源：首启时主进程据此压 transcript 快照，
+    // 注入侧边会话首条消息（知道主任务在做什么，但不是 fork）。侧边任务自己
+    // 永远不抢 current，所以 currentSessionId 就是主会话。
+    const mainSessionId = sessionStore.currentSessionId
+    const mainSession = mainSessionId
+      ? sessionStore.sessions.find(s => s.id === mainSessionId)
+      : undefined
+    if (mainSessionId && mainSession && !mainSession.ephemeral) {
+      session._sideTaskSourceSessionId = mainSessionId
+      session._sideTaskSourceEngine = mainSession.engineType
+    }
     sideTasks.value.push({ sessionId: session.id, title })
     activeSideTaskSessionId.value = session.id
     return session.id
