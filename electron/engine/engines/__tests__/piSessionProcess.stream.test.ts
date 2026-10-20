@@ -55,7 +55,7 @@ type Frame = Record<string, unknown> & { type?: string }
 
 const SRC_DIR = path.resolve(__dirname, '..')
 /** Mirrors the __dirname-relative candidate the production resolver checks first. */
-const DEV_CLI = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@mariozechner', 'pi-coding-agent', 'dist', 'cli.js')
+const DEV_CLI = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 
 const H = vi.hoisted(() => ({
   spawnCalls: [] as SpawnCall[],
@@ -94,7 +94,8 @@ vi.mock('fs', () => ({
   existsSync: (p: unknown) => H.existing.has(String(p)),
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
-  readFileSync: () => '{}',
+  // 解析器靠包根 package.json 拿版本；不给版本号就会被判「无从核验」而拒绝起进程
+  readFileSync: (p: unknown) => String(p).endsWith('package.json') ? '{"version":"1.3.0"}' : '{}',
 }))
 
 vi.mock('electron', () => ({

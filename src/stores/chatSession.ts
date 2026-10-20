@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
+import { ErrorCategory } from '@/types'
 import type { RewindOption } from '@/types/rewind'
 import { messages, i18n } from '@/i18n'
 import { useRewindDialog } from '@/composables/useRewindDialog'
@@ -954,6 +955,15 @@ export const useChatSessionStore = defineStore('chatSession', () => {
 
       delete session._resumeSessionId
 
+      // 「我把参数发下去了」不等于「引擎按它跑了」：agent 落到没有，凭引擎回报的状态对账 (#46)。
+      let agentVerdict: Record<string, unknown> | null = null
+      try {
+        agentVerdict = await claudeCode.getSessionStatus(sessionId)
+      } catch {
+        agentVerdict = null
+      }
+      applyAgentVerdict(session, sessionId, agentVerdict, appliedAgent)
+
       session.engineType = desiredEngine
       session.engineSource = settingsStore.engineSource
       session.provider = config.provider
@@ -1579,6 +1589,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           saveToStorage()
           const status = await claudeCode.getSessionStatus(sessionId)
           await syncPermissionMode(sessionId, status, 'activateSession')
+          // resume 重拼过命令行，agent 的账必须跟着重对一次 (#46)
+          applyAgentVerdict(session, sessionId, status as Record<string, unknown> | null)
         } catch (error) {
           console.error('[ChatStore] Failed to resume session:', error)
           session.processStatus = 'exited'
@@ -1961,15 +1973,67 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     } catch {}
   }
 
+  /**
+   * 名单的缓存键：引擎与工作目录之一变了，上一份名单就不再是「这个引擎在这份代码里能用的东西」。
+   * 以前只在列表为空时重取，于是 claude-code→pi 之后下拉框还是 Claude 内置的那几个 ——
+   * 那正是 #46 的根因形态（选项与真实能力无关）。
+   */
+  const agentsCacheKey = ref('')
+
   async function loadAgents() {
     const claudeCode = api.claudeCode
     if (!claudeCode?.listAgents) return
+    const cwd = workingDirectory.value || currentProjectRoot.value || undefined
+    const key = `${settingsStore.engineType}|${cwd ?? ''}`
+    // 只认键，不认「列表非空」：某个工作区确实一个定义都没有时，不该每次开菜单都去打一遍 IPC
+    if (key === agentsCacheKey.value) return
     try {
-      const cwd = workingDirectory.value || currentProjectRoot.value || undefined
-      availableAgents.value = await claudeCode.listAgents(cwd) as typeof availableAgents.value
+      // 引擎要带上：不传时 engineGateway 按 claude-code 兜底，Pi 会话的名单于是全是 Claude 的 (#46)。
+      availableAgents.value = await claudeCode.listAgents(cwd, settingsStore.engineType) as typeof availableAgents.value
+      agentsCacheKey.value = key
     } catch (error) {
       console.error('[ChatStore] Failed to load agents:', error)
     }
+  }
+
+  /**
+   * 引擎对「所选 agent 到底落到没有」的回执，是界面敢不敢说「正以该 agent 运行」的唯一凭据 (#46)。
+   * 每次重拼过命令行之后都要对账：上一次 spawn 的结论不能替这一次说话。
+   * status 为 null（读不到）时按「无从核验」处理 —— 进程已经起来了，不该因为一次状态读取把会话判死。
+   */
+  function applyAgentVerdict(
+    session: Session,
+    sessionId: string,
+    status: Record<string, unknown> | null,
+    attempted?: string,
+  ): void {
+    const applied = status?.agentApplied
+    const extensionLoaded = status?.agentExtensionLoaded
+    const wanted = attempted || currentAgent.value || ''
+
+    session.agentUnapplied = applied === false ? (wanted || undefined) : undefined
+    if (applied === false) {
+      logger.warn('ChatStore', `agent not applied | id=${sessionId.slice(0, 8)} | agent=${wanted || '(none)'}`)
+      pushAgentNotice('chatInput.agentNotApplied', wanted)
+      return
+    }
+    // 人设注入成功了，但扩展没装上：会话「是这个 agent」却不「能委派」—— 同样是静默失效的一种 (#46)
+    if (wanted && extensionLoaded === false) {
+      logger.warn('ChatStore', `subagents extension not loaded | id=${sessionId.slice(0, 8)} | agent=${wanted}`)
+      pushAgentNotice('chatInput.agentExtensionMissing', wanted)
+    }
+  }
+
+  function pushAgentNotice(messageKey: string, agent: string): void {
+    errorHandler.pushToast({
+      id: createUuid(),
+      category: ErrorCategory.CONFIG_ERROR,
+      title: i18n.global.t('chatInput.agent'),
+      message: i18n.global.t(messageKey, { agent }),
+      autoDismiss: true,
+      dismissAfter: 6000,
+      createdAt: Date.now(),
+    })
   }
 
   async function switchAgent(agentType: string) {

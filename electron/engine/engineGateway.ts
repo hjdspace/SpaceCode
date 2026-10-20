@@ -87,10 +87,14 @@ export const engineGateway = {
   findEngineForSession,
 
   startSession: withLogging('startSession', async (sessionId: string, config: EngineSessionConfig): Promise<EngineSessionStatus | null> => {
-    let engineType = config.engineType || 'claude-code'
-    if (engineType !== 'claude-code' && !(await EngineFactory.isEngineAvailableAsync(engineType))) {
-      warn(TAG, `Engine "${engineType}" not available, falling back to claude-code | sid=${sessionId.slice(0, 8)}`)
-      engineType = 'claude-code'
+    const engineType = config.engineType || 'claude-code'
+    if (engineType !== 'claude-code') {
+      const availability = await EngineFactory.getEngineAvailability(engineType)
+      // 曾经这里悄悄换成 claude-code 继续跑：界面标着用户选的 Pi，跑的却是另一个引擎。
+      // 引擎版本由不得产物时 (#52)，宁可起不来并把原因回给调用方，也不替用户改引擎。
+      if (!availability.available) {
+        throw new Error(`Engine "${engineType}" is not available (${availability.reason}${availability.version ? `, version ${availability.version}` : ', version unverifiable'})`)
+      }
     }
     const engine = EngineFactory.getEngine(engineType)
     await engine.startSession(sessionId, config)

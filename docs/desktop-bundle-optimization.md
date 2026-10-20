@@ -59,6 +59,9 @@
 `dist/` 与 `dist-electron/` 中**不存在任何指向 node_modules 的裸模块引用**（仅 `electron` + `better-sqlite3` + `node-pty` + Node 内置模块）。
 `@mariozechner/pi-coding-agent` 是以**独立子进程**方式执行的（`node <pkg>/dist/cli.js`），因此它及其完整依赖闭包必须保留。
 
+> ⚠️ 本节「pi 及其闭包必须保留」的判定已在 issue #52 被推翻，见 §5：子进程从 asar 里读不到裸依赖，
+> 那份副本根本跑不起来；现在 pi 是 devDependency，产物只带 `dist/bundle` 的自包含副本。
+
 ---
 
 ## 2. 实施的优化
@@ -175,3 +178,108 @@ node scripts/gen-bundle-excludes.cjs --dry    # 只打印，不改文件
 | 跨平台原生产物（darwin/linux 预编译） | ~15 MB | 需 `afterPack` 按 `electronPlatformName` 动态删 |
 
 若把 skills-lib / design-systems-lib / officecli / cua-driver（合计 ~153 MB）改成「首次使用时下载」，解包体积可再降到 **约 580 MB**。
+
+---
+
+## 5. pi 改为 devDependency + extraResources bundle（issue #52）
+
+上面 §1.1 的判定错在把「子进程能读到 cli.js」当成「子进程能跑起来」。实测：
+
+- `asarUnpack` 只搬出 `node_modules/@earendil-works/**`，而 `chalk` / `undici` / `file-type` / `typebox`
+  这些裸依赖按 §2.1 的机制留在 asar 里 —— 独立子进程从 `app.asar.unpacked/...` 起，模块解析走到
+  `app.asar.unpacked/node_modules` 就找不到它们，直接 `ERR_MODULE_NOT_FOUND`。
+- 于是运行时一路 fall through 到 `where pi` 命中的**用户全局安装的 pi**。升级票把 dev 依赖钉到 1.3.x
+  对打包版毫无影响：引擎版本由装机的那台机器决定。
+- 那份 asar 里的 20+ MB 依赖闭包，从头到尾没有被任何进程读过。
+
+### 5.1 现在的做法
+
+| 项 | 变化 |
+| --- | --- |
+| `@earendil-works/pi-coding-agent` | `dependencies` → `devDependencies`。electron-builder 只强制打包 `dependencies` 的闭包（§1.1），移到 dev 侧才是真的从 asar 里去掉 |
+| `build.files` / `build.asarUnpack` | 删掉 `node_modules/@earendil-works/**/*` 及它的三条裁剪规则 |
+| `build.extraResources` | 新增 `{ from: node_modules/@earendil-works/pi-coding-agent, to: pi, filter: [package.json, dist/bundle/**/*] }`，实测 9.0 MB |
+| `piCliResolver`（新增） | 打包态唯一候选是 `resources/pi/dist/bundle/cli.js`；找不到就判不可用，**不再**退回全局 `pi` 或 `npx` |
+
+为什么是 `dist/bundle`：1.3.0 起包内 `dist/bundle/*.js` 是上游自己的发行入口（`package.json` 的 `bin.pi`
+就指它），里面**零个裸依赖 import**，且 `dist/bundle/cli.js` 自带 `main(["--mode","rpc", …])` 语义，
+不需要 node_modules 闭包 —— 绕开整类「依赖没跟着搬出 asar」的问题。
+
+`package.json` 必须与 bundle 一起搬：pi 启动时向上走目录找 `package.json` 定 `VERSION`，只搬 bundle 会
+找到宿主的清单（实测把 SpaceCode 自己的 `0.8.10` 当成 pi 版本报出来）。
+
+### 5.2 版本下限与 fail-closed
+
+`piCliResolver` 读版本（bundled/dev 走包根 `package.json`，全局 `pi` 走 `--version` 探针），低于
+`MIN_PI_VERSION`（1.0.0，宿主事件契约要求的 delta 顶层 `id`/`toolName`）或问不出来，一律 `available: false`。
+`claude-code:isEngineAvailable` 回的是 `{ available, reason, version, installable }`，界面据此置灰并给文案；
+`engineGateway.startSession` 不再静默换成 claude-code 跑。
+
+### 5.3 防线
+
+这条路径没有类型检查和单测能覆盖，漂移只会表现在装好包的机器上，因此：
+
+- `scripts/gen-bundle-excludes.cjs` 现在校验 `dependencies` 归属、`build.files`、`build.asarUnpack`（此前无人对比）
+  与 `extraResources` 的源/目标/filter，并在漂移时以非 0 退出。
+- `tests/integration/bundledPiPackaging.test.ts` 按 `build` 配置摆一个假的 `resources/`，断言解析器要找的
+  路径与之完全一致。
+
+## 6. plan 模式的权限闸扩展也走 extraResources（issue #45）
+
+Pi 不内置权限闸：1.3.0 的 `docs/security.md` 仍写着 *"it does not ask for approval before every tool call"*，
+命令行里也没有 `--permission-mode` 可拼。界面上的「计划模式」要真的拦住 `write` / `edit` / `mcp__*`，
+唯一的入口是起进程时 `--extension` 加载 `@narumitw/pi-plan-mode`，于是它变成第二个「必须随产物走、
+且必须在 asar 外」的东西。
+
+| 项 | 变化 |
+| --- | --- |
+| `@narumitw/pi-plan-mode` | 进 `devDependencies`（宿主进程从不 require 它） |
+| `build.extraResources` | 新增四条，落成 `resources/pi-extensions/node_modules/{@narumitw/pi-plan-mode,@narumitw/pi-tui-kit,highlight.js,grok-mermaid}`，实测约 3.1 MB |
+| `piPlanModeExtension.ts`（新增） | 打包态只认 `resources/pi-extensions` 下那份入口；解析不到返回 null，由进程池 fail closed |
+| `PiSessionProcess` | 意图是 plan 才拼 `--extension`；非 plan 的会话一律不带（那两个 helper 工具会凭空出现在模型面前） |
+
+为什么闭包必须整个搬：bundle 入口只把 `@earendil-works/pi-coding-agent`、`pi-tui`、`pi-ai`、
+`pi-agent-core` 与 `typebox` 这几个 specifier 做成**虚拟模块**（`dist/core/extensions/loader.js` 的
+`usesEmbeddedModules` + `virtual-modules.js` 的表）。扩展自己的运行时依赖 —— `@narumitw/pi-tui-kit`
+及其嵌套的 `diff`、`highlight.js`、`grok-mermaid` —— 不在那张表上，得按 node 的目录规则在盘上
+解析得到。少搬一个的表现是 dev 一切正常、打包后只在子进程 stderr 里留下一行加载失败，而界面照旧
+显示「计划模式」。
+
+`pi-tui-kit` 下的 `diff` 是嵌套副本（它要 9.x，顶层是 7.x），所以那条条目的 filter 带上
+`node_modules/**/*`。
+
+### 6.1 防线
+
+- `scripts/gen-bundle-excludes.cjs` 增算扩展的依赖闭包，逐个断言「有 extraResources 条目且源在盘上」。
+- `tests/integration/piPlanModePackaging.test.ts` 把 build 配置与 `resolvePlanModeExtensionPath()` 钉成同一个字符串。
+- `electron/engine/engines/__tests__/piSessionProcess.planMode.realPi.test.ts`（`PI_REAL=1`）用真 pi +
+  本地假上游证明：`/plan start` 拿到扩展回执、上游要求的 `write` 没落盘、扩展的 `select` 菜单被宿主取消后
+  命令仍有 ack（不回帧就会整条会话挂死）。
+
+## 7. 子代理扩展也走 extraResources（issue #46）
+
+Pi 1.3.0 没有 `--agent` 旗子，`dist/cli/args.js` 里根本没有它，README.md:19 仍写着
+*"Pi ships with powerful defaults but skips features like sub-agents and plan mode"*。
+界面上的「所选 agent」要变成引擎里真实存在的东西，走的还是 #45 那条 `--extension` 通道，
+加载 `@tintinweb/pi-subagents`；`.claude/agents` 里的人设它从不读（只读 `.pi/agents`、
+`.agents/agents`、`$PI_CODING_AGENT_DIR/agents`），所以那部分靠 `--append-system-prompt` 注入。
+
+| 项 | 变化 |
+| --- | --- |
+| `@tintinweb/pi-subagents` | 进 `devDependencies`（宿主进程从不 require 它） |
+| `build.extraResources` | 新增两条：扩展本体（入口是包清单声明的 `src/index.ts`，filter 带 `node_modules/**/*` 以随带嵌套的 `nanoid@5`）与 `croner`，实测约 1.1 MB |
+| `piExtensionPackage.ts`（新增） | 两个扩展共用的候选序列：打包态只认 `resources/pi-extensions`，dev 只认 `node_modules`，asar 路径一概不算 |
+| `PiSessionProcess` | 选了 agent 才拼这两样（`--extension` + persona 文件）；没选的会话命令行形态不变 |
+
+`@tintinweb/pi-subagents` 的 `nanoid` 是**嵌套副本**（它要 ^5.1.16，顶层是 3.3.18），随包一起搬；
+`croner` 在顶层，需要自己的条目。两者都不在 bundle 的虚拟模块表上，少搬一个就是 dev 正常、
+打包后扩展静默加载失败 —— 而界面上的 agent 徽章照样亮着。
+
+### 7.1 防线
+
+- `scripts/gen-bundle-excludes.cjs` 的扩展闭包断言同时覆盖两个扩展。
+- `tests/integration/piSubagentsPackaging.test.ts` 把 build 配置与 `resolveSubagentsExtensionPath()`
+  钉成同一个字符串，并断言入口就是包清单 `pi.extensions` 声明的那个文件。
+- `electron/engine/engines/__tests__/piSessionProcess.agent.realPi.test.ts`（`PI_REAL=1`）用真 pi +
+  本地假上游证明：上游收到的系统提示里带该 agent 的正文，且工具清单里出现了扩展注册的 `Agent` ——
+  「argv 里拼了 `--extension`」只说明我们想装，回执才是装上了。

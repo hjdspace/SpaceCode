@@ -487,13 +487,15 @@ describe('H5Server API surface', () => {
       expect(jsonOf(res)).toEqual({ error: 'engineType required' })
     })
 
-    it('reports engine availability', async () => {
-      engineFactoryStub.isEngineAvailableAsync.mockResolvedValueOnce(false)
+    it('reports engine availability with the reason and version the UI needs', async () => {
+      engineFactoryStub.getEngineAvailability.mockResolvedValueOnce({
+        available: false, reason: 'version-too-old', version: '0.73.0', installable: false,
+      })
 
       const res = await call('/api/engine/available', { engineType: 'pi' })
 
-      expect(jsonOf(res)).toEqual({ available: false })
-      expect(engineFactoryStub.isEngineAvailableAsync).toHaveBeenCalledWith('pi')
+      expect(jsonOf(res)).toEqual({ available: false, reason: 'version-too-old', version: '0.73.0', installable: false })
+      expect(engineFactoryStub.getEngineAvailability).toHaveBeenCalledWith('pi')
     })
 
     it('returns agent transcript paths and degrades to null when lookup fails', async () => {

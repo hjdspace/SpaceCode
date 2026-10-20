@@ -15,6 +15,14 @@ import {
   isProbableBunExecutable as engineIsProbableBunExecutable,
 } from '../../session/engineChildProcess'
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
+import { detectPiCli, MIN_PI_VERSION } from './piCliResolver'
+import {
+  PLAN_MODE_ENTER_COMMAND,
+  PLAN_MODE_EXIT_COMMAND,
+  resolvePlanModeExtensionPath,
+} from './piPlanModeExtension'
+import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
+import { findAgentDefinition } from './agentDefinitions'
 
 /** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
 interface PiImageContent {
@@ -22,6 +30,47 @@ interface PiImageContent {
   data: string
   mimeType: string
 }
+
+/**
+ * 扩展报自己模式时用的 statusKey。它在 session_start（含恢复）与各次切换上都会发
+ * 一帧 setStatus —— 这是宿主唯一能拿到的回执，界面敢不敢说「计划模式已生效」就凭它 (#45)。
+ */
+const PLAN_MODE_STATUS_KEY = 'plan-mode'
+
+/**
+ * `formatStatus` 的六种取值里只有这两种落在 `state.enabled === true` 下。「带 statusText」
+ * 不等于在 plan：计划存好或正在实现时报 plan saved / plan implementing，那时写权限是放开的。
+ * 把那种文本当成「在 plan」等于在实现阶段不设闸 (#45)。
+ */
+const PLAN_MODE_ACTIVE_TEXTS = new Set(['plan active', 'plan ready'])
+const PLAN_MODE_INACTIVE_TEXTS = new Set(['plan saved', 'plan implementing'])
+
+/** 认不出的文本算「无从核验」(null)：既不声称生效，也不替引擎编一个状态。 */
+function planModeStateOfStatus(text: unknown): boolean | null {
+  if (typeof text !== 'string' || text.trim() === '') return false
+  if (PLAN_MODE_ACTIVE_TEXTS.has(text)) return true
+  return PLAN_MODE_INACTIVE_TEXTS.has(text) ? false : null
+}
+
+/**
+ * RPC 里会 await 宿主的四类对话框 (docs/rpc-extension-ui.md)。它们不带 toolCallId，
+ * 现有权限卡片没有可挂靠的时间线条目，所以宿主一律回 cancelled：扩展侧拿到
+ * undefined/false，等价于「没批准」，会话不会挂死 (#45)。
+ */
+const EXTENSION_DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor'])
+
+/** pi 发来的扩展 UI 帧：type/id/method 恒有，其余按 method 变化 */
+interface PiExtensionUiRequest {
+  type: 'extension_ui_request'
+  id?: string
+  method?: string
+  title?: string
+  statusKey?: string
+  statusText?: string
+}
+
+/** 等扩展回执的默认时限：实测回执在 ack 之前就到了，这里只兜「扩展没起来」 */
+const PLAN_MODE_RECEIPT_TIMEOUT_MS = 5_000
 
 export class PiSessionProcess extends EventEmitter {
   readonly sessionId: string
@@ -45,6 +94,39 @@ export class PiSessionProcess extends EventEmitter {
   private _piSessionFile: string | null
 
   /**
+   * 实际 spawn 的那个 pi 的版本，以及它是否满足宿主的能力下限。null = 还没解析过，
+   * 或无从核验 —— 界面对 null/false 都不能声称能力可用 (#52)。
+   */
+  engineVersion: string | null = null
+  engineVersionCompatible: boolean | null = null
+
+  /**
+   * 这次 spawn 有没有把 plan 模式扩展带上（`--extension` 真的拼进了命令行）。
+   * 没带上就没有闸，也没有回执 —— 与「带上了但回执没到」是两件事，分开记才看得出是
+   * 装不上还是没生效 (#45)。
+   */
+  planModeExtensionLoaded = false
+
+  /**
+   * 扩展回执的 plan 状态。null = 还没收到过回执，既不能说生效也不能说没生效；
+   * 界面上的模式徽章在 null/false 而意图是 plan 时都不得声称只读已生效。
+   */
+  planModeActive: boolean | null = null
+
+  /**
+   * 所选 agent 有没有真的落到这次 spawn 上：null = 本会话没选 agent（不适用），
+   * true = 定义正文已作为 `--append-system-prompt` 交给进程，false = 选了但落不上。
+   * 界面在 false/null 而意图是某个 agent 时不得声称「正以该 agent 运行」 (#46)。
+   */
+  agentApplied: boolean | null = null
+
+  /**
+   * 这次 spawn 有没有带上子代理扩展。它管「能不能委派」，与 agentApplied 管的
+   * 「本会话是谁」是两件事：扩展装不上时人设照样生效，只是不会委派。
+   */
+  subagentsExtensionLoaded = false
+
+  /**
    * @param resumeSessionFile 由池按历史记录注入的 pi 会话文件；不传则起一个空白会话。
    *   走构造参数而不是 config —— config 要跨 IPC，这个路径只该由主进程决定。
    */
@@ -58,6 +140,8 @@ export class PiSessionProcess extends EventEmitter {
 
   async start(): Promise<void> {
     this.status = 'starting'
+    // 每次 spawn 重新算：上一次进程收到的回执不能替这一次说话（挂起→恢复走的就是这里）
+    this.planModeActive = null
 
     try {
       const cliPath = this.resolveCliPath()
@@ -70,13 +154,9 @@ export class PiSessionProcess extends EventEmitter {
       let launcherEnv: Record<string, string> | undefined
 
       if (cliPath === 'pi') {
-        // Global `pi` CLI command
+        // Global `pi` CLI command — it brings its own runtime
         command = 'pi'
         spawnArgs = ['--mode', 'rpc', ...baseArgs]
-      } else if (cliPath === 'npx') {
-        // Fallback: npx @mariozechner/pi-coding-agent
-        command = 'npx'
-        spawnArgs = ['@mariozechner/pi-coding-agent', '--mode', 'rpc', ...baseArgs]
       } else {
         // Direct path to cli.js — prefer ELECTRON_RUN_AS_NODE over bun.
         // Bun may buffer stdout in chunk mode, causing streaming events to be delayed
@@ -372,6 +452,87 @@ export class PiSessionProcess extends EventEmitter {
   }
 
   /**
+   * 进出 plan 模式。扩展没有启动旗子（README: "There is no startup flag."），只能发它的
+   * `/plan` 子命令；命令帧由 pi 直接执行，不进模型也不写历史。
+   *
+   * ack 只说明「命令被接住了」，模式到底生效没有得看扩展发的 setStatus 回执 —— 切换要求
+   * 跑在空档，正跑着的时候 ack 照样是 handled 而回执不会来。等不到就返回 false，
+   * 由调用方 fail closed，不能拿 ack 当生效 (#45)。
+   */
+  async setPlanMode(active: boolean): Promise<boolean> {
+    const proc = this._process
+    if (!proc || this.status === 'exited') {
+      throw new Error(`Pi session ${this.sessionId.slice(0, 8)} has no running process to apply plan mode`)
+    }
+    if (!this.planModeExtensionLoaded) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode requested on a process without the extension | active=${active}`)
+      return false
+    }
+
+    const message = active ? PLAN_MODE_ENTER_COMMAND : PLAN_MODE_EXIT_COMMAND
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Switching plan mode | command=${message}`)
+    await this.rpcRequest(proc, { type: 'prompt', message, streamingBehavior: 'followUp' }, 30_000, `Timeout waiting for ${message}`)
+
+    const applied = await this.waitForPlanModeReceipt(active)
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode receipt | requested=${active} | applied=${applied}`)
+    return applied
+  }
+
+  /** 等扩展把模式改成期望值；进程退出或超时都算没生效。 */
+  private waitForPlanModeReceipt(expected: boolean): Promise<boolean> {
+    if (this.planModeActive === expected) return Promise.resolve(true)
+
+    return new Promise((resolve) => {
+      const finish = (value: boolean) => {
+        clearTimeout(timer)
+        this.off('planModeState', onState)
+        this.off('exit', onExit)
+        resolve(value)
+      }
+      const onState = (state: boolean | null) => {
+        if (state === expected) finish(true)
+      }
+      const onExit = () => finish(false)
+      const timer = setTimeout(() => finish(false), PLAN_MODE_RECEIPT_TIMEOUT_MS)
+
+      this.on('planModeState', onState)
+      this.on('exit', onExit)
+    })
+  }
+
+  /**
+   * pi RPC 的对话框方法会 await 宿主回帧（docs/rpc-extension-ui.md）。宿主不回，扩展侧的
+   * `await` 就永远不返回，整条会话停在那儿 —— 以前这里只 emit 不回，正是 #45 里最坏的
+   * 那种失效形态。四类对话框一律回 cancelled：扩展拿到 undefined/false，等价于「没批准」，
+   * 语义上仍是 fail-closed。
+   */
+  private declineExtensionDialog(event: PiExtensionUiRequest): void {
+    if (!event.method || !EXTENSION_DIALOG_METHODS.has(event.method)) return
+    if (typeof event.id !== 'string' || !event.id) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog request without an id | method=${event.method}`)
+      return
+    }
+
+    this._process?.stdin?.write(JSON.stringify({ type: 'extension_ui_response', id: event.id, cancelled: true }) + '\n')
+    warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension dialog cancelled by host | method=${event.method} | title=${String(event.title ?? '(none)').split('\n')[0].slice(0, 120)}`)
+  }
+
+  /**
+   * 扩展用 setStatus('plan-mode') 报它自己的模式，取值见 PLAN_MODE_ACTIVE_TEXTS。
+   * session_start（含挂起后恢复）也会发一帧，所以这一路同时覆盖「重启后接上的状态」。
+   */
+  private trackPlanModeReceipt(event: PiExtensionUiRequest): void {
+    if (event.method !== 'setStatus' || event.statusKey !== PLAN_MODE_STATUS_KEY) return
+
+    const active = planModeStateOfStatus(event.statusText)
+    if (active === this.planModeActive) return
+
+    this.planModeActive = active
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode receipt | active=${active ?? '(unrecognized)'} | text=${event.statusText ?? '(cleared)'}`)
+    this.emit('planModeState', active)
+  }
+
+  /**
    * 向在飞的进程要一次 get_state 并记下它的会话文件。
    * 拿不到不影响本轮，只是恢复时退回到「新会话」——不阻塞挂起。
    *
@@ -459,6 +620,8 @@ export class PiSessionProcess extends EventEmitter {
     }
 
     if (event.type === 'extension_ui_request') {
+      this.trackPlanModeReceipt(event)
+      this.declineExtensionDialog(event)
       debug('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Extension UI request | method=${event.method}`)
       this.emit('message', event)
       return
@@ -481,91 +644,31 @@ export class PiSessionProcess extends EventEmitter {
     this.emit('message', event)
   }
 
+  /**
+   * 解析这次真正该 spawn 哪个 pi，并把它的版本记到会话上。
+   *
+   * 不可用就直接抛：宁可会话起不来，也不能让「界面说可用、进程其实是另一个引擎」跑下去。
+   * 候选序列与版本判定都收在 piCliResolver —— PiEngine 的可用性走同一个函数，两边不可能再
+   * 各算一套 (issue #52)。
+   */
   private resolveCliPath(): string {
-    const isPackaged = app.isPackaged
+    const cli = detectPiCli()
+    this.engineVersion = cli.version
+    this.engineVersionCompatible = cli.available
 
-    // electron-builder places @mariozechner/pi-coding-agent under
-    // app.asar.unpacked. Electron's virtual asar filesystem can read the
-    // app.asar path, but a child process cannot execute a script from inside
-    // the archive on Windows. Always try the unpacked equivalent first.
-    const unpackedPath = (candidate: string): string =>
-      candidate.includes(`${path.sep}app.asar${path.sep}`)
-        ? candidate.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
-        : candidate.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1')
-
-    // Strategy 1: __dirname-relative paths (works in both dev and packaged modes)
-    // In dev: __dirname = dist-electron/ → ../../ = project root
-    // In packaged: __dirname = app.asar/dist-electron/ → ../../ = app root
-    const devPaths = [
-      path.resolve(__dirname, '../../node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
-      path.resolve(__dirname, '../../../node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
-    ]
-    for (const p of devPaths) {
-      const executablePath = unpackedPath(p)
-      if (fs.existsSync(executablePath)) {
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (__dirname-relative): ${executablePath}`)
-        return executablePath
-      }
+    if (!cli.entry || !cli.available) {
+      const detail = cli.reason === 'version-too-old'
+        ? `pi ${cli.version} is below the required ${MIN_PI_VERSION}`
+        : cli.reason === 'version-unknown'
+          ? 'the pi version could not be verified'
+          : app.isPackaged
+            ? 'the bundled pi shipped with this build is missing'
+            : 'no pi CLI found'
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Pi unavailable | reason=${cli.reason} | ${detail}`)
+      throw new Error(`Pi engine is not usable: ${detail}`)
     }
 
-    // Strategy 2: app.getAppPath()-relative (reliable in Electron dev mode)
-    if (!isPackaged) {
-      try {
-        const appPath = app.getAppPath()
-        const appRoot = appPath.endsWith('.asar') ? path.dirname(appPath) : appPath
-        const appRelativePath = path.join(appRoot, 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js')
-        if (fs.existsSync(appRelativePath)) {
-          info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (appPath-relative): ${appRelativePath}`)
-          return appRelativePath
-        }
-        // Also check local pi-engine monorepo
-        const localPiPath = path.join(appRoot, 'pi-engine/packages/coding-agent/dist/cli.js')
-        if (fs.existsSync(localPiPath)) {
-          info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (local pi-engine): ${localPiPath}`)
-          return localPiPath
-        }
-      } catch {
-        // app might not be ready
-      }
-    }
-
-    // Strategy 3: process.cwd()-relative (fallback for unusual setups)
-    const cwdPath = path.join(process.cwd(), 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js')
-    if (fs.existsSync(cwdPath)) {
-      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (cwd-relative): ${cwdPath}`)
-      return cwdPath
-    }
-
-    // Strategy 4: Packaged app: look in resources
-    const packagedPaths = [
-      path.join(process.resourcesPath || '', 'node_modules/@mariozechner/pi-coding-agent/dist/cli.js'),
-      path.join(process.resourcesPath || '', 'pi-engine/dist/cli.js'),
-    ]
-    for (const p of packagedPaths) {
-      if (fs.existsSync(p)) {
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (packaged): ${p}`)
-        return p
-      }
-    }
-
-    // Strategy 5: Check if `pi` CLI is available globally
-    // Use `where`/`which` to get the actual path, then verify it's executable.
-    try {
-      const { execSync } = require('child_process')
-      const cmd = process.platform === 'win32' ? 'where pi' : 'which pi'
-      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
-      const piPath = output.split(/\r?\n/)[0]?.trim()
-      if (piPath && fs.existsSync(piPath)) {
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] CLI resolved (global 'pi' command): ${piPath}`)
-        return 'pi'
-      }
-    } catch {
-      // pi not available globally
-    }
-
-    // Fallback: try to use npx
-    warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] No pi CLI found, falling back to npx`)
-    return 'npx'
+    return cli.entry
   }
 
   /**
@@ -687,8 +790,10 @@ export class PiSessionProcess extends EventEmitter {
 
     if (this.config.apiKey) {
       if (this.shouldUseCompatProvider()) {
-        // The compat provider uses apiKey: "OPENAI_API_KEY" in models.json,
-        // so Pi CLI will read the key from this env var.
+        // The compat provider references "$OPENAI_API_KEY" in models.json, so Pi CLI
+        // reads the key from this env var. pi >=0.77 resolves a bare "OPENAI_API_KEY"
+        // as a literal instead (only $NAME / ${NAME} are env references now), which
+        // would authenticate with the string "OPENAI_API_KEY" and 401.
         env['OPENAI_API_KEY'] = this.config.apiKey
       } else {
         // Populate the env var(s) pi-ai reads for this provider so auth works without
@@ -819,7 +924,7 @@ export class PiSessionProcess extends EventEmitter {
         cp.name = 'OpenAI Compatible'
         cp.api = 'openai-completions'
         cp.baseUrl = baseUrl
-        cp.apiKey = 'OPENAI_API_KEY'
+        cp.apiKey = '$OPENAI_API_KEY'
         cp.compat = {
           supportsStore: false,
           supportsDeveloperRole: false,
@@ -902,6 +1007,77 @@ export class PiSessionProcess extends EventEmitter {
     if (this.config.systemPrompt) args.push('--system-prompt', this.config.systemPrompt)
     if (this.config.appendSystemPrompt) args.push('--append-system-prompt', this.config.appendSystemPrompt)
 
+    // plan 的只读语义全靠这个扩展（来路与口径见 piPlanModeExtension）：起进程时不带它，
+    // 就等于「界面显示计划模式、工具照写不误」 (#45)。
+    this.planModeExtensionLoaded = false
+    if (this.config.permissionMode === 'plan') {
+      const extensionPath = resolvePlanModeExtensionPath()
+      if (extensionPath) {
+        args.push('--extension', extensionPath)
+        this.planModeExtensionLoaded = true
+      } else {
+        warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode extension not loadable | plan cannot be enforced for this process`)
+      }
+    }
+
+    this.applySelectedAgent(args)
+
     return args
+  }
+
+  /**
+   * 把界面所选的 agent 真的落到这条会话上 (issue #46)。
+   *
+   * pi 没有 `--agent` 旗子（1.3.0 的 dist/cli/args.js 里根本没有），也没有能设主线程人设的
+   * RPC 命令。而 Claude 那条 `--agent` 本身就是把定义正文当成主线程的 system prompt
+   * （engine/src/main.tsx:2586 `systemPrompt = agentSystemPrompt`）—— 所以这里把同一段正文
+   * 交给 `--append-system-prompt` 才是同构做法：pi 自己的工具说明留在 preamble，persona 作为
+   * addendum 叠上去，两边都是「本会话以此 agent 运行」。
+   *
+   * 传的是文件路径而不是正文：pi 的 resolvePromptInput 认在盘的路径（并把它记进
+   * appendSystemPromptSourcePaths），于是长人设不会撞上 Windows 的命令行长度上限，
+   * 上游请求里出现的也正是这段正文 —— 探针测试就是照这个断言的。
+   *
+   * 同时带上子代理扩展：它让 `.pi/agents` 里的定义在 pi 侧成为一等公民并给出委派能力
+   * （来路与口径见 piSubagentsExtension）。只在选了 agent 时带，跟 #45 一样按意图加载。
+   */
+  private applySelectedAgent(args: string[]): void {
+    this.agentApplied = this.config.agent ? false : null
+    this.subagentsExtensionLoaded = false
+    const agent = this.config.agent
+    if (!agent) return
+
+    const extensionPath = resolveSubagentsExtensionPath()
+    if (extensionPath) {
+      args.push('--extension', extensionPath)
+      this.subagentsExtensionLoaded = true
+    } else {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Subagents extension not loadable | ${agent} cannot delegate for this process`)
+    }
+
+    const definition = findAgentDefinition(agent, { kinds: ['claude', 'pi'], cwd: this.config.cwd })
+    if (!definition) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Selected agent has no definition on disk | agent=${agent}`)
+      return
+    }
+    if (!definition.body) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Selected agent definition is empty | agent=${agent}`)
+      return
+    }
+
+    const promptDir = path.join(os.tmpdir(), 'SpaceCode')
+    const promptPath = path.join(promptDir, `pi-agent-${this.sessionId}.md`)
+    try {
+      fs.mkdirSync(promptDir, { recursive: true })
+      // 按 sessionId 固定文件名：同一会话重启时覆盖，而不是往临时目录里越堆越多
+      fs.writeFileSync(promptPath, definition.body, 'utf8')
+    } catch (err) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write agent persona file | path=${promptPath}`, err)
+      return
+    }
+
+    args.push('--append-system-prompt', promptPath)
+    this.agentApplied = true
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Agent persona attached | agent=${agent} | source=${definition.source} | bodyLen=${definition.body.length} | file=${promptPath}`)
   }
 }

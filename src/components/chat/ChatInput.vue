@@ -423,7 +423,8 @@ let agentsLoadPromise: Promise<void> | null = null
 
 function handleAddClickAndLoadAgents() {
   handleAddClick()
-  if (sessionStore.availableAgents.length > 0 || agentsLoadPromise) return
+  // 只锁在途请求；「要不要重取」交给 store —— 它才知道引擎与工作目录换没换 (#46)。
+  if (agentsLoadPromise) return
   agentsLoadPromise = sessionStore.loadAgents().finally(() => {
     agentsLoadPromise = null
   })

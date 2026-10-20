@@ -1,9 +1,9 @@
 import type { BrowserWindow } from 'electron'
-import type { PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EngineAvailability, EngineUnavailableReason, PermissionUpdate, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
 // 引擎实现统一从本模块取协议类型；定义仍在 src/shared（IPC 单一真相源）。
-export type { PermissionUpdate, ThinkingUpdateTiming }
+export type { EngineAvailability, EngineUnavailableReason, PermissionUpdate, ThinkingUpdateTiming }
 export type { EffortLevel }
 
 export type EngineType = 'claude-code' | 'pi'
@@ -62,6 +62,25 @@ export interface EngineSessionStatus {
   permissionMode?: PermissionMode
   /** 引擎是否已确认运行在 permissionMode 上；null/undefined = 无从核验，按 spawn 参数采信 */
   permissionModeVerified?: boolean | null
+  /**
+   * 真正 spawn 的那个引擎二进制的版本。null = 还没解析过，或无从核验。
+   * 打包版曾经跑的是用户机器上的 pi，版本号由不得 package.json (#52)。
+   */
+  engineVersion?: string | null
+  /** engineVersion 是否满足宿主侧的能力下限；null/false 时界面不得声称该引擎能力可用 */
+  engineVersionCompatible?: boolean | null
+  /**
+   * 界面所选的 agent 有没有真的落到这条会话上。null = 本会话没选 agent（不适用），
+   * false = 选了但落不上，undefined = 该引擎不报这个状态。
+   * 选了没落地时，界面不得只留一个 agent 徽章当作已经生效 (#46)。
+   */
+  agentApplied?: boolean | null
+  /**
+   * 子代理扩展（委派能力）这次有没有真的随 spawn 装进来。选了 agent 却是 false 时，
+   * 界面不得把它当成「什么都能委派」—— 静默无效正是 #46 要消除的形态。
+   * undefined = 该引擎不报这个状态。
+   */
+  agentExtensionLoaded?: boolean
 }
 
 export interface ImageAttachment {

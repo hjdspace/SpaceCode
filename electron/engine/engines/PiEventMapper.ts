@@ -195,6 +195,12 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
     case 'queue_update':
       return null
 
+    // 扩展的 UI 帧在 PiSessionProcess 就地处置完了（plan 模式回执 + 对话框应答），
+    // 到宿主这层没有剩下的可渲染东西。显式 null 而不是走 default，免得读代码的人
+    // 以为这里漏了一条映射 (#45)。
+    case 'extension_ui_request':
+      return null
+
     case 'session_info_changed':
       return null
 
@@ -250,64 +256,63 @@ function mapStreamDelta(delta: any): any {
       return {
         type: 'content_block_start',
         content_block: { type: 'thinking' },
-        partial: delta.partial
       }
     case 'thinking_delta':
       return {
         type: 'content_block_delta',
         delta: { type: 'thinking_delta', thinking: delta.delta || delta.thinking },
-        partial: delta.partial
       }
     case 'thinking_end':
       return {
         type: 'content_block_stop',
         content_block: { type: 'thinking' },
-        partial: delta.partial
       }
     case 'text_start':
       return {
         type: 'content_block_start',
         content_block: { type: 'text' },
-        partial: delta.partial
       }
     case 'text_delta':
       return {
         type: 'content_block_delta',
         delta: { type: 'text_delta', text: delta.delta || delta.text },
-        partial: delta.partial
       }
     case 'text_end':
       return {
         type: 'content_block_stop',
         content_block: { type: 'text' },
-        partial: delta.partial
       }
     case 'toolcall_start': {
-      // pi-ai 的 toolcall_start 只带 { contentIndex, partial } —— id/name 不在事件顶层，
-      // 而是刚被推进 partial.content[contentIndex] 的那个 toolCall 块上（各 provider 与
-      // proxy 均如此）。读顶层的 delta.toolCallId/toolName 恒为 undefined，会让下游
-      // eventHandlers 兜底出随机 id + "Unknown Tool"，造出一张永远等不到 tool_result
-      // 的幽灵卡片，而真卡片随后由 tool_execution_start 另建一条 → 同一次调用渲染两行。
-      const block = delta.partial?.content?.[delta.contentIndex]
+      const tool = toolCallIdentity(delta)
       return {
         type: 'content_block_start',
-        content_block: { type: 'tool_use', id: block?.id, name: mapPiToolName(block?.name) },
-        partial: delta.partial
+        content_block: { type: 'tool_use', id: tool.id, name: mapPiToolName(tool.name) },
       }
     }
     case 'toolcall_delta':
       return {
         type: 'content_block_delta',
         delta: { type: 'input_json_delta', partial_json: delta.delta },
-        partial: delta.partial
       }
     case 'toolcall_end':
       return {
         type: 'content_block_stop',
         content_block: { type: 'tool_use' },
-        partial: delta.partial
       }
     default:
       return delta
   }
+}
+
+/**
+ * toolcall_start 的 id/name 取 RPC 帧顶层的 `{ contentIndex, id, toolName }`。
+ *
+ * 这里曾经还兜底读 `partial.content[contentIndex]` —— 那是给比 0.84.3 更早的 wire 形状留的，
+ * 而它真正的存在理由是打包版实际跑用户自装的全局 pi (#52)。现在打包版只 spawn 随产物走的
+ * bundled 副本，版本低于 1.0.0 会被判不可用，旧形状不再有活的调用方，兜底分支一并删掉。
+ * 身份读空会造出 id=undefined 的幽灵卡片，真卡片另由 tool_execution_start 建一条 →
+ * 同一次调用渲染两行。
+ */
+function toolCallIdentity(delta: PiAgentEvent): { id?: string; name?: string } {
+  return { id: delta.id, name: delta.toolName }
 }

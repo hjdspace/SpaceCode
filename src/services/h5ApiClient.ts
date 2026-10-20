@@ -1,7 +1,7 @@
 // src/services/h5ApiClient.ts
 // H5 模式下的 HTTP REST 客户端 — 替代 Electron IPC 调用
 
-import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
+import type { EngineAvailability, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
 /** H5 连接配置（从 URL query params 解析） */
@@ -173,7 +173,7 @@ export const h5ApiClient = {
   listAgents: (cwd?: string, engineType?: string) =>
     h5Fetch('/api/agents/list', { method: 'POST', body: { cwd, engineType } }),
 
-  isEngineAvailable: (engineType: string): Promise<{ available: boolean }> =>
+  isEngineAvailable: (engineType: string): Promise<EngineAvailability> =>
     h5Fetch('/api/engine/available', { method: 'POST', body: { engineType } }),
 
   // ── 查询 ──

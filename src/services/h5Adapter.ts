@@ -144,7 +144,7 @@ export function createH5Adapter(): ElectronClaudeCodeAPI {
     listAgents: (cwd?: string, engineType?: string) =>
       h5ApiClient.listAgents(cwd, engineType),
     isEngineAvailable: (engineType: string) =>
-      h5ApiClient.isEngineAvailable(engineType).then(r => r.available),
+      h5ApiClient.isEngineAvailable(engineType),
     installPiSdk: () => Promise.resolve({ success: false, error: '该功能暂不支持 H5 模式：installPiSdk' }),
 
     // H5: CLI 安装/探测是桌面端能力（在桌面宿主上执行），H5 端不做降级假报

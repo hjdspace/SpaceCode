@@ -41,6 +41,7 @@
 | --- | --- |
 | **Agent** | A coding assistant tool that has its own Skills directory. SpaceCode manages Skill distribution to Agents. |
 | **Agent Registry** | The built-in list of known Agents (Claude Code, Codex, Cursor, Trae) and their Skill directory paths. Extensible with custom entries. |
+| **Chat Agent (会话智能体)** | A persona a chat session runs as, defined by one `*.md` file under `.claude/agents` or pi's agent directories and chosen in the chat input. Not an **Agent** above (a tool SpaceCode distributes Skills to), and not the engine's `Agent` tool (which *delegates* to a fresh child session). _Avoid_: sub-agent, smart agent. |
 
 ## Operations
 

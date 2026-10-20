@@ -69,6 +69,9 @@ export default {
     piMissing: '未检测到，可一键安装',
     piInstalling: '安装中',
     piInstalled: '已安装',
+    piInstalledVersion: '已就绪 · v{version}',
+    piVersionTooOld: '版本过低（v{version}）',
+    piVersionUnknown: '引擎版本无法确认',
     installPi: '安装 Pi SDK',
     piInstallFailed: '安装失败：{error}',
     installedCliHint: '官网版本会调用你本机 npm 全局装的 claude，可自己升级。'

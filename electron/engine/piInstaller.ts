@@ -20,7 +20,7 @@ export interface InstallResult {
 const INSTALL_TIMEOUT_MS = 120_000
 
 /** Pi SDK 包名 */
-const PI_SDK_PACKAGE = '@mariozechner/pi-coding-agent'
+const PI_SDK_PACKAGE = '@earendil-works/pi-coding-agent'
 
 /**
  * 构建 installer 候选列表（按优先级排序）。
@@ -103,7 +103,7 @@ function tryInstall(
 }
 
 /**
- * 安装 Pi SDK（@mariozechner/pi-coding-agent）。
+ * 安装 Pi SDK（@earendil-works/pi-coding-agent）。
  *
  * 依次尝试 npm → bundled bun → global bun，首个成功即返回。
  * 全部失败时返回最后一个错误。

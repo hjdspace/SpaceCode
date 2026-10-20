@@ -91,11 +91,12 @@ describe('createH5Adapter', () => {
     })
   })
 
-  it('isEngineAvailable 取服务端探测结果而非恒 true', async () => {
+  it('isEngineAvailable 原样转服务端的结论，不再自己压成布尔', async () => {
     const adapter = createH5Adapter()
-    api.isEngineAvailable.mockResolvedValueOnce({ available: false })
+    const verdict = { available: false, reason: 'version-too-old', version: '0.73.0', installable: false }
+    api.isEngineAvailable.mockResolvedValueOnce(verdict)
 
-    await expect(adapter.isEngineAvailable('pi')).resolves.toBe(false)
+    await expect(adapter.isEngineAvailable('pi')).resolves.toEqual(verdict)
     expect(api.isEngineAvailable).toHaveBeenCalledWith('pi')
   })
 

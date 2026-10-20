@@ -12,6 +12,7 @@ const platformSetup = readFileSync(join(root, 'electron', 'infra', 'platformSetu
 const proxyManager = readFileSync(join(root, 'electron', 'infra', 'proxyManager.ts'), 'utf8')
 const releaseWorkflow = readFileSync(join(root, '.github', 'workflows', 'build-release.yml'), 'utf8')
 const piSessionProcess = readFileSync(join(root, 'electron', 'engine', 'engines', 'PiSessionProcess.ts'), 'utf8')
+const piCliResolver = readFileSync(join(root, 'electron', 'engine', 'engines', 'piCliResolver.ts'), 'utf8')
 
 describe('Linux AppImage packaging', () => {
   it('builds node-pty against the CentOS 8 ABI before electron-builder runs', () => {
@@ -34,9 +35,16 @@ describe('Linux AppImage packaging', () => {
     assert.match(proxyManager, /app\.asar\.unpacked.*dist-electron.*proxy.*index\.js/)
   })
 
-  it('executes the Pi CLI from app.asar.unpacked when packaged', () => {
-    assert.match(piSessionProcess, /app\.asar\.unpacked/)
-    assert.match(piSessionProcess, /child process cannot execute a script from inside/)
+  it('executes the bundled Pi CLI from real files outside the asar when packaged', () => {
+    // #52：打包态只认 extraResources 搬出去的 resources/pi（自包含的 dist/bundle）。
+    // 旧做法是把 node_modules 副本 asarUnpack 出来 —— 子进程确实读到了 cli.js，
+    // 却读不到留在 asar 里的裸依赖（file-type/chalk/undici），于是干脆 fall through
+    // 到用户全局装的 pi，引擎版本由不得我们。
+    assert.match(piCliResolver, /process\.resourcesPath/)
+    assert.match(piCliResolver, /'dist', 'bundle', 'cli\.js'/)
+    // 解析只此一处：进程不再自己猜 asar 内外，也不再退回全局 pi / npx
+    assert.doesNotMatch(piSessionProcess, /app\.asar\.unpacked/)
+    assert.doesNotMatch(piSessionProcess, /'npx'/)
   })
 
   it('sets up Linux IME and D-Bus before creating renderer windows', () => {

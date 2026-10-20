@@ -50,18 +50,20 @@
     "postversion": "git push && git push --tags"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.73.0",
     "better-sqlite3": "^13.0.3",
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
+    "@earendil-works/pi-coding-agent": "^1.3.0",
     "@electron/rebuild": "^4.2.0",
     "@git-diff-view/file": "^0.1.7",
     "@git-diff-view/vue": "^0.1.7",
     "@iconify-json/vscode-icons": "^1.2.83",
     "@iconify/utils": "^3.1.7",
     "@iconify/vue": "^5.0.3",
+    "@narumitw/pi-plan-mode": "^0.59.3",
+    "@tintinweb/pi-subagents": "^0.22.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/cors": "^2.8.19",
     "@types/diff": "^7.0.0",
@@ -130,7 +132,6 @@
       "dist/**/*",
       "dist-electron/**/*",
       "node_modules/node-pty/**/*",
-      "node_modules/@mariozechner/**/*",
       "!**/node_modules/**/*.map",
       "!**/node_modules/better-sqlite3/deps/**/*",
       "!**/node_modules/better-sqlite3/prebuilds/win32-arm64*",
@@ -144,9 +145,6 @@
       "!**/node_modules/node-pty/src/**/*",
       "!**/node_modules/node-pty/deps/**/*",
       "!**/node_modules/node-pty/third_party/conpty/**/win10-arm64/**/*",
-      "!**/node_modules/@mariozechner/pi-coding-agent/docs/**/*",
-      "!**/node_modules/@mariozechner/pi-coding-agent/examples/**/*",
-      "!**/node_modules/@mariozechner/pi-ai/node_modules/**/*",
       "!**/node_modules/koffi/build/koffi/darwin_*",
       "!**/node_modules/koffi/build/koffi/freebsd_*",
       "!**/node_modules/koffi/build/koffi/openbsd_*",
@@ -159,10 +157,72 @@
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*",
-      "node_modules/@mariozechner/**/*",
       "dist-electron/proxy/**/*"
     ],
     "extraResources": [
+      {
+        "from": "node_modules/@earendil-works/pi-coding-agent",
+        "to": "pi",
+        "filter": [
+          "package.json",
+          "dist/bundle/**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@narumitw/pi-plan-mode",
+        "to": "pi-extensions/node_modules/@narumitw/pi-plan-mode",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/@tintinweb/pi-subagents",
+        "to": "pi-extensions/node_modules/@tintinweb/pi-subagents",
+        "filter": [
+          "package.json",
+          "src/**/*",
+          "node_modules/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/croner",
+        "to": "pi-extensions/node_modules/croner",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/@narumitw/pi-tui-kit",
+        "to": "pi-extensions/node_modules/@narumitw/pi-tui-kit",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "node_modules/**/*",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "node_modules/highlight.js",
+        "to": "pi-extensions/node_modules/highlight.js",
+        "filter": [
+          "package.json",
+          "lib/**/*"
+        ]
+      },
+      {
+        "from": "node_modules/grok-mermaid",
+        "to": "pi-extensions/node_modules/grok-mermaid",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "!**/*.map"
+        ]
+      },
       {
         "from": "icons",
         "to": "icons",

@@ -150,7 +150,7 @@
               {{ piDesc }}
             </div>
             <button
-              v-if="!piAvailable && !piInstalling && !piChecking"
+              v-if="piInstallable"
               class="s-install-btn"
               @click.stop="installPiSdk"
             >
@@ -239,6 +239,7 @@ import { useOnboardingStore } from '@/stores/onboarding'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 import { useSettingsStore } from '@/stores/settings'
 import type { EngineType } from '@/stores/settings'
+import type { EngineAvailability } from '@/shared/channels/claudeCode'
 import type { Locale } from '@/i18n'
 
 const props = defineProps<{
@@ -307,7 +308,12 @@ const showSkillsManagerEntry = computed({
   }
 })
 
-const piAvailable = ref<boolean | null>(null)
+/** 主进程回不了话时按「不可用、也别引导安装」收口，不给界面留猜的余地 (#52) */
+const UNAVAILABLE: EngineAvailability = { available: false, reason: 'not-found', version: null, installable: false }
+
+const piAvailability = ref<EngineAvailability | null>(null)
+const piAvailable = computed(() => piAvailability.value?.available === true)
+const piInstallable = computed(() => !piChecking.value && !piInstalling.value && piAvailability.value?.installable === true)
 const piChecking = ref(true)
 const piInstalling = ref(false)
 const piInstallError = ref<string | null>(null)
@@ -327,11 +333,17 @@ const engineSourceLabel = computed(() => {
 })
 
 const piDesc = computed(() => {
-  if (piChecking.value) return 'Checking SDK...'
-  if (piInstalling.value) return 'Installing SDK...'
+  if (piChecking.value) return t('settings.piStatusChecking')
+  if (piInstalling.value) return t('settings.piStatusInstalling')
   if (piInstallError.value) return piInstallError.value
-  if (piAvailable.value === false) return 'SDK not installed'
-  return 'Minimalist coding agent'
+  const info = piAvailability.value
+  if (!info) return t('settings.piStatusMissing')
+  if (!info.available) {
+    if (info.reason === 'version-too-old') return t('settings.piStatusVersionTooOld', { version: info.version ?? '?' })
+    if (info.reason === 'version-unknown') return t('settings.piStatusVersionUnknown')
+    return t('settings.piStatusMissing')
+  }
+  return info.version ? t('settings.piStatusVersion', { version: info.version }) : t('settings.piStatusReady')
 })
 
 const projectName = computed(() => {
@@ -348,40 +360,23 @@ const projectParent = computed(() => {
 })
 
 onMounted(async () => {
-  try {
-    const electronAPI = window.electronAPI
-    if (electronAPI?.claudeCode?.isEngineAvailable) {
-      piAvailable.value = await electronAPI.claudeCode.isEngineAvailable('pi')
-    } else {
-      piAvailable.value = false
-    }
-    if (piAvailable.value === false && config.value.engineType === 'pi') {
-      config.value.engineType = 'claude-code'
-      settingsStore.engineType = 'claude-code'
-      settingsStore.saveSettings()
-    }
-  } catch {
-    piAvailable.value = false
-    if (config.value.engineType === 'pi') {
-      config.value.engineType = 'claude-code'
-      settingsStore.engineType = 'claude-code'
-      settingsStore.saveSettings()
-    }
-  } finally {
-    piChecking.value = false
+  await checkPiAvailability()
+  // 引擎不可用就把选择退回 claude-code：留着 Pi 只会让下一次发送撞墙
+  if (!piAvailable.value && config.value.engineType === 'pi') {
+    config.value.engineType = 'claude-code'
+    settingsStore.engineType = 'claude-code'
+    settingsStore.saveSettings()
   }
+  piChecking.value = false
 })
 
-async function checkPiAvailability() {
+/** 问一次主进程；问不到就按「不可用、也别引导安装」收口，绝不留 null 让界面猜 (#52) */
+async function checkPiAvailability(): Promise<void> {
   try {
-    const electronAPI = window.electronAPI
-    if (electronAPI?.claudeCode?.isEngineAvailable) {
-      piAvailable.value = await electronAPI.claudeCode.isEngineAvailable('pi')
-    } else {
-      piAvailable.value = false
-    }
+    const result = await window.electronAPI?.claudeCode?.isEngineAvailable?.('pi')
+    piAvailability.value = result ?? UNAVAILABLE
   } catch {
-    piAvailable.value = false
+    piAvailability.value = UNAVAILABLE
   }
 }
 
@@ -389,8 +384,7 @@ async function installPiSdk() {
   piInstalling.value = true
   piInstallError.value = null
   try {
-    const electronAPI = window.electronAPI
-    const result = await electronAPI?.claudeCode?.installPiSdk()
+    const result = await window.electronAPI?.claudeCode?.installPiSdk()
     if (result?.success) {
       // Re-check availability after installation
       await checkPiAvailability()
@@ -409,7 +403,7 @@ async function installPiSdk() {
 }
 
 function selectEngine(engineId: EngineType) {
-  if (engineId === 'pi' && (piAvailable.value === false || piInstalling.value)) return
+  if (engineId === 'pi' && (!piAvailable.value || piInstalling.value)) return
   if (config.value.engineType === engineId) return
 
   const previousEngine = config.value.engineType

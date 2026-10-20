@@ -43,7 +43,11 @@ const IMG: ImageAttachment = {
 }
 
 const H = vi.hoisted(() => {
-  const state = { mapped: null as { type: string; data: unknown } | null }
+  const state = {
+    mapped: null as { type: string; data: unknown } | null,
+    /** #45：池只问「扩展在不在盘上」，装不上时不得谎报 plan 已生效 */
+    planModeExtensionPath: null as string | null,
+  }
 
   class FakePiProcess {
     static instances: FakePiProcess[] = []
@@ -63,15 +67,49 @@ const H = vi.hoisted(() => {
     status: 'idle' | 'active' | 'suspended' | 'exited' = 'idle'
     running = true
     lastActivityAt = 1000
+    /** 进程解析到的 pi 版本 —— 池要把它带到 EngineSessionStatus 上，界面才不至于空口声称能力可用 (#52) */
+    engineVersion: string | null = '1.3.0'
+    engineVersionCompatible: boolean | null = true
+    /** #45：这两个字段是池判定「plan 到底生效没有」的唯一依据，扩展没装上下次就再重启也白搭 */
+    planModeExtensionLoaded = false
+    planModeActive: boolean | null = null
+    /** #46：所选 agent 有没有落到这次 spawn 上，由进程报给池再报给界面 */
+    agentApplied: boolean | null = null
+    /** #46：子代理扩展（委派能力）这次随 spawn 装没装进来 */
+    subagentsExtensionLoaded = false
+
+    /** setPlanMode 的回执：'confirmed' 返回 true 并把 planModeActive 置上；'refused' 返回 false；'throw' 抛错 */
+    static nextSetPlanMode: 'confirmed' | 'refused' | 'throw' = 'confirmed'
+
+    setPlanMode = vi.fn(async (active: boolean) => {
+      if (FakePiProcess.nextSetPlanMode === 'throw') throw new Error('no running process')
+      if (FakePiProcess.nextSetPlanMode === 'refused') return false
+      this.planModeActive = active
+      return true
+    })
 
     handlers = new Map<string, Set<(...args: any[]) => void>>()
 
     start = vi.fn(async () => {
       if (FakePiProcess.nextStartError) throw FakePiProcess.nextStartError
+      this.running = true
+      this.status = 'idle'
+      this.refreshPlanModeExtension()
     })
     resume = vi.fn(async () => {
       if (FakePiProcess.nextResumeError) throw FakePiProcess.nextResumeError
+      this.running = true
+      this.status = 'idle'
+      this.refreshPlanModeExtension()
     })
+    /**
+     * 真实进程在 buildArgs 里按「意图是 plan 且扩展在盘上」决定这次 spawn 带不带扩展，
+     * fake 用同一个口径 —— 池的重启分支全靠这个标志位走 (issue #45)。
+     */
+    refreshPlanModeExtension() {
+      this.planModeExtensionLoaded =
+        (this.config as EngineSessionConfig).permissionMode === 'plan' && H.state.planModeExtensionPath !== null
+    }
     suspend = vi.fn(() => {
       this.status = 'suspended'
       this.running = false
@@ -83,6 +121,7 @@ const H = vi.hoisted(() => {
     sendMessage = vi.fn(async () => {})
     isRunning = vi.fn(() => this.running)
     canSafelySuspend = vi.fn(() => true)
+    getPendingToolCount = vi.fn(() => 0)
     getPiSessionFile = vi.fn(() => this.sessionFile)
     captureSessionFile = vi.fn(async () => {
       if (FakePiProcess.nextCapturedSessionFile) this.sessionFile = FakePiProcess.nextCapturedSessionFile
@@ -117,6 +156,7 @@ const H = vi.hoisted(() => {
     loggerError: vi.fn(),
     findPiSessionFile: vi.fn((): string | null => null),
     rememberPiSessionFile: vi.fn(),
+    resolvePlanModeExtensionPath: vi.fn((): string | null => state.planModeExtensionPath),
   }
 })
 
@@ -130,6 +170,10 @@ vi.mock('../piSessionRegistry', () => ({
 }))
 
 vi.mock('../PiEventMapper', () => ({ mapPiEvent: H.mapPiEvent }))
+
+vi.mock('../piPlanModeExtension', () => ({
+  resolvePlanModeExtensionPath: H.resolvePlanModeExtensionPath,
+}))
 
 vi.mock('../../../infra/logger', () => ({
   info: vi.fn(),
@@ -168,6 +212,8 @@ async function seedSessions(pool: PiProcessPool, count: number): Promise<FakePiP
 beforeEach(() => {
   vi.resetAllMocks()
   H.state.mapped = null
+  H.state.planModeExtensionPath = null
+  FakePiProcess.nextSetPlanMode = 'confirmed'
   FakePiProcess.instances = []
   FakePiProcess.nextStartError = null
   FakePiProcess.nextResumeError = null
@@ -655,6 +701,51 @@ describe('会话控制面', () => {
       engineSessionId: null,
       status: 'active',
       isRunning: true,
+      engineVersion: '1.3.0',
+      engineVersionCompatible: true,
+      // 没选过模式的会话：意图为空，verified 只能报 null（default 在 Pi 侧没有闸可验）
+      permissionMode: undefined,
+      permissionModeVerified: null,
+      // 同理：没选 agent 的会话报 null（不适用），不是「生效了」
+      agentApplied: null,
+    })
+  })
+
+  it('getSessionStatus 把「agent 没落地」原样带回，不替界面粉饰', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+
+    proc.agentApplied = false
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentApplied: false })
+
+    proc.agentApplied = true
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentApplied: true })
+  })
+
+  it('选了 agent 却没装上子代理扩展时如实报 false —— 静默无效就是 #46 本身', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+
+    // 没选 agent 的会话不报这项：那份能力本来就没被要求
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentExtensionLoaded: undefined })
+
+    proc.config = { agent: 'reviewer' }
+    proc.subagentsExtensionLoaded = false
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentExtensionLoaded: false })
+
+    proc.subagentsExtensionLoaded = true
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({ agentExtensionLoaded: true })
+  })
+
+  it('getSessionStatus 把「版本没核过」原样带上，不粉饰成可用', async () => {
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    proc.engineVersion = '0.73.0'
+    proc.engineVersionCompatible = false
+
+    expect(pool.getSessionStatus('seed-0')).toMatchObject({
+      engineVersion: '0.73.0',
+      engineVersionCompatible: false,
     })
   })
 
@@ -662,11 +753,137 @@ describe('会话控制面', () => {
     const { pool } = makePool()
     await seedSessions(pool, 2)
     FakePiProcess.instances[1].running = false
+    FakePiProcess.instances[1].engineVersion = null
+    FakePiProcess.instances[1].engineVersionCompatible = null
 
     expect(pool.getActiveSessions()).toEqual([
-      { sessionId: 'seed-0', engineSessionId: null, status: 'idle', isRunning: true },
-      { sessionId: 'seed-1', engineSessionId: null, status: 'idle', isRunning: false },
+      { sessionId: 'seed-0', engineSessionId: null, status: 'idle', isRunning: true, engineVersion: '1.3.0', engineVersionCompatible: true, permissionMode: undefined, permissionModeVerified: null, agentApplied: null },
+      { sessionId: 'seed-1', engineSessionId: null, status: 'idle', isRunning: false, engineVersion: null, engineVersionCompatible: null, permissionMode: undefined, permissionModeVerified: null, agentApplied: null },
     ])
     expect(pool.getActiveCount()).toBe(1)
+  })
+})
+
+/**
+ * Pi 不内置权限闸：plan 的只读语义全靠 `--extension` 装进来的扩展 (issue #45)。
+ * 这里钉的是池的编排 —— 什么时候要求扩展进 plan、什么时候不得不换一个进程、
+ * 以及「界面说 plan 而引擎没确认」时绝不把消息转发出去。
+ */
+describe('plan 模式权限闸编排 (#45)', () => {
+  const EXT = '/app/resources/pi-extensions/node_modules/@narumitw/pi-plan-mode/dist/index.ts'
+  const planConfig = (): EngineSessionConfig => ({ cwd: '/workspace', permissionMode: 'plan' })
+
+  it('意图是 plan 且扩展在盘上：起进程就要求进 plan，状态如实报已核验', async () => {
+    H.state.planModeExtensionPath = EXT
+    const { pool } = makePool()
+
+    await pool.startSession('s1', planConfig())
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+
+    expect(proc.planModeExtensionLoaded).toBe(true)
+    expect(proc.setPlanMode).toHaveBeenCalledWith(true)
+    expect(pool.getSessionStatus('s1')).toMatchObject({ permissionMode: 'plan', permissionModeVerified: true })
+  })
+
+  it('扩展装不上时不去空转重启，也只报「plan 没核验」', async () => {
+    H.state.planModeExtensionPath = null
+    const { pool } = makePool()
+
+    await pool.startSession('s1', planConfig())
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+
+    await expect(pool.sendMessage('s1', '写个文件')).rejects.toThrow(/plan mode is not enforced/)
+    expect(proc.start).toHaveBeenCalledTimes(1)
+    expect(proc.sendMessage).not.toHaveBeenCalled()
+    expect(pool.getSessionStatus('s1')).toMatchObject({ permissionMode: 'plan', permissionModeVerified: null })
+  })
+
+  it('运行中切到 plan：换一个进程装扩展，历史靠 --session 接上', async () => {
+    const { pool } = makePool()
+    await pool.startSession('s1', { cwd: '/workspace' })
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    proc.sessionFile = '/pi/s1.jsonl'
+    H.state.planModeExtensionPath = EXT
+
+    await pool.setPermissionMode('s1', 'plan')
+
+    expect(proc.suspend).toHaveBeenCalledTimes(1)
+    expect(proc.resume).toHaveBeenCalledTimes(1)
+    expect(proc.setPlanMode).toHaveBeenCalledWith(true)
+    expect(proc.config).toMatchObject({ permissionMode: 'plan' })
+  })
+
+  it('引擎不确认（回执等不到）就抛，并把意图回滚 —— 界面据此退回点击前的模式', async () => {
+    H.state.planModeExtensionPath = EXT
+    FakePiProcess.nextSetPlanMode = 'refused'
+    const { pool } = makePool()
+    await pool.startSession('s1', { cwd: '/workspace' })
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+
+    await expect(pool.setPermissionMode('s1', 'plan')).rejects.toThrow(/did not confirm plan mode/)
+    expect(proc.config).toMatchObject({ permissionMode: undefined })
+  })
+
+  it('轮次跑到一半不换进程：那等于掐掉用户正在等的答案', async () => {
+    H.state.planModeExtensionPath = EXT
+    const { pool } = makePool()
+    await pool.startSession('s1', { cwd: '/workspace' })
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    proc.canSafelySuspend = vi.fn(() => false)
+
+    await expect(pool.setPermissionMode('s1', 'plan')).rejects.toThrow(/did not confirm plan mode/)
+    expect(proc.suspend).not.toHaveBeenCalled()
+  })
+
+  it('同一个模式只补一次进程重启：用户再点一次也不再空转换进程', async () => {
+    H.state.planModeExtensionPath = EXT
+    const { pool } = makePool()
+    await pool.startSession('s1', { cwd: '/workspace' })
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    proc.sessionFile = '/pi/s1.jsonl'
+    // 重起之后仍然算没装上扩展（路径解析得到、子进程那边装不进去）
+    proc.refreshPlanModeExtension = () => {}
+
+    await expect(pool.setPermissionMode('s1', 'plan')).rejects.toThrow(/did not confirm plan mode/)
+    expect(proc.suspend).toHaveBeenCalledTimes(1)
+
+    await expect(pool.setPermissionMode('s1', 'plan')).rejects.toThrow(/did not confirm plan mode/)
+    expect(proc.suspend).toHaveBeenCalledTimes(1)
+    expect(proc.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('切回 default：意图当场落地，扩展退不出去也不拦（引擎更保守不算风险）', async () => {
+    H.state.planModeExtensionPath = EXT
+    const { pool } = makePool()
+    await pool.startSession('s1', planConfig())
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    FakePiProcess.nextSetPlanMode = 'throw'
+
+    await expect(pool.setPermissionMode('s1', 'default')).resolves.toBeUndefined()
+    expect(proc.setPlanMode).toHaveBeenCalledWith(false)
+    expect(pool.getSessionStatus('s1')).toMatchObject({ permissionMode: 'default', permissionModeVerified: null })
+  })
+
+  it('已经在 plan 里就不再多发一帧切换命令', async () => {
+    H.state.planModeExtensionPath = EXT
+    const { pool } = makePool()
+    await pool.startSession('s1', planConfig())
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    proc.setPlanMode.mockClear()
+
+    await pool.sendMessage('s1', '继续')
+
+    expect(proc.setPlanMode).not.toHaveBeenCalled()
+    expect(proc.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('拦下消息时把原因作为 error 事件发给渲染层，不只抛给调用方', async () => {
+    const { pool } = makePool()
+    await pool.startSession('s1', planConfig())
+    H.mapPiEvent.mockClear()
+
+    await expect(pool.sendMessage('s1', '写个文件')).rejects.toThrow(/plan mode is not enforced/)
+
+    expect(H.mapPiEvent).toHaveBeenCalledWith('s1', expect.objectContaining({ type: 'error' }))
   })
 })

@@ -2,8 +2,7 @@ import type { BrowserWindow } from 'electron'
 import { ClaudeCodeProcessPool } from '../claudeCodeProcessPool'
 import { SessionConfig } from '../../session/sessionProcess'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate, ThinkingUpdateTiming, EffortLevel } from './types'
-import * as fs from 'fs'
-import * as path from 'path'
+import { discoverAgentDefinitions, toAgentInfos } from './agentDefinitions'
 import { info } from '../../infra/logger'
 
 const BUILTIN_AGENTS: AgentInfo[] = [
@@ -201,44 +200,6 @@ export class ClaudeCodeEngine implements IEngine {
   }
 
   async listAgents(cwd?: string): Promise<AgentInfo[]> {
-    const agents: AgentInfo[] = [...BUILTIN_AGENTS]
-    const searchDirs: string[] = []
-    if (cwd) {
-      searchDirs.push(path.join(cwd, '.claude', 'agents'))
-    }
-    const homeDir = process.env.HOME || process.env.USERPROFILE
-    if (homeDir) {
-      searchDirs.push(path.join(homeDir, '.claude', 'agents'))
-    }
-    for (const dir of searchDirs) {
-      if (!fs.existsSync(dir)) continue
-      const isProject = dir !== path.join(homeDir!, '.claude', 'agents')
-      try {
-        const entries = fs.readdirSync(dir).filter(f => f.endsWith('.md'))
-        for (const entry of entries) {
-          const filePath = path.join(dir, entry)
-          try {
-            const content = fs.readFileSync(filePath, 'utf8')
-            const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/)
-            if (!frontmatterMatch) continue
-            const fm = frontmatterMatch[1]
-            const nameMatch = fm.match(/^name:\s*['"]?([^'"\n]+)['"]?/m)
-            const descMatch = fm.match(/^description:\s*['"]?([^'"\n]+)['"]?/m)
-            const modelMatch = fm.match(/^model:\s*['"]?([^'"\n]+)['"]?/m)
-            const colorMatch = fm.match(/^color:\s*['"]?([^'"\n]+)['"]?/m)
-            if (nameMatch) {
-              agents.push({
-                agentType: nameMatch[1].trim(),
-                description: descMatch ? descMatch[1].trim() : '',
-                source: isProject ? 'project' : 'user',
-                model: modelMatch?.[1]?.trim(),
-                color: colorMatch?.[1]?.trim(),
-              })
-            }
-          } catch {}
-        }
-      } catch {}
-    }
-    return agents
+    return [...BUILTIN_AGENTS, ...toAgentInfos(discoverAgentDefinitions({ kinds: ['claude'], cwd }))]
   }
 }

@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import type { EngineType, IEngine } from './types'
+import type { EngineAvailability, EngineType, IEngine } from './types'
 import { ClaudeCodeEngine } from './ClaudeCodeEngine'
 import { PiEngine } from './PiEngine'
 import { info, warn } from '../../infra/logger'
@@ -86,14 +86,13 @@ export class EngineFactory {
     }
   }
 
-  static isEngineAvailable(type: EngineType): boolean {
-    if (type === 'pi') return PiEngine.isAvailable()
-    return true
-  }
-
-  static async isEngineAvailableAsync(type: EngineType): Promise<boolean> {
-    if (type === 'pi') return PiEngine.isAvailableAsync()
-    return true
+  /**
+   * 引擎可用性 + 不可用的原因 + 真正会跑的版本。
+   * 界面要的是这三样一起给，否则「置灰」和「为什么置灰」只能各猜一半 (#52)。
+   */
+  static async getEngineAvailability(type: EngineType): Promise<EngineAvailability> {
+    if (type === 'pi') return PiEngine.getAvailability()
+    return { available: true, reason: 'ok', version: null, installable: false }
   }
 
   static killAll(): void {
