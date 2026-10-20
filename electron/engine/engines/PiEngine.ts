@@ -5,6 +5,7 @@ import { toPiThinkingLevel } from '@/shared/effort'
 import { PiProcessPool } from './PiProcessPool'
 import { discoverAgentDefinitions, toAgentInfos } from './agentDefinitions'
 import { detectPiCli } from './piCliResolver'
+import { resolveSideTaskContextPath } from '../../session/transcriptDigest'
 import { info, warn, error } from '../../infra/logger'
 
 export class PiEngine implements IEngine {
@@ -38,7 +39,10 @@ export class PiEngine implements IEngine {
     }
 
     try {
-      await this.pool.startSession(sessionId, config)
+      // 侧边任务：先按继承来源把主会话 transcript 压成快照文件（失败降级为普通新会话），
+      // 首条 prompt 由 PiSessionProcess 包裹注入
+      const sideTaskContextPath = await resolveSideTaskContextPath(sessionId, config)
+      await this.pool.startSession(sessionId, sideTaskContextPath ? { ...config, sideTaskContextPath } : config)
       const status = this.pool.getSessionStatus(sessionId)
       info('PiEngine', `[${sessionId.slice(0, 8)}] Session started | status=${status?.status}`)
     } catch (err) {
