@@ -25,6 +25,7 @@ import {
   type PermissionUpdate,
 } from './controlProtocol'
 import { shouldAutoApprovePermission } from './permissionAutoApprove'
+import { ShellOutputStream } from './shellOutputStream'
 import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
 import { readSideTaskContextFile, discardSideTaskContextFile } from './transcriptDigest'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
@@ -232,6 +233,13 @@ export class SessionProcess extends EventEmitter {
 
   // 控制协议处理器：负责 can_use_tool / control_response / elicitation 等
   private readonly controlProtocol: ControlProtocolHandler
+
+  /**
+   * claude-code 的 Bash 实时输出旁路：CLI 把输出落在 task output 文件里，
+   * 但协议只在结束时回 tool_result。这里把增量快照合成成 pi 同款的
+   * tool_execution_delta。目录找不到时静默降级，终态仍由 tool_result 覆盖。
+   */
+  private liveToolOutput: ShellOutputStream | null = null
 
   private cliRoot: string
   private stderrBuffer: string = ''
@@ -947,6 +955,8 @@ export class SessionProcess extends EventEmitter {
   suspend(): void {
     if (!this.process) return
     info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Suspending process | pid=${this.process.pid} | pendingTools=${this.pendingToolCalls.size}`)
+    this.liveToolOutput?.dispose()
+    this.liveToolOutput = null
     this.status = 'suspended'
     this.settleInitWaiters(false)
     try {
@@ -956,6 +966,8 @@ export class SessionProcess extends EventEmitter {
   }
 
   kill(): void {
+    this.liveToolOutput?.dispose()
+    this.liveToolOutput = null
     if (this.process) {
       engineKillTree(this.process, 'SessionProcess')
       this.process = null
@@ -986,6 +998,102 @@ export class SessionProcess extends EventEmitter {
   }
 
   /**
+   * 从引擎消息里识别 Bash 工具的开始/结束，维护实时输出旁路。
+   *
+   * 三个开始信号都可能出现（stream_event / assistant content / tool_use），
+   * registerTool 幂等；结束信号 tool_result 既可能是独立消息，也可能藏在
+   * user 消息的 tool_result block 里（官方 CLI 的形状）。
+   */
+  private trackLiveToolOutput(msg: SDKMessage): void {
+    // 子代理的 sidechain 工具不接：渲染层的 stream_event 只按主消息查 toolCall，
+    // 接了也落不到卡片上，反而会抢占主线程 Bash 的输出文件认领顺序。
+    if (typeof msg.parent_tool_use_id === 'string' && msg.parent_tool_use_id) return
+
+    if (msg.type === 'stream_event') {
+      const ev = msg.event || msg
+      const block = ev.content_block
+      if (
+        ev.type === 'content_block_start' &&
+        block?.type === 'tool_use' &&
+        block.name === 'Bash' &&
+        typeof block.id === 'string' &&
+        block.id
+      ) {
+        this.registerLiveToolOutput(block.id)
+      }
+      return
+    }
+
+    if (msg.type === 'tool_use') {
+      const toolId = msg.id || msg.tool_use?.id
+      const toolName = msg.name || msg.tool_use?.name
+      if (typeof toolId === 'string' && toolId && toolName === 'Bash') {
+        this.registerLiveToolOutput(toolId)
+      }
+      return
+    }
+
+    if (msg.type === 'assistant' && Array.isArray(msg.message?.content)) {
+      for (const block of msg.message.content) {
+        if (block?.type === 'tool_use' && block.name === 'Bash' && typeof block.id === 'string' && block.id) {
+          this.registerLiveToolOutput(block.id)
+        }
+      }
+      return
+    }
+
+    if (msg.type === 'tool_result') {
+      const toolId = msg.tool_use_id || msg.tool_result?.tool_use_id
+      if (typeof toolId === 'string' && toolId) this.releaseLiveToolOutput(toolId)
+      return
+    }
+
+    if (msg.type === 'user' && Array.isArray(msg.message?.content)) {
+      for (const block of msg.message.content) {
+        if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string' && block.tool_use_id) {
+          this.releaseLiveToolOutput(block.tool_use_id)
+        }
+      }
+    }
+  }
+
+  private ensureLiveToolOutput(): ShellOutputStream | null {
+    // 没有引擎 session id 就没有确定的 tasks 目录；等 init 到了再建
+    if (!this.engineSessionId) return null
+    if (!this.liveToolOutput) {
+      this.liveToolOutput = new ShellOutputStream({
+        engineSessionId: this.engineSessionId,
+        cwd: this.config.cwd,
+        onSnapshot: (toolUseId, text) => this.emitLiveToolOutput(toolUseId, text),
+      })
+    }
+    return this.liveToolOutput
+  }
+
+  private registerLiveToolOutput(toolUseId: string): void {
+    this.ensureLiveToolOutput()?.registerTool(toolUseId)
+  }
+
+  private releaseLiveToolOutput(toolUseId: string): void {
+    this.liveToolOutput?.releaseTool(toolUseId)
+  }
+
+  private emitLiveToolOutput(toolUseId: string, text: string): void {
+    // 合成 pi 同款的 tool_execution_delta：渲染层不必知道这是主进程旁路
+    this.emit('message', {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        delta: {
+          type: 'tool_execution_delta',
+          toolCallId: toolUseId,
+          partialResult: { content: [{ type: 'text', text }] },
+        },
+      },
+    })
+  }
+
+  /**
    * 入站消息路由：把控制协议消息消化掉，其余继续走原有 handleSDKMessage 逻辑。
    *
    * 实际工作由 ControlProtocolHandler 完成；此处保留是为了便于打日志。
@@ -993,6 +1101,7 @@ export class SessionProcess extends EventEmitter {
   private handleSDKMessage(msg: SDKMessage) {
     this.lastActivityAt = Date.now()
     sdkMessage(this.sessionId, msg.type, msg)
+    this.trackLiveToolOutput(msg)
 
     if (msg.type === 'result') {
       this.status = 'idle'
@@ -1071,6 +1180,11 @@ export class SessionProcess extends EventEmitter {
       this.settleInitWaiters(!!sid)
       if (sid) {
         this.engineSessionId = sid
+        // 引擎 session id 变了：旧 tasks 目录的 tail 不再属于这条会话
+        if (this.liveToolOutput) {
+          this.liveToolOutput.dispose()
+          this.liveToolOutput = null
+        }
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Engine session initialized | engineSessionId=${sid} | tools=${JSON.stringify(msg.tools || []).slice(0, 200)}`)
         traceEvent({
           sessionId: this.sessionId,
