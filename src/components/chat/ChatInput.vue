@@ -407,6 +407,7 @@ const { attachedImages, handleImageFile: handleImageFileFromComposable, readLoca
 // Agent selector
 const agentSelector = useAgentSelector({
   onUpdateAgent: (a) => emit('update:agent', a),
+  sessionId: () => props.sessionId,
 })
 const {
   selectedAgent, builtInAgents, customAgents,

@@ -94,6 +94,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _agentService = LocalAgentService();
   List<String> _availableModels = const [];
   bool _loadingModels = false;
+  String? _defaultAgentId;
   String? _defaultAgentName;
   String _permissionMode = 'default';
   bool _streamingEnabled = true;
@@ -111,6 +112,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _loadPrefs() async {
+    final agentId = await MobilePreferences.getDefaultAgentId();
     final agentName = await MobilePreferences.getDefaultAgentName();
     final permMode = await MobilePreferences.getPermissionMode();
     final streaming = await MobilePreferences.getStreamingEnabled();
@@ -124,6 +126,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _modelController.text = config.model;
     _searchKeyController.text = config.searchApiKey;
     setState(() {
+      _defaultAgentId = agentId;
       _defaultAgentName = agentName;
       _permissionMode = permMode;
       _streamingEnabled = streaming;
@@ -1469,8 +1472,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return null;
   }
 
-  /// 默认 Agent 选择器：复用 chat_input 中的 Agent 列表
+  /// 默认 Agent 选择器：列表来自桌面端引擎真实扫描结果。
   void _showAgentPicker() {
+    ref.read(chatProvider.notifier).refreshAgents();
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).cardColor,
@@ -1478,85 +1482,118 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) {
-        final theme = Theme.of(sheetContext);
-        const agents = <(String, String, String, IconData, Color)>[
-          (
-            'code',
-            'Code Agent',
-            '代码编写与调试',
-            Icons.code_rounded,
-            Color(0xffcc785c)
-          ),
-          (
-            'architect',
-            'Architect Agent',
-            '架构设计与分析',
-            Icons.architecture_rounded,
-            Color(0xff5db8a6)
-          ),
-          (
-            'review',
-            'Review Agent',
-            '代码审查与质量检查',
-            Icons.rate_review_rounded,
-            Color(0xffe8a55a)
-          ),
-        ];
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(2),
+        return Consumer(
+          builder: (context, ref, _) {
+            final theme = Theme.of(context);
+            final chatState = ref.watch(chatProvider);
+            final connected = ref.watch(connectionProvider).state ==
+                conn.ConnectionState.connected;
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              Text(
-                '选择默认 Agent',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              for (final agent in agents)
-                () {
-                  final (id, name, desc, icon, color) = agent;
-                  final isSelected = _defaultAgentName == name;
-                  return ListTile(
-                    leading: Icon(icon, color: color),
-                    title: Text(name,
-                        style: TextStyle(color: theme.colorScheme.onSurface)),
-                    subtitle: Text(desc,
+                  Text(
+                    I18n.t('settings.agent.title'),
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (chatState.agentsLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (chatState.availableAgents.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        connected
+                            ? I18n.t('settings.agent.empty')
+                            : I18n.t('settings.agent.offline'),
                         style: TextStyle(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.5))),
-                    trailing: isSelected
-                        ? Icon(Icons.check_circle_rounded,
-                            color: theme.colorScheme.primary, size: 20)
-                        : null,
-                    onTap: () async {
-                      await MobilePreferences.setDefaultAgent(id, name);
-                      // 同时同步到当前会话
-                      ref.read(chatProvider.notifier).setAgent(id, name);
-                      if (!sheetContext.mounted || !mounted) return;
-                      setState(() => _defaultAgentName = name);
-                      Navigator.pop(sheetContext);
-                    },
-                  );
-                }(),
-              const SizedBox(height: 8),
-            ],
-          ),
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.5),
+                          fontSize: 13,
+                        ),
+                      ),
+                    )
+                  else
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.45,
+                      ),
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final agent in chatState.availableAgents)
+                            ListTile(
+                              leading: Icon(
+                                Icons.smart_toy_outlined,
+                                color: theme.colorScheme.primary,
+                              ),
+                              title: Text(
+                                agent.name,
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              subtitle: Text(
+                                agent.description.isEmpty
+                                    ? agent.source
+                                    : agent.description,
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.5),
+                                ),
+                              ),
+                              trailing: _defaultAgentId == agent.id
+                                  ? Icon(
+                                      Icons.check_circle_rounded,
+                                      color: theme.colorScheme.primary,
+                                      size: 20,
+                                    )
+                                  : null,
+                              onTap: () async {
+                                await MobilePreferences.setDefaultAgent(
+                                  agent.id,
+                                  agent.name,
+                                );
+                                ref
+                                    .read(chatProvider.notifier)
+                                    .setAgent(agent.id);
+                                if (!sheetContext.mounted || !mounted) return;
+                                setState(() {
+                                  _defaultAgentId = agent.id;
+                                  _defaultAgentName = agent.name;
+                                });
+                                Navigator.pop(sheetContext);
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
         );
       },
     );

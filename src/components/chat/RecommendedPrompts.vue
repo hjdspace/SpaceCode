@@ -38,7 +38,7 @@ const sessionStore = useChatSessionStore()
 const agentsStore = useAgentsStore()
 
 const assistant = computed(() => {
-  const id = sessionStore.currentSession?.assistantId || sessionStore.currentAgent
+  const id = sessionStore.currentSession?.assistantId || sessionStore.currentSession?.agent
   if (!id) return undefined
   return agentsStore.libraryAgents.find(a => a.name === id && a.mode === 'work')
 })

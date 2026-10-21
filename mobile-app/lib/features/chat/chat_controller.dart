@@ -30,6 +30,29 @@ final chatProvider = StateNotifierProvider<ChatNotifier, ChatState>((ref) {
   return ChatNotifier(ref);
 });
 
+/// 桌面端引擎扫描出的真实 Agent 定义（electron AgentInfo）。
+class AgentOption {
+  final String id;
+  final String description;
+  final String source;
+
+  const AgentOption({
+    required this.id,
+    required this.description,
+    required this.source,
+  });
+
+  factory AgentOption.fromJson(Map<String, dynamic> json) {
+    return AgentOption(
+      id: (json['agentType'] as String?)?.trim() ?? '',
+      description: (json['description'] as String?) ?? '',
+      source: (json['source'] as String?) ?? '',
+    );
+  }
+
+  String get name => id;
+}
+
 /// 多会话并行的聊天状态。
 ///
 /// 关键设计：
@@ -49,8 +72,15 @@ class ChatState {
   /// 每个 session 的 loading 状态（是否正在等待 LLM 响应）
   final Map<String, bool> loadingBySession;
 
-  /// 每个 session 的 agent 名称
+  /// 每个 session 的 agent 名称（用于 UI 徽章）
   final Map<String, String> agentBySession;
+
+  /// 每个 session 的 agent id（随 send_message 下发给桌面端）
+  final Map<String, String> agentIdBySession;
+
+  /// 当前引擎/工作目录下真实可用的 Agent 列表（agents_list 推送）
+  final List<AgentOption> availableAgents;
+  final bool agentsLoading;
 
   /// 每个 session 的待发送附件
   final Map<String, List<ChatAttachment>> attachmentsBySession;
@@ -78,6 +108,9 @@ class ChatState {
     required this.messagesBySession,
     required this.loadingBySession,
     required this.agentBySession,
+    this.agentIdBySession = const {},
+    this.availableAgents = const [],
+    this.agentsLoading = false,
     required this.attachmentsBySession,
     this.pendingPermissions = const [],
     this.canContinueBySession = const {},
@@ -116,6 +149,9 @@ class ChatState {
     Map<String, List<ChatMessage>>? messagesBySession,
     Map<String, bool>? loadingBySession,
     Map<String, String>? agentBySession,
+    Map<String, String>? agentIdBySession,
+    List<AgentOption>? availableAgents,
+    bool? agentsLoading,
     Map<String, List<ChatAttachment>>? attachmentsBySession,
     List<PermissionRequest>? pendingPermissions,
     Map<String, bool>? canContinueBySession,
@@ -130,6 +166,9 @@ class ChatState {
         messagesBySession: messagesBySession ?? this.messagesBySession,
         loadingBySession: loadingBySession ?? this.loadingBySession,
         agentBySession: agentBySession ?? this.agentBySession,
+        agentIdBySession: agentIdBySession ?? this.agentIdBySession,
+        availableAgents: availableAgents ?? this.availableAgents,
+        agentsLoading: agentsLoading ?? this.agentsLoading,
         attachmentsBySession:
             attachmentsBySession ?? this.attachmentsBySession,
         pendingPermissions: pendingPermissions ?? this.pendingPermissions,
@@ -176,6 +215,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
   StreamSubscription? _subscription;
   // 防抖保存：连续追加流式 delta 时只在停顿 500ms 后写一次盘
   Timer? _persistTimer;
+  String? _defaultAgentId;
 
   ChatNotifier(this._ref) : super(ChatState.initial()) {
     _subscription =
@@ -185,6 +225,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
   /// 启动时从 SharedPreferences 加载历史会话列表 + 上次未关闭的当前会话消息
   Future<void> _loadHistory() async {
+    try {
+      _defaultAgentId = await MobilePreferences.getDefaultAgentId();
+    } catch (_) {}
     final data = await _storage.loadAll();
     if (data.sessions.isEmpty) {
       state = state.copyWith(sessions: [], historyLoaded: true);
@@ -218,6 +261,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
   void _handlePush(MobilePush push) {
     switch (push.type) {
+      case PushType.connected:
+        refreshAgents();
+        break;
       case PushType.streamEvent:
         _handleStreamEvent(push.data);
         break;
@@ -247,6 +293,12 @@ class ChatNotifier extends StateNotifier<ChatState> {
         break;
       case PushType.agentNotice:
         _handleAgentNotice(push.data);
+        break;
+      case PushType.agentsList:
+        _handleAgentsList(push.data);
+        break;
+      case PushType.error:
+        _handleRemoteError(push.data);
         break;
       default:
         break;
@@ -339,6 +391,10 @@ class ChatNotifier extends StateNotifier<ChatState> {
 
     final connection = _ref.read(connectionProvider);
     if (connection.state == conn.ConnectionState.connected) {
+      // 首条消息也要带上手机端的选择：set_agent 对尚未启动的会话只做记录。
+      // 徽章等 agent_notice 回执再改，运行中的会话会不会采纳 agentId 由服务端决定。
+      final selectedAgentId =
+          state.agentIdBySession[sessionId] ?? _defaultAgentId;
       _ref.read(connectionProvider.notifier).send(MobileRequest(
             type: RequestType.sendMessage,
             data: {
@@ -354,6 +410,8 @@ class ChatNotifier extends StateNotifier<ChatState> {
                       })
                   .toList(),
               if (workspace != null) 'workspace': workspace.promptContext,
+              if (selectedAgentId != null && selectedAgentId.isNotEmpty)
+                'agentId': selectedAgentId,
             },
           ));
     } else {
@@ -1449,28 +1507,77 @@ class ChatNotifier extends StateNotifier<ChatState> {
     _schedulePersist();
   }
 
-  /// 桌面端告知「所选 agent 没落到会话上」(#56)。这是启动时的事实，不是本轮的输出，
-  /// 作为系统消息插进时间线，和流式回复分开。
+  /// 更新真实可用的 Agent 列表（桌面端 engines.listAgents 的扫描结果）。
+  void _handleAgentsList(Map<String, dynamic>? data) {
+    final raw = data?['agents'];
+    final agents = raw is List
+        ? raw
+            .whereType<Map<String, dynamic>>()
+            .map(AgentOption.fromJson)
+            .where((agent) => agent.id.isNotEmpty)
+            .toList()
+        : <AgentOption>[];
+    state = state.copyWith(
+      availableAgents: agents,
+      agentsLoading: false,
+    );
+  }
+
+  /// 桌面端回执：agent 是否真的落到了会话上 (#46/#56)。
+  ///
+  /// - pending：进程未启动，选择会在下一条消息启动时生效；
+  /// - applied/extensionLoaded 明确为 false，或带 reason：切换失败，清掉徽章并提示；
+  /// - 其余（含引擎不回报 applied 的情况）：按 spawn 参数采信。
   void _handleAgentNotice(Map<String, dynamic>? data) {
     if (data == null) return;
     final sessionId = _extractSessionId(data);
     if (sessionId == null) return;
     final agent = data['agent'] as String? ?? '';
+    if (agent.isEmpty) return;
+    final pending = data['pending'] == true;
+    final reason = data['reason'] as String?;
     final notApplied = data['applied'] == false;
     final extensionLoaded = data['extensionLoaded'] == false;
-    if (!notApplied && !extensionLoaded) return;
-    final content = notApplied
-        ? I18n.t('chat.agentNotApplied', {'agent': agent})
-        : I18n.t('chat.agentExtensionMissing', {'agent': agent});
-    final messages =
-        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
-    messages.add(ChatMessage(
-      id: _uuid.v4(),
-      role: MessageRole.system,
-      content: content,
-    ));
-    _setMessages(sessionId, messages);
-    _schedulePersist();
+
+    if (pending && reason == null) {
+      _setAgentForSession(sessionId, agent, agent);
+      return;
+    }
+
+    if (notApplied || extensionLoaded || reason != null) {
+      // 只回滚本次选择的徽章，避免把另一个成功切换的结果清掉。
+      if (state.agentIdBySession[sessionId] == agent) {
+        _clearAgentForSession(sessionId);
+      }
+      final key = switch (reason) {
+        'unknown-agent' => 'chat.agentUnknown',
+        'session-busy' => 'chat.agentBusy',
+        'start-failed' => 'chat.agentStartFailed',
+        'missing-params' => 'chat.agentSwitchFailed',
+        _ => notApplied
+            ? 'chat.agentNotApplied'
+            : 'chat.agentExtensionMissing',
+      };
+      _appendAgentSystemMessage(
+        sessionId,
+        I18n.t(key, {'agent': agent}),
+      );
+      return;
+    }
+
+    _setAgentForSession(sessionId, agent, agent);
+  }
+
+  /// 老版本桌面端不认识 set_agent 时会回一条 error；别让它静默消失。
+  void _handleRemoteError(Map<String, dynamic>? data) {
+    final message = data?['message'] as String?;
+    if (message == null || !message.contains('set_agent')) return;
+    final sessionId = _extractSessionId(data);
+    if (sessionId == null) return;
+    _appendAgentSystemMessage(
+      sessionId,
+      I18n.t('chat.agentUnsupported'),
+    );
   }
 
   /// 桌面端推送 session_changed 事件：更新当前项目目录
@@ -1648,17 +1755,77 @@ class ChatNotifier extends StateNotifier<ChatState> {
     }
   }
 
-  /// 切换当前会话使用的 Agent，同步到 ChatState 并通知桌面端
-  void setAgent(String agentId, String agentName) {
-    final sid = state.currentSessionId;
-    if (sid == null) return;
-    final newAgentBySession = Map<String, String>.from(state.agentBySession);
-    newAgentBySession[sid] = agentName;
-    state = state.copyWith(agentBySession: newAgentBySession);
+  /// 拉取当前引擎/工作目录下真实可用的 Agent 列表。
+  void refreshAgents() {
+    final connection = _ref.read(connectionProvider);
+    if (connection.state != conn.ConnectionState.connected) {
+      state = state.copyWith(availableAgents: const [], agentsLoading: false);
+      return;
+    }
+    state = state.copyWith(agentsLoading: true);
     _ref.read(connectionProvider.notifier).send(MobileRequest(
           type: RequestType.listAgents,
-          data: {'selectedAgentId': agentId},
+          data: {
+            if (state.currentSessionId != null)
+              'sessionId': state.currentSessionId,
+          },
         ));
+  }
+
+  /// 切换当前会话使用的 Agent。
+  ///
+  /// 桌面协同下由引擎重启进程生效；失败会通过 agent_notice 回执并清掉本地徽章。
+  /// 本地模式暂不支持 Agent 人设，只保存默认值，供下次连接桌面端使用。
+  void setAgent(String agentId) {
+    _defaultAgentId = agentId;
+    final sid = state.currentSessionId;
+    if (sid == null) return;
+    final connection = _ref.read(connectionProvider);
+    if (connection.state != conn.ConnectionState.connected) return;
+    // 先乐观显示；失败回执会清掉徽章并给出系统消息。
+    _setAgentForSession(sid, agentId, agentName);
+    _ref.read(connectionProvider.notifier).send(MobileRequest(
+          type: RequestType.setAgent,
+          data: {'sessionId': sid, 'agentId': agentId},
+        ));
+  }
+
+  void _setAgentForSession(
+    String sessionId,
+    String agentId,
+    String agentName,
+  ) {
+    final ids = Map<String, String>.from(state.agentIdBySession);
+    ids[sessionId] = agentId;
+    final names = Map<String, String>.from(state.agentBySession);
+    names[sessionId] = agentName;
+    state = state.copyWith(
+      agentIdBySession: ids,
+      agentBySession: names,
+    );
+  }
+
+  void _clearAgentForSession(String sessionId) {
+    final ids = Map<String, String>.from(state.agentIdBySession)
+      ..remove(sessionId);
+    final names = Map<String, String>.from(state.agentBySession)
+      ..remove(sessionId);
+    state = state.copyWith(
+      agentIdBySession: ids,
+      agentBySession: names,
+    );
+  }
+
+  void _appendAgentSystemMessage(String sessionId, String content) {
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    messages.add(ChatMessage(
+      id: _uuid.v4(),
+      role: MessageRole.system,
+      content: content,
+    ));
+    _setMessages(sessionId, messages);
+    _schedulePersist();
   }
 
   void abort() {

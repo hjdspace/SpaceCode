@@ -8,6 +8,7 @@ import { MobileServer } from '../h5/mobileServer'
 import type { QRCodeData, ServerStatus } from '../h5/mobileServerTypes'
 import { engineGateway } from '../engine/engineGateway'
 import { EngineFactory } from '../engine/engines/EngineFactory'
+import type { EngineSessionStatus, EngineType, PermissionMode } from '../engine/engines/types'
 import { buildThemeSyncData } from '../h5/themeSyncBuilder'
 import { getMainWindow } from '../windows/mainWindow'
 
@@ -30,33 +31,70 @@ export function setMobileUnsubscribe(fn: (() => void) | null): void {
   unsubscribeEngineEventsForMobile = fn
 }
 
-/**
- * 确保手机端引用的 sessionId 在 engine 中存在并运行，然后发送消息。
- */
-async function ensureMobileSessionThenSend(sessionId: string, content: string, images?: any[]): Promise<void> {
-  const status = engineGateway.getSessionStatus(sessionId)
-  if (status?.isRunning) {
-    await engineGateway.sendMessage(sessionId, content, images)
-    return
-  }
+interface MobileSessionRuntime {
+  cwd?: string
+  engineType?: EngineType
+  /** 手机端最近一次为该会话选定的 agent；引擎只认启动参数，切换必须重启进程。 */
+  agent?: string
+  /** 重启失败后留作下一次启动的 --resume，避免丢历史。 */
+  resumeSessionId?: string
+}
 
-  let desktopConfig: any = null
+const mobileSessionRuntime = new Map<string, MobileSessionRuntime>()
+/** 同一会话的 set_agent / send_message 必须串行，否则会并发 stop/start。 */
+const mobileSessionLocks = new Map<string, Promise<unknown>>()
+
+function withSessionLock<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+  const previous = mobileSessionLocks.get(sessionId) ?? Promise.resolve()
+  const next = previous.catch(() => {}).then(task)
+  const cleanup = () => {
+    if (mobileSessionLocks.get(sessionId) === next) mobileSessionLocks.delete(sessionId)
+  }
+  next.then(cleanup, cleanup)
+  return next
+}
+
+async function readActiveSessionConfig(): Promise<any> {
   try {
-    desktopConfig = await getMainWindow()?.webContents.executeJavaScript(
+    return await getMainWindow()?.webContents.executeJavaScript(
       `window.__spacecode_api__?.getActiveSessionConfig?.() || null`
     )
   } catch (err) {
     warn('MobileServer', 'failed to query desktop active session config', { error: String(err) })
+    return null
   }
+}
 
-  const cwd = desktopConfig?.cwd || app.getPath('home')
+function pushAgentNotice(data: {
+  sessionId: string
+  agent: string
+  applied?: boolean | null
+  extensionLoaded?: boolean
+  pending?: boolean
+  reason?: string
+  detail?: string
+}): void {
+  mobileServer?.sendToClient({ type: 'agent_notice', data })
+}
+
+async function startMobileSession(
+  sessionId: string,
+  overrides: { agent?: string; resumeSessionId?: string; permissionMode?: PermissionMode } = {},
+): Promise<{ status: EngineSessionStatus | null; agent?: string }> {
+  const desktopConfig = await readActiveSessionConfig()
+  const runtime = mobileSessionRuntime.get(sessionId)
+  const cwd = runtime?.cwd || desktopConfig?.cwd || app.getPath('home')
+  const engineType = (runtime?.engineType || desktopConfig?.engineType || 'claude-code') as EngineType
+  const requestedAgent = overrides.agent ?? runtime?.agent ?? desktopConfig?.agent ?? undefined
+  const agent = requestedAgent || undefined
+
   if (!desktopConfig?.apiKey || !desktopConfig?.provider) {
     warn('MobileServer', `desktop LLM config incomplete | hasApiKey=${!!desktopConfig?.apiKey} | hasProvider=${!!desktopConfig?.provider} | sid=${sessionId.slice(0, 8)}`)
   }
 
-  info('MobileServer', `starting session for mobile | sid=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${desktopConfig?.provider || '(none)'} | model=${desktopConfig?.model || '(none)'} | apiKey=${desktopConfig?.apiKey ? '***set' : '(empty)'} | agent=${desktopConfig?.agent || '(none)'}`)
+  info('MobileServer', `starting session for mobile | sid=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${desktopConfig?.provider || '(none)'} | model=${desktopConfig?.model || '(none)'} | apiKey=${desktopConfig?.apiKey ? '***set' : '(empty)'} | agent=${agent || '(none)'}`)
 
-  const startedStatus = await engineGateway.startSession(sessionId, {
+  const status = await engineGateway.startSession(sessionId, {
     cwd,
     apiKey: desktopConfig?.apiKey,
     baseUrl: desktopConfig?.baseUrl,
@@ -64,29 +102,123 @@ async function ensureMobileSessionThenSend(sessionId: string, content: string, i
     model: desktopConfig?.model,
     effortLevel: desktopConfig?.effortLevel,
     thinkingEnabled: desktopConfig?.thinkingEnabled,
-    agent: desktopConfig?.agent,
-    engineType: desktopConfig?.engineType || 'claude-code',
+    agent,
+    engineType,
     engineSource: desktopConfig?.engineSource,
     installedCliPath: desktopConfig?.installedCliPath,
     modelContextWindows: desktopConfig?.modelContextWindows,
     rtkEnabled: desktopConfig?.rtkEnabled,
+    resumeSessionId: overrides.resumeSessionId ?? runtime?.resumeSessionId,
+    permissionMode: overrides.permissionMode,
   })
+  mobileSessionRuntime.set(sessionId, { cwd, engineType, agent })
+  return { status, agent }
+}
 
-  // 「参数传下去了」不等于「agent 生效了」：引擎在 spawn 时给出回执，手机端也要能看见 (#56)
-  const requestedAgent: string = typeof desktopConfig?.agent === 'string' ? desktopConfig.agent : ''
-  if (requestedAgent && startedStatus && (startedStatus.agentApplied === false || startedStatus.agentExtensionLoaded === false)) {
-    mobileServer?.sendToClient({
-      type: 'agent_notice',
-      data: {
+/**
+ * 确保手机端引用的 sessionId 在 engine 中存在并运行，然后发送消息。
+ */
+async function ensureMobileSessionThenSend(
+  sessionId: string,
+  content: string,
+  images?: any[],
+  agentId?: string,
+): Promise<void> {
+  const status = engineGateway.getSessionStatus(sessionId)
+  if (status?.isRunning) {
+    // 运行中的会话只能由 set_agent 切换；这里不打断当前轮次。
+    await engineGateway.sendMessage(sessionId, content, images)
+    return
+  }
+
+  // 未运行：agentId 是手机当前选择，作为本次启动的默认 agent。
+  const { status: startedStatus, agent: requestedAgent } = await startMobileSession(sessionId, { agent: agentId })
+
+  // 「参数传下去了」不等于「agent 生效了」：引擎在 spawn 时给出回执，手机端也要能看见 (#56)。
+  // 成功也要回执：手机据此确认徽章，而不是在发送时乐观假设已经生效。
+  if (requestedAgent) {
+    if (!startedStatus) {
+      pushAgentNotice({ sessionId, agent: requestedAgent, applied: false, reason: 'start-failed' })
+    } else {
+      pushAgentNotice({
         sessionId,
         agent: requestedAgent,
         applied: startedStatus.agentApplied ?? null,
         extensionLoaded: startedStatus.agentExtensionLoaded,
-      },
-    })
+      })
+    }
   }
 
   await engineGateway.sendMessage(sessionId, content, images)
+}
+
+/**
+ * 把手机端选定的 agent 落到会话上。
+ *
+ * agent 只在 spawn 时生效，所以运行中的会话必须带 resume 重启；当前轮次未结束时
+ * 不打断它，直接回绝，让手机稍后重试。未知 id 不落库，避免出现「选了个不存在的人设」。
+ */
+async function applyAgentSelection(sessionId: string, agentId: string): Promise<void> {
+  const runtime = mobileSessionRuntime.get(sessionId)
+  const desktopConfig = await readActiveSessionConfig()
+  const cwd = runtime?.cwd || desktopConfig?.cwd
+  const engineType = (runtime?.engineType || desktopConfig?.engineType) as EngineType | undefined
+  const agents = await engineGateway.listAgents(cwd, engineType)
+  if (!agents.some((agent) => agent.agentType === agentId)) {
+    warn('MobileServer', `set_agent rejected: unknown agent | sid=${sessionId.slice(0, 8)} | agent=${agentId}`)
+    pushAgentNotice({ sessionId, agent: agentId, applied: false, reason: 'unknown-agent' })
+    return
+  }
+
+  const status = engineGateway.getSessionStatus(sessionId)
+  if (status?.isRunning && status.status !== 'idle') {
+    pushAgentNotice({ sessionId, agent: agentId, applied: false, reason: 'session-busy' })
+    return
+  }
+
+  mobileSessionRuntime.set(sessionId, {
+    cwd,
+    engineType,
+    agent: agentId,
+  })
+
+  if (!status?.isRunning) {
+    // 进程还没起来，下一条消息启动时生效。
+    pushAgentNotice({ sessionId, agent: agentId, applied: null, pending: true })
+    return
+  }
+
+  const resumeSessionId = status.engineSessionId ?? undefined
+  const permissionMode = status.permissionMode
+  try {
+    await engineGateway.stop(sessionId)
+    const { status: startedStatus } = await startMobileSession(sessionId, {
+      agent: agentId,
+      resumeSessionId,
+      permissionMode,
+    })
+    if (!startedStatus) {
+      pushAgentNotice({ sessionId, agent: agentId, applied: false, reason: 'start-failed' })
+      return
+    }
+    pushAgentNotice({
+      sessionId,
+      agent: agentId,
+      applied: startedStatus.agentApplied ?? null,
+      extensionLoaded: startedStatus.agentExtensionLoaded,
+    })
+  } catch (err) {
+    // 进程已经被 stop 掉了；把 resume 记下来，下一条消息启动时接回历史。
+    mobileSessionRuntime.set(sessionId, { cwd, engineType, agent: agentId, resumeSessionId })
+    error('MobileServer', 'set_agent restart failed', { sessionId: sessionId.slice(0, 8), agent: agentId, error: String(err) })
+    pushAgentNotice({
+      sessionId,
+      agent: agentId,
+      applied: false,
+      reason: 'start-failed',
+      detail: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 /**
@@ -125,6 +257,9 @@ async function getThemeSyncData() {
 }
 
 export function registerMobileIPCHandlers(): void {
+  mobileSessionRuntime.clear()
+  mobileSessionLocks.clear()
+
   ipcMain.handle('mobile:startServer', async (): Promise<QRCodeData> => {
     if (mobileServer) {
       await mobileServer.stop()
@@ -137,9 +272,14 @@ export function registerMobileIPCHandlers(): void {
 
     const qrData = await mobileServer.start()
 
-    mobileServer.on('send_message', async ({ sessionId, content, images }: any) => {
+    mobileServer.on('send_message', async ({ sessionId, content, images, agentId }: any) => {
       try {
-        await ensureMobileSessionThenSend(sessionId, content, images)
+        await withSessionLock(sessionId, () => ensureMobileSessionThenSend(
+          sessionId,
+          content,
+          images,
+          typeof agentId === 'string' && agentId ? agentId : undefined,
+        ))
       } catch (err) {
         error('MobileServer', 'send_message failed', { sessionId: sessionId.slice(0, 8), error: String(err) })
         mobileServer?.sendToClient({
@@ -223,16 +363,35 @@ export function registerMobileIPCHandlers(): void {
       }
     })
 
-    mobileServer.on('list_agents', async () => {
+    mobileServer.on('list_agents', async ({ sessionId }: any = {}) => {
       try {
-        const config = await getMainWindow()?.webContents.executeJavaScript(
-          `window.__spacecode_api__?.getActiveSessionConfig?.() || null`
+        // 会话已有启动记录时按它自己的 cwd 查；否则退回桌面当前会话。
+        const runtime = sessionId ? mobileSessionRuntime.get(sessionId) : undefined
+        const config = runtime ? null : await readActiveSessionConfig()
+        const agents = await engineGateway.listAgents(
+          runtime?.cwd ?? config?.cwd,
+          runtime?.engineType ?? config?.engineType,
         )
-        const agents = await engineGateway.listAgents(config?.cwd, config?.engineType)
-        mobileServer?.sendToClient({ type: 'agents_list', data: { agents } })
+        mobileServer?.sendToClient({ type: 'agents_list', data: { agents, sessionId } })
       } catch (err) {
         warn('MobileServer', 'list_agents failed', { error: String(err) })
-        mobileServer?.sendToClient({ type: 'agents_list', data: { agents: [] } })
+        mobileServer?.sendToClient({ type: 'agents_list', data: { agents: [], sessionId } })
+      }
+    })
+
+    mobileServer.on('set_agent', async ({ sessionId, agentId }: any) => {
+      if (!sessionId || !agentId) {
+        warn('MobileServer', 'set_agent missing params', { hasSid: !!sessionId, hasAgent: !!agentId })
+        if (sessionId) {
+          pushAgentNotice({ sessionId, agent: String(agentId || ''), applied: false, reason: 'missing-params' })
+        }
+        return
+      }
+      try {
+        await withSessionLock(sessionId, () => applyAgentSelection(sessionId, String(agentId)))
+      } catch (err) {
+        error('MobileServer', 'set_agent failed', { sessionId: String(sessionId).slice(0, 8), agentId: String(agentId), error: String(err) })
+        pushAgentNotice({ sessionId, agent: String(agentId), applied: false, reason: 'start-failed' })
       }
     })
 

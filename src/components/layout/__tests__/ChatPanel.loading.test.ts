@@ -175,4 +175,73 @@ describe('ChatPanel loading state', () => {
     expect(api.git.getStatus).not.toHaveBeenCalled()
     expect(api.git.getFullDiff).not.toHaveBeenCalled()
   }, 30000)
+
+  it('shows the rendered session\'s agent, not the last global selection', async () => {
+    localStorage.clear()
+    const { default: ChatPanel } = await import('../ChatPanel.vue')
+    const { useChatSessionStore } = await import('@/stores/chatSession')
+    const sessionStore = useChatSessionStore()
+
+    const reviewer = sessionStore.createSession('Reviewer', 'D:/repo', 'badge-reviewer')
+    reviewer.agent = 'reviewer'
+    reviewer.agentUnapplied = 'reviewer'
+    const other = sessionStore.createSession('Other', 'D:/repo', 'badge-other')
+    other.agent = 'planner'
+    // A 会话的未生效账不能挂到 B 的名字上 (#46)
+    other.agentUnapplied = 'reviewer'
+    const plain = sessionStore.createSession('Plain', 'D:/repo', 'badge-plain')
+    // 全局默认是新会话的起点，不能代表任何一个已有会话
+    sessionStore.currentAgent = 'reviewer'
+
+    const reviewerView = shallowMount(ChatPanel, {
+      props: { sessionId: reviewer.id },
+      global: { plugins: [pinia] },
+    })
+    await nextTick()
+    expect(reviewerView.find('.agent-badge').text()).toBe('reviewer')
+    expect(reviewerView.find('.agent-badge').classes()).toContain('agent-unapplied')
+    reviewerView.unmount()
+
+    const otherView = shallowMount(ChatPanel, {
+      props: { sessionId: other.id },
+      global: { plugins: [pinia] },
+    })
+    await nextTick()
+    expect(otherView.find('.agent-badge').text()).toBe('planner')
+    expect(otherView.find('.agent-badge').classes()).not.toContain('agent-unapplied')
+    otherView.unmount()
+
+    const plainView = shallowMount(ChatPanel, {
+      props: { sessionId: plain.id },
+      global: { plugins: [pinia] },
+    })
+    await nextTick()
+    expect(plainView.find('.agent-badge').exists()).toBe(false)
+    plainView.unmount()
+  }, 30000)
+
+  it('shows the pending default only while no session exists', async () => {
+    localStorage.clear()
+    const { default: ChatPanel } = await import('../ChatPanel.vue')
+    const { useChatSessionStore } = await import('@/stores/chatSession')
+    const sessionStore = useChatSessionStore()
+    // 先建会话（此时默认值为空），再设默认值：避免 createSession 的播种掩盖回退
+    const plain = sessionStore.createSession('Plain', 'D:/repo', 'badge-no-fallback')
+    sessionStore.currentSessionId = null
+    sessionStore.currentAgent = 'reviewer'
+
+    const newChatView = shallowMount(ChatPanel, { global: { plugins: [pinia] } })
+    await nextTick()
+    expect(newChatView.find('.agent-badge').text()).toBe('reviewer')
+    newChatView.unmount()
+
+    // 一旦有了会话，哪怕它没选过 agent，也不能再借全局默认亮徽章
+    const plainView = shallowMount(ChatPanel, {
+      props: { sessionId: plain.id },
+      global: { plugins: [pinia] },
+    })
+    await nextTick()
+    expect(plainView.find('.agent-badge').exists()).toBe(false)
+    plainView.unmount()
+  }, 30000)
 })

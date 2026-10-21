@@ -98,7 +98,7 @@ describe('chat session agent verification', () => {
 
     const store = useChatSessionStore()
     const session = store.createSession('Agent probe', 'D:/repo', 'agent-verify-1')
-    store.currentAgent = 'reviewer'
+    session.agent = 'reviewer'
     // 第一次 = 启动前的对账，第二次 = 启动后回读引擎状态
     mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
     mocks.getSessionStatus.mockResolvedValueOnce(status)
@@ -150,7 +150,7 @@ describe('chat session agent verification', () => {
 
     const store = useChatSessionStore()
     const session = store.createSession('Agent probe', 'D:/repo', 'agent-verify-2')
-    store.currentAgent = 'reviewer'
+    session.agent = 'reviewer'
     // 启动前的对账正常返回，启动后的回读失败 —— 会话已经起来，不该被一次状态读取判死
     mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
     mocks.getSessionStatus.mockRejectedValueOnce(new Error('session gone'))
@@ -167,7 +167,6 @@ describe('chat session agent verification', () => {
     // 换成不带 agent 的一次启动：null = 这次进程压根没选 agent，上一次的账不能留着
     const { useChatSessionStore } = await import('../chatSession')
     const store = useChatSessionStore()
-    store.currentAgent = ''
     mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: true, engineSessionId: 'e-1' })
     mocks.getSessionStatus.mockResolvedValueOnce({ agentApplied: null })
     await store.initClaudeCodeSession(session.id, { agent: '' })
@@ -220,5 +219,84 @@ describe('chat session agent list caching', () => {
 
     expect(mocks.listAgents).toHaveBeenCalledTimes(2)
     expect(store.availableAgents.map(a => a.agentType)).toEqual(['reviewer'])
+  })
+})
+
+/**
+ * 所选 agent 是会话状态，不是全局状态 (issue #57)。
+ *
+ * 以前徽章和启动参数都读全局 currentAgent，切到没选过 agent 的会话后，
+ * 不但徽章亮着上一个会话的名字，首次发送时引擎也会真的按那个 agent 启动。
+ */
+describe('chat session per-session agent', () => {
+  async function prepare() {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.engineType = 'pi'
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: '', apiKey: 'k', haikuModel: '', sonnetModel: 'claude-sonnet', opusModel: '' }
+    const { useChatSessionStore } = await import('../chatSession')
+    return useChatSessionStore()
+  }
+
+  it('writes the selection to that session only', async () => {
+    const store = await prepare()
+    const a = store.createSession('A', 'D:/repo', 'agent-session-a')
+    const b = store.createSession('B', 'D:/repo', 'agent-session-b')
+
+    await store.switchAgent('reviewer', a.id)
+
+    expect(a.agent).toBe('reviewer')
+    expect(b.agent).toBeUndefined()
+    // 显式选择仍然成为「新建会话的默认」，但它不再代表已有会话
+    expect(store.currentAgent).toBe('reviewer')
+
+    await store.switchAgent('', a.id)
+    expect(a.agent).toBeUndefined()
+  })
+
+  it('does not hand another session\'s agent to the engine', async () => {
+    const store = await prepare()
+    const a = store.createSession('A', 'D:/repo', 'agent-engine-a')
+    const b = store.createSession('B', 'D:/repo', 'agent-engine-b')
+
+    await store.switchAgent('reviewer', a.id)
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    mocks.getSessionStatus.mockResolvedValueOnce({ agentApplied: null })
+    await store.initClaudeCodeSession(b.id)
+
+    const options = mocks.startSession.mock.calls[mocks.startSession.mock.calls.length - 1]?.[1] as { agent?: string }
+    expect(options.agent).toBeUndefined()
+  })
+
+  it('starts the session with its own agent', async () => {
+    const store = await prepare()
+    const session = store.createSession('A', 'D:/repo', 'agent-engine-own')
+    await store.switchAgent('reviewer', session.id)
+
+    mocks.getSessionStatus.mockResolvedValueOnce({ isRunning: false })
+    mocks.getSessionStatus.mockResolvedValueOnce({ agentApplied: true })
+    await store.initClaudeCodeSession(session.id)
+
+    const options = mocks.startSession.mock.calls[mocks.startSession.mock.calls.length - 1]?.[1] as { agent?: string }
+    expect(options.agent).toBe('reviewer')
+  })
+
+  it('seeds a new session from the global default', async () => {
+    const store = await prepare()
+    store.currentAgent = 'reviewer'
+
+    const session = store.createSession('New', 'D:/repo', 'agent-seeded')
+
+    expect(session.agent).toBe('reviewer')
+  })
+
+  it('keeps work assistants out of the new-session default', async () => {
+    const store = await prepare()
+
+    const session = await store.startWorkAssistantSession({ name: 'Docx Writer' })
+
+    expect(session.agent).toBe('Docx Writer')
+    expect(store.currentAgent).toBe('')
   })
 })

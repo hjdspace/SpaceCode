@@ -522,6 +522,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
   }
 
+  /**
+   * 全局默认 agent：只用于给「新建会话」播种，不代表任何已有会话的当前 agent。
+   * 已有会话读 Session.agent —— 全局值若直接进徽章/启动参数，切会话就会把 A 的选择
+   * 挂到没选过 agent 的 B 上 (#57)。
+   */
   const currentAgent = ref<string>('')
   const availableAgents = ref<AgentInfo[]>([])
 
@@ -794,6 +799,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       isTabOpen: true,
       lastActivityAt: Date.now(),
       mode: appStore.mode,
+      agent: currentAgent.value || undefined,
       ephemeral: options?.ephemeral || undefined,
     }
     sessions.value.unshift(session)
@@ -831,6 +837,18 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       return
     }
 
+    // 启动参数只认本会话的 agent；全局 currentAgent 只负责给新会话播种 (#57)。
+    // 显式传了 agent（含空串 = 清空）时即使会话已在运行也先记账，供切会话/重启回读。
+    const agentOverride = overrides?.agent
+    const hasAgentOverride = agentOverride !== undefined
+    const desiredAgent = hasAgentOverride ? agentOverride : session.agent
+    if (hasAgentOverride) {
+      if (desiredAgent) session.agent = desiredAgent
+      else delete session.agent
+      saveToStorage()
+    }
+    const appliedAgent = desiredAgent || undefined
+
     const desiredEngine = settingsStore.engineType
     const desiredEngineSource = settingsStore.engineSource
     const status = await claudeCode.getSessionStatus(sessionId)
@@ -850,7 +868,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       // 对齐；代理不可用的兜底回落到真实 Key，那条路径不在本票范围（见代理不自愈缺陷）。
       const desiredStartup = {
         systemPrompt: overrides?.systemPrompt,
-        agent: overrides?.agent,
+        agent: desiredAgent,
         apiKey: configuredConnection.apiKey,
         usesProxy: configuredConnection.provider !== 'anthropic',
       }
@@ -885,7 +903,6 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const cwd = normalizeAbsolutePath(
         overrides?.cwd || session.workingDirectory || currentProjectRoot.value || await api.getCwd() || '/'
       )
-      const appliedAgent = overrides?.agent || currentAgent.value || undefined
 
       // ★ 模型别名解析：将实际模型名映射为 claude-code 的 haiku/sonnet/opus 别名。
       // 引擎的 --model 参数和 set_model control_request 都通过别名解析机制
@@ -2015,7 +2032,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   ): void {
     const applied = status?.agentApplied
     const extensionLoaded = status?.agentExtensionLoaded
-    const wanted = attempted || currentAgent.value || ''
+    // 失败账只记本会话实际尝试过的 agent：读全局会把 A 的选择挂到 B 的头上 (#57)。
+    const wanted = attempted || session.agent || ''
 
     session.agentUnapplied = applied === false ? (wanted || undefined) : undefined
     if (applied === false) {
@@ -2042,9 +2060,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     })
   }
 
-  async function switchAgent(agentType: string) {
+  async function switchAgent(agentType: string, sessionId?: string) {
+    const sid = sessionId || currentSessionId.value
+    // 显式选择同时更新「新建会话的默认」；已有会话只认自己的 Session.agent。
     currentAgent.value = agentType
-    const sid = currentSessionId.value
+    const session = sid ? sessions.value.find(s => s.id === sid) : null
+    if (session) {
+      if (agentType) session.agent = agentType
+      else delete session.agent
+      saveToStorage()
+    }
     const claudeCode = api.claudeCode
     if (claudeCode && sid) {
       const status = await claudeCode.getSessionStatus(sid)
@@ -2222,10 +2247,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       }
     }
 
-    currentAgent.value = assistant.name
-
     const session = createSession(assistant.name, cwd)
     session.assistantId = assistant.name
+    // 助手是会话级绑定，不是全局默认：别再让下一个新会话继承助手名 (#57)。
+    session.agent = assistant.name
     saveToStorage()
 
     // 助手自带的权限模式落在新会话自己身上（不再依赖 currentSessionId）。
@@ -2299,10 +2324,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       }
     }
 
-    currentAgent.value = assistant.name
-
     // 绑定助手到当前会话
     session.assistantId = assistant.name
+    session.agent = assistant.name
     session.title = assistant.name
     // 上面的技能是按 cwd 装进产物区的，会话目录必须跟着走 —— 否则引擎仍在旧目录里
     // 找不到它们。只在会话仍可换目录时回写（调用方只在空会话上暴露换助手）。

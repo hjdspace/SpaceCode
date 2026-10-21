@@ -82,10 +82,10 @@ export class MobileServer extends EventEmitter {
         return { status: 'ok' }
 
       case 'send_message': {
-        const { sessionId, content, images } = message.data as {
-          sessionId: string; content: string; images?: string[]
+        const { sessionId, content, images, agentId } = message.data as {
+          sessionId: string; content: string; images?: string[]; agentId?: string
         }
-        this.emit('send_message', { sessionId, content, images })
+        this.emit('send_message', { sessionId, content, images, agentId })
         return { status: 'sent' }
       }
 
@@ -140,8 +140,15 @@ export class MobileServer extends EventEmitter {
       }
 
       case 'list_agents': {
-        this.emit('list_agents', {})
+        const { sessionId } = (message.data ?? {}) as { sessionId?: string }
+        this.emit('list_agents', { sessionId })
         return null
+      }
+
+      case 'set_agent': {
+        const { sessionId, agentId } = message.data as { sessionId: string; agentId: string }
+        this.emit('set_agent', { sessionId, agentId })
+        return { status: 'ok' }
       }
 
       case 'set_permission_mode': {

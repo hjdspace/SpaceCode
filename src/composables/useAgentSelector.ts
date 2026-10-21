@@ -38,16 +38,25 @@ export function categorizeAgents<T extends { source: string }>(agents: T[]): { b
 
 export function useAgentSelector(options?: {
   onUpdateAgent?: (agent: string) => void
+  /** 输入框绑定的会话；未指定时视为「还没有会话」，读全局默认 */
+  sessionId?: () => string | undefined
 }) {
   const sessionStore = useChatSessionStore()
   const { t } = useI18n()
 
-  const selectedAgent = ref<string>(sessionStore.currentAgent || '')
+  // 选中项读本会话的 agent：全局值只给新会话当默认，不能拿来代表已有会话 (#57)。
+  function boundAgent(): string {
+    const sid = options?.sessionId?.()
+    if (sid) return sessionStore.getSession(sid)?.agent || ''
+    return sessionStore.currentAgent || ''
+  }
+
+  const selectedAgent = ref<string>(boundAgent())
   const showAgentSubmenu = ref(false)
   let agentSubmenuTimer: ReturnType<typeof setTimeout> | null = null
 
-  // Sync with chat store
-  watch(() => sessionStore.currentAgent, (newAgent) => {
+  // Sync with chat store（含切换会话：sessionId 或该会话的 agent 变了都要跟上）
+  watch(boundAgent, (newAgent) => {
     selectedAgent.value = newAgent || ''
   })
 

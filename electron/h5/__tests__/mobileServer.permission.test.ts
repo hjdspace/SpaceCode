@@ -85,3 +85,48 @@ describe('allow_permission / deny_permission 路由', () => {
     })
   })
 })
+
+describe('set_agent / send_message 的 agent 字段', () => {
+  it('把 sessionId + agentId 原样交给适配器', async () => {
+    const srv = await connectPhone()
+    const switched = nextEvent(srv, 'set_agent')
+
+    client!.send(JSON.stringify({
+      type: 'set_agent',
+      data: { sessionId: SESSION_ID, agentId: 'reviewer' },
+    }))
+
+    await expect(switched).resolves.toEqual({
+      sessionId: SESSION_ID,
+      agentId: 'reviewer',
+    })
+  })
+
+  it('send_message 透传 agentId', async () => {
+    const srv = await connectPhone()
+    const sent = nextEvent(srv, 'send_message')
+
+    client!.send(JSON.stringify({
+      type: 'send_message',
+      data: { sessionId: SESSION_ID, content: 'hi', agentId: 'reviewer' },
+    }))
+
+    await expect(sent).resolves.toMatchObject({
+      sessionId: SESSION_ID,
+      content: 'hi',
+      agentId: 'reviewer',
+    })
+  })
+
+  it('list_agents 只透传 sessionId，不再消费 selectedAgentId', async () => {
+    const srv = await connectPhone()
+    const listed = nextEvent(srv, 'list_agents')
+
+    client!.send(JSON.stringify({
+      type: 'list_agents',
+      data: { sessionId: SESSION_ID, selectedAgentId: 'code' },
+    }))
+
+    await expect(listed).resolves.toEqual({ sessionId: SESSION_ID })
+  })
+})

@@ -2,6 +2,11 @@ import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
+// 与 vite.config.mts 同理：Electron 系 IDE（CatPaw 等）的集成终端自带
+// ELECTRON_RUN_AS_NODE=1，会经 { ...process.env } 泄进被测代码的 spawn env，
+// 让“全局 pi 不带 launcher env”这类断言在本机必挂（CI 无此变量）。测试进程同样删掉。
+delete process.env.ELECTRON_RUN_AS_NODE
+
 export default defineConfig({
   plugins: [
     vue({

@@ -26,7 +26,8 @@ const probe = vi.hoisted(() => ({
     allowPermission: vi.fn(async (_sessionId: string, _requestId: string) => {}),
     denyPermission: vi.fn(async (_sessionId: string, _requestId: string) => {}),
     abort: vi.fn(async () => {}),
-    getSessionStatus: vi.fn(() => ({ isRunning: true })),
+    stop: vi.fn(async () => {}),
+    getSessionStatus: vi.fn((): Record<string, unknown> => ({ isRunning: true })),
     sendMessage: vi.fn(async (_sessionId: string, _content: string, _images?: unknown) => {}),
     startSession: vi.fn(async (_sessionId: string, _config: unknown): Promise<unknown> => undefined),
     submitToolAnswer: vi.fn(async () => {}),
@@ -117,6 +118,7 @@ beforeEach(() => {
   probe.gateway.startSession.mockClear()
   probe.gateway.sendMessage.mockClear()
   probe.gateway.getSessionStatus.mockClear()
+  probe.gateway.stop.mockClear()
   registerMobileIPCHandlers()
 })
 
@@ -173,7 +175,7 @@ describe('send_message 的 agent 回执', () => {
     expect(probe.gateway.sendMessage).toHaveBeenCalledWith(SESSION_ID, 'hi', undefined)
   })
 
-  it('agent 正常生效时不推送', async () => {
+  it('agent 正常生效时也回执，手机据此确认徽章', async () => {
     const server = await startMobileServer()
     probe.activeConfig = { cwd: '/repo', engineType: 'pi', agent: 'reviewer' }
     probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
@@ -181,7 +183,13 @@ describe('send_message 的 agent 回执', () => {
 
     await server.emitTo('send_message', { sessionId: SESSION_ID, content: 'hi' })
 
-    expect(server.pushes.some((push) => push.type === 'agent_notice')).toBe(false)
+    const notice = server.pushes.find((push) => push.type === 'agent_notice')
+    expect(notice?.data).toMatchObject({
+      sessionId: SESSION_ID,
+      agent: 'reviewer',
+      applied: true,
+      extensionLoaded: true,
+    })
   })
 })
 
@@ -199,6 +207,28 @@ describe('list_agents 路由', () => {
     ])
   })
 
+  it('列表请求里的 selectedAgentId 不再产生任何副作用', async () => {
+    const server = await startMobileServer()
+
+    await server.emitTo('list_agents', { selectedAgentId: 'code' })
+
+    expect(probe.gateway.listAgents).toHaveBeenCalledWith('/repo', 'claude-code')
+    expect(probe.gateway.stop).not.toHaveBeenCalled()
+    expect(probe.gateway.startSession).not.toHaveBeenCalled()
+  })
+
+  it('已启动会话按自己的 cwd 查列表，而不是桌面当前会话', async () => {
+    const server = await startMobileServer()
+    probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
+    await server.emitTo('send_message', { sessionId: SESSION_ID, content: 'hi' })
+
+    probe.activeConfig = { cwd: '/other', engineType: 'pi' }
+    probe.gateway.listAgents.mockClear()
+    await server.emitTo('list_agents', { sessionId: SESSION_ID })
+
+    expect(probe.gateway.listAgents).toHaveBeenCalledWith('/repo', 'claude-code')
+  })
+
   it('查询失败时仍回一个空列表，让手机端不至于一直等', async () => {
     const server = await startMobileServer()
     probe.gateway.listAgents.mockRejectedValueOnce(new Error('engine gone'))
@@ -208,5 +238,142 @@ describe('list_agents 路由', () => {
     const last = server.pushes[server.pushes.length - 1]
     expect(last?.type).toBe('agents_list')
     expect(last?.data?.agents).toEqual([])
+  })
+})
+
+describe('set_agent 路由', () => {
+  it('未知 agent 不落库，也不启动/重启会话', async () => {
+    const server = await startMobileServer()
+
+    await server.emitTo('set_agent', { sessionId: SESSION_ID, agentId: 'code' })
+
+    expect(probe.gateway.stop).not.toHaveBeenCalled()
+    expect(probe.gateway.startSession).not.toHaveBeenCalled()
+    const notice = server.pushes.find((push) => push.type === 'agent_notice')
+    expect(notice?.data).toMatchObject({
+      sessionId: SESSION_ID,
+      agent: 'code',
+      applied: false,
+      reason: 'unknown-agent',
+    })
+  })
+
+  it('未运行的会话只记住选择，下一条消息启动时生效', async () => {
+    const server = await startMobileServer()
+    probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
+
+    await server.emitTo('set_agent', { sessionId: SESSION_ID, agentId: 'Explore' })
+
+    const notice = server.pushes.find((push) => push.type === 'agent_notice')
+    expect(notice?.data).toMatchObject({
+      sessionId: SESSION_ID,
+      agent: 'Explore',
+      applied: null,
+      pending: true,
+    })
+
+    probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
+    await server.emitTo('send_message', { sessionId: SESSION_ID, content: 'hi' })
+
+    expect(probe.gateway.startSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ agent: 'Explore' }),
+    )
+  })
+
+  it('首条消息携带 agentId 时按它启动会话', async () => {
+    const server = await startMobileServer()
+    probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
+
+    await server.emitTo('send_message', {
+      sessionId: SESSION_ID,
+      content: 'hi',
+      agentId: 'Explore',
+    })
+
+    expect(probe.gateway.startSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ agent: 'Explore' }),
+    )
+  })
+
+  it('空闲会话切 agent 时带 resume 和权限模式重启', async () => {
+    const server = await startMobileServer()
+    probe.gateway.getSessionStatus.mockReturnValueOnce({
+      isRunning: true,
+      status: 'idle',
+      engineSessionId: 'engine-session-1',
+      permissionMode: 'plan',
+    })
+    probe.gateway.startSession.mockResolvedValueOnce({
+      agentApplied: true,
+      agentExtensionLoaded: true,
+    })
+
+    await server.emitTo('set_agent', { sessionId: SESSION_ID, agentId: 'Explore' })
+
+    expect(probe.gateway.stop).toHaveBeenCalledWith(SESSION_ID)
+    expect(probe.gateway.startSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({
+        agent: 'Explore',
+        resumeSessionId: 'engine-session-1',
+        permissionMode: 'plan',
+      }),
+    )
+    const notice = server.pushes.find((push) => push.type === 'agent_notice')
+    expect(notice?.data).toMatchObject({
+      sessionId: SESSION_ID,
+      agent: 'Explore',
+      applied: true,
+      extensionLoaded: true,
+    })
+  })
+
+  it('重启失败后记住 resume id，下一条消息带回来', async () => {
+    const server = await startMobileServer()
+    probe.gateway.getSessionStatus.mockReturnValueOnce({
+      isRunning: true,
+      status: 'idle',
+      engineSessionId: 'engine-session-1',
+      permissionMode: 'plan',
+    })
+    probe.gateway.startSession.mockRejectedValueOnce(new Error('spawn failed'))
+
+    await server.emitTo('set_agent', { sessionId: SESSION_ID, agentId: 'Explore' })
+    const notice = server.pushes.find((push) => push.type === 'agent_notice')
+    expect(notice?.data).toMatchObject({ applied: false, reason: 'start-failed' })
+
+    probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
+    probe.gateway.startSession.mockClear()
+    await server.emitTo('send_message', { sessionId: SESSION_ID, content: 'hi' })
+
+    expect(probe.gateway.startSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({
+        agent: 'Explore',
+        resumeSessionId: 'engine-session-1',
+      }),
+    )
+  })
+
+  it('轮次运行中拒绝切换，不打断当前任务', async () => {
+    const server = await startMobileServer()
+    probe.gateway.getSessionStatus.mockReturnValueOnce({
+      isRunning: true,
+      status: 'active',
+    })
+
+    await server.emitTo('set_agent', { sessionId: SESSION_ID, agentId: 'Explore' })
+
+    expect(probe.gateway.stop).not.toHaveBeenCalled()
+    expect(probe.gateway.startSession).not.toHaveBeenCalled()
+    const notice = server.pushes.find((push) => push.type === 'agent_notice')
+    expect(notice?.data).toMatchObject({
+      sessionId: SESSION_ID,
+      agent: 'Explore',
+      applied: false,
+      reason: 'session-busy',
+    })
   })
 })
