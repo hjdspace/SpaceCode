@@ -1783,7 +1783,7 @@ class ChatNotifier extends StateNotifier<ChatState> {
     final connection = _ref.read(connectionProvider);
     if (connection.state != conn.ConnectionState.connected) return;
     // 先乐观显示；失败回执会清掉徽章并给出系统消息。
-    _setAgentForSession(sid, agentId, agentName);
+    _setAgentForSession(sid, agentId, agentId);
     _ref.read(connectionProvider.notifier).send(MobileRequest(
           type: RequestType.setAgent,
           data: {'sessionId': sid, 'agentId': agentId},
