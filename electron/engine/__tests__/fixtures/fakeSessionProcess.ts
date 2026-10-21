@@ -28,7 +28,16 @@ export class FakeSessionProcess {
   spawnedThinkingEnabled?: boolean
   spawnedEffortLevel?: string
 
-  start = vi.fn(async () => { this.onStarted() })
+  /** 下一次 start() 直接抛这个错误（模拟 spawn 失败），用后即清。 */
+  static failNextStart: Error | null = null
+  start = vi.fn(async () => {
+    if (FakeSessionProcess.failNextStart) {
+      const err = FakeSessionProcess.failNextStart
+      FakeSessionProcess.failNextStart = null
+      throw err
+    }
+    this.onStarted()
+  })
   resume = vi.fn(async () => { this.onStarted() })
   suspend = vi.fn(() => {
     this.status = 'suspended'
@@ -47,6 +56,20 @@ export class FakeSessionProcess {
   setPermissionMode = vi.fn(async (mode: FakeMode) => {
     this.currentPermissionMode = mode
   })
+
+  // ── 池的其余依赖面（生命周期测试用到，均为无副作用替身）──────
+  abort = vi.fn()
+  submitToolAnswer = vi.fn()
+  skipToolAnswer = vi.fn()
+  respondPermission = vi.fn()
+  allowPermission = vi.fn()
+  denyPermission = vi.fn()
+  setModel = vi.fn(async () => {})
+  stopTask = vi.fn(async () => {})
+  getMcpStatus = vi.fn(async () => ({ servers: [] }))
+  getContextUsage = vi.fn(async () => ({ used: 1 }))
+  getSettings = vi.fn(async () => ({}))
+  getPendingPermissionRequestIds = vi.fn(() => [] as string[])
 
   private listeners = new Map<string, Array<(data: any) => void>>()
 
