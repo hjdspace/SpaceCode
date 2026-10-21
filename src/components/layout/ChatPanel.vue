@@ -28,11 +28,11 @@
           <span
             class="agent-badge"
             :class="{ 'agent-unapplied': agentUnapplied }"
-            v-if="sessionStore.currentAgent"
-            :title="agentUnapplied ? t('chatInput.agentNotApplied', { agent: sessionStore.currentAgent }) : sessionStore.currentAgent"
+            v-if="activeAgent"
+            :title="agentUnapplied ? t('chatInput.agentNotApplied', { agent: activeAgent }) : activeAgent"
           >
             <span class="badge-dot agent-dot" aria-hidden="true"></span>
-            {{ sessionStore.currentAgent }}
+            {{ activeAgent }}
           </span>
           <ContextUsageChip
             v-if="!showNoProjectWelcome"
@@ -844,10 +844,18 @@ const chatCommands = useChatCommands({
 const currentSession = computed(() => paneSession.value)
 const provider = computed(() => llmState.provider.value)
 const isConfigured = computed(() => llmState.isConfigured.value)
-// 徽章的名字来自全局所选，而「没落地」那笔账是按会话记的：只有两者指的是同一个 agent
-// 才许给它加未生效的样式，否则就是把 A 会话的失败挂到 B 会话的名字上 (#46)。
+// 徽章必须读本 pane 会话自己的 agent：全局 currentAgent 只是新会话的默认值，
+// 用它会让切到没选过 agent 的会话时仍显示上一个会话的名字 (#57)。
+// 还没有会话时（New Chat）没有「本会话」可读，此时展示下一个会话将继承的默认值。
+const activeAgent = computed(() =>
+  currentSession.value
+    ? (currentSession.value.agent || '')
+    : (sessionStore.currentAgent || '')
+)
+// 「没落地」那笔账是按会话记的：只有两者指的是同一个 agent 才许给它加未生效的样式，
+// 否则就是把 A 会话的失败挂到 B 会话的名字上 (#46)。
 const agentUnapplied = computed(() => {
-  const selected = sessionStore.currentAgent
+  const selected = activeAgent.value
   return !!selected && currentSession.value?.agentUnapplied === selected
 })
 
@@ -909,9 +917,9 @@ const showNoProjectWelcome = computed(() => {
  *  紧凑模式改由 MessageList 自带的空态提示占位 */
 const isEmptyChat = computed(() => !props.compact && paneMessages.value.length === 0)
 
-/** 当前会话绑定的 work 助手（assistantId 或 currentAgent 回退） */
+/** 当前会话绑定的 work 助手（assistantId 或本会话 agent 回退） */
 const currentWorkAssistant = computed<AgentDef | undefined>(() => {
-  const id = paneSession.value?.assistantId || sessionStore.currentAgent
+  const id = paneSession.value?.assistantId || paneSession.value?.agent
   if (!id) return undefined
   return agentsStore.libraryAgents.find((a) => a.name === id && a.mode === 'work')
 })
@@ -1202,7 +1210,7 @@ async function handleEffortChange(level: EffortLevel) {
 
 // 处理 Agent 变更 - 切换 Agent 需要重启 CLI 会话
 async function handleAgentChange(agent: string) {
-  await sessionStore.switchAgent(agent)
+  await sessionStore.switchAgent(agent, paneSessionId.value || undefined)
   console.log('[ChatPanel] Agent changed to:', agent || '(default)')
 }
 
