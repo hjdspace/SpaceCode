@@ -18,6 +18,7 @@ import { SessionHistoryManager } from '../session/sessionHistoryManager'
 import { info, warn, error, debug } from '../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannels } from '@/shared/channelMap'
+import { isEngineBlockedPayload } from '@/shared/engineErrors'
 import type {
   H5ServerStatus,
   H5PushMessage,
@@ -343,7 +344,10 @@ export class H5Server {
         {
           const status = engineGateway.getSessionStatus(sessionId)
           if (!status?.isRunning) {
-            this.sendJson(res, 409, { error: `Session ${sessionId} has no active process` })
+            this.sendJson(res, 409, {
+              error: `Session ${sessionId} has no active process`,
+              reason: 'session-not-active',
+            })
             return
           }
         }
@@ -913,8 +917,11 @@ export class H5Server {
   }
 
   private pushEngineError(sessionId: string, err: unknown): void {
-    const message = err instanceof Error ? err.message : String(err)
-    const payload = { message }
+    // 拦截类错误带完整结构化 payload（issue #55）；其余错误沿用 message。
+    const attached = (err as { engineBlocked?: unknown } | null)?.engineBlocked
+    const payload = isEngineBlockedPayload(attached)
+      ? attached
+      : { message: err instanceof Error ? err.message : String(err) }
 
     this.broadcast({ type: 'error', sessionId, data: payload })
 
