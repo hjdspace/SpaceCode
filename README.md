@@ -183,12 +183,12 @@ SpaceCode 的核心是 **编码模式**、**办公模式** 和 **设计模式** 
 **推荐用法：先拆任务，再编排**
 
 直接把一整块模糊需求丢进单个会话，往往跑出一堆半成品。建议先用 Matt Pocock 技能集里的
-[`to-issues`](./resources/skills-lib/to-issues/SKILL.md) 技能把计划 / PRD 拆成一串可独立验证的垂直切片，
+[`to-tickets`](./resources/skills-lib/matt-skills/skills/engineering/to-tickets/SKILL.md) 技能把计划 / PRD 拆成一串可独立验证的垂直切片，
 一个切片对应一个节点，再按依赖关系连成图 —— 每个节点的 prompt 更小、更聚焦，编排才真正跑得动。
 
 **典型用法：**
 
-1. 白天用 `to-issues` 把需求拆成若干有依赖的切片，逐个写进节点的草稿（草稿不会发送，刷新也不丢）
+1. 白天用 `to-tickets` 把需求拆成若干有依赖的切片，逐个写进节点的草稿（草稿不会发送，刷新也不丢）
 2. 连线：`1 → 2 → 3` 串行，`3` 再分出 `4a`、`4b` 并行，`5` 汇聚 `4a`、`4b`
 3. 睡前点「运行」：零依赖节点并行点火，每个节点跑在全新会话里，上游结束自动触发下游
 4. 早上回来读整图：绿=完成、红=失败、灰线=未触发；失败节点一键重试，它的下游自动续跑
@@ -416,7 +416,7 @@ SpaceCode/
 │   │   ├── orchestration/      # 会话编排画布（Task Node / 依赖连线 / 节点抽屉）
 │   │   ├── session-context/    # 会话上下文面板
 │   │   └── common/             # 通用 UI 组件
-│   ├── stores/                 # Pinia 状态管理（20 个模块）
+│   ├── stores/                 # Pinia 状态管理（30+ 模块）
 │   ├── composables/            # Vue 组合式函数
 │   ├── services/               # LLM 客户端、Electron API 服务
 │   ├── i18n/                   # 国际化（zh-CN / en-US）
@@ -426,20 +426,19 @@ SpaceCode/
 ├── electron/                   # Electron 主进程
 │   ├── main.ts                 # 主进程入口
 │   ├── preload.ts              # Context Bridge（安全 IPC API）
-│   ├── sessionProcess.ts       # 会话进程管理
-│   ├── claudeCodeProcessPool.ts # 进程池管理
-│   ├── cuaDriverService.ts     # cua-driver 核心服务（检测/安装/健康检查/权限）
-│   ├── cuaDriverMcpClient.ts   # cua-driver MCP over stdio 客户端
-│   ├── gitService.ts           # Git 操作服务
-│   ├── terminalManager.ts      # PTY 终端管理器
-│   ├── skillsService.ts        # 技能管理服务
-│   ├── agentsService.ts        # Agent 管理服务
-│   ├── cronService.ts          # 定时任务服务
-│   ├── officeCliService.ts     # officecli 集成服务
-│   ├── autoUpdaterService.ts   # 自动更新服务
-│   ├── mobileServer.ts         # 移动端 WebSocket 服务
+│   ├── engine/                 # 引擎网关与适配层（EngineFactory / ClaudeCode / Pi）
+│   ├── session/                # 会话子进程、权限与历史管理
+│   ├── ipc/                    # IPC handler 注册（桌面 / H5 / IM / 移动端）
+│   ├── h5/                     # H5 服务与移动端 WebSocket 服务
+│   ├── imServer/               # IM 服务端（侧车进程与引擎翻译）
+│   ├── git/                    # Git 操作服务
+│   ├── cron/                   # 定时任务（调度器 / 文件仓 / 运行记录）
+│   ├── skills/                 # 技能与智能体服务
+│   ├── skillManagerV2/         # 技能市场与版本管理
+│   ├── tools/                  # cua-driver / officecli / browser-use 等工具集成
+│   ├── infra/                  # 代理管理、自动更新、终端、日志等基础设施
 │   ├── proxy/                  # API 代理模块（Anthropic ↔ OpenAI 转换）
-│   └── engines/                # 多引擎适配层（ClaudeCode / Pi）
+│   └── memory/ design/ pet/ windows/  # 记忆、设计模式、桌宠、窗口与托盘
 │
 ├── scripts/
 │   └── download-cua-driver.mjs # cua-driver 二进制预下载脚本（构建前运行）
@@ -476,8 +475,9 @@ cd engine && bun install          # 安装 CLI 引擎依赖
 cd engine && bun run build-desktop.ts  # 构建桌面版引擎
 
 # ─── 测试 ───
-npm run test:electron             # Electron 主进程测试（Node test runner）
-npx vitest run                     # Vue 组件与 composable 测试
+npm run test:changed              # 只跑受改动影响的测试（主进程与渲染层共用 Vitest）
+npm run test                      # 全量测试
+npm run test:coverage             # 全量测试 + 覆盖率阈值
 npx vitest run --reporter=verbose # 详细测试输出
 
 # ─── 其他 ───
@@ -596,7 +596,7 @@ SpaceCode 持续演进中，以下为近期规划方向（非承诺，可能调�
 
 - 🐛 [报告 Bug](https://github.com/hjdspace/SpaceCode/issues/new?labels=bug&template=bug_report.md) — 在 Issue 中描述复现步骤
 - 💡 [提出建议](https://github.com/hjdspace/SpaceCode/issues/new?labels=enhancement&template=feature_request.md) — 分享你的功能想法
-- 💬 [参与讨论](https://github.com/hjdspace/SpaceCode/discussions) — 在 Discussions 中交流使用心得
+- ❓ [使用提问](https://github.com/hjdspace/SpaceCode/issues/new?template=question.md) — 使用问题请走「使用问题咨询」模板
 - ⭐ **Star 本项目** — 这是对维护者最大的鼓励
 - 📢 **分享给身边的朋友** — 让更多人受益
 
@@ -654,8 +654,7 @@ SpaceCode 的诞生与成长离不开以下开源项目与社区的支持：
 
 | 渠道 | 用途 |
 |------|------|
-| [GitHub Issues](https://github.com/hjdspace/SpaceCode/issues) | Bug 报告、功能建议 |
-| [GitHub Discussions](https://github.com/hjdspace/SpaceCode/discussions) | 使用讨论、经验分享 |
+| [GitHub Issues](https://github.com/hjdspace/SpaceCode/issues) | Bug 报告、功能建议、使用咨询 |
 | [GitHub Releases](https://github.com/hjdspace/SpaceCode/releases) | 版本发布与下载 |
 | [SECURITY.md](./SECURITY.md) | 安全漏洞私下报告 |
 | 作者邮箱 `hjdspace1990@gmail.com` | 直接联系维护者 |
@@ -700,6 +699,6 @@ Copyright © 2026 [hjdspace](https://github.com/hjdspace)
 
 **如果 SpaceCode 对你有帮助，欢迎 ⭐ Star 支持项目持续发展**
 
-[项目主页](https://github.com/hjdspace/SpaceCode) · [问题反馈](https://github.com/hjdspace/SpaceCode/issues) · [发布版本](https://github.com/hjdspace/SpaceCode/releases) · [参与讨论](https://github.com/hjdspace/SpaceCode/discussions)
+[项目主页](https://github.com/hjdspace/SpaceCode) · [问题反馈](https://github.com/hjdspace/SpaceCode/issues) · [发布版本](https://github.com/hjdspace/SpaceCode/releases)
 
 </div>
