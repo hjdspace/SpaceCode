@@ -8,6 +8,7 @@ import { app } from 'electron'
 import { clampEffortLevel, getEngineEffortLevels, type EffortLevel } from '@/shared/effort'
 import { proxyManager, buildProxyConfigFromSettings } from '../infra/proxyManager'
 import { info, warn, error, debug, processRaw, setSessionLogPath, sdkMessage, traceEvent } from '../infra/logger'
+import { redactArgsForLog } from '../infra/redactArgs'
 import {
   killTree as engineKillTree,
   resolveBunPath as engineResolveBunPath,
@@ -28,6 +29,7 @@ import { shouldAutoApprovePermission } from './permissionAutoApprove'
 import { ShellOutputStream } from './shellOutputStream'
 import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
 import { readSideTaskContextFile, discardSideTaskContextFile } from './transcriptDigest'
+import { removeTempFiles, writeSessionTempFile } from './tempArtifacts'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
 import { getOfficeCliInstallDir, syncInstalledOfficeCli } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
@@ -243,6 +245,8 @@ export class SessionProcess extends EventEmitter {
 
   private cliRoot: string
   private stderrBuffer: string = ''
+  /** 本次 spawn 写下的临时产物；进程退出即回收，重启会重写。 */
+  private tempArtifacts: string[] = []
 
   constructor(sessionId: string, config: SessionConfig) {
     super()
@@ -384,7 +388,15 @@ export class SessionProcess extends EventEmitter {
       await proxyManager.awaitStart()
     }
 
-    const builtArgs = this.buildArgs(this.config)
+    // 上一代进程的产物不再需要；清掉账本，避免 start 失败时留下无人认领的文件。
+    this.cleanupTempArtifacts()
+    let builtArgs: string[]
+    try {
+      builtArgs = this.buildArgs(this.config)
+    } catch (err) {
+      this.cleanupTempArtifacts()
+      throw err
+    }
     // 记下这次 spawn 真正带回的参数：--thinking 只在 spawn 时读一次，运行中改
     // config.thinkingEnabled 不会立刻生效，池要用这个差值判断"待重启生效"。
     this.spawnedThinkingEnabled = this.config.thinkingEnabled
@@ -418,7 +430,7 @@ export class SessionProcess extends EventEmitter {
       const env = { ...process.env, ...baseEnv, ...(launch.launcherEnv ?? {}) }
       const args = [...launch.args, ...builtArgs]
 
-      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Starting process | command=${launch.command} | args=${args.join(' ')} | cwd=${this.config.cwd}`)
+      info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Starting process | command=${launch.command} | args=${redactArgsForLog(args).join(' ')} | cwd=${this.config.cwd}`)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process env keys=[${Object.keys(env).join(',')}] | provider=${this.config.provider} | model=${this.config.model}`)
 
       const useShell = process.platform === 'win32' && launch.command.toLowerCase().endsWith('.cmd')
@@ -440,7 +452,7 @@ export class SessionProcess extends EventEmitter {
 
       if (outcome === 'spawn') {
         this.process = proc
-        this.attachProcessListeners(proc)
+        this.attachProcessListeners(proc, this.tempArtifacts.slice())
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process spawned | pid=${proc.pid}`)
         traceEvent({
           sessionId: this.sessionId,
@@ -481,7 +493,7 @@ export class SessionProcess extends EventEmitter {
       }
 
       this.process = proc
-      this.attachProcessListeners(proc)
+      this.attachProcessListeners(proc, this.tempArtifacts.slice())
       this.status = 'exited'
       error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${proc.pid}`, { error: err.message, stack: err.stack })
       traceEvent({
@@ -492,6 +504,7 @@ export class SessionProcess extends EventEmitter {
         title: 'Engine process failed to start',
         error: { message: err.message, stack: err.stack },
       })
+      this.cleanupTempArtifacts()
       this.emit('error', err)
       throw err
     }
@@ -532,8 +545,9 @@ export class SessionProcess extends EventEmitter {
     for (const settle of waiters) settle(ready)
   }
 
-  private attachProcessListeners(proc: ChildProcess): void {
+  private attachProcessListeners(proc: ChildProcess, artifacts: readonly string[]): void {
     proc.on('error', (err) => {
+      removeTempFiles(artifacts)
       this.status = 'exited'
       error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${proc.pid}`, { error: err.message, stack: err.stack })
       traceEvent({
@@ -564,6 +578,7 @@ export class SessionProcess extends EventEmitter {
     })
 
     proc.on('exit', (code, signal) => {
+      removeTempFiles(artifacts)
       const stderrTail = this.stderrBuffer.split(/\r?\n/).filter(Boolean).slice(-5).join('\n')
       info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited | code=${code} | signal=${signal} | pid=${this.process?.pid}${stderrTail ? ` | stderr=${stderrTail.slice(0, 200)}` : ''}`)
       traceEvent({
@@ -974,6 +989,13 @@ export class SessionProcess extends EventEmitter {
     }
     this.settleInitWaiters(false)
     this.status = 'exited'
+    this.cleanupTempArtifacts()
+  }
+
+  private cleanupTempArtifacts(): void {
+    if (this.tempArtifacts.length === 0) return
+    removeTempFiles(this.tempArtifacts)
+    this.tempArtifacts = []
   }
 
   isRunning(): boolean {
@@ -1270,9 +1292,6 @@ export class SessionProcess extends EventEmitter {
       : undefined
 
     if (useProxy) {
-      const settingsDir = path.join(os.tmpdir(), 'SpaceCode')
-      try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
-      const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
       const proxyUrl = proxyManager.getProxyUrl()!
 
       // 不设置 ANTHROPIC_DEFAULT_*_MODEL，让官网 claude-code 使用默认模型
@@ -1309,31 +1328,28 @@ export class SessionProcess extends EventEmitter {
         const globalHooks = this.readGlobalHooks()
         if (globalHooks) settingsContent.hooks = globalHooks
       }
-      fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
+      const settingsPath = writeSessionTempFile(this.sessionId, 'settings', JSON.stringify(settingsContent, null, 2))
+      this.tempArtifacts.push(settingsPath)
       args.push('--settings', settingsPath)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file (proxy mode) | path=${settingsPath} | modelType=anthropic | ANTHROPIC_BASE_URL=${proxyUrl}`)
     } else if (modelType) {
-      const settingsDir = path.join(os.tmpdir(), 'SpaceCode')
-      try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
-      const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
       const settingsContent: Record<string, unknown> = { modelType }
       if (config.model) settingsContent.model = config.model
       if (config.rtkEnabled) {
         const globalHooks = this.readGlobalHooks()
         if (globalHooks) settingsContent.hooks = globalHooks
       }
-      fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
+      const settingsPath = writeSessionTempFile(this.sessionId, 'settings', JSON.stringify(settingsContent, null, 2))
+      this.tempArtifacts.push(settingsPath)
       args.push('--settings', settingsPath)
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file | path=${settingsPath} | modelType=${modelType}`)
     } else if (config.rtkEnabled) {
       // RTK 启用但既非代理也非 modelType 模式：创建仅包含 hooks 的临时设置文件
       const globalHooks = this.readGlobalHooks()
       if (globalHooks) {
-        const settingsDir = path.join(os.tmpdir(), 'SpaceCode')
-        try { fs.mkdirSync(settingsDir, { recursive: true }) } catch {}
-        const settingsPath = path.join(settingsDir, `settings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
         const settingsContent: Record<string, unknown> = { hooks: globalHooks }
-        fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2), 'utf8')
+        const settingsPath = writeSessionTempFile(this.sessionId, 'settings', JSON.stringify(settingsContent, null, 2))
+        this.tempArtifacts.push(settingsPath)
         args.push('--settings', settingsPath)
         debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Created temp settings file (RTK hooks) | path=${settingsPath}`)
       }
@@ -1457,13 +1473,8 @@ export class SessionProcess extends EventEmitter {
     // 复用上方已加载的 enabledMcpConfig，不再重复读取磁盘。
     try {
       if (enabledMcpConfig && Object.keys(enabledMcpConfig.mcpServers).length > 0) {
-        const mcpDir = path.join(os.tmpdir(), 'SpaceCode')
-        try { fs.mkdirSync(mcpDir, { recursive: true }) } catch {}
-        const mcpPath = path.join(
-          mcpDir,
-          `mcp-${this.sessionId.slice(0, 8)}-${Date.now()}.json`,
-        )
-        fs.writeFileSync(mcpPath, JSON.stringify(enabledMcpConfig, null, 2), 'utf8')
+        const mcpPath = writeSessionTempFile(this.sessionId, 'mcp', JSON.stringify(enabledMcpConfig, null, 2))
+        this.tempArtifacts.push(mcpPath)
         args.push('--mcp-config', mcpPath)
         debug(
           'SessionProcess',
@@ -1519,10 +1530,8 @@ export class SessionProcess extends EventEmitter {
     if (commandLineLength <= MAX_INLINE_ARGS_LENGTH) return args
 
     const prompt = args[i + 1]
-    const promptDir = path.join(os.tmpdir(), 'SpaceCode')
-    try { fs.mkdirSync(promptDir, { recursive: true }) } catch {}
-    const promptPath = path.join(promptDir, `system-prompt-${this.sessionId}.txt`)
-    fs.writeFileSync(promptPath, prompt, 'utf8')
+    const promptPath = writeSessionTempFile(this.sessionId, 'system-prompt', prompt)
+    this.tempArtifacts.push(promptPath)
     args.splice(i, 2, '--system-prompt-file', promptPath)
     debug(
       'SessionProcess',
