@@ -93,8 +93,8 @@ refactor(turn): 拆分 turn god object 为三个深模块
 
 ### 4. 测试
 
-- 修改 Electron 主进程逻辑后运行：`npm run test:electron`
-- 修改 Vue 组件或 composables 后运行：`npx vitest run`
+- 修改代码后运行：`npm run test:changed`（只跑受改动影响的测试；Electron 主进程与渲染层共用同一个 Vitest runner，`vitest.config.ts` 的 include 覆盖 `tests/`、`src/`、`electron/`）
+- 需要全量回归时运行：`npm run test`
 - 修改构建相关后运行：`npm run build` 确保类型检查通过
 
 ### 5. 提交 PR
@@ -118,16 +118,17 @@ refactor(turn): 拆分 turn god object 为三个深模块
 
 ## 国际化贡献
 
-国际化文件位于 `src/i18n/locales/zh-CN.ts` 和 `src/i18n/locales/en-US.ts`：
+国际化文件位于 `src/i18n/locales/zh-CN/` 和 `src/i18n/locales/en-US/` 两个目录，按功能域拆分为同名模块（如 `chat.ts`、`settings.ts`），由各自的 `index.ts` 聚合：
 
-- 新增 UI 文案时，**必须同时**在两个语言文件中添加对应键值
+- 新增 UI 文案时，**必须同时**在两个目录的同名模块中添加对应键值
 - 键名采用命名空间分组，如 `chat.sendMessage`、`settings.apiConfig`
 - 不要硬编码任何用户可见的中文或英文字符串
+- 提交前运行 `npm run test:changed`；`tests/i18n/localeParity.test.ts` 会校验中英文键集一致
 
 ## 技能与智能体贡献
 
-- **技能（Skills）**：放置于 `skills-lib/<skill-name>/SKILL.md`，参考已有技能结构
-- **智能体（Agents）**：放置于 `agents-lib/<agent-name>.md`，参考已有 agent 文件
+- **技能（Skills）**：放置于 `resources/skills-lib/<skill-name>/SKILL.md`，参考已有技能结构
+- **智能体（Agents）**：放置于 `resources/agents-lib/<agent-name>.md`，参考已有 agent 文件
 - 技能与智能体可独立提交 PR，不影响桌面应用主流程
 
 ## 发版流程
@@ -142,8 +143,8 @@ refactor(turn): 拆分 turn god object 为三个深模块
 
 - **Bug 报告**：[GitHub Issues](https://github.com/hjdspace/SpaceCode/issues/new?template=bug_report.md)
 - **功能建议**：[GitHub Issues](https://github.com/hjdspace/SpaceCode/issues/new?template=feature_request.md)
+- **使用咨询**：[GitHub Issues](https://github.com/hjdspace/SpaceCode/issues/new?template=question.md)
 - **安全漏洞**：参见 [SECURITY.md](./SECURITY.md)
-- **使用讨论**：[GitHub Discussions](https://github.com/hjdspace/SpaceCode/discussions)
 
 ## 许可证
 
