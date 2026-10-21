@@ -323,14 +323,16 @@ export class H5Server {
     const taskId = body.taskId as string | undefined
 
     switch (pathname) {
-      case '/api/session/start':
+      case '/api/session/start': {
         this.rememberSessionMetadata(sessionId!, config)
-        await engineGateway.startSession(sessionId!, config)
+        // 把会话状态一并回给调用方：agent 是否真的落地是启动结果的一部分 (#56)
+        const status = await engineGateway.startSession(sessionId!, config)
         if (config?.cwd) {
           this.setMirrorSession(sessionId!, config.cwd)
         }
-        this.sendJson(res, 200, { ok: true })
+        this.sendJson(res, 200, { ok: true, status })
         return
+      }
 
       case '/api/session/send':
         if (!sessionId || typeof content !== 'string') {
