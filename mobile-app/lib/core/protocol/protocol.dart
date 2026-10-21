@@ -33,6 +33,7 @@ enum PushType {
   themeSync('theme_sync'),
   themeChanged('theme_changed'),
   sessionChanged('session_changed'),
+  agentNotice('agent_notice'),
   error('error'),
   pong('pong'),
   skillsSync('skills_sync');

@@ -56,7 +56,7 @@ async function ensureMobileSessionThenSend(sessionId: string, content: string, i
 
   info('MobileServer', `starting session for mobile | sid=${sessionId.slice(0, 8)} | cwd=${cwd} | provider=${desktopConfig?.provider || '(none)'} | model=${desktopConfig?.model || '(none)'} | apiKey=${desktopConfig?.apiKey ? '***set' : '(empty)'} | agent=${desktopConfig?.agent || '(none)'}`)
 
-  await engineGateway.startSession(sessionId, {
+  const startedStatus = await engineGateway.startSession(sessionId, {
     cwd,
     apiKey: desktopConfig?.apiKey,
     baseUrl: desktopConfig?.baseUrl,
@@ -71,6 +71,21 @@ async function ensureMobileSessionThenSend(sessionId: string, content: string, i
     modelContextWindows: desktopConfig?.modelContextWindows,
     rtkEnabled: desktopConfig?.rtkEnabled,
   })
+
+  // 「参数传下去了」不等于「agent 生效了」：引擎在 spawn 时给出回执，手机端也要能看见 (#56)
+  const requestedAgent: string = typeof desktopConfig?.agent === 'string' ? desktopConfig.agent : ''
+  if (requestedAgent && startedStatus && (startedStatus.agentApplied === false || startedStatus.agentExtensionLoaded === false)) {
+    mobileServer?.sendToClient({
+      type: 'agent_notice',
+      data: {
+        sessionId,
+        agent: requestedAgent,
+        applied: startedStatus.agentApplied ?? null,
+        extensionLoaded: startedStatus.agentExtensionLoaded,
+      },
+    })
+  }
+
   await engineGateway.sendMessage(sessionId, content, images)
 }
 

@@ -231,6 +231,21 @@ describe('H5Server API surface', () => {
       })
     })
 
+    it('把启动状态（含 agent 回执）一并回给调用方', async () => {
+      gatewayStub.startSession.mockResolvedValueOnce({
+        agentApplied: false,
+        agentExtensionLoaded: false,
+      } as any)
+
+      const res = await call('/api/session/start', { sessionId: 'sess-1', config: { cwd: '/work/project' } })
+
+      expect(res.status).toBe(200)
+      expect(jsonOf(res)).toMatchObject({
+        ok: true,
+        status: { agentApplied: false, agentExtensionLoaded: false },
+      })
+    })
+
     it('leaves the mirror alone when a session starts without a cwd', async () => {
       const res = await call('/api/session/start', { sessionId: 'sess-2', config: {} })
 

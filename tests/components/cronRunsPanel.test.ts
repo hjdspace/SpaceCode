@@ -91,6 +91,28 @@ describe('CronRunsPanel', () => {
     expect(wrapper.find('.run-output').text()).toBe('This run produced no output')
   })
 
+  it('agent 未生效时在记录里标注，同时保留任务本身的成功状态', async () => {
+    vi.mocked(api.cron.taskRuns).mockResolvedValue([
+      { ...completedRun, agent: 'reviewer', agentApplied: false },
+    ] as never)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.run-warning').text()).toContain('reviewer')
+    expect(wrapper.find('.run-warning').text()).toContain('did not take effect')
+    expect(wrapper.find('.run-status-icon').classes()).toContain('completed')
+  })
+
+  it('扩展没装上但人设生效时给出委派不可用的提示', async () => {
+    vi.mocked(api.cron.taskRuns).mockResolvedValue([
+      { ...completedRun, agent: 'reviewer', agentApplied: true, agentExtensionLoaded: false },
+    ] as never)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.run-warning').text()).toContain('cannot delegate')
+  })
+
   it('执行记录给出「View Session」入口，点了就切到那次执行的会话', async () => {
     const sessionStore = useChatSessionStore()
     sessionStore.createSession('依赖巡检', '/project', 'sess-cron-1', { activate: false })

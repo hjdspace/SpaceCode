@@ -41,6 +41,9 @@ export interface TaskRun {
   error?: string
   durationMs?: number
   sessionId?: string
+  agent?: string
+  agentApplied?: boolean | null
+  agentExtensionLoaded?: boolean
 }
 
 export const useCronStore = defineStore('cron', () => {

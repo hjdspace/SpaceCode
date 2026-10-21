@@ -14,7 +14,7 @@ export interface MobilePush {
   type: 'connected' | 'stream_event' | 'assistant' | 'tool_use' | 'tool_result'
       | 'permission_request' | 'result' | 'sessions_list' | 'agents_list'
       | 'settings_sync' | 'theme_sync' | 'theme_changed' | 'error' | 'pong'
-      | 'session_changed'
+      | 'session_changed' | 'agent_notice'
   data?: Record<string, unknown>
 }
 

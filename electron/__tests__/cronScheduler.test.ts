@@ -6,6 +6,7 @@ import { tmpdir } from 'os'
 import { CronScheduler, checkScheduleWindow } from '../cron/cronScheduler'
 import type { CronRunContext } from '../cron/cronScheduler'
 import { addCronTask, deleteCronTask, readCronTasks, type CronTask } from '../cron/cronFileStore'
+import { getTaskRuns } from '../cron/taskRunLogger'
 
 function taskWith(extra: Partial<CronTask>): CronTask {
   return { id: 'a', cron: '0 9 5 10 *', prompt: 'p', createdAt: 0, ...extra }
@@ -98,6 +99,35 @@ describe('CronScheduler 执行会话', () => {
     expect(run.status).toBe('completed')
     expect(run.output).toBe('你好')
     expect(run.error).toBeUndefined()
+  })
+
+  it('agent 未生效不改变任务成败，但写进执行记录', async () => {
+    const scheduler = new CronScheduler({
+      getProjectRoot: () => root,
+      runPrompt: () => Promise.resolve({
+        exitCode: 0,
+        stdout: 'ok',
+        stderr: '',
+        agent: { agent: 'reviewer', applied: false, extensionLoaded: false },
+      }),
+    })
+    const task = await addCronTask({ cron: '0 9 * * *', prompt: 'p', recurring: true }, root)
+
+    const run = await scheduler.executeTask(task, root)
+
+    expect(run).toMatchObject({
+      status: 'completed',
+      agent: 'reviewer',
+      agentApplied: false,
+      agentExtensionLoaded: false,
+    })
+    const persisted = await getTaskRuns(task.id, root)
+    expect(persisted[0]).toMatchObject({
+      status: 'completed',
+      agent: 'reviewer',
+      agentApplied: false,
+      agentExtensionLoaded: false,
+    })
   })
 
   it('超时不只落记录，还中断执行信号', async () => {

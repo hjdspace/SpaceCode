@@ -69,6 +69,8 @@
   "chat.voiceInputUnavailable": "无法使用语音识别，请检查设备是否支持",
   "chat.voiceInputNoApiKey": "未配置 API Key，无法使用语音输入",
   "chat.voiceInputError": "语音输入失败：{error}",
+  "chat.agentNotApplied": "智能体「{agent}」未生效：定义缺失/为空或人设写入失败，本次按默认提示词执行",
+  "chat.agentExtensionMissing": "智能体「{agent}」人设已生效，但子代理扩展未加载，本次无法委派",
   "chat.workspaceNone": "未选择工作区",
   "chat.workspaceLocal": "本地",
   "chat.workspaceGithub": "云端",

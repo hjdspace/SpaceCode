@@ -27,8 +27,8 @@ const probe = vi.hoisted(() => ({
     denyPermission: vi.fn(async (_sessionId: string, _requestId: string) => {}),
     abort: vi.fn(async () => {}),
     getSessionStatus: vi.fn(() => ({ isRunning: true })),
-    sendMessage: vi.fn(async () => {}),
-    startSession: vi.fn(async () => {}),
+    sendMessage: vi.fn(async (_sessionId: string, _content: string, _images?: unknown) => {}),
+    startSession: vi.fn(async (_sessionId: string, _config: unknown): Promise<unknown> => undefined),
     submitToolAnswer: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async () => {}),
     listAgents: vi.fn(async () => [
@@ -114,6 +114,9 @@ beforeEach(() => {
   probe.gateway.allowPermission.mockClear()
   probe.gateway.denyPermission.mockClear()
   probe.gateway.listAgents.mockClear()
+  probe.gateway.startSession.mockClear()
+  probe.gateway.sendMessage.mockClear()
+  probe.gateway.getSessionStatus.mockClear()
   registerMobileIPCHandlers()
 })
 
@@ -144,6 +147,41 @@ describe('allow_permission / deny_permission 答复路由', () => {
     const last = server.pushes[server.pushes.length - 1]
     expect(last?.type).toBe('error')
     expect(String(last?.data?.message)).toContain('No pending permission request')
+  })
+})
+
+describe('send_message 的 agent 回执', () => {
+  it('起会话后发现 agent 未生效，把回执推给手机', async () => {
+    const server = await startMobileServer()
+    probe.activeConfig = { cwd: '/repo', engineType: 'pi', agent: 'reviewer' }
+    probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
+    probe.gateway.startSession.mockResolvedValueOnce({ agentApplied: false, agentExtensionLoaded: false })
+
+    await server.emitTo('send_message', { sessionId: SESSION_ID, content: 'hi' })
+
+    expect(probe.gateway.startSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ agent: 'reviewer', engineType: 'pi' }),
+    )
+    const notice = server.pushes.find((push) => push.type === 'agent_notice')
+    expect(notice?.data).toMatchObject({
+      sessionId: SESSION_ID,
+      agent: 'reviewer',
+      applied: false,
+      extensionLoaded: false,
+    })
+    expect(probe.gateway.sendMessage).toHaveBeenCalledWith(SESSION_ID, 'hi', undefined)
+  })
+
+  it('agent 正常生效时不推送', async () => {
+    const server = await startMobileServer()
+    probe.activeConfig = { cwd: '/repo', engineType: 'pi', agent: 'reviewer' }
+    probe.gateway.getSessionStatus.mockReturnValueOnce({ isRunning: false })
+    probe.gateway.startSession.mockResolvedValueOnce({ agentApplied: true, agentExtensionLoaded: true })
+
+    await server.emitTo('send_message', { sessionId: SESSION_ID, content: 'hi' })
+
+    expect(server.pushes.some((push) => push.type === 'agent_notice')).toBe(false)
   })
 })
 
