@@ -69,6 +69,8 @@
   "chat.voiceInputUnavailable": "Voice recognition unavailable on this device",
   "chat.voiceInputNoApiKey": "API key not configured, voice input unavailable",
   "chat.voiceInputError": "Voice input failed: {error}",
+  "chat.agentNotApplied": "Agent \"{agent}\" did not take effect: its definition is missing or empty, or the persona file could not be written. This run used the default prompt.",
+  "chat.agentExtensionMissing": "The \"{agent}\" persona is in effect, but the sub-agent extension did not load, so this run cannot delegate sub-agents.",
   "chat.workspaceNone": "No workspace selected",
   "chat.workspaceLocal": "Local",
   "chat.workspaceGithub": "Cloud",
