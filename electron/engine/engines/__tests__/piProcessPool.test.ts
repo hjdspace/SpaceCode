@@ -23,6 +23,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
+import { parseEngineBlockedError } from '@/shared/engineErrors'
 import type { EngineSessionConfig, ImageAttachment } from '../types'
 import { MAX_PROCESSES, PiProcessPool } from '../PiProcessPool'
 import { PiSessionProcess } from '../PiSessionProcess'
@@ -881,14 +882,25 @@ describe('plan 模式权限闸编排 (#45)', () => {
     expect(proc.sendMessage).toHaveBeenCalledTimes(1)
   })
 
-  it('拦下消息时把原因作为 error 事件发给渲染层，不只抛给调用方', async () => {
+  it('拦下消息时把 reason code + 结构化上下文发给渲染层，不只抛给调用方', async () => {
     const { pool } = makePool()
     await pool.startSession('s1', planConfig())
     H.mapPiEvent.mockClear()
 
-    await expect(pool.sendMessage('s1', '写个文件')).rejects.toThrow(/plan mode is not enforced/)
+    const rejection = await pool.sendMessage('s1', '写个文件').then(() => null, (err) => err)
 
-    expect(H.mapPiEvent).toHaveBeenCalledWith('s1', expect.objectContaining({ type: 'error' }))
+    // 事件契约：机器可读的 reason + 上下文；不得再带一句英文 message 让渲染层直出。
+    const raw = H.mapPiEvent.mock.calls[H.mapPiEvent.mock.calls.length - 1]?.[1] as Record<string, unknown>
+    expect(raw).toMatchObject({
+      type: 'error',
+      reason: 'plan-mode-not-enforced',
+      context: { engine: 'pi', intent: 'plan', extensionLoaded: false },
+    })
+    expect(raw).not.toHaveProperty('message')
+    expect(String(raw.detail)).toMatch(/plan mode is not enforced/)
+
+    // IPC 拒绝只保留 message：reason 必须仍能从错误里解析出来，界面才能本地化。
+    expect(parseEngineBlockedError(rejection)?.reason).toBe('plan-mode-not-enforced')
   })
 })
 

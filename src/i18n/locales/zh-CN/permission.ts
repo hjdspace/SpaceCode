@@ -1,4 +1,9 @@
 export default {
+  errors: {
+    blockedTitle: '消息未发送',
+    modeNotApplied: '引擎没有进入你选择的权限模式。为避免绕过确认执行，本条消息没有发送。请重新打开该会话，或先切换到「完全信任」模式后再试。',
+    planModeNotEnforced: 'Pi 的权限组件没有装载成功，计划模式无法生效。为避免在计划模式下改动文件，本条消息没有发送。请新建会话，或改用其他权限模式后再试。',
+  },
   modeSelector: {
     title: '权限模式',
     default: '默认模式',

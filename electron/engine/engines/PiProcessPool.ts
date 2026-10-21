@@ -8,6 +8,7 @@ import { mapPiEvent } from './PiEventMapper'
 import { info, warn, error, debug } from '../../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
+import { engineBlockedError, type EngineBlockedPayload } from '@/shared/engineErrors'
 
 // 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
 const CLAUDE_CODE_EVENT_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.events, 'claude-code:')
@@ -155,7 +156,11 @@ export class PiProcessPool {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {
       error('PiProcessPool', `[${sessionId.slice(0, 8)}] sendMessage failed: no active process`)
-      throw new Error(`Session ${sessionId} has no active process`)
+      throw engineBlockedError(sessionId, {
+        reason: 'session-not-active',
+        detail: `Session ${sessionId} has no active process`,
+        context: { engine: 'pi', operation: 'sendMessage' },
+      })
     }
 
     await this.guardPermissionMode(sessionId, proc)
@@ -256,9 +261,16 @@ export class PiProcessPool {
     proc.config.permissionMode = mode
     if (!(await this.reconcilePlanMode(sessionId, proc, 'switch'))) {
       proc.config.permissionMode = previous
-      throw new Error(
-        `Pi did not confirm plan mode (extension loaded=${proc.planModeExtensionLoaded}, engine=${proc.planModeActive ?? '(no receipt)'})`,
-      )
+      throw engineBlockedError(sessionId, {
+        reason: 'plan-mode-not-enforced',
+        detail: `Pi did not confirm plan mode (extension loaded=${proc.planModeExtensionLoaded}, engine=${proc.planModeActive ?? '(no receipt)'})`,
+        context: {
+          engine: 'pi',
+          intent: 'plan',
+          extensionLoaded: proc.planModeExtensionLoaded,
+          reported: proc.planModeActive === null ? 'no-receipt' : 'not-in-plan',
+        },
+      })
     }
   }
 
@@ -336,10 +348,19 @@ export class PiProcessPool {
     // 已经在 plan 时 reconcile 直接返回 true，不会多发一帧命令
     if (await this.reconcilePlanMode(sessionId, proc, 'send')) return
 
-    const detail = `plan mode is not enforced (extension loaded=${proc.planModeExtensionLoaded}, engine=${proc.planModeActive === null ? 'no receipt' : 'not in plan'})`
-    error('PiProcessPool', `[${sessionId.slice(0, 8)}] Blocked message send: ${detail}`)
-    this.routeEvent(sessionId, 'error', { message: detail })
-    throw new Error(`Session ${sessionId} blocked: ${detail}`)
+    const payload: EngineBlockedPayload = {
+      reason: 'plan-mode-not-enforced',
+      detail: `plan mode is not enforced (extension loaded=${proc.planModeExtensionLoaded}, engine=${proc.planModeActive === null ? 'no receipt' : 'not in plan'})`,
+      context: {
+        engine: 'pi',
+        intent: 'plan',
+        extensionLoaded: proc.planModeExtensionLoaded,
+        reported: proc.planModeActive === null ? 'no-receipt' : 'not-in-plan',
+      },
+    }
+    error('PiProcessPool', `[${sessionId.slice(0, 8)}] Blocked message send: ${payload.detail}`)
+    this.routeEvent(sessionId, 'error', payload)
+    throw engineBlockedError(sessionId, payload)
   }
 
   killSession(sessionId: string): void {

@@ -1,5 +1,7 @@
 import { ref } from 'vue'
 import { ErrorCategory, type ClassifiedError, type ErrorContext, type ToastItem, type ErrorLogEntry } from '@/types'
+import { i18n } from '@/i18n'
+import { isEngineBlockedPayload, parseEngineBlockedError, type EngineBlockedPayload } from '@/shared/engineErrors'
 
 const electronAPI = window.electronAPI
 
@@ -101,6 +103,75 @@ function readHttpStatus(msg: string, error: unknown): number | undefined {
   return earliest?.code
 }
 
+/**
+ * 主进程拦住操作时只给 reason code（issue #55），用户可见的那句话在这里按当前语言渲染。
+ * detail 是给排查用的原始字段，只进技术详情 / 日志 / trace。
+ */
+function engineBlockedText(payload: EngineBlockedPayload): { title: string; message: string } {
+  switch (payload.reason) {
+    case 'permission-mode-not-applied':
+      return {
+        title: i18n.global.t('permission.errors.blockedTitle'),
+        message: i18n.global.t('permission.errors.modeNotApplied'),
+      }
+    case 'plan-mode-not-enforced':
+      return {
+        title: i18n.global.t('permission.errors.blockedTitle'),
+        message: i18n.global.t('permission.errors.planModeNotEnforced'),
+      }
+    case 'session-not-active':
+      return {
+        title: i18n.global.t('errors.sessionNotActiveTitle'),
+        message: i18n.global.t('errors.sessionNotActive'),
+      }
+    case 'engine-unavailable': {
+      const availabilityReason = payload.context?.availabilityReason
+      const version = payload.context?.version
+      const messageKey = availabilityReason === 'not-found'
+        ? 'errors.engineUnavailableNotFound'
+        : availabilityReason === 'version-too-old' && version
+          ? 'errors.engineUnavailableVersionTooOld'
+          : availabilityReason === 'version-too-old' || availabilityReason === 'version-unknown'
+            ? 'errors.engineUnavailableVersionUnknown'
+            : 'errors.engineUnavailable'
+      return {
+        title: i18n.global.t('errors.engineUnavailableTitle'),
+        message: i18n.global.t(messageKey, { version: version ?? '' }),
+      }
+    }
+  }
+}
+
+function readEngineBlocked(error: unknown): EngineBlockedPayload | null {
+  const attached = (error as { engineBlocked?: unknown } | null | undefined)?.engineBlocked
+  if (isEngineBlockedPayload(attached)) return attached
+  return parseEngineBlockedError(error)
+}
+
+/**
+ * 旧版主进程（或 H5 的纯文本 409）只给过这几句英文；结构化 payload 缺失时按同一套
+ * reason 兜底，保证界面仍然本地化，而不是把英文原样端给用户。
+ */
+function readLegacyBlocked(msg: string): EngineBlockedPayload | null {
+  const lowerMsg = msg.toLowerCase()
+  if (lowerMsg.includes('permission mode not applied')) {
+    return { reason: 'permission-mode-not-applied', detail: msg }
+  }
+  if (lowerMsg.includes('plan mode is not enforced')) {
+    return { reason: 'plan-mode-not-enforced', detail: msg }
+  }
+  if (lowerMsg.includes('has no active process')) {
+    return { reason: 'session-not-active', detail: msg }
+  }
+  if (
+    (lowerMsg.includes('engine "') && lowerMsg.includes('is not available'))
+    || lowerMsg.includes('pi engine is not usable')
+  ) {
+    return { reason: 'engine-unavailable', detail: msg }
+  }
+  return null
+}
+
 function classifyError(error: unknown, context?: ErrorContext): ClassifiedError {
   const msg = error instanceof Error ? error.message : String(error)
   const lowerMsg = msg.toLowerCase()
@@ -126,6 +197,18 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
     ...(flaggedRetryable !== undefined ? { retryable: flaggedRetryable } : {}),
   })
 
+  // 主进程拦住操作：reason code 定文案，detail 只进技术详情；重发救不回来，不给重试入口。
+  const blocked = readEngineBlocked(error)
+  if (blocked) {
+    const text = engineBlockedText(blocked)
+    return make(ErrorCategory.CONFIG_ERROR, {
+      title: text.title,
+      message: text.message,
+      technicalDetail: blocked.detail,
+      retryable: false,
+    })
+  }
+
   // 400 = 服务端拒绝了请求体，重发同一份历史必然复现（例如含 tool_calls 的消息格式
   // 不被网关接受），所以既不能自动重发 5 次，也不给"重试"入口。放在 429/5xx 之前 ——
   // 同一份正文里常既有状态码 400 又有模型名 foo-429，先判 400 才不会把拒绝当成限流。
@@ -148,13 +231,15 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
     })
   }
 
-  // 进程池在转发消息前会核验引擎的权限模式：意图是 plan/acceptEdits 而引擎仍报
-  // bypass 时直接拦下这条消息（否则工具绕过宿主确认，等于在用户的计划模式里改文件）。
-  // 重发救不回来，要说清楚是"没发出去"，并给出下一步。
-  if (lowerMsg.includes('permission mode not applied')) {
+  // 旧版主进程只给过英文原句：按同一套 reason 兜底成当前语言，别再原样端给用户。
+  const legacyBlocked = readLegacyBlocked(msg)
+  if (legacyBlocked) {
+    const text = engineBlockedText(legacyBlocked)
     return make(ErrorCategory.CONFIG_ERROR, {
+      title: text.title,
+      message: text.message,
+      technicalDetail: msg,
       retryable: false,
-      message: '引擎未能进入你选择的权限模式，为避免绕过确认执行，本条消息没有发送。请重新打开该会话（或先切到完全信任模式）后再试。',
     })
   }
 

@@ -19,6 +19,7 @@ import type {
   EffortLevel,
 } from './engines/types'
 import { info, warn, error } from '../infra/logger'
+import { engineBlockedError } from '@/shared/engineErrors'
 
 const TAG = 'EngineGateway'
 
@@ -94,7 +95,15 @@ export const engineGateway = {
       // 曾经这里悄悄换成 claude-code 继续跑：界面标着用户选的 Pi，跑的却是另一个引擎。
       // 引擎版本由不得产物时 (#52)，宁可起不来并把原因回给调用方，也不替用户改引擎。
       if (!availability.available) {
-        throw new Error(`Engine "${engineType}" is not available (${availability.reason}${availability.version ? `, version ${availability.version}` : ', version unverifiable'})`)
+        throw engineBlockedError(sessionId, {
+          reason: 'engine-unavailable',
+          detail: `Engine "${engineType}" is not available (${availability.reason}${availability.version ? `, version ${availability.version}` : ', version unverifiable'})`,
+          context: {
+            engine: engineType,
+            availabilityReason: availability.reason,
+            version: availability.version,
+          },
+        })
       }
     }
     const engine = EngineFactory.getEngine(engineType)

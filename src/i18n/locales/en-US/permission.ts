@@ -1,4 +1,9 @@
 export default {
+  errors: {
+    blockedTitle: 'Message Not Sent',
+    modeNotApplied: 'The engine did not switch to the permission mode you selected. The message was not sent to avoid running operations without confirmation. Reopen this session, or switch to Full Trust first and try again.',
+    planModeNotEnforced: 'The Pi permission component failed to load, so Plan Mode could not be enforced. The message was not sent to avoid modifying files while you expected Plan Mode. Start a new session, or switch to another permission mode and try again.',
+  },
   modeSelector: {
     title: 'Permission Mode',
     default: 'Default',

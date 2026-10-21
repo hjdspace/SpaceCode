@@ -3,6 +3,7 @@ import { SessionProcess, ProcessStatus, SessionConfig } from '../session/session
 import { info, warn, error, debug } from '../infra/logger'
 import { claudeCodeNamespace, type ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
+import { engineBlockedError, type EngineBlockedPayload } from '@/shared/engineErrors'
 import type { EffortLevel } from '@/shared/effort'
 
 // 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
@@ -254,7 +255,11 @@ export class ClaudeCodeProcessPool {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] sendMessage failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`)
-      throw new Error(`Session ${sessionId} has no active process`)
+      throw engineBlockedError(sessionId, {
+        reason: 'session-not-active',
+        detail: `Session ${sessionId} has no active process`,
+        context: { engine: 'claude-code', operation: 'sendMessage' },
+      })
     }
     await this.guardPermissionMode(sessionId, proc)
     await this.applyStaleSpawnArgs(sessionId, proc)
@@ -271,10 +276,18 @@ export class ClaudeCodeProcessPool {
     if (!this.isModeHazard(proc)) return
     await this.reconcilePermissionMode(sessionId, proc, 'send')
     if (!this.isModeHazard(proc)) return
-    const detail = `permission mode not applied (intent=${proc.currentPermissionMode}, engine=${proc.reportedPermissionMode ?? 'unknown'})`
-    error('ProcessPool', `[${sessionId.slice(0, 8)}] Blocked message send: ${detail}`)
-    this.routeEvent(sessionId, 'error', { message: detail })
-    throw new Error(`Session ${sessionId} blocked: ${detail}`)
+    const payload: EngineBlockedPayload = {
+      reason: 'permission-mode-not-applied',
+      detail: `permission mode not applied (intent=${proc.currentPermissionMode}, engine=${proc.reportedPermissionMode ?? 'unknown'})`,
+      context: {
+        engine: 'claude-code',
+        intent: proc.currentPermissionMode,
+        reported: proc.reportedPermissionMode ?? null,
+      },
+    }
+    error('ProcessPool', `[${sessionId.slice(0, 8)}] Blocked message send: ${payload.detail}`)
+    this.routeEvent(sessionId, 'error', payload)
+    throw engineBlockedError(sessionId, payload)
   }
 
   /**
@@ -297,7 +310,11 @@ export class ClaudeCodeProcessPool {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] submitToolAnswer failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`)
-      throw new Error(`Session ${sessionId} has no active process`)
+      throw engineBlockedError(sessionId, {
+        reason: 'session-not-active',
+        detail: `Session ${sessionId} has no active process`,
+        context: { engine: 'claude-code', operation: 'submitToolAnswer' },
+      })
     }
     info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding tool answer | toolId=${toolCallId.slice(0, 8)} | answers=${JSON.stringify(answers)}`)
     proc.submitToolAnswer(toolCallId, answers)
@@ -307,7 +324,11 @@ export class ClaudeCodeProcessPool {
     const proc = this.processes.get(sessionId)
     if (!proc || !proc.isRunning()) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] skipToolAnswer failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`)
-      throw new Error(`Session ${sessionId} has no active process`)
+      throw engineBlockedError(sessionId, {
+        reason: 'session-not-active',
+        detail: `Session ${sessionId} has no active process`,
+        context: { engine: 'claude-code', operation: 'skipToolAnswer' },
+      })
     }
     info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding tool skip | toolId=${toolCallId.slice(0, 8)}`)
     proc.skipToolAnswer(toolCallId)
@@ -471,7 +492,11 @@ export class ClaudeCodeProcessPool {
         'ProcessPool',
         `[${sessionId.slice(0, 8)}] ${op} failed: no active process | hasProcess=${!!proc} | isRunning=${proc?.isRunning()}`,
       )
-      throw new Error(`Session ${sessionId} has no active process`)
+      throw engineBlockedError(sessionId, {
+        reason: 'session-not-active',
+        detail: `Session ${sessionId} has no active process`,
+        context: { engine: 'claude-code', operation: op },
+      })
     }
     return proc
   }

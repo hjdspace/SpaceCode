@@ -387,6 +387,23 @@ describe('mapPiEvent — 系统与终止事件', () => {
     })
   })
 
+  it('拦截类 error 保留 reason + 上下文，不降级成一句话 (issue #55)', () => {
+    expect(mapPiEvent(SID, {
+      type: 'error',
+      reason: 'plan-mode-not-enforced',
+      detail: 'plan mode is not enforced (extension loaded=false, engine=no receipt)',
+      context: { engine: 'pi', intent: 'plan', extensionLoaded: false, reported: 'no-receipt' },
+    })).toEqual({
+      sessionId: SID,
+      type: 'error',
+      data: {
+        reason: 'plan-mode-not-enforced',
+        detail: 'plan mode is not enforced (extension loaded=false, engine=no receipt)',
+        context: { engine: 'pi', intent: 'plan', extensionLoaded: false, reported: 'no-receipt' },
+      },
+    })
+  })
+
   it('噪音帧：turn_start/turn_end/queue_update/session_info_changed/未知类型 → 一律 null', () => {
     for (const type of ['turn_start', 'turn_end', 'queue_update', 'session_info_changed', 'something_totally_new']) {
       expect(mapPiEvent(SID, { type })).toBeNull()

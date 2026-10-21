@@ -6,6 +6,10 @@ import { useChatSessionStore } from '@/stores/chatSession'
 import { errorHandler } from '@/services/errorHandler'
 
 vi.mock('vue-i18n', () => ({
+  // errorHandler 现在会引入全局 i18n 实例（issue #55），mock 必须提供 createI18n。
+  createI18n: () => ({
+    global: { locale: { value: 'zh-CN' }, t: (key: string) => key },
+  }),
   useI18n: () => ({ t: (key: string) => key }),
 }))
 
