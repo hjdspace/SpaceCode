@@ -3,6 +3,7 @@
 
 import type { EngineAvailability, ExtensionDialogAnswer, ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
+import { isEngineBlockedPayload } from '@/shared/engineErrors'
 
 /** H5 连接配置（从 URL query params 解析） */
 export interface H5ConnectionConfig {
@@ -66,7 +67,14 @@ async function h5Fetch(path: string, options?: {
 
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(errBody.error || `HTTP ${res.status}`)
+    const message = errBody.error || `HTTP ${res.status}`
+    const err = new Error(message)
+    // 服务端拦下操作时给的是 reason code（issue #55），带上它才能走 i18n 文案。
+    const blocked = { reason: errBody.reason, detail: message }
+    if (isEngineBlockedPayload(blocked)) {
+      Object.assign(err, { engineBlocked: blocked })
+    }
+    throw err
   }
 
   return res.json()
