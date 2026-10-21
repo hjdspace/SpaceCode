@@ -117,7 +117,7 @@ async function handleEffortChange(level: EffortLevel) {
 }
 
 async function handleAgentChange(agent: string) {
-  await sessionStore.switchAgent(agent)
+  await sessionStore.switchAgent(agent, props.sessionId)
 }
 
 function handleOpenSkills() {
