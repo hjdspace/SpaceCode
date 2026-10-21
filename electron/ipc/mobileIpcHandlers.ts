@@ -85,7 +85,15 @@ function subscribeEngineEventsForMobile(): void {
 
   unsubscribeEngineEventsForMobile = EngineFactory.onRouteEvent((sid, eventType, data) => {
     if (!mobileServer) return
-    mobileServer.sendToClient({ type: eventType as any, data: { ...data, sessionId: sid } })
+    // 手机端没有 i18n：拦截事件（issue #55）仍给它原始 detail 作为可显示文本，
+    // 同时保留 reason 供客户端后续自行本地化。
+    const payload = eventType === 'error'
+      && data && typeof data === 'object'
+      && data.message === undefined
+      && typeof data.detail === 'string'
+      ? { ...data, message: data.detail }
+      : data
+    mobileServer.sendToClient({ type: eventType as any, data: { ...payload, sessionId: sid } })
   })
 }
 
