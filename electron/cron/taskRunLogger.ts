@@ -14,6 +14,12 @@ export interface TaskRun {
   error?: string
   durationMs?: number
   sessionId?: string
+  /** 本次执行请求的 agent；未选 agent 时不存在 */
+  agent?: string
+  /** agent 有没有真的落到会话上；null = 引擎不上报，false = 未生效 (#56) */
+  agentApplied?: boolean | null
+  /** 子代理扩展是否随 spawn 装上；false 时人设可能生效但无法委派 */
+  agentExtensionLoaded?: boolean
 }
 
 type RunFile = { runs: TaskRun[] }
