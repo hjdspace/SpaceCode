@@ -8,11 +8,12 @@
  * 于是桌面端自动重发 5 次（退避累计约 1 分钟）再挂出带"重试"按钮的错误卡片，
  * 用户点一次又是一轮，全部无效。
  */
-import { describe, it } from 'vitest'
+import { describe, it, afterEach } from 'vitest'
 import assert from 'node:assert/strict'
 
 import { errorHandler } from '../errorHandler.ts'
 import { extractErrorCode } from '@/composables/useAutoRetry'
+import { i18n } from '@/i18n'
 import { ErrorCategory } from '@/types'
 
 const GATEWAY_400 = 'API Error: 400 {"error":{"message":"Can only get item pairs from a mapping.",'
@@ -213,5 +214,81 @@ describe('classifyError 状态码识别（issue #41 第 14 项）', () => {
     assert.equal(classified.category, ErrorCategory.UNKNOWN)
     assert.equal(classified.retryable, true)
     assert.equal(extractErrorCode(classified.technicalDetail, classified.category), '429')
+  })
+})
+
+/**
+ * 主进程拦下操作时只给 reason code + 上下文 (issue #55)。用户可见文案必须由渲染层
+ * 按当前语言渲染，原始 detail 只进技术详情；测试钉住这两条，防止文案再被塞回主进程。
+ */
+describe('classifyError 引擎拦截原因 (issue #55)', () => {
+  afterEach(() => {
+    i18n.global.locale.value = 'zh-CN'
+  })
+
+  function blocked(
+    reason: 'permission-mode-not-applied' | 'plan-mode-not-enforced' | 'session-not-active' | 'engine-unavailable',
+    detail: string,
+    context?: Record<string, unknown>,
+  ) {
+    return Object.assign(new Error(detail), { engineBlocked: { reason, detail, context } })
+  }
+
+  it('plan 被拦：中文界面给中文可行动提示，字段名只留在技术详情', () => {
+    const classified = errorHandler.classifyError(blocked(
+      'plan-mode-not-enforced',
+      'plan mode is not enforced (extension loaded=false, engine=no receipt)',
+      { engine: 'pi', intent: 'plan', extensionLoaded: false },
+    ))
+
+    assert.equal(classified.retryable, false)
+    assert.equal(classified.title, '消息未发送')
+    assert.match(classified.message, /新建会话/)
+    assert.doesNotMatch(classified.message, /loaded=|no receipt|plan mode is not enforced/)
+    assert.match(classified.technicalDetail, /loaded=false/)
+  })
+
+  it('英文界面给英文提示，同样不含实现字段名', () => {
+    i18n.global.locale.value = 'en-US'
+
+    const classified = errorHandler.classifyError(blocked(
+      'permission-mode-not-applied',
+      'permission mode not applied (intent=plan, engine=bypassPermissions)',
+      { engine: 'claude-code', intent: 'plan', reported: 'bypassPermissions' },
+    ))
+
+    assert.equal(classified.title, 'Message Not Sent')
+    assert.match(classified.message, /Full Trust/)
+    assert.doesNotMatch(classified.message, /intent=|bypassPermissions/)
+  })
+
+  it('IPC 拒绝只保留 message：reason code 仍能从错误里解析出来', () => {
+    const encoded = new Error(
+      "Error invoking remote method 'claude-code:sendMessage': Error: Session s1 blocked: "
+        + 'ENGINE_BLOCKED[permission-mode-not-applied] permission mode not applied (intent=plan, engine=bypassPermissions)',
+    )
+    const classified = errorHandler.classifyError(encoded)
+
+    assert.equal(classified.title, '消息未发送')
+    assert.match(classified.message, /没有发送/)
+    assert.match(classified.technicalDetail, /intent=plan/)
+  })
+
+  it('引擎不可用按版本原因给不同建议', () => {
+    const classified = errorHandler.classifyError(blocked(
+      'engine-unavailable',
+      'Engine "pi" is not available (version-too-old, version 0.73.0)',
+      { engine: 'pi', availabilityReason: 'version-too-old', version: '0.73.0' },
+    ))
+
+    assert.match(classified.message, /0\.73\.0/)
+    assert.doesNotMatch(classified.message, /is not available|version-too-old/)
+  })
+
+  it('旧版纯文本错误（如 H5 409）仍按同一套 reason 本地化', () => {
+    const classified = classify('Session sess-dead has no active process')
+
+    assert.equal(classified.retryable, false)
+    assert.equal(classified.message, i18n.global.t('errors.sessionNotActive'))
   })
 })
