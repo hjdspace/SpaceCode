@@ -10,11 +10,15 @@ const TAG = 'PiCliResolver'
 export const PI_PACKAGE_NAME = '@earendil-works/pi-coding-agent'
 
 /**
- * 宿主侧要求的引擎下限，与 package.json 里钉住并与 CI 验证过的 1.3.x 同大版本。
- * 低于它的 pi 不认：PiEventMapper 只理解 toolcall delta 顶层带 id/toolName 的 wire 形状
- * （1.x 的契约），旧形状靠 partial.content 猜身份，会造出幽灵卡片。
+ * 宿主侧要求的引擎下限，取以下各项的最大值：
+ * - 宿主的 wire 契约：PiEventMapper 只理解 toolcall delta 顶层带 id/toolName 的 1.x 形状；
+ * - @tintinweb/pi-subagents 的 peer 下限 >=1.1.0 —— 选了 agent 就会强制加载它 (#46)；
+ * - @narumitw/pi-plan-mode 的文档要求 >=0.80.6（被前一项覆盖）。
+ *
+ * 这个常量是界面可用性、spawn 目标与会话报错的唯一口径 (#52)；调整前先看
+ * piVersionFloor.test.ts 的不变量，别让它低于随产物分发的扩展所声明的下限。
  */
-export const MIN_PI_VERSION = '1.0.0'
+export const MIN_PI_VERSION = '1.1.0'
 
 export type PiCliSource = 'bundled' | 'dev' | 'installed'
 
