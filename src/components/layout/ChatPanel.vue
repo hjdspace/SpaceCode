@@ -310,7 +310,7 @@ import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useSessionFileChangesStore } from '@/stores/sessionFileChanges'
-import { countKnownWritePaths } from '@/lib/sessionFileChanges'
+import { sessionFilesSignature } from '@/lib/sessionFileChanges'
 import { useScmStore } from '@/stores/scm'
 import { useTaskManager } from '@/composables/useTaskManager'
 import { syncTaskStateFromToolCall } from '@/utils/taskToolSync'
@@ -585,10 +585,11 @@ watch(
 watch(() => scmStore.fileStats, syncGitTotalsFromScm, { immediate: true })
 
 // 会话文件改动来自消息本身（写文件工具事件 + 回合窗口观测），不看 git 的未提交集合
-// —— 后者是仓库级的，并行会话与用户手改会混进同一份列表。签名用"已知路径的写文件
-// 调用数"，避免每个流式 token 都重算一遍历史。
+// —— 后者是仓库级的，并行会话与用户手改会混进同一份列表。签名必须包含真实的写目标
+// 路径与 commandFiles：只数写调用个数会漏掉“路径补全”“回合结束后回填命令改动”
+// 这类调用数不变、但归属结果已变的更新。
 const fileWriteSignature = computed(
-  () => `${paneSessionId.value}:${paneMessages.value.length}:${countKnownWritePaths(paneMessages.value)}`,
+  () => `${paneSessionId.value}:${paneMessages.value.length}:${appStore.projectRoot}:${paneWorkingDirectory.value}:${sessionFilesSignature(paneMessages.value)}`,
 )
 
 const sessionChanges = computed(() => sessionFileChanges.summaryFor(paneSessionId.value))

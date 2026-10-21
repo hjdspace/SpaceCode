@@ -191,19 +191,30 @@ export function collectSessionFileChanges(
 }
 
 /**
- * 已知目标路径的写文件调用数。作为"要不要重算会话改动列表"的签名输入 ——
- * 直接 deep watch 消息数组会在每个流式 token 上重算，而文件路径只随工具调用出现。
+ * 会话改动列表的重算签名。不能只数写调用个数 —— 路径从半截补全为完整、
+ * 回合结束后异步回填 commandFiles 时，调用数不变但归属结果已经变了。
+ * 只读路径与 commandFiles，content 的流式增量不会改变签名。
  */
-export function countKnownWritePaths(messages: Message[]): number {
-  let hits = 0
+export function sessionFilesSignature(messages: Message[]): string {
+  const parts: string[] = []
+  let turnIndex = 0
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue
+    turnIndex++
+
     for (const tc of msg.toolCalls || []) {
-      if (!WRITE_TOOLS.has(tc.name)) continue
-      if (extractToolFilePaths(tc.input).length > 0) hits++
+      if (!WRITE_TOOLS.has(tc.name) || tc.status === 'pending') continue
+      const paths = extractToolFilePaths(tc.input)
+      if (paths.length === 0) continue
+      parts.push(`${turnIndex}:${tc.id}:${tc.status}:${JSON.stringify(paths)}`)
+    }
+
+    for (const file of msg.metadata?.commandFiles || []) {
+      if (typeof file?.path !== 'string' || !file.path.trim()) continue
+      parts.push(`${turnIndex}:c:${JSON.stringify([file.path, file.at || 0])}`)
     }
   }
-  return hits
+  return parts.join('\n')
 }
 
 /**

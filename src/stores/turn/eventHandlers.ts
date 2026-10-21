@@ -206,11 +206,19 @@ function decodePartialJsonString(raw: string): string {
 }
 
 /**
+ * 路径字段只能取引号闭合的完整值。流式分片可能停在任意字符上（例如
+ * `src/composables/__`），而会话文件归属会把第一次看到的路径当成最终路径；
+ * 半截值一旦进了 input，后续补全不会改变「有路径的写调用数」，悬浮条就会
+ * 一直显示截断的文件名。content / command 等纯展示字段仍允许半截值。
+ */
+const EARLY_INPUT_COMPLETE_ONLY_FIELDS = new Set(['file_path', 'path'])
+
+/**
  * 从部分 JSON 字符串中尝试提取关键工具输入字段（file_path / path / command / query / pattern / url / content），
  * 让 UI 能在 LLM 流式生成工具参数时就显示工具目标与流式代码块。
  * 支持两种匹配模式：
  * 1. 完整字符串值（引号已闭合）：`"file_path": "/path/to/file.html"`
- * 2. 部分字符串值（引号尚未闭合）：`"file_path": "/path/to/file.ht`
+ * 2. 部分字符串值（引号尚未闭合）：`"content": "const x = 1`
  */
 function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | null {
   const result: Record<string, unknown> = {}
@@ -228,6 +236,8 @@ function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | nu
       continue
     }
 
+    if (EARLY_INPUT_COMPLETE_ONLY_FIELDS.has(field)) continue
+
     // 再尝试匹配引号尚未闭合的部分值（值正在流式传输中）。
     // 末尾可选的裸反斜杠容纳「转义序列只传了一半」的瞬间（如 "abc\ ），
     // 由 decodePartialJsonString 剪掉后解码。
@@ -240,6 +250,27 @@ function tryExtractEarlyInput(partialJson: string): Record<string, unknown> | nu
   }
 
   return found ? result : null
+}
+
+/**
+ * pi 的 tool_execution_update 带的是 partialResult 快照，不是增量：
+ * bash 形如 { content: [{ type: 'text', text }], details }。取文本供卡片流式展示。
+ */
+function partialToolResultText(result: any): string {
+  if (result === undefined || result === null) return ''
+  if (typeof result === 'string') return result
+  if (typeof result.content === 'string') return result.content
+  if (Array.isArray(result.content)) {
+    return result.content
+      .map((block: any) => (block?.type === 'text' ? String(block.text ?? '') : ''))
+      .join('')
+  }
+  if (typeof result.text === 'string') return result.text
+  try {
+    return JSON.stringify(result, null, 2)
+  } catch {
+    return String(result)
+  }
 }
 
 /**
@@ -659,6 +690,28 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       }
     }
 
+    // Pi 的 tool_execution_update：partialResult 是工具到目前为止的输出快照。
+    // 不消费它，长命令在 tool_execution_end 之前既没有命令也没有任何输出。
+    if (ev.type === 'content_block_delta' && ev.delta?.type === 'tool_execution_delta') {
+      const toolId = ev.delta.toolCallId
+      if (typeof toolId === 'string' && toolId) {
+        const s = sink.get(sessionId)
+        const msg = s?.messages.find(m => m.id === ts.assistantMessageId)
+        const idx = msg?.toolCalls?.findIndex(tc => tc.id === toolId) ?? -1
+        if (msg?.toolCalls && idx >= 0 && msg.toolCalls[idx].status === 'running') {
+          const text = partialToolResultText(ev.delta.partialResult)
+          const output = text.length > MAX_INMEMORY_TOOL_OUTPUT
+            ? text.slice(0, MAX_INMEMORY_TOOL_OUTPUT) + '\n\n[Output truncated to prevent memory overflow]'
+            : text
+          if (msg.toolCalls[idx].output !== output) {
+            const updatedToolCalls = [...msg.toolCalls]
+            updatedToolCalls[idx] = { ...updatedToolCalls[idx], output }
+            msg.toolCalls = updatedToolCalls
+          }
+        }
+      }
+    }
+
     if (ev.type === 'content_block_stop' && ts.currentStreamingToolId) {
       const toolId = ts.currentStreamingToolId
       const accumulated = ts.streamingToolJson.get(toolId) || ''
@@ -942,22 +995,19 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           addToolTimelineEvent(sessionId, ts, toolId)
           sink.persist(sessionId)
         } else if (msg.toolCalls) {
-          // 流式期间已创建的 toolCall，用完整数据补充 input
+          // 流式期间已创建的 toolCall，用完整数据覆盖。
+          // tool_use / tool_execution_start 是权威帧，不能按 key 数量判断是否"更完整" ——
+          // 早期提取写下的 { command: 半截 } 与完整 input 键数相同，旧条件会拒绝覆盖。
           const idx = msg.toolCalls.findIndex(tc => tc.id === toolId)
-          if (idx >= 0) {
-            const hasFullInput = toolInput && Object.keys(toolInput).length > 0
-            const currentInput = msg.toolCalls[idx].input || {}
-            const currentInputKeys = Object.keys(currentInput)
-            // 仅当当前 input 为空或不完整时才覆盖
-            if (hasFullInput && currentInputKeys.length < Object.keys(toolInput).length) {
-              const updatedToolCalls = [...msg.toolCalls]
-              updatedToolCalls[idx] = {
-                ...updatedToolCalls[idx],
-                input: toolInput
-              }
-              msg.toolCalls = updatedToolCalls
-              sink.persist(sessionId)
+          const hasFullInput = toolInput && Object.keys(toolInput).length > 0
+          if (idx >= 0 && hasFullInput) {
+            const updatedToolCalls = [...msg.toolCalls]
+            updatedToolCalls[idx] = {
+              ...updatedToolCalls[idx],
+              input: toolInput
             }
+            msg.toolCalls = updatedToolCalls
+            sink.persist(sessionId)
           }
         }
       }

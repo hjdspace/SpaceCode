@@ -67,7 +67,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 
-const props = defineProps<{ toolCall: ToolCall }>()
+const props = defineProps<{ toolCall: ToolCall; now?: number }>()
 
 const sessionStore = useChatSessionStore()
 const appStore = useAppStore()
@@ -111,7 +111,8 @@ const commandPreview = computed(() => {
 
 const duration = computed(() => {
   if (!props.toolCall.startTime) return null
-  const end = props.toolCall.endTime || Date.now()
+  // 父级传入每秒刷新的 now，运行中才会走秒；未传时维持原行为
+  const end = props.toolCall.endTime || props.now || Date.now()
   return ((end - props.toolCall.startTime) / 1000).toFixed(1)
 })
 

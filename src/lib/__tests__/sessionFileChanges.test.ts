@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import type { Message, ToolCall } from '@/types'
 import {
   collectSessionFileChanges,
-  countKnownWritePaths,
   extractToolFilePaths,
   filesOfTurn,
   lastChangeTurn,
+  sessionFilesSignature,
 } from '@/lib/sessionFileChanges'
 
 const ROOT = 'D:/doc/AI/SpaceCode'
@@ -151,15 +151,44 @@ describe('turn helpers', () => {
   })
 })
 
-describe('countKnownWritePaths', () => {
-  it('只在写文件工具拿到路径时递增，用作重算签名', () => {
-    const streaming = assistant([toolCall('Edit', {}, { status: 'running' })])
-    const settled = assistant([toolCall('Edit', { file_path: `${ROOT}/x.ts` })])
+describe('sessionFilesSignature', () => {
+  it('写调用数不变、路径从半截补全为完整时签名必须变化', () => {
+    const tc = toolCall('Write', { path: `${ROOT}/src/composables/__` })
+    const messages = [assistant([tc])]
+    const partial = sessionFilesSignature(messages)
 
-    expect(countKnownWritePaths([streaming])).toBe(0)
-    expect(countKnownWritePaths([settled])).toBe(1)
-    // Read/Bash 带 path 也不算
-    expect(countKnownWritePaths([assistant([toolCall('Read', { file_path: `${ROOT}/x.ts` })])])).toBe(0)
+    tc.input = { ...tc.input, path: `${ROOT}/src/composables/__tests__/useContentEditor.test.ts` }
+
+    expect(sessionFilesSignature(messages)).not.toBe(partial)
+  })
+
+  it('commandFiles 异步回填时签名必须变化', () => {
+    const msg = assistant([])
+    const before = sessionFilesSignature([msg])
+
+    msg.metadata = { commandFiles: [{ path: 'dist/report.xlsx', at: 1 }] }
+
+    expect(sessionFilesSignature([msg])).not.toBe(before)
+  })
+
+  it('content 的流式增量不改变签名', () => {
+    const tc = toolCall('Write', { path: `${ROOT}/src/a.ts`, content: 'a' })
+    const messages = [assistant([tc])]
+    const before = sessionFilesSignature(messages)
+
+    tc.input = { ...tc.input, content: 'a'.repeat(1000) }
+
+    expect(sessionFilesSignature(messages)).toBe(before)
+  })
+
+  it('非写工具、Bash 与 pending 写调用不进入签名', () => {
+    expect(sessionFilesSignature([
+      assistant([
+        toolCall('Read', { file_path: `${ROOT}/x.ts` }),
+        toolCall('Bash', { command: 'ls' }),
+        toolCall('Edit', { file_path: `${ROOT}/y.ts` }, { status: 'pending' }),
+      ]),
+    ])).toBe('')
   })
 })
 
