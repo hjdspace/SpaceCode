@@ -136,6 +136,80 @@ describe('discoverAgentDefinitions', () => {
     expect(found[0].body).toBe('Just a persona, no frontmatter at all.')
   })
 
+  it('skips a pi-native definition disabled in frontmatter', () => {
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'off.md', 'name: off\ndescription: off\nenabled: false', PERSONA)
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'on.md', 'name: on', 'On.')
+
+    const found = discoverAgentDefinitions({ kinds: ['pi'], cwd, homeDir, piAgentDir })
+
+    expect(found.map(a => a.agentType)).toEqual(['on'])
+  })
+
+  it('treats unquoted YAML false variants as disabled and a quoted string as enabled', () => {
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'lower.md', 'name: lower\nenabled: False', 'Body.')
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'upper.md', 'name: upper\nenabled: FALSE', 'Body.')
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'quoted.md', 'name: quoted\nenabled: "false"', 'Body.')
+
+    const found = discoverAgentDefinitions({ kinds: ['pi'], cwd, homeDir, piAgentDir })
+
+    // "false" 在 YAML 里是字符串，pi 侧 fm.enabled !== false 同样视为启用
+    expect(found.map(a => a.agentType)).toEqual(['quoted'])
+  })
+
+  it('keeps a disabled pi name from being taken over by lower-priority definitions', () => {
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'reviewer.md', 'name: reviewer\nenabled: false', 'Disabled project copy.')
+    writeAgent(path.join(cwd, '.claude', 'agents'), 'reviewer.md', 'name: reviewer', 'Claude copy.')
+    writeAgent(path.join(piAgentDir, 'agents'), 'reviewer.md', 'name: reviewer', 'Enabled user copy.')
+
+    const found = discoverAgentDefinitions({ kinds: ['claude', 'pi'], cwd, homeDir, piAgentDir })
+
+    // 扩展按优先级覆盖后拒绝派发 reviewer；宿主要展示同一个结论，不能换成别的同名文件
+    expect(found).toEqual([])
+  })
+
+  it('does not apply the pi enabled flag to .claude definitions', () => {
+    writeAgent(path.join(cwd, '.claude', 'agents'), 'reviewer.md', 'name: reviewer\nenabled: false', PERSONA)
+
+    const claude = discoverAgentDefinitions({ kinds: ['claude'], cwd, homeDir })
+    const pi = discoverAgentDefinitions({ kinds: ['claude', 'pi'], cwd, homeDir, piAgentDir })
+
+    expect(claude.map(a => a.agentType)).toEqual(['reviewer'])
+    expect(pi.map(a => a.agentType)).toEqual(['reviewer'])
+  })
+
+  it('skips a pi name containing a colon, like the extension', () => {
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'scoped.md', 'name: plugin:reviewer', 'Body.')
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'plain.md', 'name: plain', 'Body.')
+    writeAgent(path.join(cwd, '.claude', 'agents'), 'scoped.md', 'name: claude:reviewer', 'Body.')
+
+    const pi = discoverAgentDefinitions({ kinds: ['pi'], cwd, homeDir, piAgentDir })
+    const claude = discoverAgentDefinitions({ kinds: ['claude'], cwd, homeDir })
+
+    expect(pi.map(a => a.agentType)).toEqual(['plain'])
+    expect(claude.map(a => a.agentType)).toEqual(['claude:reviewer'])
+  })
+
+  it('reads BOM-prefixed frontmatter the same way the pi extension does', () => {
+    const dir = path.join(cwd, '.pi', 'agents')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'bom-off.md'),
+      `\uFEFF---\nname: bom-off\ndescription: off\nenabled: false\n---\n\n${PERSONA}`,
+      'utf8',
+    )
+    fs.writeFileSync(
+      path.join(dir, 'bom-on.md'),
+      `\uFEFF---\nname: bom-on\ndescription: on\n---\n\n${PERSONA}`,
+      'utf8',
+    )
+
+    const found = discoverAgentDefinitions({ kinds: ['pi'], cwd, homeDir, piAgentDir })
+
+    expect(found.map(a => a.agentType)).toEqual(['bom-on'])
+    expect(found[0].description).toBe('on')
+    expect(found[0].body).toBe(PERSONA)
+  })
+
   it('skips unreadable and non-markdown entries instead of failing the scan', () => {
     const dir = path.join(cwd, '.claude', 'agents')
     writeAgent(dir, 'good.md', 'name: good', 'Body.')
@@ -179,5 +253,22 @@ describe('findAgentDefinition', () => {
 
     expect(findAgentDefinition('nope', opts)).toBeNull()
     expect(findAgentDefinition('', opts)).toBeNull()
+  })
+
+  it('returns null for a pi definition disabled in frontmatter', () => {
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'off.md', 'name: off\nenabled: false', 'Off.')
+
+    const opts: AgentDiscoveryOptions = { kinds: ['pi'], cwd, homeDir, piAgentDir }
+
+    expect(findAgentDefinition('off', opts)).toBeNull()
+  })
+
+  it('does not invent a definition for an extension built-in', () => {
+    const opts: AgentDiscoveryOptions = { kinds: ['claude', 'pi'], cwd, homeDir, piAgentDir }
+
+    // 这三个只活在 @tintinweb/pi-subagents 的代码里，没有可注入的 md 正文
+    expect(findAgentDefinition('general-purpose', opts)).toBeNull()
+    expect(findAgentDefinition('Explore', opts)).toBeNull()
+    expect(findAgentDefinition('Plan', opts)).toBeNull()
   })
 })
