@@ -20,6 +20,14 @@ vi.mock('electron', () => ({
 
 vi.mock('../../engine/engines/piSessionRegistry', () => ({
   findPiSessionFile: vi.fn(),
+  // sessionHistoryManager 现在按引擎分派；这个用例只关心 Claude 源，
+  // 让 pi 注册表保持空表即可。
+  findPiSessionRecord: vi.fn(() => null),
+  listPiSessionRecords: vi.fn(() => []),
+  isSameCwd: (a: string, b: string) => {
+    const key = (p: string) => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
+    return key(a) === key(b)
+  },
 }))
 
 import {
