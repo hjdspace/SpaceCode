@@ -7,6 +7,7 @@ import { normalizeAbsolutePath } from '@/utils/normalizePath'
 
 const STORAGE_KEY = 'chat_sessions_v2'
 const PROJECTS_KEY = 'chat_projects_v2'
+const DELETED_SESSIONS_KEY = 'chat_deleted_sessions_v1'
 const STORAGE_VERSION = '2.1'
 
 const STORAGE_QUOTA_LIMIT = 4 * 1024 * 1024
@@ -173,6 +174,34 @@ export function stripPersistedPayload(
   }))
 }
 
+/**
+ * 保留全部会话索引，只清空消息体。
+ *
+ * localStorage 是左栏会话索引的唯一来源；超配额时删整条会话会让用户
+ * 永久丢失会话身份（pi 尤其明显：它的历史只认 SpaceCode sessionId）。
+ * 消息可以从引擎 JSONL 重新水合，索引丢了就找不回来。
+ */
+export function clearSessionMessages(sessions: Session[]): Session[] {
+  return sessions.map(session =>
+    session.messages.length === 0 ? session : { ...session, messages: [] },
+  )
+}
+
+/** 只保留最近 keepCount 条会话的消息，其余会话保留索引。 */
+export function keepRecentSessionMessages(sessions: Session[], keepCount: number): Session[] {
+  const recentIds = new Set(
+    [...sessions]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, Math.max(0, keepCount))
+      .map(session => session.id),
+  )
+  return sessions.map(session =>
+    recentIds.has(session.id) || session.messages.length === 0
+      ? session
+      : { ...session, messages: [] },
+  )
+}
+
 export function cleanupOldSessions(
   sessions: Session[],
   keepCount: number = 50,
@@ -336,8 +365,9 @@ export function prepareSessionsForStorage(
   }))
 
   if (aggressive) {
-    const cleaned = cleanupOldSessions(prepared, 20, false)
-    return truncateLongMessages(cleaned, 3_000)
+    // 不在这里删会话：索引必须完整保留，超配额由 saveSessionsToStorage
+    // 继续降级为「只保留最近几条消息」→「全部只留索引」。
+    return truncateLongMessages(prepared, 3_000)
   }
   return prepared
 }
@@ -414,17 +444,15 @@ export function saveSessionsToStorage(sessions: Session[]): boolean {
     }
 
     if (estimateUtf16Bytes(payload) > SESSION_PAYLOAD_LIMIT) {
-      logStorageMaintenance('Session payload still large after trim, keeping recent sessions only')
-      prepared = cleanupOldSessions(prepared, 10, false)
-      prepared = stripPersistedPayload(prepared, {
-        maxContent: 2_000,
-        maxToolOutput: 800,
-        maxReasoning: 500,
-        maxTimelineContent: 200,
-      })
-      const rebuilt = buildStoragePayload(prepared)
-      payload = rebuilt.payload
-      compressed = rebuilt.compressed
+      logStorageMaintenance('Session payload still large after trim, keeping only recent messages')
+      prepared = keepRecentSessionMessages(prepared, 3)
+      ;({ payload, compressed } = buildStoragePayload(prepared))
+    }
+
+    if (estimateUtf16Bytes(payload) > SESSION_PAYLOAD_LIMIT) {
+      logStorageMaintenance('Session payload over limit, keeping index only')
+      prepared = clearSessionMessages(prepared)
+      ;({ payload, compressed } = buildStoragePayload(prepared))
     }
 
     localStorage.setItem(STORAGE_KEY, payload)
@@ -441,10 +469,19 @@ export function saveSessionsToStorage(sessions: Session[]): boolean {
   } catch (e) {
     _logger.error('ChatStore', 'Failed to save sessions to storage', e)
     try {
-      const emergencySessions = cleanupOldSessions(sessions, 10, false)
+      // 兜底同样只裁消息，不删会话条目。
+      const emergencySessions = clearSessionMessages(sessions.filter(s => !s.ephemeral))
+      const payload = JSON.stringify(emergencySessions)
+      localStorage.setItem(STORAGE_KEY, payload)
       localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(stripPersistedPayload(stripLargeAttachmentData(emergencySessions))),
+        `${STORAGE_KEY}_meta`,
+        JSON.stringify({
+          version: STORAGE_VERSION,
+          savedAt: Date.now(),
+          count: emergencySessions.length,
+          compressed: false,
+          emergency: true,
+        }),
       )
       return true
     } catch (e2) {
@@ -457,6 +494,30 @@ export function saveSessionsToStorage(sessions: Session[]): boolean {
 // ============================================================
 // Load / Save projects
 // ============================================================
+
+/**
+ * 已删除会话的墓碑。
+ *
+ * 历史恢复会从引擎 JSONL 重建 localStorage 里缺失的条目；没有墓碑时，
+ * 用户刚删掉的会话会在下一次启动原样回来。最多保留最近 200 条，避免
+ * 长年使用后无限增长。
+ */
+export function loadDeletedSessionIds(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DELETED_SESSIONS_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function saveDeletedSessionIds(ids: string[]): void {
+  try {
+    localStorage.setItem(DELETED_SESSIONS_KEY, JSON.stringify(ids.slice(-200)))
+  } catch (e) {
+    console.error('[ChatStore] Failed to save deleted session ids:', e)
+  }
+}
 
 export function loadProjectsFromStorage(): string[] {
   try {
@@ -519,6 +580,7 @@ export function getStorageStats(): StorageStats {
 export {
   STORAGE_KEY,
   PROJECTS_KEY,
+  DELETED_SESSIONS_KEY,
   STORAGE_VERSION,
   STORAGE_QUOTA_LIMIT,
   SESSION_PAYLOAD_LIMIT,
