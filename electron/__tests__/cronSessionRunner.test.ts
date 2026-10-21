@@ -17,6 +17,17 @@ import {
 } from '../cron/cronSessionRunner'
 import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 import type { CronRunContext } from '../cron/cronScheduler'
+import type { EngineSessionStatus } from '../engine/engines/types'
+
+function sessionStatus(patch: Partial<EngineSessionStatus> = {}): EngineSessionStatus {
+  return {
+    sessionId: 'sid-1',
+    engineSessionId: null,
+    status: 'idle',
+    isRunning: true,
+    ...patch,
+  }
+}
 
 type Listener = (sessionId: string, eventType: string, data: any) => void
 
@@ -278,6 +289,36 @@ describe('createCronSessionRunner', () => {
     await expect(run).resolves.toEqual({ exitCode: null, stdout: '', stderr: 'Execution timeout' })
     expect(f.recorder.sendMessage).not.toHaveBeenCalled()
     expect(f.recorder.stop).toHaveBeenCalledWith('sid-1')
+  })
+
+  it('startSession 回报 agent 未生效时，把回执带进任务结局', async () => {
+    const f = fakeDeps({
+      startSession: vi.fn(async () => sessionStatus({ agentApplied: false, agentExtensionLoaded: false })),
+    })
+    const run = createCronSessionRunner(f.deps)('p', '/w', testContext(), { agent: 'reviewer' })
+
+    await new Promise((r) => setTimeout(r, 0))
+    f.emit('sid-1', 'result', { result: 'done' })
+
+    await expect(run).resolves.toEqual({
+      exitCode: 0,
+      stdout: 'done',
+      stderr: '',
+      agent: { agent: 'reviewer', applied: false, extensionLoaded: false },
+    })
+  })
+
+  it('没有选 agent 时不编造回执', async () => {
+    const f = fakeDeps({
+      startSession: vi.fn(async () => sessionStatus({ agentApplied: null })),
+    })
+    const run = createCronSessionRunner(f.deps)('p', '/w', testContext())
+
+    await new Promise((r) => setTimeout(r, 0))
+    f.emit('sid-1', 'result', { result: 'done' })
+
+    const result = await run
+    expect(result).not.toHaveProperty('agent')
   })
 
   it('只消费自己 sessionId 的事件', async () => {
