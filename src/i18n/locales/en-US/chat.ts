@@ -68,6 +68,7 @@ export default {
   toolChips: {
     toolCalls: '{count} tool calls',
     more: '+{count} more',
+    writingFile: 'Writing',
   },
   input: 'Input',
   output: 'Output',
