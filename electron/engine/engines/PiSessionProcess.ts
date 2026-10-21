@@ -11,6 +11,7 @@ import type { EngineSessionConfig, ExtensionDialogAnswer, ExtensionDialogCloseRe
 import { EXTENSION_DIALOG_METHODS } from './PiEventMapper'
 import { toPiThinkingLevel } from '@/shared/effort'
 import { info, warn, error, debug } from '../../infra/logger'
+import { redactArgsForLog } from '../../infra/redactArgs'
 import {
   killTree as engineKillTree,
   isProbableBunExecutable as engineIsProbableBunExecutable,
@@ -18,6 +19,7 @@ import {
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
 import { engineBlockedError } from '@/shared/engineErrors'
 import { readSideTaskContextFile, discardSideTaskContextFile } from '../../session/transcriptDigest'
+import { removeTempFiles, writeSessionTempFile } from '../../session/tempArtifacts'
 import { detectPiCli, MIN_PI_VERSION } from './piCliResolver'
 import {
   PLAN_MODE_ENTER_COMMAND,
@@ -133,6 +135,8 @@ export class PiSessionProcess extends EventEmitter {
   private _stdoutBuffer: string = ''
   private _stderrBuffer: string = ''
   private readonly _maxStderrBytes = 8 * 1024
+  /** 本次 spawn 写下的临时产物；进程退出即回收，重启会重写。 */
+  private tempArtifacts: string[] = []
 
   // RPC request tracking
   private _requestId: number = 0
@@ -196,8 +200,10 @@ export class PiSessionProcess extends EventEmitter {
     this.cancelPendingExtensionDialogs('process_restart')
 
     try {
+      this.cleanupTempArtifacts()
       const cliPath = this.resolveCliPath()
       const baseArgs = this.buildArgs()
+      const spawnArtifacts = this.tempArtifacts.slice()
       const env = { ...process.env, ...this.buildEnv() }
 
       // 面板里的 MCP 配置要落到 pi 读得到的地方。pi 没有 `--mcp-config`，用户级
@@ -227,7 +233,7 @@ export class PiSessionProcess extends EventEmitter {
 
       const spawnEnv = launcherEnv ? { ...env, ...launcherEnv } : env
 
-      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Starting Pi RPC process | command=${command} | args=${spawnArgs.join(' ')} | envKeys=${launcherEnv ? Object.keys(launcherEnv).join(',') : '(none)'}`)
+      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Starting Pi RPC process | command=${command} | args=${redactArgsForLog(spawnArgs).join(' ')} | envKeys=${launcherEnv ? Object.keys(launcherEnv).join(',') : '(none)'}`)
 
       this._process = spawn(command, spawnArgs, {
         cwd: this.config.cwd,
@@ -267,6 +273,7 @@ export class PiSessionProcess extends EventEmitter {
       })
 
       this._process.on('exit', (code, signal) => {
+        removeTempFiles(spawnArtifacts)
         info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited with code ${code}${signal ? ` | signal=${signal}` : ''}`)
         this.status = 'exited'
         this._isProcessing = false
@@ -292,6 +299,7 @@ export class PiSessionProcess extends EventEmitter {
       })
 
       this._process.on('error', (err) => {
+        removeTempFiles(spawnArtifacts)
         error('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Process error`, err)
         this.status = 'exited'
         this.emit('error', err)
@@ -327,6 +335,7 @@ export class PiSessionProcess extends EventEmitter {
       this.lastActivityAt = Date.now()
       info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] RPC process started successfully`)
     } catch (err) {
+      this.cleanupTempArtifacts()
       this.status = 'exited'
       error('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to start RPC process`, err)
       this.emit('error', err)
@@ -759,6 +768,13 @@ export class PiSessionProcess extends EventEmitter {
     this.status = 'exited'
     this._isProcessing = false
     this._pendingToolCalls.clear()
+    this.cleanupTempArtifacts()
+  }
+
+  private cleanupTempArtifacts(): void {
+    if (this.tempArtifacts.length === 0) return
+    removeTempFiles(this.tempArtifacts)
+    this.tempArtifacts = []
   }
 
   canSafelySuspend(): boolean {
@@ -1276,14 +1292,13 @@ export class PiSessionProcess extends EventEmitter {
       return
     }
 
-    const promptDir = path.join(os.tmpdir(), 'SpaceCode')
-    const promptPath = path.join(promptDir, `pi-agent-${this.sessionId}.md`)
+    // 每次 spawn 独立命名：旧进程只回收自己那份，不会误删新进程的文件
+    let promptPath: string
     try {
-      fs.mkdirSync(promptDir, { recursive: true })
-      // 按 sessionId 固定文件名：同一会话重启时覆盖，而不是往临时目录里越堆越多
-      fs.writeFileSync(promptPath, definition.body, 'utf8')
+      promptPath = writeSessionTempFile(this.sessionId, 'pi-agent', definition.body)
+      this.tempArtifacts.push(promptPath)
     } catch (err) {
-      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write agent persona file | path=${promptPath}`, err)
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write agent persona file | agent=${agent}`, err)
       return
     }
 

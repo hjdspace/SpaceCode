@@ -104,6 +104,10 @@ vi.mock('../infra/logger', () => ({
   debug: vi.fn(),
 }))
 
+vi.mock('../session/tempArtifacts', () => ({
+  removeSessionArtifacts: vi.fn(),
+}))
+
 describe('engineGateway', () => {
   let engineGateway: typeof import('../engine/engineGateway').engineGateway
   let NotImplementedError: typeof import('../engine/engineGateway').NotImplementedError
@@ -253,6 +257,8 @@ describe('engineGateway', () => {
 
       expect(engineA.stop).toHaveBeenCalledWith('s1')
       expect(engineB.stop).toHaveBeenCalledWith('s1')
+      const { removeSessionArtifacts } = await import('../session/tempArtifacts')
+      expect(removeSessionArtifacts).toHaveBeenCalledWith('s1')
     })
 
     it('warns but continues when one engine throws', async () => {

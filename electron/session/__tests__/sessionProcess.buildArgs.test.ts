@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as path from 'path'
 import { SessionProcess, type SessionConfig } from '../sessionProcess'
 
 /**
@@ -27,6 +28,7 @@ const TMP = vi.hoisted(() => '/tmp')
 const fsp = vi.hoisted(() => ({
   exists: (() => false) as (p: string) => boolean,
   writes: [] as Array<{ path: string; content: string }>,
+  removed: [] as string[],
   hooksRaw: null as string | null,
   realpathThrows: false,
 }))
@@ -36,6 +38,9 @@ vi.mock('fs', () => ({
   mkdirSync: vi.fn(),
   writeFileSync: (p: unknown, c: unknown) => {
     fsp.writes.push({ path: String(p), content: String(c) })
+  },
+  rmSync: (p: unknown) => {
+    fsp.removed.push(String(p))
   },
   readFileSync: () => fsp.hooksRaw ?? '{}',
   realpathSync: (p: unknown) => {
@@ -120,6 +125,7 @@ function settingsContent(args: string[]): Record<string, any> | null {
 
 beforeEach(() => {
   fsp.writes = []
+  fsp.removed = []
   fsp.exists = () => false
   fsp.hooksRaw = null
   fsp.realpathThrows = false
@@ -337,9 +343,10 @@ describe('buildArgs — oversized system prompt goes through a file', () => {
   it('externalizes a prompt that would overflow the command line', () => {
     const args = buildArgs({ systemPrompt: longPrompt }, 'sess-longprompt-1')
     expect(args).not.toContain('--system-prompt')
-    const expected = '/tmp/SpaceCode/system-prompt-sess-longprompt-1.txt'
-    expect(norm(flag(args, '--system-prompt-file')!)).toBe(expected)
-    expect(fsp.writes.find(w => norm(w.path) === expected)?.content).toBe(longPrompt)
+    const promptPath = flag(args, '--system-prompt-file')!
+    expect(norm(path.dirname(promptPath))).toBe('/tmp/SpaceCode')
+    expect(path.basename(promptPath)).toMatch(/^system-prompt-sess-longprompt-1-\d+-[a-z0-9]+\.txt$/)
+    expect(fsp.writes.find(w => w.path === promptPath)?.content).toBe(longPrompt)
   })
 
   it('keeps a short prompt inline — installed CLIs are not required to read the file flag', () => {
@@ -353,6 +360,28 @@ describe('buildArgs — oversized system prompt goes through a file', () => {
     mcp.config = { mcpServers: { 'browser-use': { command: 'python' } } }
     const args = buildArgs({ systemPrompt: longPrompt })
     expect(flag(args, '--append-system-prompt')).toContain('mcp__browser-use__')
+  })
+})
+
+describe('temp artifact cleanup', () => {
+  it('杀死进程时回收本次 spawn 写下的 settings / mcp / system-prompt 文件', () => {
+    net.proxyUrl = 'http://127.0.0.1:9'
+    mcp.config = { mcpServers: { 'browser-use': { command: 'python' } } }
+    const proc = new SessionProcess('sess-cleanup-1', {
+      cwd: '/tmp/ws',
+      provider: 'openai',
+      permissionMode: 'default',
+      systemPrompt: 'x'.repeat(30_000),
+    })
+
+    ;(proc as any).buildArgs(proc.config)
+    const written = fsp.writes.map(w => norm(w.path))
+    expect(written).toHaveLength(3)
+
+    proc.kill()
+
+    expect(fsp.removed.map(norm)).toEqual(expect.arrayContaining(written))
+    proc.removeAllListeners()
   })
 })
 

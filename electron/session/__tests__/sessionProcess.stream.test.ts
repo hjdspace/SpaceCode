@@ -105,7 +105,7 @@ function wired(config: Partial<SessionConfig> = {}, sessionId = 'sess-stream-000
   const fakes = makeChild()
   proc.process = fakes.child
   proc._child = fakes
-  proc.attachProcessListeners(fakes.child)
+  proc.attachProcessListeners(fakes.child, [])
   return proc
 }
 

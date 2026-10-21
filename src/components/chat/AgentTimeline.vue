@@ -404,6 +404,7 @@ import TurnSummaryBar from './TurnSummaryBar.vue'
 import ThinkingState from './ThinkingState.vue'
 import ReasoningCard from './ReasoningCard.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
+import { extractEditParts } from '@/lib/editInput'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
@@ -1083,10 +1084,11 @@ function getGroupDiffStats(events: TimelineEvent[]): DiffStat[] {
     } else if (input.content) {
       add = String(input.content).split('\n').filter(l => l.trim()).length
     } else if (input.edits && Array.isArray(input.edits)) {
-      for (const edit of input.edits as Array<Record<string, unknown>>) {
-        if (edit.old_string && edit.new_string) {
-          del += String(edit.old_string).split('\n').filter((l: string) => l.trim()).length
-          add += String(edit.new_string).split('\n').filter((l: string) => l.trim()).length
+      // 批量编辑：Claude MultiEdit 元素用 old_string/new_string，pi 用 oldText/newText —— 同一份归一化
+      for (const part of extractEditParts(input)) {
+        if (part.old && part.new) {
+          del += String(part.old).split('\n').filter(l => l.trim()).length
+          add += String(part.new).split('\n').filter(l => l.trim()).length
         }
       }
     }

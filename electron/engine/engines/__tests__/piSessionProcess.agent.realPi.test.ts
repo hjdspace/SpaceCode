@@ -167,7 +167,25 @@ describe.skipIf(!ENABLED)('真 pi 子进程核验：所选 agent 落到请求里
   afterAll(() => {
     if (server) server.close()
     if (probeHome) fs.rmSync(probeHome, { recursive: true, force: true })
+    cleanupPersonaResidue()
   })
+
+  /**
+   * applySelectedAgent 会把 persona 落到真实 %TEMP%/SpaceCode/pi-agent-<sessionId>-<spawn>.md
+   * （main 进程的 os.tmpdir() 不归上面 probeHome 的 rmSync 管）。本文件的 sessionId
+   * 一律以 pi-agent-real- 开头，按前缀扫掉，不给共享临时目录留残渣。
+   */
+  function cleanupPersonaResidue(): void {
+    try {
+      const dir = path.join(os.tmpdir(), 'SpaceCode')
+      if (!fs.existsSync(dir)) return
+      for (const name of fs.readdirSync(dir)) {
+        if (name.startsWith('pi-agent-pi-agent-real-')) {
+          fs.rmSync(path.join(dir, name), { force: true })
+        }
+      }
+    } catch { /* 清理失败不掩盖测试结果 */ }
+  }
 
   beforeEach(() => {
     captured = []
