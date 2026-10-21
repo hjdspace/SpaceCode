@@ -173,7 +173,10 @@ vi.mock('../piSessionRegistry', () => ({
   rememberPiSessionFile: H.rememberPiSessionFile,
 }))
 
-vi.mock('../PiEventMapper', () => ({ mapPiEvent: H.mapPiEvent }))
+vi.mock('../PiEventMapper', async (importOriginal) => ({
+  ...(await importOriginal()),
+  mapPiEvent: H.mapPiEvent,
+}))
 
 vi.mock('../piPlanModeExtension', () => ({
   resolvePlanModeExtensionPath: H.resolvePlanModeExtensionPath,
