@@ -10,12 +10,11 @@
  */
 
 import * as fs from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { debug, warn } from '../infra/logger'
 import { SessionHistoryManager } from './sessionHistoryManager'
 import { findPiSessionFile } from '../engine/engines/piSessionRegistry'
 import type { EngineType } from '../engine/engines/types'
+import { removeTempFiles, writeSessionTempFile } from './tempArtifacts'
 
 /** 摘要正文总预算（字符）。超长保尾 —— 近期上下文对"主会话在做什么"价值最高。 */
 const DIGEST_MAX_CHARS = 24_000
@@ -183,11 +182,8 @@ export async function buildSideTaskContext(source: SideTaskContextSource): Promi
 
 /** 上下文块落盘为临时文件；返回路径供引擎首条消息包裹时读取。 */
 export function writeSideTaskContextFile(sessionId: string, content: string): string {
-  const dir = path.join(os.tmpdir(), 'SpaceCode')
-  fs.mkdirSync(dir, { recursive: true })
-  const filePath = path.join(dir, `side-task-context-${sessionId}.md`)
-  // 按 sessionId 固定文件名：同会话重建时覆盖，不在临时目录越堆越多
-  fs.writeFileSync(filePath, content, 'utf8')
+  // 每次落盘独立命名；注入后 discard，异常路径由启动清扫兜底
+  const filePath = writeSessionTempFile(sessionId, 'side-task-context', content)
   debug('TranscriptDigest', `side task context written | sessionId=${sessionId.slice(0, 8)} | len=${content.length}`)
   return filePath
 }
@@ -204,9 +200,7 @@ export function readSideTaskContextFile(filePath: string): string | null {
 
 /** 注入成功后清理快照临时文件；失败忽略（tmpdir 由系统回收）。 */
 export function discardSideTaskContextFile(filePath: string): void {
-  try {
-    fs.rmSync(filePath, { force: true })
-  } catch { /* ignore */ }
+  removeTempFiles([filePath])
 }
 
 /**
