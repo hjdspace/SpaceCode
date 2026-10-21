@@ -34,6 +34,7 @@ const H = vi.hoisted(() => ({
   /** 文件 → 内容 */
   files: new Map<string, string>(),
   writes: [] as Array<{ path: string; content: string }>,
+  removed: [] as string[],
   mkdirs: [] as string[],
   writeThrows: false,
   existing: new Set<string>(),
@@ -57,6 +58,9 @@ vi.mock('fs', () => ({
   writeFileSync: (p: unknown, data: unknown) => {
     if (H.writeThrows) throw new Error('EPERM: operation not permitted')
     H.writes.push({ path: String(p), content: String(data) })
+  },
+  rmSync: (p: unknown) => {
+    H.removed.push(String(p))
   },
 }))
 
@@ -112,6 +116,7 @@ beforeEach(() => {
   H.dirs.clear()
   H.files.clear()
   H.writes = []
+  H.removed = []
   H.mkdirs = []
   H.writeThrows = false
   H.existing.clear()
@@ -124,8 +129,9 @@ describe('buildArgs 的 agent 通道', () => {
 
     const args = privates(newProc({ agent: 'reviewer' })).buildArgs()
 
-    const persona = path.join(PERSONA_DIR, 'pi-agent-sess-1.md')
-    expect(appended(args)).toEqual([persona])
+    const persona = appended(args)[0]
+    expect(path.dirname(persona)).toBe(PERSONA_DIR)
+    expect(path.basename(persona)).toMatch(/^pi-agent-sess-1-\d+-[a-z0-9]+\.md$/)
     expect(H.writes).toEqual([{ path: persona, content: 'Review the diff closely.' }])
   })
 
@@ -203,26 +209,39 @@ describe('buildArgs 的 agent 通道', () => {
     expect(proc.agentApplied).toBe(false)
   })
 
+  it('进程被杀死时回收 persona 文件', async () => {
+    agentFile(CLAUDE_DIR, 'reviewer', 'name: reviewer', 'Body.')
+    const proc = newProc({ agent: 'reviewer' })
+    const persona = appended(privates(proc).buildArgs())[0]
+
+    await proc.kill()
+
+    expect(H.removed).toContain(persona)
+  })
+
   it('宿主的 appendSystemPrompt 与 persona 各占一次出现，pi 按时序拼接', () => {
     agentFile(CLAUDE_DIR, 'reviewer', 'name: reviewer', 'Persona body.')
 
     const args = privates(newProc({ agent: 'reviewer', appendSystemPrompt: 'respond in Chinese' })).buildArgs()
 
-    expect(appended(args)).toEqual(['respond in Chinese', path.join(PERSONA_DIR, 'pi-agent-sess-1.md')])
+    const prompts = appended(args)
+    expect(prompts[0]).toBe('respond in Chinese')
+    expect(path.dirname(prompts[1])).toBe(PERSONA_DIR)
+    expect(path.basename(prompts[1])).toMatch(/^pi-agent-sess-1-\d+-[a-z0-9]+\.md$/)
   })
 
-  it('persona 文件名按 sessionId 固定，重启覆盖而不是往临时目录堆', () => {
+  it('persona 文件名带 sessionId，每次 spawn 独立命名', () => {
     agentFile(CLAUDE_DIR, 'reviewer', 'name: reviewer', 'Body.')
 
     for (const sessionId of ['aaaa1111-1', 'aaaa1111-1', 'bbbb2222-2']) {
       privates(newProc({ agent: 'reviewer' }, sessionId)).buildArgs()
     }
 
-    expect(H.writes.map(w => w.path)).toEqual([
-      path.join(PERSONA_DIR, 'pi-agent-aaaa1111-1.md'),
-      path.join(PERSONA_DIR, 'pi-agent-aaaa1111-1.md'),
-      path.join(PERSONA_DIR, 'pi-agent-bbbb2222-2.md'),
-    ])
+    const names = H.writes.map(w => path.basename(w.path))
+    expect(names).toHaveLength(3)
+    expect(names[0]).toMatch(/^pi-agent-aaaa1111-1-\d+-[a-z0-9]+\.md$/)
+    expect(names[1]).toMatch(/^pi-agent-aaaa1111-1-\d+-[a-z0-9]+\.md$/)
+    expect(names[2]).toMatch(/^pi-agent-bbbb2222-2-\d+-[a-z0-9]+\.md$/)
     expect(H.mkdirs).toContain(PERSONA_DIR)
   })
 
