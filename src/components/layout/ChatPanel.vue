@@ -1749,6 +1749,11 @@ async function handleRestoreHistorySession(session: any) {
 
     if (existingSession) {
       console.log('[ChatPanel] Reusing existing session:', session.sessionId)
+      if (!existingSession.engineType && session.engineType) {
+        existingSession.engineType = session.engineType
+        existingSession.engineSessionId = session.engineSessionId
+        sessionStore.saveToStorage()
+      }
       sessionStore.selectSession(session.sessionId)
       showHistoryModal.value = false
       await nextTick()
@@ -1761,7 +1766,11 @@ async function handleRestoreHistorySession(session: any) {
       return
     }
 
-    const fullSession = await claudeCode.getFullSession(session.projectPath, session.sessionId)
+    const fullSession = await claudeCode.getFullSession(
+      session.projectPath,
+      session.sessionId,
+      session.engineType,
+    )
     if (!fullSession?.messages) return
 
     const restoredSession = sessionStore.createSession(
@@ -1770,6 +1779,11 @@ async function handleRestoreHistorySession(session: any) {
       session.projectPath,
       session.sessionId
     )
+    // 恢复出的会话必须记住历史条目的引擎：pi 的续聊只认
+    // pi-sessions.json 里原来的 SpaceCode sessionId，换 id 或换引擎都会变空白会话。
+    restoredSession.engineType = session.engineType || fullSession.engineType
+    restoredSession.engineSessionId = session.engineSessionId || fullSession.engineSessionId
+    sessionStore.saveToStorage()
 
     const restoredMessages = buildMessagesFromHistory(fullSession.messages as any[])
 
