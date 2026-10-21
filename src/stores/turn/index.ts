@@ -13,6 +13,7 @@ import { ErrorCategory } from '@/types'
 import { permissionService, type PermissionRequest, type PermissionUpdate } from '@/services/permissionService'
 import { extensionDialogService, type ExtensionDialog } from '@/services/extensionDialogService'
 import type { ExtensionDialogAnswer, ExtensionDialogClosedEvent, ExtensionDialogRequest } from '@/shared/channels/claudeCode'
+import { isEngineBlockedPayload } from '@/shared/engineErrors'
 import { notifyExtensionDialogWaiting, notifyWaitingForUser } from '@/services/waitNotification'
 import {
   isTeammateRawMessage,
@@ -1177,10 +1178,17 @@ export function useTurnStore(injectedApi?: any) {
         ;(claudeCodeApi as any).onError((event: { sessionId: string; data: any }) => {
           const ts = turnStates.get(event.sessionId)
           if (!ts) return
-          const msg = typeof event.data?.message === 'string'
-            ? event.data.message
-            : typeof event.data === 'string'
-              ? event.data
+          const data = event.data
+          if (isEngineBlockedPayload(data)) {
+            // 主进程只给 reason + 结构化上下文，用户可见文案在这里按 i18n 渲染。
+            const error = Object.assign(new Error(data.detail), { engineBlocked: data })
+            handleError(event.sessionId, ts, error)
+            return
+          }
+          const msg = typeof data?.message === 'string'
+            ? data.message
+            : typeof data === 'string'
+              ? data
               : 'Engine error'
           handleError(event.sessionId, ts, new Error(msg))
         })
