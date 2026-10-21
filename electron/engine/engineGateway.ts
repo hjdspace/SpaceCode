@@ -20,6 +20,7 @@ import type {
 } from './engines/types'
 import { info, warn, error } from '../infra/logger'
 import { engineBlockedError } from '@/shared/engineErrors'
+import { removeSessionArtifacts } from '../session/tempArtifacts'
 
 const TAG = 'EngineGateway'
 
@@ -131,6 +132,9 @@ export const engineGateway = {
         }
       }
     }
+    // 活跃进程的产物已随 kill 回收；这里兜住上一个实例崩溃留下的会话产物。
+    // settings/mcp 是每次 spawn 独立命名的，只能由启动清扫按时间兜底。
+    removeSessionArtifacts(sessionId)
   }),
 
   suspendSession: withLogging('suspendSession', (sessionId: string): void => {
