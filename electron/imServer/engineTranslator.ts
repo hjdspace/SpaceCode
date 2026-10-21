@@ -127,10 +127,11 @@ export function translateEngineEvent(event: UnifiedEngineEvent): ServerMessage[]
     }
 
     case 'error': {
+      // 拦截类错误带 reason + detail（issue #55）：IM 侧没有 i18n，给原始 detail 保底。
       messages.push({
         type: 'error',
-        message: typeof data === 'string' ? data : (data?.message ?? 'Unknown error'),
-        code: data?.code ?? 'UNKNOWN',
+        message: typeof data === 'string' ? data : (data?.message ?? data?.detail ?? 'Unknown error'),
+        code: data?.code ?? data?.reason ?? 'UNKNOWN',
         retryable: data?.retryable,
       })
       break
