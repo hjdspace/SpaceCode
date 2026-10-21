@@ -23,16 +23,17 @@
     </div>
 
     <div v-if="isExpanded" class="tool-body">
-      <!-- 专业 Diff 展示 -->
-      <div v-if="diffFile" class="git-diff-wrapper">
-        <DiffView
-          :key="diffViewKey"
-          :diff-file="diffFile"
-          :diff-view-mode="DiffModeEnum.Unified"
-          :diff-view-highlight="true"
-          class="git-diff-container"
-        />
-      </div>
+      <!-- 专业 Diff 展示：Claude 是单段 old/new，pi 是 edits[] 多段 —— 逐段各渲染一个 diff -->
+      <template v-if="diffFiles.length > 0">
+        <div v-for="(file, index) in diffFiles" :key="`${diffViewKey}:${index}`" class="git-diff-wrapper" :class="{ 'is-stacked': index > 0 }">
+          <DiffView
+            :diff-file="file"
+            :diff-view-mode="DiffModeEnum.Unified"
+            :diff-view-highlight="true"
+            class="git-diff-container"
+          />
+        </div>
+      </template>
 
       <!-- 无 diff 数据时的回退显示 -->
       <div v-else class="empty-diff">
@@ -51,6 +52,7 @@ import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
 import { generateDiffFile } from '@git-diff-view/file'
+import { extractEditParts, hasEditableParts } from '@/lib/editInput'
 import '@git-diff-view/vue/styles/diff-view.css'
 
 const props = defineProps<{ toolCall: ToolCall }>()
@@ -68,42 +70,46 @@ const filePath = computed(() => {
 
 function toggleExpand() { isExpanded.value = !isExpanded.value }
 
-// Diff 数据源
-const oldString = computed(() => props.toolCall.input?.old_string || '')
-const newString = computed(() => props.toolCall.input?.new_string || '')
-const hasDiffData = computed(() => !!(oldString.value || newString.value))
+// Diff 数据源：old/new 的字段名随引擎不同（Claude: old_string/new_string；pi: edits[].oldText/newText），
+// 统一走 extractEditParts 归一化，这里不感知引擎差异
+const editParts = computed(() => extractEditParts(props.toolCall.input))
+const hasDiffData = computed(() => hasEditableParts(editParts.value))
 const fileLanguage = computed(() => appStore.getLanguageFromPath(filePath.value))
 const diffViewKey = computed(() => [
   props.toolCall.id,
   filePath.value,
-  oldString.value.length,
-  newString.value.length,
+  editParts.value.map(part => `${part.old.length}-${part.new.length}`).join('|'),
   props.toolCall.status,
 ].join(':'))
 
-// 创建 DiffFile 实例（用于 DiffView 组件）
-const diffFile = computed(() => {
-  if (!hasDiffData.value) return null
+// 创建 DiffFile 实例列表（用于 DiffView 组件），每个编辑段一个
+const diffFiles = computed(() => {
+  if (!hasDiffData.value) return []
 
   const fileName = filePath.value.split(/[/\\]/).pop() || 'file'
-
-  // 使用 generateDiffFile 自动比较两个文件内容并生成 diff
-  const file = generateDiffFile(
-    `${fileName}.old`,
-    oldString.value,
-    `${fileName}.new`,
-    newString.value,
-    fileLanguage.value,
-    fileLanguage.value
-  )
-
-  // 根据当前主题初始化
   const isDarkTheme = document.documentElement.getAttribute('data-theme')?.includes('dark')
-  file.initTheme(isDarkTheme ? 'dark' : 'light')
-  file.init()
-  file.buildUnifiedDiffLines()
 
-  return file
+  return editParts.value.map((part, index) => {
+    // 多段编辑时同一文件出现多个 diff，编号区分（单段保持原样不缀序号）
+    const label = editParts.value.length > 1 ? `${fileName} #${index + 1}` : fileName
+
+    // 使用 generateDiffFile 自动比较两个文件内容并生成 diff
+    const file = generateDiffFile(
+      `${label}.old`,
+      part.old,
+      `${label}.new`,
+      part.new,
+      fileLanguage.value,
+      fileLanguage.value
+    )
+
+    // 根据当前主题初始化
+    file.initTheme(isDarkTheme ? 'dark' : 'light')
+    file.init()
+    file.buildUnifiedDiffLines()
+
+    return file
+  })
 })
 
 async function openInPanel() {
@@ -138,12 +144,15 @@ async function openInPanel() {
   if (!originalContentResolved) {
     // File is not tracked in git — treat the current edit as the only change
     // by reconstructing the pre-edit content from the tool input.
-    const oldStr = props.toolCall.input?.old_string
-    const newStr = props.toolCall.input?.new_string
-    if (typeof oldStr === 'string' && typeof newStr === 'string' && newStr) {
-      originalContent = modifiedContent.includes(newStr)
-        ? modifiedContent.replace(newStr, oldStr)
-        : modifiedContent
+    // 多段编辑逆序回放：后一段的 old 可能由前一段的 new 变换而来，正序替换会错位
+    const parts = extractEditParts(props.toolCall.input).filter(part => part.new)
+    if (parts.length > 0) {
+      originalContent = modifiedContent
+      for (const part of [...parts].reverse()) {
+        if (originalContent.includes(part.new)) {
+          originalContent = originalContent.replace(part.new, part.old)
+        }
+      }
     } else {
       originalContent = modifiedContent
     }
@@ -168,6 +177,11 @@ async function openInPanel() {
 .git-diff-wrapper {
   border-radius: 6px;
   overflow: hidden;
+
+  /* pi 的 edits[] 会产出多个 diff 块，块间留一行间距 */
+  &.is-stacked {
+    margin-top: 8px;
+  }
 }
 
 .git-diff-container {
