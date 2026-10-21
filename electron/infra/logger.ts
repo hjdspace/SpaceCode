@@ -376,10 +376,26 @@ function safeConsoleWrite(level: LogLevel, line: string): void {
   }
 }
 
+// ============================================================
+// argv 脱敏兜底 —— 启动日志把 spawn 的 argv join 成一行（redactArgsForLog
+// 负责逐旗标打码，见 infra/redactArgs.ts）；这里再拦一层：无论哪条日志路径，
+// 行内 --api-key 的值都不回显（覆盖漏接的调用点与连写形式）。
+// ============================================================
+
+const API_KEY_IN_LINE_RE = /--api-key[ =]\S+/g
+
+function redactCommandLine(line: string): string {
+  return line.replace(API_KEY_IN_LINE_RE, (matched) => {
+    // redactArgsForLog 已打码成 `prob****cret` 的形态要保留 —— 首尾 4 位是留给对账的
+    if (matched.includes('****')) return matched
+    return matched.includes('=') ? '--api-key=****' : '--api-key ****'
+  })
+}
+
 function formatLine(level: LogLevel, scope: string, content: string): string {
   const ts = toLocalISOString()
   const line = `[${ts}] [${level}] [${scope}] ${content}`
-  return truncate(line, MAX_LINE_LENGTH) + '\n'
+  return truncate(redactCommandLine(line), MAX_LINE_LENGTH) + '\n'
 }
 
 function writeLine(line: string, always: boolean): void {
