@@ -11,6 +11,7 @@ enum RequestType {
   newSession('new_session'),
   switchSession('switch_session'),
   listAgents('list_agents'),
+  setAgent('set_agent'),
   getSettings('get_settings'),
   setPermissionMode('set_permission_mode');
 
