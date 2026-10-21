@@ -39,14 +39,15 @@
               <span v-else-if="toolCall.status === 'completed'" class="terminal-status-badge completed">{{ t('toolCards.bashCompleted') }}</span>
               <span v-else-if="toolCall.status === 'error'" class="terminal-status-badge error">{{ t('toolCards.bashError') }}</span>
             </div>
-            <div class="terminal-content">
+            <div class="terminal-content" ref="terminalContentRef" @scroll="onTerminalScroll">
               <div class="term-command">
                 <span class="term-prompt">$</span>
                 <span v-if="cwdDisplay" class="term-cwd">{{ cwdDisplay }}</span>
                 <span class="term-cmd-text">{{ toolCall.input.command }}</span>
               </div>
-              <div v-if="toolCall.output" class="term-output" :class="{ 'error-output': toolCall.status === 'error' }">{{ truncatedOutput }}<span v-if="toolCall.status === 'running'" class="cursor"></span></div>
-              <div v-else-if="toolCall.status === 'running'" class="cursor-line"><span class="cursor"></span></div>
+              <div v-if="toolCall.output" class="term-output" :class="{ 'error-output': toolCall.status === 'error' }">{{ displayOutput }}<span v-if="isRunning" class="cursor"></span></div>
+              <div v-else-if="isRunning" class="cursor-line"><span class="cursor"></span></div>
+              <div v-if="showBufferedHint" class="term-buffered-hint">{{ t('toolCards.bashOutputBufferedHint') }}</div>
               <div v-if="showExitCode" class="term-exit" :class="{ 'error-exit': toolCall.status === 'error' }">
                 {{ t('toolCards.bashExitCode', { code: exitCode }) }}
                 <span v-if="isTruncated" class="truncated-hint">· {{ t('toolCards.bashOutputTruncated') }}</span>
@@ -62,10 +63,11 @@
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
 import { Terminal, ChevronDown, Monitor, Loader2, X } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
+import { hasBufferingOutputPipe } from '@/utils/commandOutputBuffering'
 
 const props = defineProps<{ toolCall: ToolCall; now?: number }>()
 
@@ -73,6 +75,11 @@ const sessionStore = useChatSessionStore()
 const appStore = useAppStore()
 const { t } = useI18n()
 const isExpanded = ref(false)
+const terminalContentRef = ref<HTMLElement | null>(null)
+/** 用户是否停在底部；上翻后不抢滚动，回到底部后恢复跟随。 */
+let stickToBottom = true
+
+const isRunning = computed(() => props.toolCall.status === 'running')
 
 const workingDirectory = computed(() => {
   return sessionStore.workingDirectory || undefined
@@ -122,10 +129,29 @@ const isTruncated = computed(() => {
   return out.length > MAX_OUTPUT_LEN
 })
 
-const truncatedOutput = computed(() => {
+/** 终态看开头（错误通常在最前面），运行中看最新一行 —— 终端语义。 */
+const displayOutput = computed(() => {
   const out = props.toolCall.output || ''
+  if (!isRunning.value) {
+    return out.length <= MAX_OUTPUT_LEN ? out : out.slice(0, MAX_OUTPUT_LEN)
+  }
   if (out.length <= MAX_OUTPUT_LEN) return out
-  return out.slice(0, MAX_OUTPUT_LEN)
+  const tail = out.slice(-MAX_OUTPUT_LEN)
+  const firstNewline = tail.indexOf('\n')
+  return firstNewline >= 0 ? tail.slice(firstNewline + 1) : tail
+})
+
+/**
+ * 命令把输出交给 tail/重定向时，执行结束前引擎本身就没有字节可推。
+ * 只在这种命令长时间空输出时提示，避免把普通慢启动命令也标成"卡住"。
+ */
+const showBufferedHint = computed(() => {
+  if (!isRunning.value || props.toolCall.output) return false
+  if (!hasBufferingOutputPipe(props.toolCall.input?.command)) return false
+  const start = props.toolCall.startTime
+  if (!start) return true
+  // now 由 AgentTimeline 每秒刷新；没传时（design 模式）不主动计时，避免误报
+  return (props.now ?? start) - start >= 3000
 })
 
 const showExitCode = computed(() => {
@@ -140,6 +166,34 @@ const exitCode = computed(() => {
 function toggleExpand() {
   isExpanded.value = !isExpanded.value
 }
+
+function onTerminalScroll() {
+  const el = terminalContentRef.value
+  if (!el) return
+  stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 40
+}
+
+function scrollTerminalToBottom() {
+  const el = terminalContentRef.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
+
+watch(
+  () => props.toolCall.output,
+  async () => {
+    if (!isExpanded.value || !isRunning.value || !stickToBottom) return
+    await nextTick()
+    scrollTerminalToBottom()
+  },
+)
+
+watch(isExpanded, async (expanded) => {
+  if (!expanded) return
+  stickToBottom = true
+  await nextTick()
+  scrollTerminalToBottom()
+})
 
 function openInTerminalPage() {
   const cmd = props.toolCall.input?.command
@@ -269,6 +323,14 @@ function openInTerminalPage() {
 
 .cursor-line {
   margin-top: 2px;
+}
+
+.term-buffered-hint {
+  margin-top: 6px;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-relaxed);
+  color: #d29922;
+  white-space: pre-wrap;
 }
 
 .cursor {
