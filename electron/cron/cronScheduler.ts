@@ -28,10 +28,21 @@ export interface CronRunContext {
   signal: AbortSignal
 }
 
+/**
+ * 执行器从引擎拿到的 agent 回执。applied 为 null 表示引擎不上报（如 claude-code），
+ * 界面只在明确为 false 时才提示「未生效」。
+ */
+export interface CronAgentVerdict {
+  agent: string
+  applied: boolean | null
+  extensionLoaded?: boolean
+}
+
 export interface CronRunResult {
   exitCode: number | null
   stdout: string
   stderr: string
+  agent?: CronAgentVerdict
 }
 
 export interface CronSchedulerOptions {
@@ -228,6 +239,12 @@ export class CronScheduler {
             output: result.stdout.slice(0, 5000),
             error: result.stderr ? result.stderr.slice(0, 2000) : undefined,
             durationMs: Date.now() - new Date(run.startedAt).getTime(),
+            // agent 是否真的落到会话上不改变任务成败，只作为独立事实记录 (#56)
+            ...(result.agent ? {
+              agent: result.agent.agent,
+              agentApplied: result.agent.applied,
+              agentExtensionLoaded: result.agent.extensionLoaded,
+            } : {}),
           }
 
       await updateRun(runId, completedRun, projectRoot)
