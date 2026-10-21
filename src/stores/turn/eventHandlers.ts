@@ -274,6 +274,19 @@ function partialToolResultText(result: any): string {
 }
 
 /**
+ * 实时工具输出是「最新快照」，超上限时必须保留尾部。
+ * 头部截断会让运行中的终端在输出超过上限后永久冻结在早期内容上 ——
+ * 引擎仍在推新快照，界面却一个字都不再变化。
+ */
+function truncateLiveToolOutput(text: string): string {
+  if (text.length <= MAX_INMEMORY_TOOL_OUTPUT) return text
+  const tail = text.slice(-MAX_INMEMORY_TOOL_OUTPUT)
+  const firstNewline = tail.indexOf('\n')
+  const aligned = firstNewline >= 0 ? tail.slice(firstNewline + 1) : tail
+  return '[Output truncated to the most recent output]\n' + aligned
+}
+
+/**
  * 从工具输入里提取值得自动预览的交付物绝对路径（无则 null）。
  *
  * Write/Edit 看 file_path / path；Bash 解析 officecli 命令的目标文档
@@ -700,9 +713,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         const idx = msg?.toolCalls?.findIndex(tc => tc.id === toolId) ?? -1
         if (msg?.toolCalls && idx >= 0 && msg.toolCalls[idx].status === 'running') {
           const text = partialToolResultText(ev.delta.partialResult)
-          const output = text.length > MAX_INMEMORY_TOOL_OUTPUT
-            ? text.slice(0, MAX_INMEMORY_TOOL_OUTPUT) + '\n\n[Output truncated to prevent memory overflow]'
-            : text
+          const output = truncateLiveToolOutput(text)
           if (msg.toolCalls[idx].output !== output) {
             const updatedToolCalls = [...msg.toolCalls]
             updatedToolCalls[idx] = { ...updatedToolCalls[idx], output }
