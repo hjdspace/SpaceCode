@@ -39,6 +39,7 @@ import {
 } from './infra/logger'
 import { flushTraceSidecars } from './infra/traceSidecar'
 import { proxyManager, buildProxyConfigFromSettings } from './infra/proxyManager'
+import { sweepStaleTempArtifacts } from './session/tempArtifacts'
 import { rtkManager } from './tools/rtkManager'
 import { PetFileService } from './pet/petFileService'
 import { PetWindowController } from './pet/petWindowManager'
@@ -120,6 +121,11 @@ const terminalManager = new TerminalManager()
 app.whenReady().then(async () => {
   initLogger()
   info('Startup', `App ready | elapsed=${Date.now() - startTime}ms | isDev=${isDev} | isPackaged=${app.isPackaged} | debugMode=${isDebugMode()}`)
+
+  const sweptTempArtifacts = sweepStaleTempArtifacts()
+  if (sweptTempArtifacts.removed > 0 || sweptTempArtifacts.failed > 0) {
+    info('Startup', `Stale temp artifacts swept | removed=${sweptTempArtifacts.removed} | failed=${sweptTempArtifacts.failed}`)
+  }
 
   // 回放早期日志
   for (const earlyMsg of earlyLogs) {
