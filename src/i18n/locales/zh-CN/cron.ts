@@ -40,6 +40,8 @@ export default {
   viewSession: '查看会话',
   viewError: '查看错误',
   noOutput: '本次执行没有输出',
+  agentNotApplied: '智能体「{agent}」未生效：定义缺失/为空或人设写入失败，本次按默认提示词执行',
+  agentExtensionMissing: '智能体「{agent}」人设已生效，但子代理扩展未加载，本次无法委派',
   duration: '耗时',
   aboutToFire: '即将执行',
   modal: {
