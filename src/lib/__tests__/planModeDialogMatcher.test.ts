@@ -7,6 +7,7 @@ import {
   optionRowLabel,
   otherRowLabel,
   parseQuestionnaireOutput,
+  PLAN_ACTION_KNOWN_OPTIONS,
   questionDialogTitle,
   type PlanModeQuestion,
 } from '@/lib/planModeDialogMatcher'
@@ -114,6 +115,19 @@ describe('editor 帧与行动菜单配对', () => {
     expect(matchPlanActionDialog(makeDialog({ title: 'Plan mode — what next?', options: ['Start', 'Settings'] }))).toBe(true)
     expect(matchPlanActionDialog(makeDialog({ title: questionDialogTitle(QUESTION) }))).toBe(false)
     expect(matchPlanActionDialog(makeDialog({ method: 'confirm', title: 'Plan mode?' }))).toBe(false)
+  })
+
+  it('plan-action 菜单：实测标题 "Proposed plan ready. What next?"（不含 Plan mode）也命中', () => {
+    expect(
+      matchPlanActionDialog(makeDialog({ title: 'Proposed plan ready. What next?', options: PLAN_ACTION_KNOWN_OPTIONS.slice() })),
+    ).toBe(true)
+  })
+
+  it('标题标记失效时按选项签名兜底：≥2 个已知菜单项才认', () => {
+    const unknown = { title: 'Pick one', options: ['Implement here', 'Start fresh and implement'] }
+    expect(matchPlanActionDialog(makeDialog(unknown))).toBe(true)
+    // 只有 1 个命中不认：避免与问卷格式化行、普通菜单误撞
+    expect(matchPlanActionDialog(makeDialog({ title: 'Pick one', options: ['Implement here', 'Something else'] }))).toBe(false)
   })
 })
 

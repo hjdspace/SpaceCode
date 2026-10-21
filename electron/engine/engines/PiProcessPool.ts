@@ -5,6 +5,7 @@ import { resolvePlanModeExtensionPath } from './piPlanModeExtension'
 import type { EngineSessionConfig, EngineSessionStatus, ExtensionDialogAnswer, ImageAttachment, PermissionMode } from './types'
 import type { ProcessStatus } from '../../session/sessionProcess'
 import { mapPiEvent, isExpectedDroppedPiEvent } from './PiEventMapper'
+import { PiRetryBridge, type RoutedEngineEvent } from './piRetryBridge'
 import { info, warn, error, debug } from '../../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
@@ -22,6 +23,12 @@ export class PiProcessPool {
   private processes: Map<string, PiSessionProcess> = new Map()
   private mainWindow: BrowserWindow | null = null
   private routeEventListeners: Array<(sessionId: string, eventType: string, data: any) => void> = []
+
+  /**
+   * 每会话一个重试桥：pi 的 agent_end(error) 是「正在重试」和「彻底失败」两副面孔，
+   * 语义只有下一拍（auto_retry_* / 成功 result）才知道，见 piRetryBridge。
+   */
+  private retryBridges = new Map<string, PiRetryBridge>()
 
   /**
    * 为装上 plan 扩展而重启过哪条会话：扩展在子进程里装不起来时，每条消息都换一个进程
@@ -448,6 +455,11 @@ export class PiProcessPool {
   }
 
   private detachPoolHandlers(sessionId: string, proc: PiSessionProcess): void {
+    // 桥是每会话一份的有状态物：进程换绑（resume）或退场（kill/驱逐）时，
+    // 扣住的中间态错误已过时，一并作废。
+    this.retryBridges.get(sessionId)?.dispose()
+    this.retryBridges.delete(sessionId)
+
     const handlers = this.poolHandlers.get(sessionId)
     if (!handlers) return
 
@@ -462,7 +474,6 @@ export class PiProcessPool {
 
   private routeEvent(sessionId: string, eventType: string, data: any): void {
     const shortSid = sessionId.slice(0, 8)
-    const windowAvailable = this.mainWindow && !this.mainWindow.isDestroyed()
 
     const unifiedEvent = mapPiEvent(sessionId, { type: eventType, ...data })
 
@@ -473,6 +484,19 @@ export class PiProcessPool {
       }
       return
     }
+
+    // pi 的 agent_end(error) 有「正在重试 / 彻底失败」两副面孔，语义只有下一拍知道：
+    // 桥扣住中间态错误，按重试事件或成功结果分诊，这里只派发确认结局的事件。
+    const dispatched = this.retryBridgeFor(sessionId).feed(unifiedEvent)
+    for (const event of dispatched) {
+      this.dispatchUnified(sessionId, event)
+    }
+  }
+
+  /** 派发一条归一化事件：窗口 channel + routeEventListeners（H5 Server 订阅）。 */
+  private dispatchUnified(sessionId: string, unifiedEvent: RoutedEngineEvent): void {
+    const shortSid = sessionId.slice(0, 8)
+    const windowAvailable = this.mainWindow && !this.mainWindow.isDestroyed()
 
     if (windowAvailable) {
       const channel = CLAUDE_CODE_EVENT_BY_SUFFIX[unifiedEvent.type]
@@ -497,5 +521,15 @@ export class PiProcessPool {
     if (unifiedEvent.type !== 'stream_event') {
       debug('PiProcessPool', `[${shortSid}] route → renderer | type=${unifiedEvent.type}`)
     }
+  }
+
+  /** 每会话惰性创建重试桥；桥扣住后超时放行的「迟到事件」经 emitLate 走同一条派发路。 */
+  private retryBridgeFor(sessionId: string): PiRetryBridge {
+    let bridge = this.retryBridges.get(sessionId)
+    if (!bridge) {
+      bridge = new PiRetryBridge(event => this.dispatchUnified(sessionId, event))
+      this.retryBridges.set(sessionId, bridge)
+    }
+    return bridge
   }
 }

@@ -30,6 +30,7 @@ import {
 import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
 import { findAgentDefinition } from './agentDefinitions'
 import { syncPiMcpConfigFromStore } from '../../tools/piMcpProjection'
+import { mergeRetrySettings } from './piRetrySettings'
 
 /** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
 interface PiImageContent {
@@ -212,6 +213,10 @@ export class PiSessionProcess extends EventEmitter {
       // mcp.json 是唯一入口，所以这份投影必须在这台进程 spawn 之前完成 ——
       // 和下面 models.json 同理：进程实际加载的就是磁盘上这一刻的内容 (#53)。
       this.projectMcpConfig()
+
+      // 重试预算也要在 spawn 前落到磁盘：pi 只在启动时读一次 settings.json，
+      // 429 等限速的内部退避（auto_retry_* 事件）全靠这份预算撑住 (#69)。
+      this.projectRetrySettings()
 
       // Determine spawn command based on what resolveCliPath returned
       let command: string
@@ -1182,6 +1187,42 @@ export class PiSessionProcess extends EventEmitter {
       fs.writeFileSync(modelsJsonPath, JSON.stringify(existing, null, 2), 'utf-8')
     } catch (err) {
       warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write models.json override`, err)
+    }
+  }
+
+  /**
+   * 把引擎级重试预算投影到 pi 的用户级 settings.json（429/5xx 的内部退避全靠它）。
+   *
+   * 合并策略见 `mergeRetrySettings`：只升不降、尊重用户显式关闭。失败不阻塞启动 ——
+   * 没有这份投影 pi 也会按它自己的默认（3 次）重试，只是限速场景更容易露出失败卡片。
+   */
+  private projectRetrySettings(): void {
+    try {
+      const configDir = path.join(os.homedir(), '.pi', 'agent')
+      const settingsPath = path.join(configDir, 'settings.json')
+
+      let existing: unknown = {}
+      if (fs.existsSync(settingsPath)) {
+        try {
+          existing = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+        } catch {
+          existing = {}
+        }
+      }
+
+      const merged = mergeRetrySettings(existing)
+      const retry = merged.retry as { maxRetries?: number; baseDelayMs?: number; enabled?: boolean }
+
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true })
+      }
+      fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2), 'utf-8')
+      info(
+        'PiSessionProcess',
+        `[${this.sessionId.slice(0, 8)}] Wrote settings.json retry override | enabled=${retry.enabled} | maxRetries=${retry.maxRetries} | baseDelayMs=${retry.baseDelayMs}`,
+      )
+    } catch (err) {
+      warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to write settings.json retry override`, err)
     }
   }
 

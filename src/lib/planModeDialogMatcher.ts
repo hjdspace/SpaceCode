@@ -82,14 +82,37 @@ export function matchEditorDialogToQuestion(
 }
 
 /**
- * plan_mode_complete 之后的行动菜单：标题含 "Plan mode" 的 select 帧
- * （实测形如 `Plan mode — what next?`，选项为菜单项原文）。
+ * plan_mode_complete 之后的行动菜单。实测标题有两代形态：
+ * `Proposed plan ready. What next?`（当前包）与 `Plan mode — what next?`（旧帧样例），
+ * 都不含问卷题的 `"{header}: {question}"` 结构。
  */
+const PLAN_ACTION_TITLE_MARKERS = ['Proposed plan ready', 'Plan mode']
+
+/** 行动菜单的固定选项（扩展包写死的英文原文）。宿主显示层会本地化，应答仍回传原文。 */
+export const PLAN_ACTION_KNOWN_OPTIONS = [
+  'Implement here',
+  'Start fresh and implement',
+  'Export plan…',
+  'Save for later',
+  'Stay in Plan mode',
+  'Discard plan and exit',
+] as const
+
+/** 标题标记失效时的选项签名兜底：≥2 个选项命中已知菜单项才认（问卷帧是格式化行，永不重叠） */
+function looksLikePlanActionOptions(options: unknown): boolean {
+  if (!Array.isArray(options)) return false
+  const hits = options.filter(
+    option => typeof option === 'string' && (PLAN_ACTION_KNOWN_OPTIONS as readonly string[]).includes(option),
+  )
+  return hits.length >= 2
+}
+
 export function matchPlanActionDialog(
-  dialog: Pick<ExtensionDialog, 'method' | 'title'> | undefined,
+  dialog: Pick<ExtensionDialog, 'method' | 'title' | 'options'> | undefined,
 ): boolean {
   if (!dialog || dialog.method !== 'select' || typeof dialog.title !== 'string') return false
-  return dialog.title.includes('Plan mode')
+  if (PLAN_ACTION_TITLE_MARKERS.some(marker => dialog.title.includes(marker))) return true
+  return looksLikePlanActionOptions(dialog.options)
 }
 
 /**

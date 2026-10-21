@@ -40,14 +40,14 @@
       <template v-if="actionOptions.length > 0">
         <button
           v-for="(option, oIndex) in actionOptions"
-          :key="option"
+          :key="option.raw"
           class="pf-btn"
           :class="{ primary: oIndex === 0 }"
           type="button"
           :disabled="actionBusy"
-          @click="handleAction(option)"
+          @click="handleAction(option.raw)"
         >
-          {{ option }}
+          {{ option.label }}
         </button>
       </template>
     </div>
@@ -63,6 +63,7 @@ import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import { extensionDialogService } from '@/services/extensionDialogService'
 import { useTurnStore } from '@/stores/turn'
 import { matchPlanActionDialog } from '@/lib/planModeDialogMatcher'
+import { localizePlanActionText } from '@/lib/planActionL10n'
 
 /**
  * pi plan_mode_complete 的计划文档卡：Markdown 全文渲染 + 目录锚点 + 默认折叠
@@ -73,7 +74,7 @@ import { matchPlanActionDialog } from '@/lib/planModeDialogMatcher'
  */
 const props = defineProps<{ toolCall: ToolCall }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const turnStore = useTurnStore()
 
 const planContent = computed(() => {
@@ -190,8 +191,10 @@ const actionDialog = computed(() =>
     .listPending('select')
     .find(dialog => !inFlightDialogIds.has(dialog.dialogId) && matchPlanActionDialog(dialog)),
 )
-const actionOptions = computed<string[]>(() =>
-  (actionDialog.value?.options ?? []).filter((option): option is string => typeof option === 'string' && option.length > 0),
+const actionOptions = computed<{ raw: string; label: string }[]>(() =>
+  (actionDialog.value?.options ?? [])
+    .filter((option): option is string => typeof option === 'string' && option.length > 0)
+    .map(option => ({ raw: option, label: localizePlanActionText(option, locale.value) })),
 )
 
 const actionBusy = computed(() => !!actionDialog.value && inFlightDialogIds.has(actionDialog.value.dialogId))

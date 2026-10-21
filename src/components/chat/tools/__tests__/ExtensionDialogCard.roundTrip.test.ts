@@ -17,7 +17,7 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ExtensionDialogCard from '@/components/chat/tools/ExtensionDialogCard.vue'
 import { useTurnStore } from '@/stores/turn'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -391,5 +391,58 @@ describe('收到帧时记下时间线游标', () => {
     expect(dialog.anchorMessageId).toBeUndefined()
     expect(dialog.anchorEventId).toBeUndefined()
     expect(dialog.anchorAtStart).toBeUndefined()
+  })
+})
+
+/**
+ * pi-plan-mode 行动菜单的显示层本地化。
+ * 扩展写死的英文在界面上要变中文，但应答值必须还是原文 —— 引擎按原文认账。
+ */
+describe('plan 行动菜单：显示译文，应答回传原文', () => {
+  const PLAN_MENU_TITLE = [
+    'Proposed plan ready. What next?',
+    'Implement here keeps this planning conversation.',
+    'Start fresh transfers only the approved plan to a new session.',
+    'Plan reinjection: Off; use conversation history only.',
+  ].join('\n')
+
+  afterEach(() => {
+    i18n.global.locale.value = 'en-US'
+  })
+
+  it('zh-CN 下标题与选项显示译文，点击后 IPC 里是原文', async () => {
+    i18n.global.locale.value = 'zh-CN'
+    const { wrapper, sid, fake } = await setup({
+      dialogId: 'uuid-1',
+      method: 'select',
+      title: PLAN_MENU_TITLE,
+      options: ['Implement here', 'Start fresh and implement', 'Discard plan and exit'],
+    })
+
+    expect(wrapper.find('.dialog-title').text()).toContain('计划已就绪，接下来做什么？')
+    expect(wrapper.find('.dialog-title').text()).toContain('「在本会话实施」将继续当前的规划对话。')
+
+    const options = wrapper.findAll('.option-btn')
+    expect(options.map(o => o.text())).toEqual(['在本会话实施', '转到新会话实施', '放弃计划并退出'])
+
+    await options[1].trigger('click')
+    await flush()
+
+    expect(fake._ipcCalls).toHaveLength(1)
+    expect(fake._ipcCalls[0].slice(0, 3)).toEqual([
+      sid,
+      'uuid-1',
+      { kind: 'value', value: 'Start fresh and implement' },
+    ])
+    // 回执也是译文（display-only），引擎侧收到的仍是上一条断言里的原文
+    expect(wrapper.find('.resolved-text').text()).toBe('转到新会话实施')
+  })
+
+  it('非行动菜单的 select 不做本地化（zh-CN 下也显示原文）', async () => {
+    i18n.global.locale.value = 'zh-CN'
+    const { wrapper } = await setup()
+
+    expect(wrapper.find('.dialog-title').text()).toContain('Allow dangerous command?')
+    expect(wrapper.findAll('.option-btn').map(o => o.text())).toEqual(['Allow', 'Block'])
   })
 })

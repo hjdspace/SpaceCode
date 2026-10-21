@@ -104,9 +104,15 @@ interface SetupOptions {
   toolCall?: ToolCall
   /** 预先放进账本的 plan-action select 帧 */
   openPlanActionDialog?: boolean
+  /** 行动菜单的选项原文（默认用扩展真实菜单的前两项） */
+  actionOptions?: string[]
 }
 
-async function setup({ toolCall = makeToolCall(), openPlanActionDialog = false }: SetupOptions = {}) {
+async function setup({
+  toolCall = makeToolCall(),
+  openPlanActionDialog = false,
+  actionOptions = ACTION_OPTIONS,
+}: SetupOptions = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const fake = makeFakeApi()
@@ -121,8 +127,8 @@ async function setup({ toolCall = makeToolCall(), openPlanActionDialog = false }
       data: {
         dialogId: 'uuid-act',
         method: 'select',
-        title: 'Plan mode — what next?',
-        options: ACTION_OPTIONS,
+        title: 'Proposed plan ready. What next?',
+        options: actionOptions,
       },
     })
   }
@@ -241,5 +247,22 @@ describe('行动条（plan-action 配对降级）', () => {
     const buttons = wrapper.findAll('.plan-foot .pf-btn')
     expect(buttons.map(b => b.text())).toEqual(['展开全文', '复制 Markdown'])
     expect(fake._ipcCalls).toHaveLength(0)
+  })
+
+  it('扩展固定英文菜单显示中文译文，IPC 回传原文', async () => {
+    const { wrapper, fake, sid } = await setup({
+      openPlanActionDialog: true,
+      actionOptions: ['Implement here', 'Discard plan and exit'],
+    })
+
+    const buttons = wrapper.findAll('.plan-foot .pf-btn')
+    expect(buttons[2].text()).toBe('在本会话实施')
+    expect(buttons[3].text()).toBe('放弃计划并退出')
+
+    await buttons[3].trigger('click')
+    await flush()
+
+    expect(fake._ipcCalls).toHaveLength(1)
+    expect(fake._ipcCalls[0].slice(0, 3)).toEqual([sid, 'uuid-act', { kind: 'value', value: 'Discard plan and exit' }])
   })
 })

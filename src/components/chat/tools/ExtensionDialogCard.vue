@@ -23,13 +23,13 @@
         </div>
       </div>
 
-      <!-- select：选项原文就是应答值，逐条回传 -->
+      <!-- select：选项原文就是应答值，逐条回传；pi-plan-mode 的固定英文菜单在显示层本地化 -->
       <template v-if="dialog.method === 'select'">
         <div class="card-body">
           <!-- pi 会把整段提问塞进 title（runRpcConfirmation 拼的是 title + \n + 正文），
                所以这里必须保换行，不能当一行标题显示 -->
-          <p class="dialog-title">{{ dialog.title }}</p>
-          <p v-if="dialog.message" class="dialog-message">{{ dialog.message }}</p>
+          <p class="dialog-title">{{ displayTitle }}</p>
+          <p v-if="dialog.message" class="dialog-message">{{ displayMessage }}</p>
           <div class="option-list">
             <button
               v-for="(option, index) in dialog.options"
@@ -37,9 +37,9 @@
               class="option-btn"
               type="button"
               :disabled="submitting"
-              @click="answer({ kind: 'value', value: option }, option)"
+              @click="answer({ kind: 'value', value: option }, optionLabel(option))"
             >
-              {{ option }}
+              {{ optionLabel(option) }}
             </button>
             <template v-if="!dialog.options?.length">
               <p class="empty-options">
@@ -160,6 +160,8 @@ import type { ExtensionDialogAnswer } from '@/shared/channels/claudeCode'
 import type { ExtensionDialog } from '@/services/extensionDialogService'
 import { extensionDialogService } from '@/services/extensionDialogService'
 import { useTurnStore } from '@/stores/turn'
+import { matchPlanActionDialog } from '@/lib/planModeDialogMatcher'
+import { localizePlanActionBlock, localizePlanActionText } from '@/lib/planActionL10n'
 
 /**
  * pi 扩展对话框（`extension_ui_request`）。四种方法共用一张卡（header/body/footer
@@ -169,11 +171,32 @@ import { useTurnStore } from '@/stores/turn'
  */
 const props = defineProps<{ dialog: ExtensionDialog }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const turnStore = useTurnStore()
 
 const submitting = ref(false)
 const draft = ref(props.dialog.prefill ?? '')
+
+/**
+ * pi-plan-mode 行动菜单的显示层本地化：title 是「标题 + 说明行」整段，
+ * 选项与回执逐条换；应答值始终走原文（localizePlanAction* 只作用于显示）。
+ * 非行动菜单帧（问卷题、confirm 等）一律原样显示。
+ */
+const isPlanActionMenu = computed(
+  () => dialog.value.method === 'select' && matchPlanActionDialog(dialog.value),
+)
+
+const displayTitle = computed(() =>
+  isPlanActionMenu.value ? localizePlanActionBlock(dialog.value.title ?? '', locale.value) : dialog.value.title,
+)
+
+const displayMessage = computed(() =>
+  isPlanActionMenu.value ? localizePlanActionBlock(dialog.value.message ?? '', locale.value) : dialog.value.message,
+)
+
+function optionLabel(option: string): string {
+  return isPlanActionMenu.value ? localizePlanActionText(option, locale.value) : option
+}
 
 /**
  * 状态按 id 现取，不认 props 里那份快照。

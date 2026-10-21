@@ -136,6 +136,81 @@ describe('Turn engine retry lifecycle', () => {
     expect(order.slice(-2)).toEqual(['abort', 'send'])
   })
 
+  // pi 的上游拒绝由引擎内部退避重试（预算投影见 electron/engine/engines/piRetrySettings.ts）。
+  // 以 stop_reason:'error' 收场 = 引擎已重试 10 次全失败，前端再 abort+重发整段历史
+  // 只会再次撞限速 —— 必须跳过重发循环，直接落错误卡片（metadata.error）。
+  it('pi 引擎重试耗尽的最终失败直接落错误卡片，不再前端重发', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sessionId = 'sess-pi-engine-exhausted'
+    sessionStore.createSession('Test', undefined, sessionId)
+    const session = sessionStore.sessions.find(s => s.id === sessionId)!
+    session.engineType = 'pi'
+    sessionStore.addMessage({ role: 'user', content: 'go' }, sessionId)
+
+    vi.spyOn(errorHandler, 'classifyError').mockReturnValue({
+      category: ErrorCategory.RATE_LIMIT,
+      title: '请求过于频繁',
+      message: 'API 返回 429 速率限制错误，请稍后重试。',
+      technicalDetail: '429 Rate Limit · inference exceeds tpm/rpm limit',
+      retryable: true,
+      originalError: new Error('429 ... inference exceeds tpm/rpm limit'),
+      timestamp: Date.now(),
+    })
+
+    ;(turn as any).beginTurn(sessionId, { isAutonomous: false })
+    fake._handlers.onResult?.({
+      sessionId,
+      data: { is_error: true, result: '429 ... inference exceeds tpm/rpm limit', stop_reason: 'error' },
+    })
+    await Promise.resolve()
+
+    expect((turn.retryStates as unknown as Map<string, unknown>).has(sessionId)).toBe(false)
+    expect(fake.claudeCode.sendMessage).not.toHaveBeenCalled()
+
+    const assistant = session.messages[session.messages.length - 1]
+    expect(assistant.metadata?.error).toMatchObject({ category: ErrorCategory.RATE_LIMIT })
+
+    await vi.runAllTimersAsync()
+  })
+
+  // 打标只对 pi 生效：claude-code 的 result 不该被 stop_reason:'error' 误伤，
+  // 引擎报错后仍要走前端自动重发兜底（行为回归保护）。
+  it('非 pi 会话的失败 result 仍走前端自动重发', async () => {
+    const fake = makeFakeApi()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const sessionStore = useChatSessionStore()
+    const sessionId = 'sess-claude-still-retries'
+    sessionStore.createSession('Test', undefined, sessionId)
+    sessionStore.addMessage({ role: 'user', content: 'go' }, sessionId)
+
+    vi.spyOn(errorHandler, 'classifyError').mockReturnValue({
+      category: ErrorCategory.RATE_LIMIT,
+      title: '请求过于频繁',
+      message: '请求过于频繁',
+      technicalDetail: '429 too many requests',
+      retryable: true,
+      originalError: new Error('429 too many requests'),
+      timestamp: Date.now(),
+    })
+
+    ;(turn as any).beginTurn(sessionId, { isAutonomous: false })
+    fake._handlers.onResult?.({
+      sessionId,
+      data: { is_error: true, result: '429 too many requests', stop_reason: 'error' },
+    })
+    await Promise.resolve()
+
+    // 打标不生效 → 立即进入前端重发队列
+    expect((turn.retryStates as unknown as Map<string, unknown>).has(sessionId)).toBe(true)
+
+    await vi.runAllTimersAsync()
+    expect(fake.claudeCode.sendMessage).toHaveBeenCalled()
+  })
+
   it('normalizes engine api_retry events and ignores synthetic API error content', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')
