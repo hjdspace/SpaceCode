@@ -18,6 +18,7 @@ export default {
   editStreaming: '正在编辑…',
   editNoChanges: '无变更可显示',
   editUnknownFile: '未知文件',
+  editSegmentTag: '编辑 {index}/{total}',
   write: '写入',
   writeStreaming: '正在写入…',
   writeSuccess: '✓ 已写入',
