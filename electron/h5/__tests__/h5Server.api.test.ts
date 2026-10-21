@@ -712,7 +712,11 @@ describe('H5Server API surface', () => {
       const res = await call('/api/session/send', { sessionId: 'sess-dead', content: 'hi' })
 
       expect(res.status).toBe(409)
-      expect(jsonOf(res)).toEqual({ error: 'Session sess-dead has no active process' })
+      // reason code 让 H5 客户端走 i18n 文案（issue #55），不再直出英文原句。
+      expect(jsonOf(res)).toEqual({
+        error: 'Session sess-dead has no active process',
+        reason: 'session-not-active',
+      })
       expect(gatewayStub.sendMessage).not.toHaveBeenCalled()
     })
 
