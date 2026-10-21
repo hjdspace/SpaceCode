@@ -47,6 +47,14 @@ function sanitizeForClaudeDir(p: string): string {
 
 let tmpRoot = ''
 
+/**
+ * resolveSideTaskContextPath → writeSideTaskContextFile 落盘的是真实
+ * %TEMP%/SpaceCode/side-task-context-<sid>-<spawn>.md。
+ * 本文件 afterEach 只删 mkdtemp 的 tmpRoot，这里额外记下写出的文件，测试结束扫走，
+ * 不给共享临时目录留残渣。
+ */
+const writtenSideTaskFiles: string[] = []
+
 beforeEach(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'side-digest-'))
   process.env.CLAUDE_CONFIG_DIR = tmpRoot
@@ -55,6 +63,9 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.CLAUDE_CONFIG_DIR
   fs.rmSync(tmpRoot, { recursive: true, force: true })
+  for (const f of writtenSideTaskFiles.splice(0)) {
+    fs.rmSync(f, { force: true })
+  }
   vi.restoreAllMocks()
 })
 
@@ -184,8 +195,10 @@ describe('resolveSideTaskContextPath', () => {
       cwd: tmpRoot,
     })
 
+    // 先记录再断言：断言失败也不能把残渣留在共享临时目录里
+    if (filePath) writtenSideTaskFiles.push(filePath)
     expect(filePath).toBeTruthy()
-    expect(path.basename(filePath as string)).toBe('side-task-context-side-sess-2.md')
+    expect(path.basename(filePath as string)).toMatch(/^side-task-context-side-sess-2-\d+-[a-z0-9]+\.md$/)
     expect(readSideTaskContextFile(filePath as string)).toContain('[user] hello')
 
     expect(await resolveSideTaskContextPath('side-sess-3', { cwd: tmpRoot })).toBeUndefined()
