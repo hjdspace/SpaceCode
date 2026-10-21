@@ -213,10 +213,10 @@ describe('危险偏差下阻断发送', () => {
     expect(forward).not.toHaveBeenCalled()
   })
 
-  it('阻断时向渲染层发 error 事件，用户能看到原因', async () => {
+  it('阻断时向渲染层发 error 事件，携带 reason code 与结构化上下文', async () => {
     const pool = new ClaudeCodeProcessPool()
-    const routed: string[] = []
-    const send = vi.fn((channel: string) => routed.push(channel))
+    const routed: Array<{ channel: string; payload: any }> = []
+    const send = vi.fn((channel: string, payload: any) => routed.push({ channel, payload }))
     pool.setMainWindow({ isDestroyed: () => false, webContents: { send } } as any)
     await stuckInBypass(pool)
 
@@ -224,6 +224,14 @@ describe('危险偏差下阻断发送', () => {
     await settle()
 
     await rejected
-    expect(routed).toContain('claude-code:error')
+    const errorEvent = routed.find(entry => entry.channel === 'claude-code:error')
+    expect(errorEvent).toBeDefined()
+    expect(errorEvent!.payload.data).toMatchObject({
+      reason: 'permission-mode-not-applied',
+      context: { engine: 'claude-code', intent: 'plan', reported: 'bypassPermissions' },
+    })
+    // 事件里不再有整句英文；detail 只作为排查信息存在。
+    expect(errorEvent!.payload.data).not.toHaveProperty('message')
+    expect(String(errorEvent!.payload.data.detail)).toMatch(/permission mode not applied/)
   })
 })
