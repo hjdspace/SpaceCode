@@ -390,11 +390,14 @@ describe('PiSessionProcess state machine — agent and tool frames', () => {
     feed(child, frameLine({ type: 'message_start', message: { role: 'user', content: 'hello' } }))
     feed(child, frameLine({ type: 'message_start', message: { role: 'assistant', content: 42 } }))
     feed(child, frameLine({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'x' } }))
+    feed(child, frameLine({ type: 'agent_end' }))
 
     expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('msgRole=assistant | msgContentLen=2'))
     expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('msgRole=user | msgContentLen=5'))
     expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('msgContentLen=-1'))
-    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('subType=text_delta'))
+    // 逐 delta 高频帧不再逐条打印（防刷屏）：只随下一条低频事件汇总计数
+    expect(loggerInfo).not.toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('subType=text_delta'))
+    expect(loggerInfo).toHaveBeenCalledWith('PiSessionProcess', expect.stringContaining('suppressedDeltas=1'))
   })
 })
 
