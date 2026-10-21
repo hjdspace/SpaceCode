@@ -13,7 +13,7 @@
 
 **三栏布局**: Sidebar → ChatPanel → InfoPanel, 面板宽度由 `splitLayout` store 管理.
 
-**Engine 抽象**: `EngineFactory` (`electron/engines/`) 按类型创建引擎实例 (`ClaudeCodeEngine`, `PiEngine`). `engineGateway` 是统一调用入口 — 三个 adapter (`claudeCodeIPC.ts` / `h5Server.ts` / `imServer.ts`) 的引擎派发全部委托到此. 详见 `docs/adr/0004-engine-gateway-deep-module.md`.
+**Engine 抽象**: `EngineFactory` (`electron/engine/engines/`) 按类型创建引擎实例 (`ClaudeCodeEngine`, `PiEngine`). `engineGateway` 是统一调用入口 — 三个 adapter (`claudeCodeIPC.ts` / `h5Server.ts` / `imServer.ts`) 的引擎派发全部委托到此. 详见 `docs/adr/0004-engine-gateway-deep-module.md`.
 
 **Chat Session 生命周期**: `chatSession` store 管理会话列表 → `sessionProcess` (Electron) 管理 CLI 子进程 → `turn` store (`src/stores/turn/`) 处理流式响应与工具事件.
 
@@ -48,7 +48,7 @@ CI: `.github/workflows/test.yml` 在 PR 与 push 到 `main` 时运行 `npm run t
 ## Rules
 
 - 原型 HTML UI 生成在 `docs/prototypes/`
-- 所有实现考虑 i18n (`src/i18n/locales/zh-CN.ts`, `en-US.ts`)
+- 所有实现考虑 i18n (`src/i18n/locales/zh-CN/`, `en-US/` 下的同名域模块)
 
 ### `src/` 目录分类规则
 
