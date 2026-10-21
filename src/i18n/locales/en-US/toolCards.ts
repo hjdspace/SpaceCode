@@ -18,6 +18,7 @@ export default {
   editStreaming: 'Editing…',
   editNoChanges: 'No changes to display',
   editUnknownFile: 'Unknown file',
+  editSegmentTag: 'Edit {index}/{total}',
   write: 'Write',
   writeStreaming: 'Writing…',
   writeSuccess: '✓ Written',

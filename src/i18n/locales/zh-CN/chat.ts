@@ -68,6 +68,7 @@ export default {
   toolChips: {
     toolCalls: '{count} 个工具调用',
     more: '+{count} 更多',
+    writingFile: '写入中',
   },
   input: '输入',
   output: '输出',

@@ -4,7 +4,7 @@ import { findPiSessionFile, rememberPiSessionFile } from './piSessionRegistry'
 import { resolvePlanModeExtensionPath } from './piPlanModeExtension'
 import type { EngineSessionConfig, EngineSessionStatus, ExtensionDialogAnswer, ImageAttachment, PermissionMode } from './types'
 import type { ProcessStatus } from '../../session/sessionProcess'
-import { mapPiEvent } from './PiEventMapper'
+import { mapPiEvent, isExpectedDroppedPiEvent } from './PiEventMapper'
 import { info, warn, error, debug } from '../../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
@@ -467,7 +467,10 @@ export class PiProcessPool {
     const unifiedEvent = mapPiEvent(sessionId, { type: eventType, ...data })
 
     if (!unifiedEvent) {
-      info('PiProcessPool', `[${shortSid}] route → DROPPED | rawType=${eventType} | hasAssistantMsgEvent=${!!data?.assistantMessageEvent} | msgRole=${data?.message?.role || '(none)'}`)
+      // 预期丢弃的噪音帧每回合固定出现，逐条 INFO 会刷屏；未知/畸形帧仍保留诊断
+      if (!isExpectedDroppedPiEvent({ type: eventType, ...data })) {
+        info('PiProcessPool', `[${shortSid}] route → DROPPED | rawType=${eventType} | hasAssistantMsgEvent=${!!data?.assistantMessageEvent} | msgRole=${data?.message?.role || '(none)'}`)
+      }
       return
     }
 
@@ -489,7 +492,10 @@ export class PiProcessPool {
         // ignore listener errors
       }
     }
-    // 逐事件高频日志降为 debug：正常模式不写文件，--debug 下仍可排查
-    debug('PiProcessPool', `[${shortSid}] route → renderer | type=${unifiedEvent.type}`)
+    // stream_event 是逐 delta 的高频路由（thinking/text/tool 流式片段），逐条 debug 会刷屏；
+    // 只留低频边界事件的路由日志（同 claudeCodeProcessPool 的约定）
+    if (unifiedEvent.type !== 'stream_event') {
+      debug('PiProcessPool', `[${shortSid}] route → renderer | type=${unifiedEvent.type}`)
+    }
   }
 }

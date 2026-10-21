@@ -122,6 +122,36 @@ describe('AgentTimeline timelineEvents 归一化', () => {
 
     expect(mountTimeline([msg], 'design').findAllComponents({ name: 'MarkdownRenderer' })).toHaveLength(0)
   })
+
+  /**
+   * pi 流式写入时 path 参数排在 content 之后，闭合引号要到生成末尾才出现。
+   * 路径未到达前 diff chip 用「写入中」占位（曾是误导性的 unknown），
+   * 路径闭合后由节流刷新自动换成真实文件名。
+   */
+  it('无路径的写入 chip 显示「写入中」占位，有路径的显示文件名', () => {
+    const msg: Message = {
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      toolCalls: [
+        { id: 'w1', name: 'Write', input: { content: 'const a = 1\nconst b = 2' }, status: 'running', startTime: 1 },
+        { id: 'w2', name: 'Write', input: { path: 'src/app.ts', content: 'x' }, status: 'completed', startTime: 2, endTime: 3 },
+      ],
+      timelineEvents: [
+        { id: 'tool-w1', type: 'tool_call', timestamp: 1, status: 'running', toolCallId: 'w1' },
+        { id: 'tool-w2', type: 'tool_call', timestamp: 2, status: 'completed', toolCallId: 'w2' },
+      ],
+    }
+
+    const chips = mountTimeline([msg]).findAll('.tool-group__diff-chip').map(el => el.text())
+
+    expect(chips).toHaveLength(2)
+    expect(chips[0]).toContain('写入中')
+    expect(chips[0]).toContain('+2')
+    expect(chips[1]).toContain('app.ts')
+    expect(chips.join('')).not.toContain('unknown')
+  })
 })
 
 /**

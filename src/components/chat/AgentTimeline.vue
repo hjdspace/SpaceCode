@@ -1075,7 +1075,9 @@ function getGroupDiffStats(events: TimelineEvent[]): DiffStat[] {
     if (!tool) continue
     const input = tool.input || {}
     if (!['Edit', 'FileEdit', 'MultiEdit', 'Write', 'FileWrite'].includes(tool.name)) continue
-    const file = (input.file_path || input.path || '').toString().replace(/\\/g, '/').split('/').pop() || 'unknown'
+    // pi 流式写入时 path 参数排在 content 之后，闭合引号要到生成末尾才出现；
+    // 未到达前用「写入中」占位，路径闭合后节流刷新会自动换成真实文件名
+    const file = (input.file_path || input.path || '').toString().replace(/\\/g, '/').split('/').pop() || t('chat.toolChips.writingFile')
     let add = 0
     let del = 0
     if (input.old_string && input.new_string) {

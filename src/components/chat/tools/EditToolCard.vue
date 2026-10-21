@@ -23,17 +23,22 @@
     </div>
 
     <div v-if="isExpanded" class="tool-body">
-      <!-- 专业 Diff 展示：Claude 是单段 old/new，pi 是 edits[] 多段 —— 逐段各渲染一个 diff -->
-      <template v-if="diffFiles.length > 0">
-        <div v-for="(file, index) in diffFiles" :key="`${diffViewKey}:${index}`" class="git-diff-wrapper" :class="{ 'is-stacked': index > 0 }">
+      <!-- 专业 Diff 展示：Claude 是单段 old/new，pi 是 edits[] 多段 —— 多段共用一个圆角外框，
+           块间用 ⋯ 分隔行衔接（git 折叠上下文惯例），独立间距会被误读为同一改动展示两遍 -->
+      <div v-if="diffFiles.length > 0" class="git-diff-stack">
+        <template v-for="(file, index) in diffFiles" :key="`${diffViewKey}:${index}`">
+          <div v-if="index > 0" class="diff-separator" aria-hidden="true">⋯</div>
+          <div v-if="diffFiles.length > 1" class="diff-segment-label">
+            {{ t('toolCards.editSegmentTag', { index: index + 1, total: diffFiles.length }) }}
+          </div>
           <DiffView
             :diff-file="file"
             :diff-view-mode="DiffModeEnum.Unified"
             :diff-view-highlight="true"
             class="git-diff-container"
           />
-        </div>
-      </template>
+        </template>
+      </div>
 
       <!-- 无 diff 数据时的回退显示 -->
       <div v-else class="empty-diff">
@@ -173,15 +178,31 @@ async function openInPanel() {
 <style lang="scss" scoped>
 @use './tool-card.scss' as *;
 
-/* Git Diff View 容器 */
-.git-diff-wrapper {
+/* 多段 diff（pi edits[] / MultiEdit）共用一个圆角外框 —— 块间靠分隔行衔接，不留独立间距 */
+.git-diff-stack {
   border-radius: 6px;
   overflow: hidden;
+}
 
-  /* pi 的 edits[] 会产出多个 diff 块，块间留一行间距 */
-  &.is-stacked {
-    margin-top: 8px;
-  }
+/* 块间 "⋯" 分隔行：git 折叠上下文惯例，语义是"此处省略未改动行"而非另一份 diff */
+.diff-separator {
+  padding: 3px 0;
+  text-align: center;
+  font-size: var(--text-xs-plus);
+  line-height: 1;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  user-select: none;
+}
+
+/* 多段时的段落标签（如"编辑 2/4"）：片段 diff 行号从 1 重开，需可见序号消除重复感 */
+.diff-segment-label {
+  padding: 4px 12px;
+  font-size: var(--text-xs-plus);
+  line-height: 1.2;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--surface-border, #30363d);
 }
 
 .git-diff-container {

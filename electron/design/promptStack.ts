@@ -345,7 +345,10 @@ async function replaceAsync(
     const match = args[0];
     const offset = args[args.length - 2];
     parts.push(str.slice(lastIndex, offset));
-    promises.push(asyncFn(...args).then(replacement => ({ replacement, index: parts.length })));
+    // index 必须在同步回调里捕获；放进 .then 回调会在整个 replace 循环结束后
+    // 才求值，多资源时全部拿到同一个越界下标 —— 占位符留空、替换体丢到文档末尾。
+    const index = parts.length;
+    promises.push(asyncFn(...args).then(replacement => ({ replacement, index })));
     parts.push('');
     lastIndex = offset + match.length;
     return '';
@@ -368,7 +371,9 @@ async function inlineLocalStylesheets(html: string, baseDir: string): Promise<st
     const relMatch = match.match(/\s?rel=["']([^"']+)["']/i);
     if (!hrefMatch || !relMatch || !/stylesheet/i.test(relMatch[1])) return match;
     const href = hrefMatch[1];
-    if (/^[a-z][a-z0-9+.-]:/i.test(href)) return match;
+    // 协议守卫要跳过整段 scheme（https: / data: / file: …），量词不能少 ——
+    // 少了 * 时 data: 图片会被下面的改写拼成损坏的 file:// 路径。
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return match;
     const cssPath = path.resolve(baseDir, href);
     const css = await fs.readFile(cssPath, 'utf-8').catch(() => '');
     if (!css) return match;
@@ -382,7 +387,7 @@ async function inlineLocalScripts(html: string, baseDir: string): Promise<string
     const srcMatch = match.match(/\s?src=["']([^"']+)["']/i);
     if (!srcMatch) return match;
     const src = srcMatch[1];
-    if (/^[a-z][a-z0-9+.-]:/i.test(src)) return match;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(src)) return match;
     const jsPath = path.resolve(baseDir, src);
     const js = await fs.readFile(jsPath, 'utf-8').catch(() => '');
     if (!js) return match;
@@ -410,7 +415,7 @@ export async function getSystemPreviewHtml(
   html = html.replace(
     /(href|src)="([^"]+)"/g,
     (_match, attr, rel) => {
-      if (/^[a-z][a-z0-9+.-]:/i.test(rel)) return `${attr}="${rel}"`;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(rel)) return `${attr}="${rel}"`;
       const resolved = path.resolve(pageDir, rel);
       return `${attr}="file://${resolved.replace(/\\/g, '/')}"`;
     }

@@ -390,3 +390,459 @@ describe('推理深度档位随模型能力与引擎词汇变化', () => {
     expect(selector.selectedMode.value).toBe('high')
   })
 })
+
+// ═══════════════ 以下为覆盖率补充：拉取流程 / 多认证方式 / 交互与键盘 ═══════════════
+
+describe('openai / gemini 认证方式的槽位读取', () => {
+  it('openai_compatible 读取 openai 槽位', () => {
+    const { selector, settingsStore } = setupSelector()
+    settingsStore.authMethod = 'openai_compatible'
+    settingsStore.openaiConfig = { ...settingsStore.openaiConfig, sonnetModel: 'gpt-x', opusModel: 'gpt-big' }
+
+    expect(selector.availableModels.value.map((m: ModelOption) => m.value)).toEqual(['gpt-x', 'gpt-big'])
+    expect(selector.getModelAlias('gpt-x')).toBe('sonnet')
+    expect(selector.getModelAlias('gpt-big')).toBe('opus')
+  })
+
+  it('gemini_api 读取 gemini 槽位', () => {
+    const { selector, settingsStore } = setupSelector()
+    settingsStore.authMethod = 'gemini_api'
+    settingsStore.geminiConfig = { ...settingsStore.geminiConfig, sonnetModel: 'gemini-x' }
+
+    expect(selector.availableModels.value.map((m: ModelOption) => m.value)).toEqual(['gemini-x'])
+    expect(selector.getModelAlias('gemini-x')).toBe('sonnet')
+  })
+
+  it('默认列表后备按认证方式给出 openai / gemini 版本', () => {
+    const { selector, settingsStore } = setupSelector()
+    settingsStore.authMethod = 'openai_compatible'
+    expect(selector.getDefaultModels().map((m: ModelOption) => m.value)).toContain('gpt-4')
+
+    settingsStore.authMethod = 'gemini_api'
+    expect(selector.getDefaultModels().map((m: ModelOption) => m.value)).toContain('gemini-pro')
+  })
+})
+
+describe('canRefreshModels 的各认证方式分支', () => {
+  it('openai_compatible 按自己的 baseUrl/apiKey 判断', () => {
+    const { selector, settingsStore } = setupSelector()
+    settingsStore.authMethod = 'openai_compatible'
+    settingsStore.openaiConfig = { ...settingsStore.openaiConfig, baseUrl: 'https://api.openai.com', apiKey: 'sk-1' }
+    expect(selector.canRefreshModels.value).toBe(true)
+
+    settingsStore.openaiConfig = { ...settingsStore.openaiConfig, apiKey: '' }
+    expect(selector.canRefreshModels.value).toBe(false)
+  })
+
+  it('gemini_api 按自己的 baseUrl/apiKey 判断', () => {
+    const { selector, settingsStore } = setupSelector()
+    settingsStore.authMethod = 'gemini_api'
+    settingsStore.geminiConfig = { ...settingsStore.geminiConfig, baseUrl: 'https://g.io', apiKey: 'k' }
+    expect(selector.canRefreshModels.value).toBe(true)
+
+    settingsStore.geminiConfig = { ...settingsStore.geminiConfig, baseUrl: '' }
+    expect(selector.canRefreshModels.value).toBe(false)
+  })
+
+  it('console 等非槽位方式不能刷新', () => {
+    const settingsStore = useSettingsStore()
+    settingsStore.authMethod = 'console'
+    expect(useModelSelector().canRefreshModels.value).toBe(false)
+  })
+})
+
+describe('fetchModelsFromBaseUrl 拉取流程', () => {
+  function ready(slots: SlotConfig = {}) {
+    const { selector, settingsStore } = setupSelector(slots)
+    settingsStore.anthropicConfig = {
+      ...settingsStore.anthropicConfig, baseUrl: 'https://api.anthropic.com', apiKey: 'sk-1',
+    }
+    return { selector, settingsStore }
+  }
+
+  it('anthropic baseUrl 缺 /v1 时补上，带 Bearer 头请求', async () => {
+    const { selector } = ready()
+    mockState.httpFetch.mockResolvedValue({ ok: false, status: 500, data: '' })
+
+    await selector.fetchModelsFromBaseUrl()
+
+    expect(mockState.httpFetch).toHaveBeenCalledWith(
+      'https://api.anthropic.com/v1/models',
+      expect.objectContaining({ method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer sk-1' }) }),
+    )
+    expect(selector.modelLoadError.value).toBe('Fetch failed (status 500)')
+  })
+
+  it('baseUrl 已带 /v1 不重复追加；非 2xx 报状态码', async () => {
+    const { selector, settingsStore } = ready()
+    settingsStore.anthropicConfig = { ...settingsStore.anthropicConfig, baseUrl: 'https://gw.example/v1/' }
+    mockState.httpFetch.mockResolvedValue({ ok: false, status: 401, data: '' })
+
+    await selector.fetchModelsFromBaseUrl()
+
+    expect(mockState.httpFetch.mock.calls[0][0]).toBe('https://gw.example/v1/models')
+    expect(selector.modelLoadError.value).toBe('Fetch failed (status 401)')
+  })
+
+  it('openai 认证方式下 baseUrl 缺 /v1 时补上', async () => {
+    const { selector, settingsStore } = setupSelector()
+    settingsStore.authMethod = 'openai_compatible'
+    settingsStore.openaiConfig = { ...settingsStore.openaiConfig, baseUrl: 'https://api.openai.com', apiKey: 'sk-o' }
+    mockState.httpFetch.mockResolvedValue({ ok: false, status: 500, data: '' })
+
+    await selector.fetchModelsFromBaseUrl()
+    expect(mockState.httpFetch.mock.calls[0][0]).toBe('https://api.openai.com/v1/models')
+  })
+
+  it('gemini 认证方式不做 /v1 补全（v1beta 不受 includes(\'/v1\') 误判）', async () => {
+    const { selector, settingsStore } = setupSelector()
+    settingsStore.authMethod = 'gemini_api'
+    settingsStore.geminiConfig = { ...settingsStore.geminiConfig, baseUrl: 'https://g.example', apiKey: 'sk-g' }
+    mockState.httpFetch.mockResolvedValue({ ok: false, status: 500, data: '' })
+
+    await selector.fetchModelsFromBaseUrl()
+    expect(mockState.httpFetch.mock.calls[0][0]).toBe('https://g.example/models')
+  })
+
+  it('裸数组响应映射为选项，label 取 name、value 取 id', async () => {
+    const { selector } = ready()
+    mockState.httpFetch.mockResolvedValue({
+      ok: true, status: 200,
+      data: JSON.stringify([{ id: 'm1', name: 'M One' }, { id: 'm2' }]),
+    })
+
+    await selector.fetchModelsFromBaseUrl()
+
+    expect(selector.fetchedModels.value).toEqual([
+      { label: 'M One', value: 'm1' },
+      { label: 'm2', value: 'm2' },
+    ])
+    expect(selector.modelLoadError.value).toBeNull()
+    expect(selector.isLoadingModels.value).toBe(false)
+  })
+
+  it('{data:[]} 与 {models:[]} 包装响应同样识别', async () => {
+    const { selector } = ready()
+    mockState.httpFetch.mockResolvedValueOnce({
+      ok: true, status: 200, data: JSON.stringify({ data: [{ id: 'd1' }] }),
+    })
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.fetchedModels.value.map((m: ModelOption) => m.value)).toEqual(['d1'])
+
+    mockState.httpFetch.mockResolvedValueOnce({
+      ok: true, status: 200, data: JSON.stringify({ models: [{ id: 'w1', name: 'Wrapped' }] }),
+    })
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.fetchedModels.value.map((m: ModelOption) => m.value)).toEqual(['w1'])
+  })
+
+  it('name 与 id 都缺时用 String(m) 兜底', async () => {
+    const { selector } = ready()
+    mockState.httpFetch.mockResolvedValue({
+      ok: true, status: 200, data: JSON.stringify([{}]),
+    })
+
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.fetchedModels.value).toEqual([{ label: '[object Object]', value: '[object Object]' }])
+  })
+
+  it('空模型列表不覆盖已有结果', async () => {
+    const { selector } = ready()
+    selector.fetchedModels.value = [{ label: 'Keep', value: 'keep' }]
+    mockState.httpFetch.mockResolvedValue({ ok: true, status: 200, data: JSON.stringify({ data: [] }) })
+
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.fetchedModels.value).toEqual([{ label: 'Keep', value: 'keep' }])
+  })
+
+  it('httpFetch 返回空（代理不可用）时报 HTTP proxy unavailable', async () => {
+    const { selector } = ready()
+    mockState.httpFetch.mockResolvedValue(undefined)
+
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.modelLoadError.value).toBe('HTTP proxy unavailable')
+    expect(selector.isLoadingModels.value).toBe(false)
+  })
+
+  it('请求抛错时报错误消息；非 Error 报 Network error', async () => {
+    const { selector } = ready()
+    mockState.httpFetch.mockRejectedValueOnce(new Error('boom'))
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.modelLoadError.value).toBe('boom')
+
+    mockState.httpFetch.mockRejectedValueOnce('raw-string')
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.modelLoadError.value).toBe('Network error')
+  })
+
+  it('响应不是合法 JSON 时落入 catch，isLoading 复位', async () => {
+    const { selector } = ready()
+    mockState.httpFetch.mockResolvedValue({ ok: true, status: 200, data: 'not-json{' })
+
+    await selector.fetchModelsFromBaseUrl()
+    expect(selector.modelLoadError.value).toBeTruthy()
+    expect(selector.isLoadingModels.value).toBe(false)
+  })
+
+  it('拉取期间 isLoadingModels 为 true，结束后复位', async () => {
+    const { selector } = ready()
+    let release!: (v: unknown) => void
+    mockState.httpFetch.mockReturnValue(new Promise((resolve) => { release = resolve }))
+
+    const pending = selector.fetchModelsFromBaseUrl()
+    expect(selector.isLoadingModels.value).toBe(true)
+    release({ ok: false, status: 500, data: '' })
+    await pending
+    expect(selector.isLoadingModels.value).toBe(false)
+  })
+})
+
+describe('下拉、子菜单与悬停定时器', () => {
+  it('selectModel 更新选中值、收起全部菜单、清查询词并通知调用方', () => {
+    const emitted: string[] = []
+    const settingsStore = useSettingsStore()
+    settingsStore.authMethod = 'anthropic_compatible'
+    const selector = useModelSelector({ onUpdateModel: (m) => emitted.push(m) })
+    selector.toggleModelDropdown()
+    selector.modelSearchQuery.value = 'haiku'
+
+    selector.selectModel('my-model')
+
+    expect(selector.selectedModel.value).toBe('my-model')
+    expect(selector.showModelDropdown.value).toBe(false)
+    expect(selector.showModelSubmenu.value).toBe(false)
+    expect(selector.modelSearchQuery.value).toBe('')
+    expect(emitted).toEqual(['my-model'])
+  })
+
+  it('toggleModelDropdown 开→关复位子菜单；toggleModelSubmenu 开→关', () => {
+    const { selector } = selectorFor({ sonnetModel: 's' })
+    selector.toggleModelDropdown()
+    expect(selector.showModelDropdown.value).toBe(true)
+    selector.toggleModelSubmenu()
+    expect(selector.showModelSubmenu.value).toBe(true)
+
+    selector.toggleModelDropdown()
+    expect(selector.showModelDropdown.value).toBe(false)
+    expect(selector.showModelSubmenu.value).toBe(false)
+  })
+
+  it('closeModelDropdown 同时收起子菜单并清查询词', async () => {
+    const { selector } = selectorFor({ sonnetModel: 's' })
+    selector.toggleModelDropdown()
+    selector.toggleModelSubmenu()
+    selector.modelSearchQuery.value = 'q'
+
+    selector.closeModelDropdown()
+    await nextTick()
+
+    expect(selector.showModelDropdown.value).toBe(false)
+    expect(selector.showModelSubmenu.value).toBe(false)
+    expect(selector.modelSearchQuery.value).toBe('')
+  })
+
+  it('离开当前模型行 120ms 后收起子菜单；期间移入子菜单可取消', () => {
+    vi.useFakeTimers()
+    try {
+      const { selector } = selectorFor({ sonnetModel: 's' })
+      selector.toggleModelSubmenu()
+      expect(selector.showModelSubmenu.value).toBe(true)
+
+      selector.onCurrentModelRowLeave()
+      expect(selector.showModelSubmenu.value).toBe(true)
+      vi.advanceTimersByTime(120)
+      expect(selector.showModelSubmenu.value).toBe(false)
+
+      // 再开一次，离开后立刻移入子菜单 → 取消定时
+      selector.toggleModelSubmenu()
+      selector.onCurrentModelRowLeave()
+      selector.onModelSubmenuEnter()
+      vi.advanceTimersByTime(300)
+      expect(selector.showModelSubmenu.value).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('离开子菜单 120ms 后收起；closeModelSubmenu 立即收起', () => {
+    vi.useFakeTimers()
+    try {
+      const { selector } = selectorFor({ sonnetModel: 's' })
+      selector.toggleModelSubmenu()
+
+      selector.onModelSubmenuLeave()
+      expect(selector.showModelSubmenu.value).toBe(true)
+      vi.advanceTimersByTime(120)
+      expect(selector.showModelSubmenu.value).toBe(false)
+
+      selector.toggleModelSubmenu()
+      selector.closeModelSubmenu()
+      expect(selector.showModelSubmenu.value).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('关闭主下拉 / 子菜单时清空查询词（watch 副作用）', async () => {
+    const { selector } = selectorFor({ sonnetModel: 's' })
+    selector.toggleModelDropdown()
+    await nextTick() // 先让 open=true 落一个 flush，避免同 tick 内开→关被合并
+    selector.modelSearchQuery.value = 'x'
+    selector.toggleModelDropdown()
+    await nextTick()
+    expect(selector.modelSearchQuery.value).toBe('')
+
+    selector.toggleModelSubmenu()
+    await nextTick()
+    selector.modelSearchQuery.value = 'y'
+    selector.toggleModelSubmenu()
+    await nextTick()
+    expect(selector.modelSearchQuery.value).toBe('')
+  })
+})
+
+describe('handleModelKeydown 键盘交互', () => {
+  const slots = { haikuModel: 'm1', sonnetModel: 'm2', opusModel: 'm3' }
+
+  function keyEvent(key: string, target: HTMLElement) {
+    return { key, target, preventDefault: vi.fn() } as unknown as KeyboardEvent
+  }
+
+  it('未打开时在选择器上按 Enter / 空格打开下拉并阻止默认', () => {
+    const { selector } = selectorFor(slots)
+    const box = document.createElement('div')
+    selector.modelSelectorRef.value = box
+
+    const enter = keyEvent('Enter', box)
+    selector.handleModelKeydown(enter)
+    expect(selector.showModelDropdown.value).toBe(true)
+    expect(enter.preventDefault).toHaveBeenCalled()
+
+    selector.toggleModelDropdown()
+    const space = keyEvent(' ', box)
+    selector.handleModelKeydown(space)
+    expect(selector.showModelDropdown.value).toBe(true)
+  })
+
+  it('未打开时在搜索框上按 Enter 也打开', () => {
+    const { selector } = selectorFor(slots)
+    const input = document.createElement('input')
+    selector.modelSearchInput.value = input
+
+    selector.handleModelKeydown(keyEvent('Enter', input))
+    expect(selector.showModelDropdown.value).toBe(true)
+  })
+
+  it('未打开时在无关元素上按键不打开也不阻止默认', () => {
+    const { selector } = selectorFor(slots)
+    const ev = keyEvent('Enter', document.createElement('span'))
+
+    selector.handleModelKeydown(ev)
+
+    expect(selector.showModelDropdown.value).toBe(false)
+    expect(ev.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('打开时 Escape 收起', () => {
+    const { selector } = selectorFor(slots)
+    selector.toggleModelDropdown()
+    selector.toggleModelSubmenu()
+
+    selector.handleModelKeydown(keyEvent('Escape', document.createElement('div')))
+
+    expect(selector.showModelDropdown.value).toBe(false)
+    expect(selector.showModelSubmenu.value).toBe(false)
+  })
+
+  it('打开时上下键移动高亮并阻止默认，越界回绕', () => {
+    const { selector } = selectorFor(slots)
+    selector.toggleModelDropdown()
+
+    const down = keyEvent('ArrowDown', document.createElement('div'))
+    selector.handleModelKeydown(down)
+    expect(selector.highlightedModel.value).toBe('m1')
+    expect(down.preventDefault).toHaveBeenCalled()
+
+    selector.handleModelKeydown(keyEvent('ArrowUp', document.createElement('div')))
+    expect(selector.highlightedModel.value).toBe('m3') // 从 m1 向上回绕到 m3
+
+    selector.handleModelKeydown(keyEvent('ArrowUp', document.createElement('div')))
+    expect(selector.highlightedModel.value).toBe('m2')
+  })
+
+  it('打开时 Enter 选中当前高亮；无高亮时不动', () => {
+    const { selector } = selectorFor(slots)
+    selector.toggleModelDropdown()
+
+    // 无高亮
+    selector.handleModelKeydown(keyEvent('Enter', document.createElement('div')))
+    expect(selector.selectedModel.value).toBe('')
+
+    selector.navigateModels(1) // 高亮 m1
+    selector.handleModelKeydown(keyEvent('Enter', document.createElement('div')))
+
+    expect(selector.selectedModel.value).toBe('m1')
+    expect(selector.showModelDropdown.value).toBe(false)
+  })
+})
+
+describe('watcher 与 initialize', () => {
+  it('authMethod 变化时清空拉取结果并按新方式重新拉取', async () => {
+    const { selector, settingsStore } = setupSelector({ sonnetModel: 's' })
+    settingsStore.anthropicConfig = {
+      ...settingsStore.anthropicConfig, baseUrl: 'https://api.anthropic.com', apiKey: 'sk-1',
+    }
+    selector.fetchedModels.value = [{ label: 'Stale', value: 'stale' }]
+
+    settingsStore.authMethod = 'openai_compatible'
+    settingsStore.openaiConfig = {
+      ...settingsStore.openaiConfig, baseUrl: 'https://api.openai.com', apiKey: 'sk-2',
+    }
+    await nextTick()
+    await nextTick()
+
+    expect(selector.fetchedModels.value).toEqual([])
+    expect(mockState.httpFetch).toHaveBeenCalledOnce()
+    expect(mockState.httpFetch.mock.calls[0][0]).toBe('https://api.openai.com/v1/models')
+  })
+
+  it('store 档位与界面一致时不重复回写', async () => {
+    const { selector, settingsStore, emitted } = setupSelector({ sonnetModel: 'claude-sonnet-4-6' })
+    selector.selectedModel.value = 'claude-sonnet-4-6'
+    selector.selectMode('high')
+    expect(emitted).toEqual(['high'])
+
+    // store 改成界面已有的同一档 → watcher 早退，不再 emit
+    settingsStore.effortLevel = 'high'
+    await nextTick()
+    expect(emitted).toEqual(['high'])
+  })
+
+  it('initialize 优先级：显式参数 > lastSelectedModel > config.model > 首个可用', () => {
+    // 四个 case 共用同一 pinia store，前序 case 写入的值必须显式清掉
+    // 1. 显式参数
+    const a = setupSelector({ sonnetModel: 'cfg-sonnet' })
+    a.settingsStore.lastSelectedModel = 'last'
+    a.selector.initialize('explicit')
+    expect(a.selector.selectedModel.value).toBe('explicit')
+
+    // 2. lastSelectedModel
+    const b = setupSelector({ sonnetModel: 'cfg-sonnet' })
+    b.settingsStore.lastSelectedModel = 'last'
+    b.selector.initialize()
+    expect(b.selector.selectedModel.value).toBe('last')
+
+    // 3. config.model（anthropic 下即 sonnet 槽位）
+    const c = setupSelector({ sonnetModel: 'cfg-sonnet' })
+    c.settingsStore.lastSelectedModel = ''
+    c.selector.initialize()
+    expect(c.selector.selectedModel.value).toBe('cfg-sonnet')
+
+    // 4. 首个可用模型（清空 case c 遗留的槽位，否则 priority 3 先命中）
+    const d = setupSelector({ sonnetModel: '' })
+    d.settingsStore.lastSelectedModel = ''
+    d.selector.fetchedModels.value = [{ label: 'First', value: 'first' }]
+    d.selector.initialize()
+    expect(d.selector.selectedModel.value).toBe('first')
+  })
+})

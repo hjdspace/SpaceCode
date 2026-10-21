@@ -56,9 +56,6 @@ export default defineConfig({
       'tests/**/*.test.ts',
       'src/**/*.test.ts',
       'electron/**/*.test.ts',
-      // TEMP: 本机环境性失败，覆盖率分析期间临时排除，分析后还原
-      '!electron/git/__tests__/gitService.discard.test.ts',
-      '!src/shared/__tests__/effort.engineProbe.test.ts',
     ],
     coverage: {
       // Vitest 3+ removed `coverage.all`: files matching `include` are always

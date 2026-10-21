@@ -8,6 +8,25 @@ export interface PiAgentEvent {
   [key: string]: any
 }
 
+/**
+ * mapper 有意丢弃（mapPiEvent 返回 null）且会周期性重复的「噪音帧」：turn 生命周期、
+ * system 角色的消息框架、队列/会话信息。每回合固定出现，逐条 INFO 会刷屏 —— 原始层
+ * （PiSessionProcess）与路由层（PiProcessPool）都用它静默。其余丢弃仍保留 INFO 诊断：
+ * 未知类型（default 分支）、缺 assistantMessageEvent 的 message_update、缺 id/method 的
+ * 扩展帧 —— 那些一旦出现就是异常信号。
+ */
+export function isExpectedDroppedPiEvent(event: { type: string; message?: { role?: string } }): boolean {
+  if (event.type === 'turn_start' || event.type === 'turn_end' || event.type === 'queue_update' || event.type === 'session_info_changed') {
+    return true
+  }
+  if (event.type === 'message_start' || event.type === 'message_end') {
+    const role = event.message?.role
+    // 缺 message 字段的畸形帧不算预期内，保持可见
+    return typeof role === 'string' && role !== 'assistant' && role !== 'user'
+  }
+  return false
+}
+
 export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngineEvent | null {
   switch (event.type) {
     case 'agent_start':
