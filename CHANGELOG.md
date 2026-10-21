@@ -1,3 +1,51 @@
+## [0.8.11](https://github.com/hjdspace/SpaceCode/compare/v0.8.10...v0.8.11) (2026-10-21)
+
+### Features
+
+- **plan mode:** 新增计划模式工具卡 UI（方案 A 卡片同构）：问答卡支持描述型选项、Other 自由输入双帧流程、分页与跳过；计划卡全文 Markdown 渲染、目录锚点、默认折叠与一键复制
+- **plan mode:** 计划模式行动菜单本地化与引擎重试机制；pi 装上权限闸扩展，计划未确认生效就拦住消息 (#45)
+- **extension dialog:** 新增扩展对话卡体系：ExtensionDialogService 统一管理待答对话，pi 扩展 UI 请求经 IPC/H5 全链路应答，等待时通知用户
+- **agent:** 子代理体系落地：会话可选用并切换 agent（按 sessionId 定向），应用状态经 agentNotice 通知；定时任务支持 agent 判定与状态回传；移动端支持 set_agent
+- **pi agent:** pi agent 定义扫描/加载与缓存重整，新增来源矩阵 ADR；最低 pi 版本升至 1.1.0，按版本下限 fail-closed，打包态只跑自带的 bundled pi (#52)
+- **mcp:** Pi 引擎 MCP 服务器管理：getPiState / setPiServerEnabled、配置投影层同步变更、piMcpProbeServer 探测服务
+- **bash:** Bash 工具卡实时输出流（ShellOutputStream），live 输出自动截断，缓冲型命令给出提示
+- **session context:** 会话文件变更追踪：file write ledger 与 session file changes store，新增 getSessionFileDiff / ReviewDiff / ChangeStats API，任务面板展示改动明细与「仓库外」标识
+- **effort:** 思考力度（effort level）全链路贯通：类型标准化，引擎、网关、H5 与定时任务统一校验
+- **side task:** 侧任务上下文仅注入首条 prompt，transcriptDigest 提炼会话摘要，侧任务会话与临时上下文文件管理
+- **history:** 历史会话按 engineType 恢复与展示，列表新增引擎徽标；Pi 会话历史恢复层支持 ephemeral 会话
+- **mobile:** Telegram / DingTalk 适配器支持权限请求处理与用量展示
+- **ops:** 启动时清扫过期临时产物；日志参数脱敏，API key 不再落日志
+- **error:** 引擎不可用统一为 engineBlockedError（带 reason 与上下文），三个 adapter 一致包装并本地化报错
+
+### Bug Fixes
+
+- 设置会话代理时传入错误的代理名称
+- 所选 Agent 真的落到会话上，落不上就如实说出来 (#46)
+- 权限响应 requestId 处理错位
+- 打包守卫脚本补上 @earendil-works 作用域并加回归测试
+- 引擎 blocked payload 触发的错误事件带 reason 与上下文
+
+### Refactor
+
+- diff 展示统一 stack 布局：EditToolCard 多段 diff（EditPart 提取）、BashToolCard 终端输出重构
+- pi agent 定义扫描/读取拆分；piSessionHistory 结构重整
+- 事件日志降为 debug 级别，PiProcessPool 日志收敛
+
+### Tests
+
+- 大规模补测：agent 选择器与会话 agent、extension dialog 往返、pi session history、ShellOutputStream、session file changes、effort level、cronService、h5 三件套、skills/localSkills store、EditToolCard 多段 diff 等；移除临时排除并上调覆盖率阈值
+
+### Docs
+
+- README 更新技能与反馈渠道；测试与 i18n 贡献指南；新增中文 feature request 模板；CLAUDE.md 指向 AGENTS.md
+
+### Build
+
+- @mariozechner 系包替换为 @earendil-works 并更新版本
+- 新增 build-engine-desktop 脚本，bun copy 增加版本校验；移除 ELECTRON_RUN_AS_NODE
+
+---
+
 ## [0.8.10](https://github.com/hjdspace/SpaceCode/compare/v0.8.9...v0.8.10) (2026-10-19)
 
 ### Features
