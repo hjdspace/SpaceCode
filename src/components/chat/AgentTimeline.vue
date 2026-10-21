@@ -127,9 +127,10 @@
                   >
                     <component
                       :is="event.specialComponent"
-                      :tool-call="event.toolCall!"
-                      @submit="handleToolSubmit(event.toolCall!.id, $event)"
-                      @skip="handleToolSkip(event.toolCall!.id)"
+                      :tool-call="toolOf(event)!"
+                      :now="toolNeedsNow(event) ? now : undefined"
+                      @submit="handleToolSubmit(toolOf(event)!.id, $event)"
+                      @skip="handleToolSkip(toolOf(event)!.id)"
                     />
                   </div>
 
@@ -157,10 +158,10 @@
                         </svg>
                       </span>
                       <span class="tool-row__label">{{ event.label }}</span>
-                      <span v-if="event.target" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(event.toolCall?.name) }">
-                        {{ event.target }}
+                      <span v-if="toolTarget(event)" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(toolOf(event)?.name) }">
+                        {{ toolTarget(event) }}
                       </span>
-                      <span v-if="event.duration" class="tool-row__duration">{{ event.duration }}s</span>
+                      <span v-if="toolDuration(event)" class="tool-row__duration">{{ toolDuration(event) }}s</span>
                     </button>
 
                     <!-- detail panel with grid animation -->
@@ -171,11 +172,11 @@
                       <div class="detail-panel__clip">
                         <template v-if="expandedEvents[event.id]">
                           <div class="detail-lines">
-                            <div v-if="event.toolCall?.input && Object.keys(event.toolCall.input).length" class="detail-line detail-line--code">
-                              <pre class="detail-code"><code>{{ formatInput(event.toolCall) }}</code></pre>
+                            <div v-if="toolOf(event)?.input && Object.keys(toolOf(event)!.input).length" class="detail-line detail-line--code">
+                              <pre class="detail-code"><code>{{ formatInput(toolOf(event)!) }}</code></pre>
                             </div>
-                            <div v-if="event.toolCall?.output" class="detail-line detail-line--code">
-                              <pre class="detail-code output"><code>{{ formatOutput(event.toolCall.output) }}</code></pre>
+                            <div v-if="toolOf(event)?.output" class="detail-line detail-line--code">
+                              <pre class="detail-code output"><code>{{ formatOutput(toolOf(event)?.output || '') }}</code></pre>
                             </div>
                           </div>
                         </template>
@@ -249,16 +250,17 @@
               <component
                 :is="item.event!.specialComponent"
                 :key="getSpecialComponentKey(item.event!)"
-                :tool-call="item.event!.toolCall!"
-                @submit="handleToolSubmit(item.event!.toolCall!.id, $event)"
-                @skip="handleToolSkip(item.event!.toolCall!.id)"
+                :tool-call="toolOf(item.event!)!"
+                :now="toolNeedsNow(item.event!) ? now : undefined"
+                @submit="handleToolSubmit(toolOf(item.event!)!.id, $event)"
+                @skip="handleToolSkip(toolOf(item.event!)!.id)"
               />
               <PermissionRequestCard
-                v-if="!SELF_PERMISSION_TOOL_NAMES.has(item.event!.toolCall!.name) && getPendingPermission(item.event!.toolCall!.id)"
+                v-if="!SELF_PERMISSION_TOOL_NAMES.has(toolOf(item.event!)!.name) && getPendingPermission(toolOf(item.event!)!.id)"
                 :message-id="item.event!.messageId!"
-                :tool-use-id="item.event!.toolCall!.id"
-                :tool-name="getPendingPermission(item.event!.toolCall!.id)!.toolName"
-                :input="getPendingPermission(item.event!.toolCall!.id)!.input"
+                :tool-use-id="toolOf(item.event!)!.id"
+                :tool-name="getPendingPermission(toolOf(item.event!)!.id)!.toolName"
+                :input="getPendingPermission(toolOf(item.event!)!.id)!.input"
               />
             </template>
 
@@ -287,21 +289,21 @@
                     </svg>
                   </span>
                   <span class="tool-row__label">{{ item.event!.label }}</span>
-                  <span v-if="item.event!.target" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(item.event!.toolCall?.name) }">
-                    {{ item.event!.target }}
+                  <span v-if="toolTarget(item.event!)" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(toolOf(item.event!)?.name) }">
+                    {{ toolTarget(item.event!) }}
                   </span>
-                  <span v-if="item.event!.duration" class="tool-row__duration">{{ item.event!.duration }}s</span>
+                  <span v-if="toolDuration(item.event!)" class="tool-row__duration">{{ toolDuration(item.event!) }}s</span>
                 </button>
 
                 <div class="detail-panel" :class="{ 'detail-panel--open': expandedEvents[item.event!.id] }">
                   <div class="detail-panel__clip">
                     <template v-if="expandedEvents[item.event!.id]">
                       <div class="detail-lines">
-                        <div v-if="item.event!.toolCall?.input && Object.keys(item.event!.toolCall.input).length" class="detail-line detail-line--code">
-                          <pre class="detail-code"><code>{{ formatInput(item.event!.toolCall) }}</code></pre>
+                        <div v-if="toolOf(item.event!)?.input && Object.keys(toolOf(item.event!)!.input).length" class="detail-line detail-line--code">
+                          <pre class="detail-code"><code>{{ formatInput(toolOf(item.event!)!) }}</code></pre>
                         </div>
-                        <div v-if="item.event!.toolCall?.output" class="detail-line detail-line--code">
-                          <pre class="detail-code output"><code>{{ formatOutput(item.event!.toolCall.output) }}</code></pre>
+                        <div v-if="toolOf(item.event!)?.output" class="detail-line detail-line--code">
+                          <pre class="detail-code output"><code>{{ formatOutput(toolOf(item.event!)?.output || '') }}</code></pre>
                         </div>
                       </div>
                     </template>
@@ -309,11 +311,11 @@
                 </div>
 
                 <PermissionRequestCard
-                  v-if="item.event!.toolCall && getPendingPermission(item.event!.toolCall.id)"
+                  v-if="toolOf(item.event!) && getPendingPermission(toolOf(item.event!)!.id)"
                   :message-id="item.event!.messageId!"
-                  :tool-use-id="item.event!.toolCall.id"
-                  :tool-name="getPendingPermission(item.event!.toolCall.id)!.toolName"
-                  :input="getPendingPermission(item.event!.toolCall.id)!.input"
+                  :tool-use-id="toolOf(item.event!)!.id"
+                  :tool-name="getPendingPermission(toolOf(item.event!)!.id)!.toolName"
+                  :input="getPendingPermission(toolOf(item.event!)!.id)!.input"
                 />
               </div>
             </template>
@@ -413,7 +415,6 @@ import {
 
 const EmptyIcon = () => null
 
-const TASK_LIST_TOOL_NAMES = new Set(['TodoWrite', 'TaskList', 'TaskCreate', 'TaskUpdate'])
 const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate'])
 // 这些工具的特殊组件本身就是权限交互 UI（emit submit/skip，并把合并后的
 // updatedInput 交给 store.allowPermission）。若再叠加 PermissionRequestCard，
@@ -442,9 +443,10 @@ interface TimelineEvent {
   icon: Component
   label: string
   content: string
-  target?: string
+  /** 工具事件只存身份，toolCall 本体在渲染时从 messages 解析 —— 缓存里存对象引用会握住被替换掉的旧 input */
+  toolCallId?: string
+  /** reasoning 事件的耗时（秒）。工具耗时由 toolCall 实时计算，不进缓存 */
   duration?: string
-  toolCall?: ToolCall
   messageId?: string
   metadata?: MessageMetadata
   specialComponent?: Component
@@ -481,6 +483,42 @@ const { t } = useI18n()
 
 function getPendingPermission(toolUseId: string) {
   return turnStore.getPendingPermissionForToolUse(toolUseId)
+}
+
+/**
+ * toolCall 本体从当前 messages 解析，而不是塞进缓存的 TimelineEvent。
+ *
+ * turn store 补 input/output 一律是「换对象」，缓存若持有旧引用，键不变的期间卡片
+ * 就永远看不到新值（Bash 的 command 曾因此直到工具结束才出现）。缓存只保留身份，
+ * 渲染时读这份响应式索引，任何一次替换都会把新对象送进卡片。
+ */
+const toolCallsById = computed(() => {
+  const map = new Map<string, ToolCall>()
+  for (const msg of props.messages) {
+    for (const tool of msg.toolCalls || []) map.set(`${msg.id}:${tool.id}`, tool)
+  }
+  return map
+})
+
+function toolOf(event: TimelineEvent): ToolCall | undefined {
+  if (!event.toolCallId) return undefined
+  return toolCallsById.value.get(`${event.messageId ?? ''}:${event.toolCallId}`)
+}
+
+function toolTarget(event: TimelineEvent): string {
+  const tool = toolOf(event)
+  return tool ? getToolTarget(tool) : ''
+}
+
+function toolDuration(event: TimelineEvent): string | null {
+  const tool = toolOf(event)
+  return tool ? getToolDuration(tool) : null
+}
+
+/** 只有会在标题里显示耗时的卡片需要 now；传给未声明该 prop 的组件会落到根 DOM 上 */
+function toolNeedsNow(event: TimelineEvent): boolean {
+  const name = toolOf(event)?.name
+  return name === 'Bash' || name === 'TaskOutput'
 }
 
 function handleRetry() {
@@ -688,13 +726,12 @@ function insertDialogEvents(
 }
 
 function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
+  // 只把结构字段放进键：input/output 的更新由 toolOf() 在渲染时解析，不需要重建事件数组
   const toolStateKey = msgs
     .flatMap(msg => (msg.toolCalls || []).map(tool => [
       tool.id,
       tool.name,
       tool.status,
-      getTaskStateContentKey(tool),
-      getToolContentKey(tool),
       specialComponents[tool.name] ? 1 : 0,
     ].join(':')))
     .join(',')
@@ -778,9 +815,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
             icon: markRaw(icon),
             label: getToolLabel(tool.name),
             content: '',
-            target: getToolTarget(tool),
-            duration: getToolDuration(tool) || undefined,
-            toolCall: tool,
+            toolCallId: tool.id,
             messageId: msg.id,
             specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
           })
@@ -822,9 +857,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
           icon: markRaw(icon),
           label: getToolLabel(tool.name),
           content: '',
-          target: getToolTarget(tool),
-          duration: getToolDuration(tool) || undefined,
-          toolCall: tool,
+          toolCallId: tool.id,
           messageId: msg.id,
           specialComponent: specialComponents[tool.name] ? markRaw(specialComponents[tool.name]) : undefined,
         })
@@ -910,8 +943,10 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
 
 const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
   return timelineEvents.value.filter((event) => {
-    if (event.type !== 'tool_call' || !event.toolCall) return true
-    return !TASK_LIST_ONLY_TOOL_NAMES.has(event.toolCall.name)
+    if (event.type !== 'tool_call') return true
+    const tool = toolOf(event)
+    if (!tool) return true
+    return !TASK_LIST_ONLY_TOOL_NAMES.has(tool.name)
   })
 })
 
@@ -930,9 +965,11 @@ const CHIP_CAP = 8
 const DIFF_CAP = 4
 
 function isGroupableToolEvent(event: TimelineEvent): boolean {
-  if (event.type !== 'tool_call' || !event.toolCall) return false
-  if (SELF_PERMISSION_TOOL_NAMES.has(event.toolCall.name)) return false
-  return !getPendingPermission(event.toolCall.id)
+  if (event.type !== 'tool_call') return false
+  const tool = toolOf(event)
+  if (!tool) return false
+  if (SELF_PERMISSION_TOOL_NAMES.has(tool.name)) return false
+  return !getPendingPermission(tool.id)
 }
 
 const displayItems = computed<DisplayItem[]>(() => {
@@ -1019,8 +1056,8 @@ function isMonoTool(toolName?: string): boolean {
 
 function getGroupChips(events: TimelineEvent[]): { text: string; mono: boolean; icon: Component }[] {
   return events.map(e => {
-    const target = e.target || ''
-    return { text: target, mono: isMonoTool(e.toolCall?.name), icon: e.icon }
+    const target = toolTarget(e)
+    return { text: target, mono: isMonoTool(toolOf(e)?.name), icon: e.icon }
   }).filter(c => c.text)
 }
 
@@ -1033,9 +1070,10 @@ interface DiffStat {
 function getGroupDiffStats(events: TimelineEvent[]): DiffStat[] {
   const stats: DiffStat[] = []
   for (const e of events) {
-    if (!e.toolCall) continue
-    const input = e.toolCall.input || {}
-    if (!['Edit', 'FileEdit', 'MultiEdit', 'Write', 'FileWrite'].includes(e.toolCall.name)) continue
+    const tool = toolOf(e)
+    if (!tool) continue
+    const input = tool.input || {}
+    if (!['Edit', 'FileEdit', 'MultiEdit', 'Write', 'FileWrite'].includes(tool.name)) continue
     const file = (input.file_path || input.path || '').toString().replace(/\\/g, '/').split('/').pop() || 'unknown'
     let add = 0
     let del = 0
@@ -1281,32 +1319,10 @@ function reasoningForEvent(event: TimelineEvent): ReasoningBlock {
   return { content, startTime: 0, endTime: durSec * 1000 }
 }
 
-function getToolContentKey(tool: ToolCall): string {
-  const input = tool.input || {}
-  const questions = (input as { questions?: unknown[] }).questions
-  return [
-    input.file_path || input.path || '',
-    input.old_string ? String(input.old_string).length : 0,
-    input.new_string ? String(input.new_string).length : 0,
-    Array.isArray(questions) ? questions.length : 0,
-    tool.output ? tool.output.length : 0,
-  ].join(':')
-}
-
-function getTaskStateContentKey(tool: ToolCall): string {
-  if (!TASK_LIST_TOOL_NAMES.has(tool.name)) return ''
-  return JSON.stringify(tool.input || {})
-}
-
 function getSpecialComponentKey(event: TimelineEvent): string {
-  if (event.toolCall) {
-    // AskUserQuestion 卡片在 pending→completed 切换后需保持挂载，以保留本地
-    // selections/customInputs 供汇总展示。若 key 随 output 变化，tool_result
-    // 到达会触发 remount 并丢失本地状态，导致汇总卡片无法显示用户已选答案。
-    if (event.toolCall.name === 'AskUserQuestion') return event.toolCall.id
-    return `${event.toolCall.id}:${getToolContentKey(event.toolCall)}`
-  }
-  return event.id
+  // key 只跟工具 id 走：数据更新由响应式 props 驱动，若随 output/input 变化重挂载，
+  // 流式输出会把卡片的本地状态（展开、AskUserQuestion 的选择）周期性清掉。
+  return toolOf(event)?.id || event.id
 }
 
 function getToolTarget(tool: ToolCall): string {
@@ -1324,12 +1340,9 @@ function getToolTarget(tool: ToolCall): string {
 
 function getToolDuration(tool: ToolCall): string | null {
   if (!tool.startTime) return null
-  const end = tool.endTime || Date.now()
+  // now 每秒推进（overallStatus 为 running 时），运行中的耗时才不会停在建卡那一刻
+  const end = tool.endTime || now.value
   return ((end - tool.startTime) / 1000).toFixed(1)
-}
-
-function hasDetailContent(event: TimelineEvent): boolean {
-  return !!(event.toolCall?.input && Object.keys(event.toolCall.input).length > 0)
 }
 
 function formatInput(tool: ToolCall): string {
