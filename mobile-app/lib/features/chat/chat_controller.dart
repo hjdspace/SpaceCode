@@ -245,6 +245,9 @@ class ChatNotifier extends StateNotifier<ChatState> {
       case PushType.skillsSync:
         _handleSkillsSync(push.data);
         break;
+      case PushType.agentNotice:
+        _handleAgentNotice(push.data);
+        break;
       default:
         break;
     }
@@ -1443,6 +1446,30 @@ class ChatNotifier extends StateNotifier<ChatState> {
       _setMessages(sessionId, messages);
     }
     _setLoading(sessionId, false);
+    _schedulePersist();
+  }
+
+  /// 桌面端告知「所选 agent 没落到会话上」(#56)。这是启动时的事实，不是本轮的输出，
+  /// 作为系统消息插进时间线，和流式回复分开。
+  void _handleAgentNotice(Map<String, dynamic>? data) {
+    if (data == null) return;
+    final sessionId = _extractSessionId(data);
+    if (sessionId == null) return;
+    final agent = data['agent'] as String? ?? '';
+    final notApplied = data['applied'] == false;
+    final extensionLoaded = data['extensionLoaded'] == false;
+    if (!notApplied && !extensionLoaded) return;
+    final content = notApplied
+        ? I18n.t('chat.agentNotApplied', {'agent': agent})
+        : I18n.t('chat.agentExtensionMissing', {'agent': agent});
+    final messages =
+        List<ChatMessage>.from(state.messagesBySession[sessionId] ?? []);
+    messages.add(ChatMessage(
+      id: _uuid.v4(),
+      role: MessageRole.system,
+      content: content,
+    ));
+    _setMessages(sessionId, messages);
     _schedulePersist();
   }
 
