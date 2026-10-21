@@ -352,6 +352,9 @@ export interface CronRunEntry {
   error?: string
   durationMs?: number
   sessionId?: string
+  agent?: string
+  agentApplied?: boolean | null
+  agentExtensionLoaded?: boolean
   [key: string]: unknown
 }
 
