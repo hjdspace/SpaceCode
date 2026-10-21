@@ -275,18 +275,18 @@ describe('chatSession activateSession', () => {
     expect(session.processStatus).toBe('exited')
   })
 
-  it('restarts a suspended session on a different engine instead of resuming', async () => {
+  it('resumes a suspended session on its own engine even when the global default differs', async () => {
     const store = await loadStore()
     const session = store.createSession('A', '/proj', 'a')
     session.processStatus = 'suspended'
-    session.engineType = 'pi' // 与当前设置的 claude-code 不一致
+    session.engineType = 'pi' // 全局默认仍是 claude-code；会话归属必须压过全局
     session.messages.push({ id: 'u1', role: 'user', content: 'hi', timestamp: 1 })
 
     await store.activateSession('a')
 
-    expect(mocks.stop).toHaveBeenCalledWith('a')
-    expect(mocks.resumeSession).not.toHaveBeenCalled()
-    expect(mocks.startSession).toHaveBeenCalledWith('a', expect.anything())
+    expect(mocks.resumeSession).toHaveBeenCalledWith('a')
+    expect(mocks.stop).not.toHaveBeenCalled()
+    expect(mocks.startSession).not.toHaveBeenCalled()
   })
 
   it('boots an exited session that still carries history', async () => {
