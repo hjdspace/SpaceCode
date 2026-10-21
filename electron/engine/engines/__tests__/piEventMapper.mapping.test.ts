@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { mapPiEvent } from '../PiEventMapper'
+import { mapPiEvent, isExpectedDroppedPiEvent } from '../PiEventMapper'
 
 /**
  * Pi RPC frame → UnifiedEngineEvent 翻译表契约。
@@ -408,6 +408,35 @@ describe('mapPiEvent — 系统与终止事件', () => {
     for (const type of ['turn_start', 'turn_end', 'queue_update', 'session_info_changed', 'something_totally_new']) {
       expect(mapPiEvent(SID, { type })).toBeNull()
     }
+  })
+})
+
+/**
+ * 噪音帧的日志静默判定：mapper 有意丢弃且每回合重复的帧不打日志（防刷屏）；
+ * 未知类型与畸形帧不在预期内，两层日志（PiSessionProcess / PiProcessPool）都仍要可见。
+ */
+describe('isExpectedDroppedPiEvent', () => {
+  it('turn 生命周期与队列/会话信息帧 → true', () => {
+    for (const type of ['turn_start', 'turn_end', 'queue_update', 'session_info_changed']) {
+      expect(isExpectedDroppedPiEvent({ type })).toBe(true)
+    }
+  })
+
+  it('system 角色的 message_start/message_end → true；assistant/user → false', () => {
+    expect(isExpectedDroppedPiEvent({ type: 'message_start', message: { role: 'system' } })).toBe(true)
+    expect(isExpectedDroppedPiEvent({ type: 'message_end', message: { role: 'system' } })).toBe(true)
+    expect(isExpectedDroppedPiEvent({ type: 'message_start', message: { role: 'assistant' } })).toBe(false)
+    expect(isExpectedDroppedPiEvent({ type: 'message_start', message: { role: 'user' } })).toBe(false)
+  })
+
+  it('缺 message 字段的畸形帧 → false（保持可见）', () => {
+    expect(isExpectedDroppedPiEvent({ type: 'message_start' })).toBe(false)
+    expect(isExpectedDroppedPiEvent({ type: 'message_end' })).toBe(false)
+  })
+
+  it('其余丢弃（未知类型、缺 delta 的 message_update）→ false', () => {
+    expect(isExpectedDroppedPiEvent({ type: 'something_totally_new' })).toBe(false)
+    expect(isExpectedDroppedPiEvent({ type: 'message_update' })).toBe(false)
   })
 })
 
