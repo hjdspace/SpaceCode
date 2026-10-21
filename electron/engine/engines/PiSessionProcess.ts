@@ -8,7 +8,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { StringDecoder } from 'string_decoder'
 import type { ProcessStatus } from '../../session/sessionProcess'
 import type { EngineSessionConfig, ExtensionDialogAnswer, ExtensionDialogCloseReason, ExtensionDialogMethod, ImageAttachment } from './types'
-import { EXTENSION_DIALOG_METHODS } from './PiEventMapper'
+import { EXTENSION_DIALOG_METHODS, isExpectedDroppedPiEvent } from './PiEventMapper'
 import { toPiThinkingLevel } from '@/shared/effort'
 import { info, warn, error, debug } from '../../infra/logger'
 import { redactArgsForLog } from '../../infra/redactArgs'
@@ -128,6 +128,8 @@ export class PiSessionProcess extends EventEmitter {
   /** 在飞的扩展对话框，按 pi 给的 id 索引；pi 认这个 id，不认宿主编的任何东西 */
   private _pendingExtensionDialogs: Map<string, PendingExtensionDialog> = new Map()
   private _isProcessing: boolean = false
+  // 逐 delta 的高频事件只计数不打印，随下一条低频事件汇总输出（防刷屏）
+  private _deltaSuppressedCount: number = 0
   /** 本进程是否已经接过一条 prompt；每次 spawn 都重新经历一次冷启动 */
   private _promptAccepted: boolean = false
   lastActivityAt: number = Date.now()
@@ -803,7 +805,19 @@ export class PiSessionProcess extends EventEmitter {
       return
     }
 
-    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Agent event | type=${event.type}${event.assistantMessageEvent ? ` | subType=${event.assistantMessageEvent.type}` : ''}${event.message ? ` | msgRole=${event.message.role} | msgContentLen=${Array.isArray(event.message.content) ? event.message.content.length : typeof event.message.content === 'string' ? event.message.content.length : -1}` : ''}`)
+    // 逐 delta 的高频事件（thinking/text/tool 流式片段）逐条打印会刷屏：只计数，
+    // 随下一条低频事件汇总一次（回合收尾的 agent_end 必然落到这条路径）。
+    const isStreamDelta = event.type === 'message_update'
+      ? !!event.assistantMessageEvent?.type?.endsWith('_delta')
+      : event.type === 'tool_execution_update'
+    if (isStreamDelta) {
+      this._deltaSuppressedCount++
+    } else if (!isExpectedDroppedPiEvent(event)) {
+      // 预期丢弃的噪音帧（turn 生命周期、system 消息框架等）不打日志，见 PiEventMapper
+      const suppressed = this._deltaSuppressedCount
+      this._deltaSuppressedCount = 0
+      info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Agent event | type=${event.type}${event.assistantMessageEvent ? ` | subType=${event.assistantMessageEvent.type}` : ''}${event.message ? ` | msgRole=${event.message.role} | msgContentLen=${Array.isArray(event.message.content) ? event.message.content.length : typeof event.message.content === 'string' ? event.message.content.length : -1}` : ''}${suppressed > 0 ? ` | suppressedDeltas=${suppressed}` : ''}`)
+    }
 
     if (event.type === 'response') {
       debug('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] RPC response | command=${event.command} | success=${event.success}`)
