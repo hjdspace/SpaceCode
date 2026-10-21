@@ -666,7 +666,10 @@ export class ClaudeCodeProcessPool {
     const shortSid = sessionId.slice(0, 8)
     const windowAvailable = this.mainWindow && !this.mainWindow.isDestroyed()
 
-    // 详细记录事件路由
+    // 路由日志只留低频边界事件。逐消息/逐 delta 的类型（user、assistant、tool_use、
+    // tool_result、stream_event、log…）不再逐条输出：sdkMessage / processRaw 已逐条落盘，
+    // 路由失败（窗口不可用 / 类型不在 channel 表）也各有 warn 兜底 —— 而 debug() 的
+    // console 镜像不受 --debug 门控，逐条输出会把终端刷满重复行。
     if (eventType === 'stream_event') {
       const ev = data?.event || data
       if (ev.type === 'message_stop') {
@@ -676,12 +679,8 @@ export class ClaudeCodeProcessPool {
       info('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | code=${data?.code}${data?.stderr ? ` | stderr=${String(data.stderr).slice(0, 100)}` : ''}`)
     } else if (eventType === 'error') {
       error('ProcessPool', `[${shortSid}] route → renderer | type=${eventType}`, data)
-    } else if (eventType === 'log') {
-      debug('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | data=${String(data).slice(0, 200)}`)
-    } else {
-      // assistant, tool_use, tool_result, result, system, user 等
-      // 逐事件高频日志降为 debug：正常模式不写文件（sdkMessage 已有逐条记录），--debug 下仍可排查
-      debug('ProcessPool', `[${shortSid}] route → renderer | type=${eventType} | windowAvailable=${windowAvailable}`)
+    } else if (eventType === 'result') {
+      debug('ProcessPool', `[${shortSid}] route → renderer | type=result`)
     }
 
     if (windowAvailable) {

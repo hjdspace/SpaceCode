@@ -516,10 +516,10 @@ export class PiProcessPool {
         // ignore listener errors
       }
     }
-    // stream_event 是逐 delta 的高频路由（thinking/text/tool 流式片段），逐条 debug 会刷屏；
-    // 只留低频边界事件的路由日志（同 claudeCodeProcessPool 的约定）
-    if (unifiedEvent.type !== 'stream_event') {
-      debug('PiProcessPool', `[${shortSid}] route → renderer | type=${unifiedEvent.type}`)
+    // 路由日志只留低频边界事件（同 claudeCodeProcessPool 的约定）：stream_event 逐 delta、
+    // user/assistant/tool_* 逐消息，debug() 的 console 镜像不受 --debug 门控，逐条输出会刷屏。
+    if (unifiedEvent.type === 'result') {
+      debug('PiProcessPool', `[${shortSid}] route → renderer | type=result`)
     }
   }
 
