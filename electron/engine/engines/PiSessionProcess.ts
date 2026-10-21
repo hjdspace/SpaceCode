@@ -16,6 +16,7 @@ import {
   isProbableBunExecutable as engineIsProbableBunExecutable,
 } from '../../session/engineChildProcess'
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
+import { engineBlockedError } from '@/shared/engineErrors'
 import { readSideTaskContextFile, discardSideTaskContextFile } from '../../session/transcriptDigest'
 import { detectPiCli, MIN_PI_VERSION } from './piCliResolver'
 import {
@@ -338,7 +339,11 @@ export class PiSessionProcess extends EventEmitter {
 
   async sendMessage(content: string, images?: ImageAttachment[]): Promise<void> {
     if (!this._process || this.status === 'exited') {
-      throw new Error(`Session ${this.sessionId} has no active process`)
+      throw engineBlockedError(this.sessionId, {
+        reason: 'session-not-active',
+        detail: `Session ${this.sessionId} has no active process`,
+        context: { engine: 'pi', operation: 'sendMessage' },
+      })
     }
 
     this.status = 'active'
@@ -841,7 +846,11 @@ export class PiSessionProcess extends EventEmitter {
             ? 'the bundled pi shipped with this build is missing'
             : 'no pi CLI found'
       warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Pi unavailable | reason=${cli.reason} | ${detail}`)
-      throw new Error(`Pi engine is not usable: ${detail}`)
+      throw engineBlockedError(this.sessionId, {
+        reason: 'engine-unavailable',
+        detail: `Pi engine is not usable: ${detail}`,
+        context: { engine: 'pi', availabilityReason: cli.reason, version: cli.version },
+      })
     }
 
     return cli.entry
