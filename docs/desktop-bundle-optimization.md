@@ -211,7 +211,7 @@ node scripts/gen-bundle-excludes.cjs --dry    # 只打印，不改文件
 ### 5.2 版本下限与 fail-closed
 
 `piCliResolver` 读版本（bundled/dev 走包根 `package.json`，全局 `pi` 走 `--version` 探针），低于
-`MIN_PI_VERSION`（1.0.0，宿主事件契约要求的 delta 顶层 `id`/`toolName`）或问不出来，一律 `available: false`。
+`MIN_PI_VERSION`（1.1.0 = 宿主事件契约要求的 1.0.0 与随产物分发的 `@tintinweb/pi-subagents` peer 下限 1.1.0 取最大）或问不出来，一律 `available: false`。
 `claude-code:isEngineAvailable` 回的是 `{ available, reason, version, installable }`，界面据此置灰并给文案；
 `engineGateway.startSession` 不再静默换成 claude-code 跑。
 

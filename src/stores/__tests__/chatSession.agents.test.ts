@@ -201,12 +201,32 @@ describe('chat session agent list caching', () => {
     expect(mocks.listAgents.mock.calls[1][1]).toBe('pi')
   })
 
-  it('does not ask twice for the same engine and directory', async () => {
+  it('refreshes the list even when engine and directory are unchanged', async () => {
+    mocks.listAgents.mockResolvedValueOnce([{ agentType: 'first', description: '', source: 'project' }])
     const store = await prepare('pi')
     await store.loadAgents()
+
+    mocks.listAgents.mockResolvedValueOnce([{ agentType: 'second', description: '', source: 'project' }])
     await store.loadAgents()
 
+    expect(mocks.listAgents).toHaveBeenCalledTimes(2)
+    expect(store.availableAgents.map(a => a.agentType)).toEqual(['second'])
+  })
+
+  it('shares one in-flight request instead of firing twice', async () => {
+    let release: () => void = () => {}
+    mocks.listAgents.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve([{ agentType: 'reviewer', description: '', source: 'project' }])
+    }))
+    const store = await prepare('pi')
+
+    const first = store.loadAgents()
+    const second = store.loadAgents()
+    release()
+    await Promise.all([first, second])
+
     expect(mocks.listAgents).toHaveBeenCalledTimes(1)
+    expect(store.availableAgents.map(a => a.agentType)).toEqual(['reviewer'])
   })
 
   it('asks again after a failed load instead of keeping the list empty forever', async () => {

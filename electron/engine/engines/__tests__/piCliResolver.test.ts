@@ -158,7 +158,19 @@ describe('packaged — 只认随产物走的 bundled pi', () => {
 
     const { detectPiCli, MIN_PI_VERSION } = await loadResolver()
     expect(detectPiCli()).toMatchObject({ version: '0.73.0', available: false, reason: 'version-too-old' })
-    expect(MIN_PI_VERSION).toBe('1.0.0')
+    expect(MIN_PI_VERSION).toBe('1.1.0')
+  })
+
+  it('1.0.x 低于扩展 peer 下限，1.1.0 起恢复可用', async () => {
+    H.isPackaged = true
+    H.existing.add(BUNDLED_CLI)
+
+    bundledPackageJson('1.0.4')
+    const { detectPiCli } = await loadResolver()
+    expect(detectPiCli()).toMatchObject({ version: '1.0.4', available: false, reason: 'version-too-old' })
+
+    bundledPackageJson('1.1.0')
+    expect(detectPiCli()).toMatchObject({ version: '1.1.0', available: true, reason: 'ok' })
   })
 
   it('读不到 package.json 版本时按不可用收口 —— bundled 副本必须连 package.json 一起带', async () => {

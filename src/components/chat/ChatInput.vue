@@ -424,7 +424,7 @@ let agentsLoadPromise: Promise<void> | null = null
 
 function handleAddClickAndLoadAgents() {
   handleAddClick()
-  // 只锁在途请求；「要不要重取」交给 store —— 它才知道引擎与工作目录换没换 (#46)。
+  // 只锁在途请求；store 每次都会重新读盘，运行中新增/禁用的定义无需重启即可出现。
   if (agentsLoadPromise) return
   agentsLoadPromise = sessionStore.loadAgents().finally(() => {
     agentsLoadPromise = null

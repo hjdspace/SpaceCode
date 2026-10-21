@@ -41,7 +41,7 @@ vi.mock('../../../infra/logger', () => ({
 
 vi.mock('../piCliResolver', () => ({
   detectPiCli: () => H.cli,
-  MIN_PI_VERSION: '1.0.0',
+  MIN_PI_VERSION: '1.1.0',
   resetPiCliProbeCache: vi.fn(),
 }))
 
