@@ -250,10 +250,10 @@ describe('PiSessionProcess start — how the engine is launched', () => {
     const errors: Error[] = []
     proc.on('error', (e: Error) => errors.push(e))
     vi.spyOn(proc as unknown as { resolveCliPath(): string }, 'resolveCliPath').mockImplementation(() => {
-      throw new Error('Pi engine is not usable: pi 0.73.0 is below the required 1.0.0')
+      throw new Error('Pi engine is not usable: pi 0.73.0 is below the required 1.1.0')
     })
 
-    await expect(proc.start()).rejects.toThrow('below the required 1.0.0')
+    await expect(proc.start()).rejects.toThrow('below the required 1.1.0')
 
     expect(H.spawnCalls).toHaveLength(0)
     expect(proc.status).toBe('exited')
