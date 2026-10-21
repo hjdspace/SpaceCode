@@ -40,6 +40,8 @@ export default {
   viewSession: 'View Session',
   viewError: 'View Error',
   noOutput: 'This run produced no output',
+  agentNotApplied: 'Agent "{agent}" did not take effect: its definition is missing or empty, or the persona file could not be written. This run used the default prompt.',
+  agentExtensionMissing: 'The "{agent}" persona is in effect, but the sub-agent extension did not load, so this run cannot delegate sub-agents.',
   duration: 'Duration',
   aboutToFire: 'About to fire',
   modal: {
