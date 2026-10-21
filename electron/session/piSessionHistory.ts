@@ -1,348 +1,436 @@
+import * as path from 'path'
 import * as fs from 'fs'
-import {
-  findPiSessionRecord,
-  isSameCwd,
-  listPiSessionRecords,
-  type PiSessionRecordEntry,
-} from '../engine/engines/piSessionRegistry'
-import { mapPiToolName } from '../engine/engines/piToolNames'
+import * as os from 'os'
+import { info, warn, error, debug } from '../infra/logger'
+import { findPiSessionRecord } from '../engine/engines/piSessionRegistry'
+import { getPiFullSession, listPiSessions } from './piSessionHistory'
 
-/**
- * pi 的历史恢复适配层。
- *
- * pi 的 JSONL 文件名是 `<时间戳>_<pi自己的UUID>.jsonl`，SpaceCode 的
- * sessionId 不在文件里；两张 id 的唯一连接是 pi-sessions.json。因此历史列表
- * 只能从注册表出发，不能直接扫描 ~/.pi/agent/sessions。
- *
- * 读出来的消息会归一化成 Claude Code JSONL 的形状，交给渲染层已有的
- * buildMessagesFromHistory 处理，保证重开后工具卡片/思考块与实时流一致。
- */
+export type HistoryEngineType = 'claude-code' | 'pi'
 
-/** 只读文件两端：列表页不需要把几百 KB 的 transcript 全读进内存。 */
-const HEAD_BYTES = 256 * 1024
-const TAIL_BYTES = 128 * 1024
-
-export interface PiHistorySessionLite {
+export interface SessionLite {
   projectPath: string
   sessionId: string
-  engineType: 'pi'
-  engineSessionId?: string
+  metadata?: SessionMetadata
   firstUserMessage?: string
   lastMessageTimestamp?: number
-  createdAt?: number
-}
-
-export interface PiFullSession {
-  messages: unknown[]
-  projectPath: string
-  sessionId: string
-  engineType: 'pi'
+  engineType?: HistoryEngineType
+  /** 引擎自己的会话 id（pi 的 JSONL 头），仅用于展示/诊断。 */
   engineSessionId?: string
 }
 
-interface RawRecord {
-  type?: string
-  id?: string
-  timestamp?: string | number
-  cwd?: string
-  message?: {
-    role?: string
-    content?: unknown
-    timestamp?: number
-    model?: string
-    usage?: unknown
-    toolCallId?: string
-    toolName?: string
-    isError?: boolean
+export interface SessionMetadata {
+  customTitle?: string
+  lastPrompt?: string
+  gitBranch?: string
+  timestamps?: {
+    createdAt?: string
+    lastMessageAt?: string
   }
 }
 
-function readChunk(filePath: string, start: number, length: number): string {
-  const fd = fs.openSync(filePath, 'r')
+function getClaudeConfigHomeDir(): string {
+  // 与引擎 envUtils.ts 对齐：优先读 CLAUDE_CONFIG_DIR，否则回退到 XDG_CONFIG_HOME 或 ~/.claude
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    return process.env.CLAUDE_CONFIG_DIR
+  }
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME
+  if (xdgConfigHome) {
+    return path.join(xdgConfigHome, 'claude')
+  }
+  return path.join(os.homedir(), '.claude')
+}
+
+function getClaudeProjectsDir(): string {
+  return path.join(getClaudeConfigHomeDir(), 'projects')
+}
+
+function sanitizePath(p: string): string {
+  return p.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
+function resolveRealPath(p: string): string {
   try {
-    const buffer = Buffer.alloc(length)
-    const read = fs.readSync(fd, buffer, 0, length, start)
-    return buffer.subarray(0, read).toString('utf8')
-  } finally {
-    fs.closeSync(fd)
+    return fs.realpathSync(p).normalize('NFC')
+  } catch {
+    return p.normalize('NFC')
   }
 }
 
-function parseLines(text: string, dropPartialFirst = false, dropPartialLast = false): RawRecord[] {
-  const lines = text.split('\n')
-  if (dropPartialFirst) lines.shift()
-  if (dropPartialLast) lines.pop()
-  const records: RawRecord[] = []
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (parsed && typeof parsed === 'object') records.push(parsed as RawRecord)
-    } catch {
-      // 半行/损坏行跳过，不能因为一行坏数据丢掉整份历史
+function getProjectDir(projectPath: string): string {
+  const resolvedPath = resolveRealPath(projectPath)
+  return path.join(getClaudeProjectsDir(), sanitizePath(resolvedPath))
+}
+
+function decodeSanitizedPath(sanitized: string): string {
+  if (/^[A-Z]--/.test(sanitized)) {
+    const driveLetter = sanitized[0]
+    const rest = sanitized.slice(2).replace(/-/g, path.sep)
+    return `${driveLetter}:${path.sep}${rest}`
+  }
+
+  if (sanitized.startsWith('-')) {
+    return sanitized.replace(/-/g, path.sep)
+  }
+
+  return sanitized
+}
+
+/**
+ * 归一化绝对路径：统一分隔符、折叠重复分隔符、去尾部冗余。
+ * 历史 JSONL 的 cwd 字段可能存在 `D:\\AI\SpaceCode` 这类坏格式，
+ * 原样返回给渲染层会导致侧边栏按路径分组时出现重复项目，
+ * 且"打开文件夹"（shell.openPath）失败。
+ * Windows 盘符路径统一为反斜杠（UNC 前导 `\\` 与盘符根 `D:\` 保留）；
+ * POSIX 绝对路径保持正斜杠。
+ * 与渲染层 src/utils/normalizePath.ts 保持逻辑一致（electron 侧无法导入 src）。
+ */
+function normalizeAbsolutePath(input: string): string {
+  if (!input) return input
+  const trimmed = input.trim()
+  if (!trimmed) return trimmed
+
+  const isDrivePath = /^[A-Za-z]:[/\\]/.test(trimmed)
+  if (!isDrivePath && trimmed.startsWith('/')) {
+    return trimmed.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/'
+  }
+
+  let p = trimmed.replace(/\//g, '\\')
+  const isUNC = p.startsWith('\\\\')
+  const prefix = isUNC ? '\\\\' : ''
+  const body = isUNC ? p.slice(2) : p
+  p = prefix + body.replace(/\\{2,}/g, '\\')
+  if (p.length > 3 && p.endsWith('\\')) {
+    p = p.slice(0, -1)
+  }
+  return p
+}
+
+async function readSessionLite(
+  projectPath: string,
+  sessionId: string
+): Promise<SessionLite | undefined> {
+  const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
+  
+  if (!fs.existsSync(sessionPath)) {
+    debug('SessionHistory', `Session file not found: ${sessionPath}`)
+    return undefined
+  }
+  
+  let firstUserMessage: string | undefined
+  let lastMessageTimestamp: number | undefined
+  let metadata: SessionMetadata | undefined
+  let realProjectPath: string | undefined
+
+  try {
+    const metadataPath = path.join(
+      getProjectDir(projectPath),
+      `${sessionId}.metadata.json`
+    )
+
+    if (fs.existsSync(metadataPath)) {
+      try {
+        const raw = fs.readFileSync(metadataPath, 'utf8')
+        metadata = JSON.parse(raw)
+
+        if (metadata?.timestamps?.lastMessageAt) {
+          lastMessageTimestamp = new Date(metadata.timestamps.lastMessageAt).getTime()
+        }
+
+        debug('SessionHistory', `Loaded metadata for session ${sessionId}`)
+      } catch (e) {
+        warn('SessionHistory', `Failed to parse metadata for ${sessionId}`, { error: String(e) })
+      }
+    }
+
+    const fileContent = fs.readFileSync(sessionPath, 'utf8')
+    const lines = fileContent.split('\n').filter(line => line.trim())
+
+    for (const line of lines) {
+      try {
+        const msg = JSON.parse(line)
+
+        // Extract real cwd from first message — sanitizePath is lossy
+        // (. and / both map to -), so decodeSanitizedPath can't round-trip
+        // paths like /pri/home4/jiadong.he2/project.
+        if (!realProjectPath && msg.cwd && typeof msg.cwd === 'string') {
+          realProjectPath = normalizeAbsolutePath(msg.cwd)
+        }
+
+        if (msg.type === 'user' && !firstUserMessage) {
+          const content = msg.message?.content
+          
+          if (typeof content === 'string') {
+            firstUserMessage = content.trim()
+          } else if (Array.isArray(content)) {
+            const textItem = content.find((c: any) => c.type === 'text')
+            firstUserMessage = textItem?.text?.trim() || ''
+          }
+        }
+        
+        if (!metadata?.timestamps?.lastMessageAt && msg.timestamp) {
+          const ts = new Date(msg.timestamp).getTime()
+          if (!isNaN(ts)) {
+            if (!lastMessageTimestamp || ts > lastMessageTimestamp) {
+              lastMessageTimestamp = ts
+            }
+          }
+        }
+      } catch (e) {
+      }
+    }
+    
+    if (lines.length === 0) {
+      warn('SessionHistory', `Empty session file: ${sessionPath}`)
+    }
+    
+  } catch (e) {
+    error('SessionHistory', `Failed to read session file ${sessionPath}`, { error: String(e) })
+    return undefined
+  }
+  
+  return {
+    projectPath: realProjectPath || projectPath,
+    sessionId,
+    metadata,
+    firstUserMessage,
+    lastMessageTimestamp,
+    engineType: 'claude-code',
+  }
+}
+
+async function loadSameProjectSessions(cwd: string): Promise<SessionLite[]> {
+  const projectDir = getProjectDir(cwd)
+  
+  if (!fs.existsSync(projectDir)) {
+    info('SessionHistory', `Project directory not found: ${projectDir}`)
+    return []
+  }
+  
+  const sessions: SessionLite[] = []
+  
+  try {
+    const entries = fs.readdirSync(projectDir)
+    info('SessionHistory', `Found ${entries.length} entries in ${projectDir}`)
+    
+    for (const entry of entries) {
+      if (!entry.endsWith('.jsonl')) continue
+      
+      const sessionId = entry.slice(0, -'.jsonl'.length)
+      
+      if (sessionId.startsWith('.') || sessionId.endsWith('.tmp')) continue
+      
+      const session = await readSessionLite(cwd, sessionId)
+      if (session) {
+        sessions.push(session)
+      }
+    }
+  } catch (e) {
+    error('SessionHistory', `Failed to load sessions for project ${cwd}`, { error: String(e) })
+  }
+  
+  sessions.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
+  
+  info('SessionHistory', `Loaded ${sessions.length} sessions for project ${cwd}`)
+  return sessions
+}
+
+async function loadAllProjectsSessions(): Promise<SessionLite[]> {
+  const projectsDir = getClaudeProjectsDir()
+  
+  if (!fs.existsSync(projectsDir)) {
+    warn('SessionHistory', `Projects directory not found: ${projectsDir}`)
+    return []
+  }
+  
+  const allSessions: SessionLite[] = []
+  
+  try {
+    const entries = fs.readdirSync(projectsDir)
+    info('SessionHistory', `Found ${entries.length} project directories`)
+    
+    for (const entry of entries) {
+      const entryPath = path.join(projectsDir, entry)
+      
+      try {
+        if (!fs.statSync(entryPath).isDirectory()) continue
+      } catch {
+        continue
+      }
+      
+      const projectPath = decodeSanitizedPath(entry)
+      
+      const projectSessions = await loadSameProjectSessions(projectPath)
+      allSessions.push(...projectSessions)
+    }
+  } catch (e) {
+    error('SessionHistory', `Failed to load all projects`, { error: String(e) })
+  }
+  
+  const uniqueSessions = new Map<string, SessionLite>()
+  for (const session of allSessions) {
+    if (!uniqueSessions.has(session.sessionId)) {
+      uniqueSessions.set(session.sessionId, session)
     }
   }
-  return records
+  
+  const result = Array.from(uniqueSessions.values())
+  result.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
+  
+  info('SessionHistory', `Total unique sessions: ${result.length}`)
+  return result
 }
 
-function readEdges(filePath: string): { whole: RawRecord[] | null; head: RawRecord[]; tail: RawRecord[] } {
-  const size = fs.statSync(filePath).size
-  if (size <= HEAD_BYTES + TAIL_BYTES) {
-    return { whole: parseLines(fs.readFileSync(filePath, 'utf8')), head: [], tail: [] }
-  }
-  const headText = readChunk(filePath, 0, HEAD_BYTES)
-  const tailStart = size - TAIL_BYTES
-  const tailText = readChunk(filePath, tailStart, TAIL_BYTES)
-  return {
-    whole: null,
-    head: parseLines(headText, false, !headText.endsWith('\n')),
-    tail: parseLines(tailText, true, false),
-  }
-}
-
-function recordTimestamp(record: RawRecord): number | null {
-  const raw = record.timestamp ?? record.message?.timestamp
-  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
-  if (typeof raw === 'string') {
-    const parsed = Date.parse(raw)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  return null
-}
-
-function userMessageText(record: RawRecord): string {
-  const content = record.message?.content
-  if (typeof content === 'string') return content.trim()
-  if (!Array.isArray(content)) return ''
-  return content
-    .filter((block): block is { type: string; text: string } =>
-      !!block
-      && typeof block === 'object'
-      && (block as { type?: unknown }).type === 'text'
-      && typeof (block as { text?: unknown }).text === 'string',
-    )
-    .map(block => block.text)
-    .join('')
-    .trim()
-}
-
-function summarizeRecord(record: PiSessionRecordEntry): PiHistorySessionLite | null {
-  let edges: ReturnType<typeof readEdges>
-  try {
-    edges = readEdges(record.sessionFile)
-  } catch {
+async function loadFullSession(
+  projectPath: string,
+  sessionId: string
+): Promise<any> {
+  const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
+  
+  if (!fs.existsSync(sessionPath)) {
+    debug('SessionHistory', `Session file not found: ${sessionPath}`)
     return null
   }
-
-  const head = edges.whole ?? edges.head
-  const header = head.find(item => item.type === 'session')
-  const firstUserMessage = head
-    .filter(item => item.type === 'message' && item.message?.role === 'user')
-    .map(userMessageText)
-    .find(text => text.length > 0)
-
-  const tailCandidates = edges.whole ? [...edges.whole].reverse() : [...edges.tail].reverse()
-  let lastMessageTimestamp: number | null = null
-  for (const item of tailCandidates) {
-    const ts = recordTimestamp(item)
-    if (ts !== null) {
-      lastMessageTimestamp = ts
-      break
-    }
-  }
-
-  let createdAt = header ? recordTimestamp(header) : null
-  if (createdAt === null) {
+  
+  const messages: any[] = []
+  const fileContent = fs.readFileSync(sessionPath, 'utf8')
+  const lines = fileContent.split('\n').filter(line => line.trim())
+  
+  for (const line of lines) {
     try {
-      const stat = fs.statSync(record.sessionFile)
-      createdAt = stat.birthtimeMs || stat.mtimeMs
-    } catch {
-      createdAt = null
+      messages.push(JSON.parse(line))
+    } catch (e) {
+      warn('SessionHistory', `Failed to parse line in ${sessionId}`, { error: String(e) })
     }
   }
-  // 空会话（刚创建还没发消息）也要有可排序的时间，否则恢复时会被当成
-  // “现在创建”的会话挤到最前面。
-  if (lastMessageTimestamp === null) lastMessageTimestamp = createdAt
-
+  
+  let metadata: SessionMetadata | undefined
+  const metadataPath = path.join(getProjectDir(projectPath), `${sessionId}.metadata.json`)
+  
+  if (fs.existsSync(metadataPath)) {
+    try {
+      metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
+    } catch (e) {
+      warn('SessionHistory', `Failed to parse metadata for ${sessionId}`, { error: String(e) })
+    }
+  }
+  
   return {
-    projectPath: record.cwd,
-    sessionId: record.sessionId,
-    engineType: 'pi',
-    ...(typeof header?.id === 'string' && header.id ? { engineSessionId: header.id } : {}),
-    ...(firstUserMessage ? { firstUserMessage } : {}),
-    ...(lastMessageTimestamp !== null ? { lastMessageTimestamp } : {}),
-    ...(createdAt !== null ? { createdAt } : {}),
+    messages,
+    metadata,
+    projectPath,
+    sessionId,
+    engineType: 'claude-code',
   }
 }
 
-/** 列出可恢复到左栏的 pi 会话；ephemeral 的侧边任务不参与。 */
-export function listPiSessions(cwd?: string): PiHistorySessionLite[] {
-  const sessions: PiHistorySessionLite[] = []
-  for (const record of listPiSessionRecords()) {
-    if (record.ephemeral === true) continue
-    if (cwd && !isSameCwd(record.cwd, cwd)) continue
-    if (!fs.existsSync(record.sessionFile)) continue
-    const summary = summarizeRecord(record)
-    if (summary) sessions.push(summary)
+/**
+ * 同一 SpaceCode 会话切换过引擎时，Claude 与 pi 两边的 JSONL 都可能存在。
+ * 以最后一条消息时间为准选较新的一份；相等时保留先出现的那份（Claude）。
+ */
+function mergeEngineSessions(lists: SessionLite[][]): SessionLite[] {
+  const byId = new Map<string, SessionLite>()
+  for (const list of lists) {
+    for (const session of list) {
+      const existing = byId.get(session.sessionId)
+      if (!existing || (session.lastMessageTimestamp ?? 0) > (existing.lastMessageTimestamp ?? 0)) {
+        byId.set(session.sessionId, session)
+      }
+    }
   }
-  return sessions.sort(
+  return [...byId.values()].sort(
     (a, b) => (b.lastMessageTimestamp ?? 0) - (a.lastMessageTimestamp ?? 0),
   )
 }
 
-function normalizeUserContent(content: unknown): unknown {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return content
-  const blocks: unknown[] = []
-  for (const block of content) {
-    if (!block || typeof block !== 'object') continue
-    const typed = block as { type?: string; text?: string }
-    if (typed.type === 'text' && typeof typed.text === 'string') {
-      blocks.push({ type: 'text', text: typed.text })
-    } else if (typed.type === 'image') {
-      // 渲染层只展示占位；原始图片不重复塞进 Message
-      blocks.push({ type: 'image' })
-    }
-  }
-  return blocks
-}
+export const SessionHistoryManager = {
+  async listProjectSessions(cwd: string): Promise<SessionLite[]> {
+    const claudeSessions = await loadSameProjectSessions(cwd)
+    return mergeEngineSessions([claudeSessions, listPiSessions(cwd)])
+  },
 
-function normalizeAssistantBlocks(content: unknown): unknown[] {
-  if (typeof content === 'string') return [{ type: 'text', text: content }]
-  if (!Array.isArray(content)) return []
-  const blocks: unknown[] = []
-  for (const block of content) {
-    if (!block || typeof block !== 'object') continue
-    const typed = block as {
-      type?: string
-      thinking?: string
-      text?: string
-      id?: string
-      name?: string
-      arguments?: unknown
+  async listAllSessions(): Promise<SessionLite[]> {
+    const claudeSessions = await loadAllProjectsSessions()
+    return mergeEngineSessions([claudeSessions, listPiSessions()])
+  },
+
+  async getFullSession(
+    projectPath: string,
+    sessionId: string,
+    engineType?: HistoryEngineType,
+  ): Promise<any> {
+    if (engineType === 'pi') return getPiFullSession(sessionId, projectPath)
+    if (!engineType && findPiSessionRecord(sessionId)) {
+      // 老会话没有 engineType：注册表里有这个 id 就说明它跑过 pi。
+      return getPiFullSession(sessionId, projectPath)
     }
-    if (typed.type === 'thinking') {
-      const thinking = typed.thinking || typed.text || ''
-      if (thinking) blocks.push({ type: 'thinking', thinking })
-    } else if (typed.type === 'text') {
-      if (typeof typed.text === 'string' && typed.text) {
-        blocks.push({ type: 'text', text: typed.text })
+    return loadFullSession(projectPath, sessionId)
+  },
+
+  getSessionTitle(session: SessionLite): string {
+    if (session.metadata?.customTitle) {
+      return session.metadata.customTitle
+    }
+    if (session.firstUserMessage) {
+      const preview = session.firstUserMessage.slice(0, 60)
+      return preview.length < session.firstUserMessage.length ? preview + '...' : preview
+    }
+    return `Session ${session.sessionId.slice(0, 8)}`
+  },
+
+  formatTimestamp(timestamp?: number): string {
+    if (!timestamp) return ''
+
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+
+    if (diff < 24 * 60 * 60 * 1000) {
+      return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    }
+    if (diff < 7 * 24 * 60 * 60 * 1000) {
+      return date.toLocaleDateString(undefined, { weekday: 'short' })
+    }
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  },
+
+  /**
+   * 构造子代理 sidechain transcript JSONL 的绝对路径。
+   * 与引擎 getAgentTranscriptPath 逻辑一致：
+   *   {configHome}/projects/{sanitizePath(realpath(cwd))}/{sessionId}/subagents/agent-{agentId}.jsonl
+   * 前端用此路径直接轮询 transcript，绕过 .output 符号链接（Windows 上符号链接创建失败导致空文件）。
+   */
+  getAgentTranscriptPath(projectPath: string, sessionId: string, agentId: string): string {
+    return path.join(getProjectDir(projectPath), sessionId, 'subagents', `agent-${agentId}.jsonl`)
+  },
+
+  /**
+   * 按父 Agent 工具调用的 tool_use ID 反查 sidechain transcript 路径。
+   *
+   * 前台（同步）子代理的 tool_result 只有最终正文，不带 agentId/output_file，
+   * 前端拿不到任何指向 sidechain 文件的线索。引擎在 spawn 时会写
+   * `subagents/agent-{agentId}.meta.json`，其中含 toolUseId —— 这是两者唯一的连接。
+   */
+  findAgentTranscriptByToolUse(projectPath: string, sessionId: string, toolUseId: string): string | null {
+    if (!projectPath || !sessionId || !toolUseId) return null
+    const dir = path.join(getProjectDir(projectPath), sessionId, 'subagents')
+    let entries: string[]
+    try {
+      entries = fs.readdirSync(dir)
+    } catch {
+      return null
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith('.meta.json')) continue
+      let toolUseIdOfMeta: unknown
+      try {
+        toolUseIdOfMeta = JSON.parse(fs.readFileSync(path.join(dir, entry), 'utf8'))?.toolUseId
+      } catch {
+        continue
       }
-    } else if (typed.type === 'toolCall' && typed.id) {
-      blocks.push({
-        type: 'tool_use',
-        id: typed.id,
-        name: mapPiToolName(typed.name) ?? typed.name ?? 'Unknown Tool',
-        input: typed.arguments ?? {},
-      })
+      if (toolUseIdOfMeta !== toolUseId) continue
+      const transcript = path.join(dir, entry.slice(0, -'.meta.json'.length) + '.jsonl')
+      return fs.existsSync(transcript) ? transcript : null
     }
-  }
-  return blocks
-}
-
-function normalizeUsage(usage: unknown): Record<string, number> | undefined {
-  if (!usage || typeof usage !== 'object') return undefined
-  const source = usage as Record<string, unknown>
-  const mapping: Array<[string, string[]]> = [
-    ['input_tokens', ['input', 'inputTokens', 'input_tokens']],
-    ['output_tokens', ['output', 'outputTokens', 'output_tokens']],
-    ['cache_read_input_tokens', ['cacheRead', 'cacheReadInputTokens', 'cache_read_input_tokens']],
-    ['cache_creation_input_tokens', ['cacheWrite', 'cacheWriteInputTokens', 'cache_creation_input_tokens']],
-  ]
-  const result: Record<string, number> = {}
-  for (const [target, keys] of mapping) {
-    for (const key of keys) {
-      const value = source[key]
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        result[target] = value
-        break
-      }
-    }
-  }
-  return Object.keys(result).length > 0 ? result : undefined
-}
-
-/** 把 pi JSONL 归一化成 buildMessagesFromHistory 认识的 Claude 形状。 */
-function normalizePiRecords(records: RawRecord[]): unknown[] {
-  const messages: unknown[] = []
-  for (const record of records) {
-    if (record.type === 'session') continue
-    if (record.type !== 'message' || !record.message) continue
-    const role = record.message.role
-    const timestamp = record.timestamp ?? record.message.timestamp
-
-    if (role === 'user') {
-      messages.push({
-        type: 'user',
-        uuid: record.id,
-        timestamp,
-        message: { role: 'user', content: normalizeUserContent(record.message.content) },
-      })
-      continue
-    }
-
-    if (role === 'assistant') {
-      const content = normalizeAssistantBlocks(record.message.content)
-      if (content.length === 0) continue
-      const usage = normalizeUsage(record.message.usage)
-      messages.push({
-        type: 'assistant',
-        uuid: record.id,
-        timestamp,
-        message: {
-          role: 'assistant',
-          content,
-          ...(record.message.model ? { model: record.message.model } : {}),
-          ...(usage ? { usage } : {}),
-        },
-      })
-      continue
-    }
-
-    if (role === 'toolResult' && record.message.toolCallId) {
-      messages.push({
-        type: 'user',
-        uuid: record.id,
-        timestamp,
-        message: {
-          role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: record.message.toolCallId,
-            content: record.message.content,
-            is_error: record.message.isError === true,
-          }],
-        },
-      })
-    }
-    // system（preamble / toolsAdded）不是用户可见对话，跳过
-  }
-  return messages
-}
-
-export function getPiFullSession(
-  sessionId: string,
-  projectPath?: string,
-): PiFullSession | null {
-  const record = findPiSessionRecord(sessionId)
-  if (!record) return null
-  if (projectPath && !isSameCwd(record.cwd, projectPath)) return null
-  if (!fs.existsSync(record.sessionFile)) return null
-
-  let text: string
-  try {
-    text = fs.readFileSync(record.sessionFile, 'utf8')
-  } catch {
     return null
-  }
-  const records = parseLines(text)
-  const header = records.find(item => item.type === 'session')
-  return {
-    messages: normalizePiRecords(records),
-    projectPath: record.cwd,
-    sessionId,
-    engineType: 'pi',
-    ...(typeof header?.id === 'string' && header.id ? { engineSessionId: header.id } : {}),
-  }
+  },
 }
