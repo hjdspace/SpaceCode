@@ -1,4 +1,5 @@
 import type { ExtensionDialogMethod, ExtensionDialogRequest } from '@/shared/channels/claudeCode'
+import { isEngineBlockedPayload } from '@/shared/engineErrors'
 import type { UnifiedEngineEvent } from './types'
 
 export interface PiAgentEvent {
@@ -194,12 +195,18 @@ export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngin
         data: { code: event.code, signal: event.signal, stderr: event.stderr },
       }
 
-    case 'error':
+    case 'error': {
+      // 拦截类错误是主进程给的结构化原因码：原样透传，文案由渲染层按 i18n 渲染。
+      const blocked = { reason: event.reason, detail: event.detail, context: event.context }
+      if (isEngineBlockedPayload(blocked)) {
+        return { sessionId, type: 'error', data: blocked }
+      }
       return {
         sessionId,
         type: 'error',
         data: { message: event.message, code: event.code },
       }
+    }
 
     case 'queue_update':
       return null
