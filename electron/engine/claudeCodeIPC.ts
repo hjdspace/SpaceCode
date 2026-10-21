@@ -189,10 +189,10 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle(CLAUDE_CODE_CHANNELS.getFullSession, async (_, projectPath: string, sessionId: string) => {
-    info('ClaudeCodeIPC', `→ getFullSession | projectPath=${projectPath} | sessionId=${sessionId.slice(0, 8)}`)
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getFullSession, async (_, projectPath: string, sessionId: string, engineType?: 'claude-code' | 'pi') => {
+    info('ClaudeCodeIPC', `→ getFullSession | projectPath=${projectPath} | sessionId=${sessionId.slice(0, 8)} | engine=${engineType ?? '(auto)'}`)
     try {
-      const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId)
+      const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId, engineType)
       return fullSession
     } catch (err) {
       error('ClaudeCodeIPC', `✗ getFullSession`, { error: String(err) })
@@ -218,10 +218,10 @@ export function registerClaudeCodeIPC() {
     }
   })
 
-  ipcMain.handle(CLAUDE_CODE_CHANNELS.restoreSession, async (_, sessionId: string, projectPath: string) => {
-    info('ClaudeCodeIPC', `→ restoreSession | sessionId=${sessionId.slice(0, 8)} | projectPath=${projectPath}`)
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.restoreSession, async (_, sessionId: string, projectPath: string, engineType?: 'claude-code' | 'pi') => {
+    info('ClaudeCodeIPC', `→ restoreSession | sessionId=${sessionId.slice(0, 8)} | projectPath=${projectPath} | engine=${engineType ?? '(auto)'}`)
     try {
-      const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId)
+      const fullSession = await SessionHistoryManager.getFullSession(projectPath, sessionId, engineType)
       return fullSession
     } catch (err) {
       error('ClaudeCodeIPC', `✗ restoreSession`, { error: String(err) })

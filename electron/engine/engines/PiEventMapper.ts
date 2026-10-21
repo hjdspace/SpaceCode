@@ -1,28 +1,11 @@
 import type { ExtensionDialogMethod, ExtensionDialogRequest } from '@/shared/channels/claudeCode'
 import { isEngineBlockedPayload } from '@/shared/engineErrors'
 import type { UnifiedEngineEvent } from './types'
+import { mapPiToolName } from './piToolNames'
 
 export interface PiAgentEvent {
   type: string
   [key: string]: any
-}
-
-// Pi 的内置工具用小写名（bash/read/write/edit/grep/find），而渲染层的组件、图标、
-// 标签与 trace 分类表一律按 Claude Code 的 PascalCase 名精确匹配。名字不在此归一，
-// 小写名会同时错过专用卡片与终端 UI，退化成通用行 + JSON 直出。
-// find→Glob、grep→Grep 的入参键（pattern/path）本就一致；ls 无对应卡片，故不映射。
-const PI_TOOL_NAME_ALIASES: Record<string, string> = {
-  bash: 'Bash',
-  read: 'Read',
-  write: 'Write',
-  edit: 'Edit',
-  grep: 'Grep',
-  find: 'Glob',
-}
-
-function mapPiToolName(name: unknown): string | undefined {
-  if (typeof name !== 'string' || !name) return undefined
-  return PI_TOOL_NAME_ALIASES[name] ?? name
 }
 
 export function mapPiEvent(sessionId: string, event: PiAgentEvent): UnifiedEngineEvent | null {

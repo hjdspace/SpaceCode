@@ -176,7 +176,11 @@ async function loadPreviewFromDisk() {
     const claudeCode = api.claudeCode
     if (!claudeCode?.getFullSession) return
 
-    const fullSession = await claudeCode.getFullSession(session.workingDirectory, session.id)
+    const fullSession = await claudeCode.getFullSession(
+      session.workingDirectory,
+      session.id,
+      session.engineType,
+    )
     if (ac.signal.aborted) return
 
     if (!fullSession?.messages || !Array.isArray(fullSession.messages)) return

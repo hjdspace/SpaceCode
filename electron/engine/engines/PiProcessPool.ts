@@ -149,7 +149,14 @@ export class PiProcessPool {
       await proc.captureSessionFile(SESSION_FILE_PROBE_TIMEOUT_MS)
     }
     const sessionFile = proc.getPiSessionFile()
-    if (sessionFile) rememberPiSessionFile(sessionId, sessionFile, proc.config.cwd)
+    if (sessionFile) {
+      // 普通会话保持原来的调用形态；只有侧边任务需要额外的 ephemeral 标记。
+      if (proc.config.sideTaskSourceSessionId) {
+        rememberPiSessionFile(sessionId, sessionFile, proc.config.cwd, { ephemeral: true })
+      } else {
+        rememberPiSessionFile(sessionId, sessionFile, proc.config.cwd)
+      }
+    }
   }
 
   async sendMessage(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {

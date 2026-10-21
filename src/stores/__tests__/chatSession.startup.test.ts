@@ -76,6 +76,113 @@ describe('chat session startup', () => {
     expect(JSON.parse(localStorage.getItem('chat_sessions_v2') || '[]')).toHaveLength(1)
   })
 
+  it('recovers pi history entries with their engine identity', async () => {
+    mocks.listAllSessions.mockResolvedValueOnce([{
+      sessionId: 'pi-history-1',
+      projectPath: 'D:/repo',
+      title: 'Pi task',
+      firstUserMessage: 'Original pi prompt',
+      lastMessageTimestamp: 6000,
+      engineType: 'pi',
+      engineSessionId: 'pi-internal-1',
+    }])
+
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+
+    expect(await store.recoverSessionsFromHistory()).toBe(1)
+    expect(store.sessions[0]).toMatchObject({
+      id: 'pi-history-1',
+      engineType: 'pi',
+      engineSessionId: 'pi-internal-1',
+      workingDirectory: 'D:\\repo',
+    })
+    const persisted = JSON.parse(localStorage.getItem('chat_sessions_v2') || '[]')
+    expect(persisted[0]).toMatchObject({ engineType: 'pi', engineSessionId: 'pi-internal-1' })
+  })
+
+  it('backfills engineType on an existing session from durable history', async () => {
+    localStorage.setItem('chat_sessions_v2', JSON.stringify([{
+      id: 'legacy-pi',
+      title: 'Legacy pi',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+      workingDirectory: 'D:/repo',
+      processStatus: 'none',
+      isTabOpen: true,
+      lastActivityAt: 2,
+      mode: 'code',
+    }]))
+    mocks.listAllSessions.mockResolvedValueOnce([{
+      sessionId: 'legacy-pi',
+      projectPath: 'D:/repo',
+      engineType: 'pi',
+      engineSessionId: 'pi-internal-2',
+      lastMessageTimestamp: 2,
+    }])
+
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+
+    expect(await store.recoverSessionsFromHistory()).toBe(0)
+    expect(store.sessions[0].engineType).toBe('pi')
+    expect(store.sessions[0].engineSessionId).toBe('pi-internal-2')
+  })
+
+  it('does not resurrect a session that was explicitly deleted', async () => {
+    localStorage.setItem('chat_deleted_sessions_v1', JSON.stringify(['deleted-1']))
+    mocks.listAllSessions.mockResolvedValueOnce([{
+      sessionId: 'deleted-1',
+      projectPath: 'D:/repo',
+      title: 'Deleted',
+      engineType: 'pi',
+      lastMessageTimestamp: 1,
+    }])
+
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+
+    expect(await store.recoverSessionsFromHistory()).toBe(0)
+    expect(store.sessions.find(s => s.id === 'deleted-1')).toBeUndefined()
+  })
+
+  it('writes a tombstone on delete so durable history cannot re-add the session', async () => {
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Temporary', 'D:/repo', 'deleted-2')
+
+    await store.deleteSession(session.id)
+    mocks.listAllSessions.mockResolvedValueOnce([{
+      sessionId: 'deleted-2',
+      projectPath: 'D:/repo',
+      engineType: 'pi',
+      lastMessageTimestamp: 1,
+    }])
+
+    expect(await store.recoverSessionsFromHistory()).toBe(0)
+    expect(store.sessions.find(s => s.id === 'deleted-2')).toBeUndefined()
+    expect(JSON.parse(localStorage.getItem('chat_deleted_sessions_v1') || '[]')).toContain('deleted-2')
+  })
+
+  it('starts a historical session on its own engine, not the global default', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.engineType = 'claude-code'
+
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Pi history', 'D:/repo', 'pi-engine-1')
+    session.engineType = 'pi'
+    mocks.getSessionStatus.mockResolvedValue({ isRunning: false })
+
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.startSession).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      engineType: 'pi',
+    }))
+  })
+
   it('restarts an existing process with the current provider and selected model', async () => {
     const { useSettingsStore } = await import('../settings')
     const settings = useSettingsStore()

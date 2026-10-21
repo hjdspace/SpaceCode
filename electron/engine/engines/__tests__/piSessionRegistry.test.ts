@@ -96,6 +96,33 @@ describe('rememberPiSessionFile', () => {
     expect(H.writes).toHaveLength(1)
   })
 
+  it('侧边任务打 ephemeral 标记，后续重启调用不能把它降级成普通会话', async () => {
+    const { rememberPiSessionFile, findPiSessionRecord } = await freshRegistry()
+
+    rememberPiSessionFile(SESSION_ID, PI_FILE, CWD, { ephemeral: true })
+    expect(JSON.parse(H.contents.get(STORE_PATH)!)[SESSION_ID]).toEqual({
+      sessionFile: PI_FILE,
+      cwd: CWD,
+      ephemeral: true,
+    })
+
+    rememberPiSessionFile(SESSION_ID, PI_FILE, CWD)
+    expect(H.writes).toHaveLength(1)
+    expect(findPiSessionRecord(SESSION_ID)?.ephemeral).toBe(true)
+  })
+
+  it('列出全部映射时带上 SpaceCode sessionId，历史恢复才有主键', async () => {
+    const { rememberPiSessionFile, listPiSessionRecords } = await freshRegistry()
+
+    rememberPiSessionFile(SESSION_ID, PI_FILE, CWD)
+    rememberPiSessionFile('another', PI_FILE, CWD, { ephemeral: true })
+
+    expect(listPiSessionRecords()).toEqual([
+      { sessionId: SESSION_ID, sessionFile: PI_FILE, cwd: CWD },
+      { sessionId: 'another', sessionFile: PI_FILE, cwd: CWD, ephemeral: true },
+    ])
+  })
+
   it('写盘失败只告警，不把会话流程带崩', async () => {
     const { rememberPiSessionFile } = await freshRegistry()
     H.writeError = new Error('EDQUOT')

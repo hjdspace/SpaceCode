@@ -9,6 +9,7 @@ export default {
   bashOutput: '输出',
   bashOutputTruncated: '... (输出已截断)',
   bashExitCode: '退出码 {code}',
+  bashOutputBufferedHint: '该命令通过管道或重定向缓冲输出，执行结束前可能没有实时输出',
   commandOutput: '命令输出',
   read: '读取',
   readEmptyFile: '(空文件)',

@@ -27,6 +27,9 @@
           {{ session.firstUserMessage || session.lastMessagePreview }}
         </div>
         <div class="session-meta">
+          <span v-if="session.engineType" class="engine-tag" :class="`engine-${session.engineType}`">
+            {{ getEngineLabel(session.engineType) }}
+          </span>
           <span v-if="session.projectPath" class="project-path">
             {{ getProjectName(session.projectPath) }}
           </span>
@@ -70,6 +73,8 @@ interface SessionLite {
   updatedAt?: number
   lastMessagePreview?: string
   firstUserMessage?: string
+  engineType?: 'claude-code' | 'pi'
+  engineSessionId?: string
   metadata?: any
 }
 
@@ -176,6 +181,10 @@ function getProjectName(pathStr: string): string {
   return pathStr.split(/[/\\]/).pop() || pathStr
 }
 
+function getEngineLabel(engineType: 'claude-code' | 'pi'): string {
+  return engineType === 'pi' ? t('explorer.enginePi') : t('explorer.engineClaudeCode')
+}
+
 function getSessionTitle(session: SessionLite): string {
   if (session.metadata?.customTitle) {
     return session.metadata.customTitle
@@ -263,12 +272,17 @@ onMounted(() => {
   gap: 8px;
 }
 
-.project-path {
+.project-path,
+.engine-tag {
   font-size: 11px;
   color: var(--text-muted);
   background: var(--surface-glass);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+.engine-tag.engine-pi {
+  color: var(--accent-primary);
 }
 
 .load-more-btn {

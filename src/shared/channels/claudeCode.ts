@@ -239,7 +239,11 @@ export const claudeCodeNamespace = defineNamespace({
     },
     listAllSessions: { req: [] as unknown as [], res: null as unknown as unknown[] },
     getFullSession: {
-      req: [] as unknown as [projectPath: string, sessionId: string],
+      req: [] as unknown as [
+        projectPath: string,
+        sessionId: string,
+        engineType?: 'claude-code' | 'pi',
+      ],
       res: null as unknown as Record<string, unknown>,
     },
     resolveAgentTranscriptPath: {
@@ -251,7 +255,11 @@ export const claudeCodeNamespace = defineNamespace({
       res: null as unknown as string | null,
     },
     restoreSession: {
-      req: [] as unknown as [sessionId: string, projectPath: string],
+      req: [] as unknown as [
+        sessionId: string,
+        projectPath: string,
+        engineType?: 'claude-code' | 'pi',
+      ],
       res: null as unknown as Record<string, unknown>,
     },
     // ── 工具 / 权限 ──

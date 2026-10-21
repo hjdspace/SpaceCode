@@ -9,6 +9,7 @@ export default {
   bashOutput: 'Output',
   bashOutputTruncated: '... (output truncated)',
   bashExitCode: 'Exit code {code}',
+  bashOutputBufferedHint: 'This command buffers output through a pipe or redirect, so live output may not appear until it finishes',
   commandOutput: 'Command Output',
   read: 'Read',
   readEmptyFile: '(empty file)',

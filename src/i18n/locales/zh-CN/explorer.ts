@@ -1,6 +1,8 @@
 export default {
   switching: '切换中...',
   sessionMenu: '会话菜单',
+  enginePi: 'Pi',
+  engineClaudeCode: 'Claude Code',
   splitView: '分屏',
   renameConversation: '重命名对话',
   copyConversationId: '复制对话 ID',
