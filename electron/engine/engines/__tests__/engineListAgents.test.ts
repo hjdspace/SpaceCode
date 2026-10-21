@@ -81,6 +81,16 @@ describe('PiEngine.listAgents', () => {
     expect(agents.map(a => a.agentType)).not.toContain('general-purpose')
   })
 
+  it('drops a pi definition disabled in frontmatter', async () => {
+    const cwd = path.join(root, 'project')
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'off.md', 'name: off\ndescription: off\nenabled: false', 'Off.')
+    writeAgent(path.join(cwd, '.pi', 'agents'), 'on.md', 'name: on\ndescription: on', 'On.')
+
+    const agents = await new PiEngine().listAgents(cwd)
+
+    expect(agents.map(a => a.agentType)).toEqual(['on'])
+  })
+
   it('keeps the pi-native definition when both locations claim one name', async () => {
     const cwd = path.join(root, 'project')
     writeAgent(path.join(cwd, '.claude', 'agents'), 'reviewer.md', 'name: reviewer', 'From claude dir.')
@@ -109,6 +119,15 @@ describe('ClaudeCodeEngine.listAgents', () => {
     expect(agents.map(a => a.agentType)).toContain('reviewer')
     expect(agents.map(a => a.agentType)).toContain('Explore')
     expect(agents.map(a => a.agentType)).not.toContain('pi-only')
+  })
+
+  it('keeps a .claude file with enabled:false, which is not a Claude field', async () => {
+    const cwd = path.join(root, 'project')
+    writeAgent(path.join(cwd, '.claude', 'agents'), 'reviewer.md', 'name: reviewer\nenabled: false', 'Body.')
+
+    const agents = await new ClaudeCodeEngine().listAgents(cwd)
+
+    expect(agents.map(a => a.agentType)).toContain('reviewer')
   })
 
   it('does not list a file that carries no frontmatter name', async () => {
