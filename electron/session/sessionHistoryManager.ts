@@ -2,6 +2,10 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { info, warn, error, debug } from '../infra/logger'
+import { findPiSessionRecord } from '../engine/engines/piSessionRegistry'
+import { getPiFullSession, listPiSessions } from './piSessionHistory'
+
+export type HistoryEngineType = 'claude-code' | 'pi'
 
 export interface SessionLite {
   projectPath: string
@@ -9,6 +13,9 @@ export interface SessionLite {
   metadata?: SessionMetadata
   firstUserMessage?: string
   lastMessageTimestamp?: number
+  engineType?: HistoryEngineType
+  /** 引擎自己的会话 id（pi 的 JSONL 头），仅用于展示/诊断。 */
+  engineSessionId?: string
 }
 
 export interface SessionMetadata {
@@ -187,6 +194,7 @@ async function readSessionLite(
     metadata,
     firstUserMessage,
     lastMessageTimestamp,
+    engineType: 'claude-code',
   }
 }
 
@@ -311,19 +319,50 @@ async function loadFullSession(
     metadata,
     projectPath,
     sessionId,
+    engineType: 'claude-code',
   }
+}
+
+/**
+ * 同一 SpaceCode 会话切换过引擎时，Claude 与 pi 两边的 JSONL 都可能存在。
+ * 以最后一条消息时间为准选较新的一份；相等时保留先出现的那份（Claude）。
+ */
+function mergeEngineSessions(lists: SessionLite[][]): SessionLite[] {
+  const byId = new Map<string, SessionLite>()
+  for (const list of lists) {
+    for (const session of list) {
+      const existing = byId.get(session.sessionId)
+      if (!existing || (session.lastMessageTimestamp ?? 0) > (existing.lastMessageTimestamp ?? 0)) {
+        byId.set(session.sessionId, session)
+      }
+    }
+  }
+  return [...byId.values()].sort(
+    (a, b) => (b.lastMessageTimestamp ?? 0) - (a.lastMessageTimestamp ?? 0),
+  )
 }
 
 export const SessionHistoryManager = {
   async listProjectSessions(cwd: string): Promise<SessionLite[]> {
-    return loadSameProjectSessions(cwd)
+    const claudeSessions = await loadSameProjectSessions(cwd)
+    return mergeEngineSessions([claudeSessions, listPiSessions(cwd)])
   },
 
   async listAllSessions(): Promise<SessionLite[]> {
-    return loadAllProjectsSessions()
+    const claudeSessions = await loadAllProjectsSessions()
+    return mergeEngineSessions([claudeSessions, listPiSessions()])
   },
 
-  async getFullSession(projectPath: string, sessionId: string): Promise<any> {
+  async getFullSession(
+    projectPath: string,
+    sessionId: string,
+    engineType?: HistoryEngineType,
+  ): Promise<any> {
+    if (engineType === 'pi') return getPiFullSession(sessionId, projectPath)
+    if (!engineType && findPiSessionRecord(sessionId)) {
+      // 老会话没有 engineType：注册表里有这个 id 就说明它跑过 pi。
+      return getPiFullSession(sessionId, projectPath)
+    }
     return loadFullSession(projectPath, sessionId)
   },
 
