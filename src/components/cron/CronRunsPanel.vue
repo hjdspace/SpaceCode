@@ -23,6 +23,12 @@
               {{ run.status === 'completed' ? t('cron.runCompleted') : run.status === 'failed' ? t('cron.runFailed') : run.status === 'timeout' ? t('cron.runTimeout') : t('cron.runRunning') }}
               <template v-if="run.durationMs"> · {{ t('cron.duration') }} {{ formatDuration(run.durationMs) }}</template>
             </div>
+            <div v-if="run.agentApplied === false" class="run-warning">
+              {{ t('cron.agentNotApplied', { agent: run.agent }) }}
+            </div>
+            <div v-else-if="run.agent && run.agentExtensionLoaded === false" class="run-warning">
+              {{ t('cron.agentExtensionMissing', { agent: run.agent }) }}
+            </div>
           </div>
           <button
             v-if="sessionExists(run)"
@@ -250,6 +256,13 @@ function openRunSession(run: TaskRun): void {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 1px;
+}
+
+.run-warning {
+  font-size: 11px;
+  color: var(--warning);
+  margin-top: 2px;
+  line-height: 1.4;
 }
 
 .run-session-btn {
