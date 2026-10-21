@@ -611,7 +611,7 @@ onMounted(() => {
         model: config.model,
         effortLevel: config.effortLevel,
         thinkingEnabled: settingsStore.thinkingEnabled,
-        agent: sessionStore.currentAgent || undefined,
+        agent: sessionStore.currentSession?.agent || undefined,
         engineType: settingsStore.engineType,
         engineSource: settingsStore.engineSource,
         installedCliPath: settingsStore.installedCliPath ?? undefined,
