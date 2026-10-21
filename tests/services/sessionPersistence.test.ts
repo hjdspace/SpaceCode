@@ -12,19 +12,24 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  DELETED_SESSIONS_KEY,
   PROJECTS_KEY,
   STORAGE_KEY,
   buildStoragePayload,
   checkStorageSpace,
   cleanupOldSessions,
+  clearSessionMessages,
   compressData,
   decompressData,
   estimateUtf16Bytes,
   getStorageStats,
   getStorageUsage,
+  keepRecentSessionMessages,
+  loadDeletedSessionIds,
   loadProjectsFromStorage,
   loadSessionsFromStorage,
   prepareSessionsForStorage,
+  saveDeletedSessionIds,
   saveProjectsToStorage,
   saveSessionsToStorage,
   setPersistenceLogger,
@@ -278,16 +283,15 @@ describe('prepareSessionsForStorage', () => {
     expect(prepareSessionsForStorage(sessions)).toHaveLength(30)
   })
 
-  it('caps to the 20 most recent sessions when aggressive', () => {
+  it('never drops session entries when aggressive', () => {
     const sessions = Array.from({ length: 25 }, (_, i) =>
       session({ id: `s${i}`, updatedAt: i, messages: [] }),
     )
 
     const out = prepareSessionsForStorage(sessions, true)
 
-    expect(out).toHaveLength(20)
-    expect(out.map(s => s.id)).toContain('s24')
-    expect(out.map(s => s.id)).not.toContain('s0')
+    expect(out).toHaveLength(25)
+    expect(out.map(s => s.id)).toEqual(sessions.map(s => s.id))
   })
 
   it('flags long messages as truncated in aggressive mode', () => {
@@ -297,6 +301,79 @@ describe('prepareSessionsForStorage', () => {
     )
 
     expect((out.messages[0] as Message & TruncationFlags).truncated).toBe(true)
+  })
+})
+
+describe('quota degradation keeps the session index', () => {
+  it('clearSessionMessages keeps every entry and drops only messages', () => {
+    const input = [
+      session({ id: 'a', messages: [message({ id: 'm1' })] }),
+      session({ id: 'b', messages: [message({ id: 'm2' })] }),
+    ]
+
+    const out = clearSessionMessages(input)
+
+    expect(out.map(s => s.id)).toEqual(['a', 'b'])
+    expect(out.every(s => s.messages.length === 0)).toBe(true)
+  })
+
+  it('keepRecentSessionMessages keeps messages only for the most recent entries', () => {
+    const input = [
+      session({ id: 'old', updatedAt: 1, messages: [message({ id: 'm-old' })] }),
+      session({ id: 'mid', updatedAt: 2, messages: [message({ id: 'm-mid' })] }),
+      session({ id: 'new', updatedAt: 3, messages: [message({ id: 'm-new' })] }),
+    ]
+
+    const out = keepRecentSessionMessages(input, 1)
+
+    expect(out.map(s => s.id)).toEqual(['old', 'mid', 'new'])
+    expect(out[0].messages).toHaveLength(0)
+    expect(out[1].messages).toHaveLength(0)
+    expect(out[2].messages).toHaveLength(1)
+  })
+
+  it('saveSessionsToStorage degrades messages but never loses sidebar entries', () => {
+    // 超过 SESSION_PAYLOAD_LIMIT：旧实现会 cleanupOldSessions(...,10) 把会话整条删掉。
+    const sessions = Array.from({ length: 80 }, (_, i) =>
+      session({
+        id: `s${i}`,
+        updatedAt: i,
+        messages: Array.from({ length: 10 }, (_, j) =>
+          message({ id: `m-${i}-${j}`, content: 'x'.repeat(2_500) }),
+        ),
+      }),
+    )
+
+    expect(saveSessionsToStorage(sessions)).toBe(true)
+
+    const loaded = loadSessionsFromStorage()
+    expect(loaded.map(s => s.id).sort()).toEqual(sessions.map(s => s.id).sort())
+    expect(loaded.find(s => s.id === 's79')!.messages).toHaveLength(10)
+    expect(loaded.find(s => s.id === 's0')!.messages).toHaveLength(0)
+  })
+})
+
+describe('deleted session tombstones', () => {
+  it('round-trips deleted ids', () => {
+    saveDeletedSessionIds(['a', 'b', 'a'])
+
+    expect(loadDeletedSessionIds()).toEqual(['a', 'b', 'a'])
+    expect(JSON.parse(localStorage.getItem(DELETED_SESSIONS_KEY) || '[]')).toEqual(['a', 'b', 'a'])
+  })
+
+  it('caps the tombstone list at 200 entries', () => {
+    saveDeletedSessionIds(Array.from({ length: 250 }, (_, i) => `s${i}`))
+
+    const ids = loadDeletedSessionIds()
+    expect(ids).toHaveLength(200)
+    expect(ids[0]).toBe('s50')
+    expect(ids[ids.length - 1]).toBe('s249')
+  })
+
+  it('returns an empty list for corrupt storage', () => {
+    localStorage.setItem(DELETED_SESSIONS_KEY, '{nope')
+
+    expect(loadDeletedSessionIds()).toEqual([])
   })
 })
 
