@@ -2053,26 +2053,29 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
 
   /**
-   * 名单的缓存键：引擎与工作目录之一变了，上一份名单就不再是「这个引擎在这份代码里能用的东西」。
-   * 以前只在列表为空时重取，于是 claude-code→pi 之后下拉框还是 Claude 内置的那几个 ——
-   * 那正是 #46 的根因形态（选项与真实能力无关）。
+   * 名单来自磁盘，运行中新增、删除、禁用定义都会改变它。以前按 `engineType|cwd` 缓存，
+   * 引擎/目录没变就永不重取 —— 用户在应用运行期间加一个 agent，下拉框要等重启或切工作区
+   * 才看得见。扫描只是几个目录的 readdir/readFile，不值得为它保留一层会过期的缓存；
+   * 只保留在途去重，避免同一瞬间的多次打开各打一遍 IPC。
    */
-  const agentsCacheKey = ref('')
+  let agentsLoadPromise: Promise<void> | null = null
 
-  async function loadAgents() {
+  async function loadAgents(): Promise<void> {
     const claudeCode = api.claudeCode
     if (!claudeCode?.listAgents) return
+    if (agentsLoadPromise) return agentsLoadPromise
     const cwd = workingDirectory.value || currentProjectRoot.value || undefined
-    const key = `${settingsStore.engineType}|${cwd ?? ''}`
-    // 只认键，不认「列表非空」：某个工作区确实一个定义都没有时，不该每次开菜单都去打一遍 IPC
-    if (key === agentsCacheKey.value) return
-    try {
-      // 引擎要带上：不传时 engineGateway 按 claude-code 兜底，Pi 会话的名单于是全是 Claude 的 (#46)。
-      availableAgents.value = await claudeCode.listAgents(cwd, settingsStore.engineType) as typeof availableAgents.value
-      agentsCacheKey.value = key
-    } catch (error) {
-      console.error('[ChatStore] Failed to load agents:', error)
-    }
+    agentsLoadPromise = (async () => {
+      try {
+        // 引擎要带上：不传时 engineGateway 按 claude-code 兜底，Pi 会话的名单于是全是 Claude 的 (#46)。
+        availableAgents.value = await claudeCode.listAgents(cwd, settingsStore.engineType) as typeof availableAgents.value
+      } catch (error) {
+        console.error('[ChatStore] Failed to load agents:', error)
+      } finally {
+        agentsLoadPromise = null
+      }
+    })()
+    return agentsLoadPromise
   }
 
   /**
