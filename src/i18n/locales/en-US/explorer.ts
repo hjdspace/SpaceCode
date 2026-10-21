@@ -1,6 +1,8 @@
 export default {
   switching: 'Switching...',
   sessionMenu: 'Session menu',
+  enginePi: 'Pi',
+  engineClaudeCode: 'Claude Code',
   splitView: 'Split View',
   renameConversation: 'Rename Conversation',
   copyConversationId: 'Copy Conversation ID',
