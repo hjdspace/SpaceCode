@@ -5,9 +5,9 @@ import { EngineFactory } from '../engine/engines/EngineFactory'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { isEffortLevel } from '@/shared/effort'
 import { eventChannels } from '@/shared/channelMap'
-import type { EngineSessionConfig, EngineType, PermissionMode } from '../engine/engines/types'
+import type { EngineSessionConfig, EngineSessionStatus, EngineType, PermissionMode } from '../engine/engines/types'
 import type { H5RemoteUserMessagePayload } from '../h5/h5Types'
-import type { CronExecOptions, CronRunContext, CronRunResult } from './cronScheduler'
+import type { CronAgentVerdict, CronExecOptions, CronRunContext, CronRunResult } from './cronScheduler'
 
 const ENGINE_EVENTS = eventChannels(claudeCodeNamespace.events, 'claude-code:')
 
@@ -64,7 +64,7 @@ export interface CronSessionPush {
 export interface CronSessionRunnerDeps {
   loadConfig: (cwd: string) => EngineSessionConfig
   resolveModelAlias: (model: string, engineType?: EngineType) => string
-  startSession: (sessionId: string, config: EngineSessionConfig) => Promise<unknown>
+  startSession: (sessionId: string, config: EngineSessionConfig) => Promise<EngineSessionStatus | null>
   sendMessage: (sessionId: string, content: string) => Promise<void>
   stop: (sessionId: string) => Promise<void>
   onRouteEvent: (listener: (sessionId: string, eventType: string, data: any) => void) => () => void
@@ -119,6 +119,8 @@ export function createCronSessionRunner(
   return (prompt, cwd, context, options) => new Promise<CronRunResult>((resolve) => {
     const { sessionId, taskName, activate, signal } = context
     let settled = false
+    // 引擎在 spawn 时就定了 agent 落到没有；startSession 的返回值是唯一回执 (#56)
+    let agentVerdict: CronAgentVerdict | undefined
 
     function finish(exitCode: number | null, stdout: string, stderr: string): void {
       if (settled) return
@@ -127,7 +129,7 @@ export function createCronSessionRunner(
       unsubscribe()
       // 跑完即让子进程退场；用户在会话里再发消息时引擎会按 --resume 续上历史
       void Promise.resolve(deps.stop(sessionId)).catch(() => {})
-      resolve({ exitCode, stdout, stderr })
+      resolve({ exitCode, stdout, stderr, ...(agentVerdict ? { agent: agentVerdict } : {}) })
     }
 
     function onAbort(): void {
@@ -172,7 +174,14 @@ export function createCronSessionRunner(
 
     void (async () => {
       const config = buildCronEngineConfig(deps.loadConfig(cwd), options, deps.resolveModelAlias)
-      await deps.startSession(sessionId, config)
+      const status = await deps.startSession(sessionId, config)
+      if (config.agent) {
+        agentVerdict = {
+          agent: config.agent,
+          applied: status?.agentApplied ?? null,
+          extensionLoaded: status?.agentExtensionLoaded,
+        }
+      }
       // 收口可能落在 startSession 期间（超时中断）。此时再把 prompt 喂进去，
       // 就会留下一个已经无人等待、却仍在跑的引擎进程。
       if (settled) {
