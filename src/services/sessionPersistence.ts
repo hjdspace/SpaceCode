@@ -387,6 +387,9 @@ export function loadSessionsFromStorage(): Session[] {
         viewingAgentTaskId: s.viewingAgentTaskId,
         teammateTranscripts: s.teammateTranscripts || {},
         teamContext: s.teamContext,
+        // 历史 work 会话没有 agent 字段，但 assistantId 就是当时下发给引擎的 agent 名；
+        // 不回填会让升级后的徽章与重启启动参数都丢掉这个选择 (#57)。
+        agent: s.agent || s.assistantId || undefined,
         // 修正历史坏路径（如 `D:\\AI\SpaceCode`），避免重复项目组与打开文件夹失败
         ...(typeof s.workingDirectory === 'string' && s.workingDirectory
           ? { workingDirectory: normalizeAbsolutePath(s.workingDirectory) }
