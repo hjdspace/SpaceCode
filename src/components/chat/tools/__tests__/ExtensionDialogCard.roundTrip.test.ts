@@ -217,6 +217,27 @@ describe('应答交回引擎', () => {
     expect(fake._ipcCalls).toHaveLength(1)
   })
 
+  it('回执按 closedReason 着色：超时是 warn，用户答的是 ok', async () => {
+    const { wrapper, fake, sid } = await setup()
+
+    fake._handlers.onExtensionDialogClosed({
+      sessionId: sid,
+      data: { dialogId: 'uuid-1', method: 'select', reason: 'timeout' },
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.resolved-text').classes()).toContain('warn')
+  })
+
+  it('用户答过的回执是 ok 着色', async () => {
+    const { wrapper } = await setup()
+
+    await wrapper.findAll('.option-btn')[0].trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.resolved-text').classes()).toContain('ok')
+  })
+
   it('「关闭」回 cancelled，扩展那侧拿到 undefined', async () => {
     const { wrapper, fake } = await setup()
 

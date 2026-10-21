@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 A · 卡片同构 — pi Plan Mode UI 重构</title>
+<style>
+:root{
+  --font: 'Inter','Noto Sans SC',-apple-system,'Segoe UI',system-ui,sans-serif;
+  --mono: 'JetBrains Mono','SF Mono',Consolas,monospace;
+  --bg:#f8f9fb; --bg2:#f0f1f5; --elevated:#ffffff;
+  --surface-soft:#f3f4f8;
+  --glass:rgba(24,25,31,.02); --glass-hover:rgba(24,25,31,.04);
+  --border:rgba(24,25,31,.06); --border-strong:rgba(24,25,31,.12);
+  --text:#18191f; --text2:#44475a; --muted:#5c5f7a; --disabled:#9da1b8;
+  --accent:#0d9488; --accent-hover:#14b8a6; --accent-glow:rgba(13,148,136,.12);
+  --success:#059669; --success-glow:rgba(5,150,105,.15);
+  --warning:#d97706; --warning-glow:rgba(217,119,6,.15);
+  --error:#dc2626;
+  --shadow-sm:0 1px 2px rgba(24,25,31,.06);
+  --shadow-md:0 4px 12px rgba(24,25,31,.08);
+  --radius:8px; --radius-lg:12px;
+  --t-fast:150ms cubic-bezier(.4,0,.2,1);
+  --t-norm:250ms cubic-bezier(.4,0,.2,1);
+}
+[data-theme=dark]{
+  --bg:#0d0d0d; --bg2:#141414; --elevated:#1f1f1f;
+  --surface-soft:#121212;
+  --glass:rgba(255,255,255,.03); --glass-hover:rgba(255,255,255,.05);
+  --border:rgba(255,255,255,.06); --border-strong:rgba(255,255,255,.12);
+  --text:#f5f5f5; --text2:#a3a3a3; --muted:#737373; --disabled:#525252;
+  --accent:#3b82f6; --accent-hover:#60a5fa; --accent-glow:rgba(59,130,246,.25);
+  --success:#22c55e; --success-glow:rgba(34,197,94,.2);
+  --warning:#f59e0b; --warning-glow:rgba(245,158,11,.2);
+  --error:#ef4444;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  --shadow-md:0 4px 12px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.55;transition:background var(--t-norm)}
+.proto-bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--elevated);border-bottom:1px solid var(--border);box-shadow:var(--shadow-sm)}
+.proto-bar .badge{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;color:#fff;background:var(--accent)}
+.proto-bar h1{font-size:14px;font-weight:600}
+.proto-bar .axis{font-size:12px;color:var(--muted)}
+.proto-bar .spacer{flex:1}
+.theme-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer}
+.theme-btn:hover{background:var(--glass-hover)}
+.chat{max-width:760px;margin:0 auto;padding:24px 20px 80px;display:flex;flex-direction:column;gap:14px}
+.msg{display:flex;flex-direction:column;gap:4px}
+.msg .role{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.msg.user .bubble{align-self:flex-end;max-width:78%;padding:9px 14px;background:var(--accent);color:#fff;border-radius:12px 12px 3px 12px;line-height:1.55}
+.msg.assistant .body{color:var(--text2);font-size:14px;line-height:1.7;padding:2px 4px}
+.msg.assistant code{font-family:var(--mono);font-size:12px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+.tool-tag{display:inline-flex;align-items:center;gap:5px;margin-bottom:6px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.tool-tag svg{flex:none}
+
+/* ══ 卡片基座：与 AskUserQuestionToolCard 同构 ══ */
+.card{background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:4px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.card-header{padding:8px 12px;display:flex;align-items:center;gap:8px;background:var(--glass);border-bottom:1px solid var(--border)}
+.header-icon{width:24px;height:24px;border-radius:6px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;color:var(--accent);flex-shrink:0}
+.header-text{flex:1;min-width:0}
+.header-text h3{font-size:13px;font-weight:600;color:var(--text);margin-bottom:1px}
+.header-text span{font-size:11px;color:var(--muted)}
+.header-progress{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.progress-text{font-size:11px;font-weight:600;color:var(--text2);font-variant-numeric:tabular-nums}
+.progress-dots{display:flex;gap:4px}
+.progress-dots .dot{width:6px;height:6px;border-radius:50%;background:var(--border-strong);transition:all var(--t-fast)}
+.progress-dots .dot.done{background:var(--accent);opacity:.7}
+.progress-dots .dot.active{background:var(--accent);transform:scale(1.2);box-shadow:0 0 0 2px var(--accent-glow)}
+.card-body{padding:10px 12px}
+.chip{padding:2px 6px;background:var(--accent-glow);color:var(--accent);font-size:11px;font-weight:600;border-radius:4px;flex-shrink:0}
+.question-title{font-size:13px;font-weight:500;color:var(--text2);margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.options-grid{display:flex;flex-direction:column;gap:6px}
+.option-btn{position:relative;width:100%;text-align:left;padding:8px 10px 8px 32px;background:var(--glass);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all var(--t-fast);font-family:inherit;overflow:hidden}
+.option-btn::before{content:'';position:absolute;left:8px;top:50%;transform:translateY(-50%);width:14px;height:14px;border:1.5px solid var(--border-strong);border-radius:4px;transition:all var(--t-fast)}
+.option-btn:hover{border-color:var(--border-strong);background:var(--glass-hover)}
+.option-btn.selected{border-color:var(--accent);background:var(--accent-glow)}
+.option-btn.selected::before{border-color:var(--accent);background:var(--accent)}
+.option-btn.selected::after{content:'✓';position:absolute;left:11.5px;top:50%;transform:translateY(-50%);color:#fff;font-size:10px;font-weight:700}
+.option-btn:active{transform:scale(.98)}
+.option-label{font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px}
+.option-desc{font-size:11px;color:var(--muted);line-height:1.3}
+.custom-input-wrap{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.custom-input-label{font-size:11px;color:var(--muted)}
+.custom-input{width:100%;padding:6px 8px;background:var(--glass);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:inherit;line-height:1.4;resize:vertical;min-height:36px;transition:border-color var(--t-fast)}
+.custom-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.custom-input::placeholder{color:var(--disabled)}
+.card-footer{padding:8px 12px 10px;display:flex;justify-content:flex-end;gap:6px;background:var(--glass);border-top:1px solid var(--border)}
+.footer-btn{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;transition:all var(--t-fast);font-family:inherit;border:1px solid transparent}
+.footer-btn:disabled{cursor:not-allowed;opacity:.5}
+.footer-btn:active{transform:scale(.97)}
+.footer-btn.secondary{background:transparent;border-color:var(--border-strong);color:var(--text2)}
+.footer-btn.secondary:hover{background:var(--glass-hover);border-color:var(--accent);color:var(--text)}
+.footer-btn.ghost{background:var(--glass);border-color:var(--border);color:var(--text2)}
+.footer-btn.ghost:hover{background:var(--glass-hover)}
+.footer-btn.primary{background:var(--accent);border:none;color:#fff;font-weight:600}
+.footer-btn.primary:hover{opacity:.9}
+.footer-spacer{flex:1}
+
+/* 汇总（已回答）态 */
+.summary-header{padding:8px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--glass);transition:background var(--t-fast);user-select:none}
+.summary-header:hover{background:var(--glass-hover)}
+.summary-header.is-expanded{border-bottom:1px solid var(--border)}
+.summary-chevron{color:var(--muted);flex-shrink:0;transition:transform var(--t-fast)}
+.summary-chevron.is-expanded{transform:rotate(180deg)}
+.summary-item{padding:8px 0;border-bottom:1px solid var(--border)}
+.summary-item:last-child{border-bottom:none}
+.summary-question{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.summary-question .q{font-size:13px;font-weight:500;color:var(--text2)}
+.summary-answer{display:flex;gap:4px;align-items:flex-start;padding-left:4px;font-size:12px;color:var(--text)}
+.summary-answer svg{color:var(--accent);flex-shrink:0;margin-top:1px}
+.card.is-resolved{opacity:1}
+.card.is-summary{box-shadow:none}
+
+/* ══ 计划文档卡（plan_mode_complete）══ */
+.plan-card{border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--elevated);box-shadow:var(--shadow-md);margin-top:4px}
+.plan-head{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--glass);border-bottom:1px solid var(--border)}
+.plan-head .p-icon{width:28px;height:28px;border-radius:7px;background:var(--accent-glow);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.plan-head .p-title{flex:1;min-width:0}
+.plan-head .p-title h3{font-size:13.5px;font-weight:600}
+.plan-head .p-title span{font-size:11px;color:var(--muted)}
+.state-pill{flex-shrink:0;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+.state-pill.pending{color:var(--warning);background:var(--warning-glow)}
+.state-pill.done{color:var(--success);background:var(--success-glow)}
+.plan-toc{display:flex;gap:6px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--glass)}
+.toc-item{padding:3px 10px;border-radius:999px;font-size:11.5px;color:var(--text2);background:var(--glass);border:1px solid var(--border);cursor:pointer;transition:all var(--t-fast);font-family:inherit}
+.toc-item:hover{border-color:var(--accent);color:var(--accent)}
+.toc-item.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.plan-body{padding:6px 16px 12px;max-height:430px;overflow-y:auto}
+.plan-body::-webkit-scrollbar{width:8px}
+.plan-body::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:4px}
+.plan-body h4{font-size:13.5px;font-weight:600;color:var(--text);margin:14px 0 6px;display:flex;align-items:center;gap:7px}
+.plan-body h4 .no{width:18px;height:18px;border-radius:5px;background:var(--accent-glow);color:var(--accent);font-size:11px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.plan-body p,.plan-body li{font-size:13px;color:var(--text2);line-height:1.7}
+.plan-body ul{padding-left:20px;margin:4px 0}
+.plan-body li{margin:2px 0}
+.plan-body code{font-family:var(--mono);font-size:11.5px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+.plan-step{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border)}
+.plan-step:last-child{border-bottom:none}
+.plan-step .s-no{flex:none;width:20px;height:20px;border-radius:6px;background:var(--accent-glow);color:var(--accent);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:2px}
+.plan-step .s-body b{display:block;font-size:12.5px;color:var(--text)}
+.plan-step .s-body p{font-size:12px;color:var(--muted);margin-top:2px}
+.plan-foot{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--border);background:var(--glass);flex-wrap:wrap}
+.plan-foot .hint{font-size:11px;color:var(--muted);margin-right:auto}
+.pf-btn{padding:6px 13px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;border:1px solid var(--border-strong);background:transparent;color:var(--text2);transition:all var(--t-fast)}
+.pf-btn:hover{background:var(--glass-hover);border-color:var(--accent);color:var(--text)}
+.pf-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.pf-btn.primary:hover{opacity:.9;color:#fff}
+.pf-btn.danger:hover{border-color:var(--error);color:var(--error)}
+
+/* ══ 通用对话框卡（confirm / editor / 边界态）══
+   与方案 A 卡片家族同构：同一 header / body / footer 骨架 */
+.mini-note{margin:18px 0 8px;font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.row-label{font-size:11px;color:var(--muted);margin:2px 0 8px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(16px);padding:9px 18px;border-radius:8px;background:var(--text);color:var(--bg);font-size:13px;box-shadow:var(--shadow-md);opacity:0;pointer-events:none;transition:all var(--t-norm);z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%)}
+.sec-title{margin:26px 0 4px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.03em}
+</style>
+</head>
+<body>
+<header class="proto-bar">
+  <span class="badge">方案 A</span>
+  <h1>卡片同构</h1>
+  <span class="axis">轴线：以「对话流内联卡片」为中心 — pi 工具卡对齐 AskUserQuestion 家族</span>
+  <div class="spacer"></div>
+  <button class="theme-btn" onclick="toggleTheme()">切换深浅</button>
+</header>
+
+<main class="chat">
+  <div class="msg user"><div class="bubble">帮我给设置页加一个主题预览功能，先出个方案</div></div>
+  <div class="msg assistant"><div class="body">好的，我先进入 Plan mode 梳理方案。动手之前，有两个影响实现路径的问题需要你拍板。</div></div>
+
+  <!-- ══ ① plan_mode_question 交互卡（对齐 AskUserQuestionToolCard）══ -->
+  <div class="tool-tag">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
+    plan_mode_question
+  </div>
+  <div class="card" id="qcard">
+    <div class="card-header">
+      <div class="header-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+      </div>
+      <div class="header-text">
+        <h3 id="q-title">请选择</h3>
+        <span>Plan 模式 · 2 个问题</span>
+      </div>
+      <div class="header-progress">
+        <span class="progress-text" id="q-progress">1 / 2</span>
+        <div class="progress-dots" id="q-dots"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="question-title">
+        <span class="chip" id="q-chip">预览范围</span>
+        <span id="q-text">主题预览应该覆盖哪些界面？</span>
+      </div>
+      <div class="options-grid" id="q-options"></div>
+      <div class="custom-input-wrap">
+        <label class="custom-input-label">都不合适？写下你的想法（可选）</label>
+        <textarea class="custom-input" id="q-note" rows="2" placeholder="自定义答案…"></textarea>
+      </div>
+    </div>
+    <div class="card-footer">
+      <button class="footer-btn secondary" id="q-skip">跳过全部</button>
+      <div class="footer-spacer"></div>
+      <button class="footer-btn ghost" id="q-prev" disabled>上一题</button>
+      <button class="footer-btn primary" id="q-next" disabled>下一题</button>
+      <button class="footer-btn primary" id="q-submit" style="display:none" disabled>提交回答</button>
+    </div>
+  </div>
+
+  <!-- ② 提交后的汇总卡 -->
+  <div class="card is-summary" id="q-summary" style="display:none">
+    <div class="summary-header" id="q-summary-head">
+      <div class="header-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+      </div>
+      <div class="header-text">
+        <h3>已回答 · 2 个问题</h3>
+        <span>点击展开问答记录</span>
+      </div>
+      <svg class="summary-chevron" id="q-summary-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+    <div id="q-summary-body" style="display:none;padding:4px 12px 8px">
+      <div class="summary-item"><div class="summary-question"><span class="chip">预览范围</span><span class="q">主题预览应该覆盖哪些界面？</span></div><div class="summary-answer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg><span>设置页 + 侧栏</span></div></div>
+      <div class="summary-item"><div class="summary-question"><span class="chip">切换方式</span><span class="q">预览时如何应用主题？</span></div><div class="summary-answer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg><span>即时预览</span></div></div>
+    </div>
+  </div>
+
+  <div class="msg assistant"><div class="body">明确了。下面是完整方案 —— 预览覆盖设置页与侧栏，悬停即时生效，离开还原。</div></div>
+
+  <!-- ══ ③ plan_mode_complete 计划文档卡 ══ -->
+  <div class="tool-tag">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+    plan_mode_complete
+  </div>
+  <div class="plan-card">
+    <div class="plan-head">
+      <div class="p-icon">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      </div>
+      <div class="p-title">
+        <h3>实施计划 · 主题预览</h3>
+        <span>plan_mode_complete · 4 个步骤 · 约 2 小时</span>
+      </div>
+      <span class="state-pill pending">待决策</span>
+    </div>
+    <div class="plan-toc" id="plan-toc">
+      <button class="toc-item active" data-sec="s1">背景</button>
+      <button class="toc-item" data-sec="s2">方案概述</button>
+      <button class="toc-item" data-sec="s3">实现步骤</button>
+      <button class="toc-item" data-sec="s4">测试与风险</button>
+    </div>
+    <div class="plan-body">
+      <h4 id="s1"><span class="no">1</span>背景</h4>
+      <p>设置页目前切换主题后只能整页生效，用户无法在应用前对比效果。目标：提供低成本的主题预览能力。</p>
+      <h4 id="s2"><span class="no">2</span>方案概述</h4>
+      <ul>
+        <li>预览范围：<b>设置页 + 侧栏</b>（沿用会话内 <code>data-theme</code> 切换，不触碰窗口层级）</li>
+        <li>生效方式：<b>悬停即时预览</b>，移出还原，点击才落盘 <code>themeStore</code></li>
+      </ul>
+      <h4 id="s3"><span class="no">3</span>实现步骤</h4>
+      <div class="plan-step"><div class="s-no">1</div><div class="s-body"><b>抽取 PreviewScope 容器组件</b><p>将 data-theme 隔离到子树，避免全局副作用；落在 <code>src/components/settings/</code></p></div></div>
+      <div class="plan-step"><div class="s-no">2</div><div class="s-body"><b>设置页主题卡接入悬停预览</b><p>mouseenter 预览 / mouseleave 还原 / click 提交，复用现有 4 套主题枚举</p></div></div>
+      <div class="plan-step"><div class="s-no">3</div><div class="s-body"><b>侧栏跟随预览</b><p>通过 CSS 变量作用域把预览扩展到 Sidebar，不引入第二个主题源</p></div></div>
+      <div class="plan-step"><div class="s-no">4</div><div class="s-body"><b>补测试</b><p><code>themeStore</code> 单测 + 设置页预览交互测试，走 <code>test:changed</code></p></div></div>
+      <h4 id="s4"><span class="no">4</span>测试与风险</h4>
+      <ul>
+        <li>风险：预览期间用户切换会话 → 用 <code>PreviewScope</code> 卸载钩子强制还原</li>
+        <li>风险：anthropic-dark 与 dark 色板差异小 → 预览缩略图加名称标签区分</li>
+      </ul>
+    </div>
+    <div class="plan-foot">
+      <span class="hint">选择下一步 · 由 plan action 菜单应答</span>
+      <button class="pf-btn" onclick="toast('已展开计划全文')">查看全文</button>
+      <button class="pf-btn" onclick="toast('计划已导出到 docs/plans/theme-preview.md')">导出</button>
+      <button class="pf-btn" onclick="toast('已保存，稍后可从 /plan implement 继续')">存为草稿</button>
+      <button class="pf-btn danger" onclick="toast('已放弃计划并退出 Plan mode')">放弃</button>
+      <button class="pf-btn primary" onclick="planApprove()">在本会话实施</button>
+    </div>
+  </div>
+  <div id="plan-approved" class="card is-summary" style="display:none">
+    <div class="summary-header" style="cursor:default">
+      <div class="header-icon" style="background:var(--success-glow);color:var(--success)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      <div class="header-text"><h3>计划已批准</h3><span>引擎开始在本会话实施 · Plan mode 已退出</span></div>
+    </div>
+  </div>
+
+  <div class="sec-title">边界态 · 与卡片家族同构的通用 pi 对话框</div>
+  <div class="row-label">confirm（引擎询问确认）→ 已超时的历史卡片；select → 已在其他端应答</div>
+
+  <!-- ④ 边界态：超时的 confirm -->
+  <div class="card is-summary">
+    <div class="summary-header" style="cursor:default">
+      <div class="header-icon" style="background:var(--warning-glow);color:var(--warning)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      </div>
+      <div class="header-text"><h3>需要确认</h3><span style="color:var(--warning)">引擎未等到回答，已超时</span></div>
+    </div>
+  </div>
+
+  <!-- ⑤ 边界态：其他端已应答的 select -->
+  <div class="card is-summary">
+    <div class="summary-header" style="cursor:default">
+      <div class="header-icon" style="background:var(--success-glow);color:var(--success)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      <div class="header-text"><h3>引擎在提问</h3><span>已在其他端应答 ·「2. 仅设置页」</span></div>
+    </div>
+  </div>
+
+  <!-- ⑥ 空状态：select 无选项 -->
+  <div class="card" style="opacity:.85">
+    <div class="card-header">
+      <div class="header-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg></div>
+      <div class="header-text"><h3>引擎在提问</h3><span>等待你的回答</span></div>
+    </div>
+    <div class="card-body">
+      <p style="font-size:13px;color:var(--text2);white-space:pre-wrap">请选择实现顺序：</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">这条提问没有给出可选项 —— 你可以在下方输入框直接回复。</p>
+      <div class="custom-input-wrap" style="margin-top:8px">
+        <textarea class="custom-input" rows="2" placeholder="输入内容…"></textarea>
+      </div>
+    </div>
+    <div class="card-footer"><button class="footer-btn primary" onclick="toast('已回复')">提交</button></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function toggleTheme(){
+  const el=document.documentElement
+  el.dataset.theme=el.dataset.theme==='light'?'dark':'light'
+}
+let tid
+function toast(msg){
+  const t=document.getElementById('toast')
+  t.textContent=msg;t.classList.add('show')
+  clearTimeout(tid);tid=setTimeout(()=>t.classList.remove('show'),2200)
+}
+/* ── ① 分页问卷 ── */
+const QUESTIONS=[
+  {header:'预览范围',text:'主题预览应该覆盖哪些界面？',options:[
+    {label:'仅设置页',desc:'实现最简单，预览只出现在设置页内'},
+    {label:'设置页 + 侧栏',desc:'预览延伸到侧栏，覆盖最高频区域，不触碰窗口层级'},
+    {label:'全局浮窗',desc:'任意界面悬浮预览，需要主进程窗口层级改造'}]},
+  {header:'切换方式',text:'预览时如何应用主题？',options:[
+    {label:'即时预览',desc:'鼠标悬停即切换，移出后还原'},
+    {label:'点击生效',desc:'点击后才应用，行为更可预期'}]}
+]
+const sel={0:new Set(),1:new Set()},note={0:'',1:''}
+let page=0
+const $=id=>document.getElementById(id)
+function answered(i){return sel[i].size>0||note[i].trim().length>0}
+function answeredCount(){let n=0;for(let i=0;i<QUESTIONS.length;i++)if(answered(i))n++;return n}
+function renderDots(){
+  $('q-dots').innerHTML=QUESTIONS.map((_,i)=>
+    `<span class="dot ${i===page?'active':answered(i)&&i!==page?'done':''}"></span>`).join('')
+  $('q-progress').textContent=`${page+1} / ${QUESTIONS.length}`
+}
+function renderQ(){
+  const q=QUESTIONS[page]
+  $('q-chip').textContent=q.header
+  $('q-text').textContent=q.text
+  $('q-options').innerHTML=q.options.map((o,i)=>
+    `<button class="option-btn ${sel[page].has(i)?'selected':''}" data-i="${i}">
+      <div class="option-label">${o.label}</div><div class="option-desc">${o.desc}</div></button>`).join('')
+  $('q-options').querySelectorAll('.option-btn').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.i
+    sel[page].clear();sel[page].add(i);renderQ()
+  })
+  $('q-note').value=note[page]
+  $('q-prev').disabled=page===0
+  const last=page===QUESTIONS.length-1
+  $('q-next').style.display=last?'none':''
+  $('q-submit').style.display=last?'':'none'
+  $('q-next').disabled=!answered(page)
+  $('q-submit').disabled=answeredCount()===0
+  renderDots()
+}
+$('q-prev').onclick=()=>{if(page>0){page--;renderQ()}}
+$('q-next').onclick=()=>{if(answered(page)&&page<QUESTIONS.length-1){page++;renderQ()}}
+$('q-note').oninput=e=>{note[page]=e.target.value;renderQ()}
+$('q-skip').onclick=()=>toast('已跳过 · 引擎收到 cancelled')
+$('q-submit').onclick=()=>{
+  $('qcard').style.display='none'
+  $('q-summary').style.display=''
+  toast('回答已提交 · 问卷以 submitted 应答')
+}
+$('q-summary-head').onclick=()=>{
+  const b=$('q-summary-body'),c=$('q-summary-chev')
+  const open=b.style.display==='none'
+  b.style.display=open?'':'none';c.classList.toggle('is-expanded',open)
+  $('q-summary-head').classList.toggle('is-expanded',open)
+}
+renderQ()
+/* ── ③ 计划目录锚点 ── */
+document.querySelectorAll('.toc-item').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.toc-item').forEach(x=>x.classList.remove('active'))
+  b.classList.add('active')
+  document.getElementById(b.dataset.sec)?.scrollIntoView({behavior:'smooth',block:'start'})
+})
+function planApprove(){
+  document.getElementById('plan-approved').style.display=''
+  document.querySelector('.plan-card .state-pill').outerHTML='<span class="state-pill done">已批准</span>'
+  toast('已批准 · 实施开始')
+}
+</script>
+</body>
+</html>

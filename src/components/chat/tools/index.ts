@@ -16,6 +16,9 @@ export const TOOL_COMPONENT_MAP: Record<string, () => Promise<any>> = {
   'WebSearch': () => import('./WebSearchToolCard.vue'),
   'AskUserQuestion': () => import('./AskUserQuestionToolCard.vue'),
   'ExitPlanMode': () => import('./ExitPlanModeToolCard.vue'),
+  // pi plan mode 扩展工具（tool_use 事件带结构化 questions/plan）
+  'plan_mode_question': () => import('./PlanModeQuestionToolCard.vue'),
+  'plan_mode_complete': () => import('./PlanModeCompleteToolCard.vue'),
   'TaskOutput': () => import('./TaskOutputToolCard.vue'),
   // Browser-Use tools
   'browser_use': () => import('./BrowserUseToolCard.vue'),

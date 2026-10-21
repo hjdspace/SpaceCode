@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 C · 会话面板中心 — pi Plan Mode UI 重构</title>
+<style>
+:root{
+  --font:'Inter','Noto Sans SC',-apple-system,'Segoe UI',system-ui,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+  --bg:#f8f9fb;--elevated:#fff;--surface-soft:#f3f4f8;
+  --glass:rgba(24,25,31,.02);--glass-hover:rgba(24,25,31,.04);
+  --border:rgba(24,25,31,.06);--border-strong:rgba(24,25,31,.12);
+  --text:#18191f;--text2:#44475a;--muted:#5c5f7a;--disabled:#9da1b8;
+  --accent:#0d9488;--accent-glow:rgba(13,148,136,.12);
+  --success:#059669;--success-glow:rgba(5,150,105,.15);
+  --warning:#d97706;--warning-glow:rgba(217,119,6,.15);
+  --error:#dc2626;--shadow-md:0 4px 12px rgba(24,25,31,.08);--shadow-lg:0 8px 24px rgba(24,25,31,.11);
+  --radius:8px;--radius-lg:12px;--t-fast:150ms cubic-bezier(.4,0,.2,1);--t-norm:250ms cubic-bezier(.4,0,.2,1);
+}
+[data-theme=dark]{
+  --bg:#0d0d0d;--elevated:#1f1f1f;--surface-soft:#121212;
+  --glass:rgba(255,255,255,.03);--glass-hover:rgba(255,255,255,.05);
+  --border:rgba(255,255,255,.06);--border-strong:rgba(255,255,255,.12);
+  --text:#f5f5f5;--text2:#a3a3a3;--muted:#737373;--disabled:#525252;
+  --accent:#3b82f6;--accent-glow:rgba(59,130,246,.25);
+  --success:#22c55e;--success-glow:rgba(34,197,94,.2);
+  --warning:#f59e0b;--warning-glow:rgba(245,158,11,.2);
+  --error:#ef4444;--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.55;overflow:hidden;transition:background var(--t-norm)}
+.app{display:flex;height:100vh}
+.proto-bar{position:fixed;top:0;left:0;right:0;z-index:60;display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--elevated);border-bottom:1px solid var(--border);box-shadow:0 1px 2px rgba(24,25,31,.06)}
+.proto-bar .badge{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;color:#fff;background:var(--accent)}
+.proto-bar h1{font-size:14px;font-weight:600}
+.proto-bar .axis{font-size:12px;color:var(--muted)}
+.proto-bar .spacer{flex:1}
+.theme-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border-strong);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;font-family:inherit}
+.theme-btn:hover{background:var(--glass-hover)}
+.chat-wrap{flex:1;min-width:0;overflow-y:auto;padding:72px 24px 40px;display:flex;flex-direction:column;gap:12px;align-items:center}
+.chat{width:100%;max-width:640px;display:flex;flex-direction:column;gap:12px}
+.msg.user{align-self:flex-end;max-width:80%;padding:9px 14px;background:var(--accent);color:#fff;border-radius:12px 12px 3px 12px}
+.msg.assistant{color:var(--text2);font-size:14px;line-height:1.7;padding:0 4px}
+/* 聊天里只留轻量 chip */
+.chip-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.echip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;border:1px solid var(--border);background:var(--glass);font-size:12px;color:var(--text2);cursor:pointer;transition:all var(--t-fast);font-family:inherit}
+.echip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-glow)}
+.echip .dot-ind{width:7px;height:7px;border-radius:50%;background:var(--warning);animation:pulse 1.6s infinite}
+.echip .dot-ind.ok{background:var(--success)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.echip b{font-weight:600}
+.tool-tag{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+/* ══ 右侧 Plan Panel ══ */
+.panel{width:340px;flex:none;border-left:1px solid var(--border);background:var(--elevated);display:flex;flex-direction:column;transition:margin-right var(--t-norm)}
+.panel.hidden{margin-right:-340px}
+.panel-head{padding:14px 16px 12px;border-bottom:1px solid var(--border)}
+.panel-head .ph-row{display:flex;align-items:center;gap:9px}
+.panel-head .ph-icon{width:30px;height:30px;border-radius:8px;background:var(--accent-glow);color:var(--accent);display:flex;align-items:center;justify-content:center}
+.panel-head h2{font-size:14px;font-weight:650}
+.panel-head .ph-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.mode-pill{margin-left:auto;padding:3px 10px;border-radius:999px;font-size:10.5px;font-weight:700;letter-spacing:.05em;background:var(--accent-glow);color:var(--accent)}
+.panel-body{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.panel-body::-webkit-scrollbar{width:8px}
+.panel-body::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:4px}
+.sec-label{font-size:10.5px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+/* 面板内答题器 */
+.askbox{border:1px solid var(--border-strong);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg)}
+.askbox-head{padding:9px 12px;background:var(--glass);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.askbox-head .chip{padding:2px 6px;background:var(--accent-glow);color:var(--accent);font-size:10.5px;font-weight:600;border-radius:4px}
+.askbox-head .pg{margin-left:auto;font-size:11px;font-weight:600;color:var(--text2);font-variant-numeric:tabular-nums}
+.askbox-body{padding:10px 12px}
+.askbox-body .qt{font-size:12.5px;font-weight:500;color:var(--text2);margin-bottom:8px}
+.opt{display:flex;gap:8px;width:100%;text-align:left;padding:7px 9px;background:var(--glass);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all var(--t-fast);font-family:inherit;margin-bottom:5px;align-items:flex-start}
+.opt:hover{border-color:var(--border-strong);background:var(--glass-hover)}
+.opt.sel{border-color:var(--accent);background:var(--accent-glow)}
+.opt .radio{flex:none;width:13px;height:13px;border:1.5px solid var(--border-strong);border-radius:50%;margin-top:2px}
+.opt.sel .radio{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 2.5px var(--bg)}
+.opt b{display:block;font-size:11.5px;color:var(--text)}
+.opt span{font-size:10.5px;color:var(--muted)}
+.askbox-foot{display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--border);background:var(--glass)}
+.pbtn{padding:5px 11px;border-radius:6px;font-size:11.5px;font-weight:500;cursor:pointer;font-family:inherit;border:1px solid var(--border-strong);background:transparent;color:var(--text2);transition:all var(--t-fast)}
+.pbtn:hover{border-color:var(--accent);color:var(--text)}
+.pbtn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.pbtn:disabled{opacity:.5;cursor:not-allowed}
+/* 计划摘要 */
+.plan-mini{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--glass);padding:11px 12px}
+.plan-mini .pm-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.plan-mini b{font-size:12.5px}
+.plan-mini .state-pill{margin-left:auto;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;color:var(--warning);background:var(--warning-glow)}
+.plan-mini ol{padding-left:18px;font-size:11.5px;color:var(--text2);line-height:1.7}
+.plan-mini .pm-actions{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+/* 活动时间线 */
+.timeline{display:flex;flex-direction:column;gap:0}
+.tl-item{display:flex;gap:9px;padding:5px 0;position:relative}
+.tl-item .tl-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--border-strong);margin-top:5px;position:relative}
+.tl-item::before{content:'';position:absolute;left:3.5px;top:16px;bottom:-4px;width:1px;background:var(--border)}
+.tl-item:last-child::before{display:none}
+.tl-item .tl-dot.ok{background:var(--success)}
+.tl-item .tl-dot.warn{background:var(--warning)}
+.tl-item .tl-dot.act{background:var(--accent)}
+.tl-item .tl-text{font-size:11.5px;color:var(--text2);line-height:1.5}
+.tl-item .tl-time{font-size:10px;color:var(--disabled);margin-top:1px;font-variant-numeric:tabular-nums}
+.empty{border:1px dashed var(--border-strong);border-radius:var(--radius-lg);padding:18px 12px;text-align:center;color:var(--muted);font-size:12px}
+.empty svg{opacity:.4;margin-bottom:6px}
+.panel-foot{padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:6px}
+.toast{position:fixed;left:calc(50% - 170px);bottom:28px;transform:translateX(-50%) translateY(16px);padding:9px 18px;border-radius:8px;background:var(--text);color:var(--bg);font-size:13px;box-shadow:var(--shadow-md);opacity:0;pointer-events:none;transition:all var(--t-norm);z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+<div class="proto-bar">
+  <span class="badge">方案 C</span>
+  <h1>会话面板中心</h1>
+  <span class="axis">轴线：以「会话级状态中枢」为中心 — 聊天只留 chip，答题与决策收进右侧面板</span>
+  <div class="spacer"></div>
+  <button class="theme-btn" onclick="toggleTheme()">切换深浅</button>
+  <button class="theme-btn" onclick="togglePanel()" id="panel-toggle">收起面板</button>
+</div>
+
+<div class="app">
+  <div class="chat-wrap">
+    <div class="chat">
+      <div class="msg user">帮我给设置页加一个主题预览功能，先出个方案</div>
+      <div class="msg assistant">进入 Plan mode。有两个影响实现路径的问题需要你拍板 —— 我把问题放到了右侧 Plan 面板，也可以直接点下面的提醒。</div>
+
+      <!-- 聊天内仅 chip -->
+      <div class="chip-row">
+        <span class="tool-tag">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
+          plan_mode_question
+        </span>
+        <button class="echip" onclick="focusPanel('ask')"><span class="dot-ind"></span><b>2 个问题</b>&nbsp;等待你的回答</button>
+      </div>
+      <div class="chip-row" id="chip-answered" style="display:none">
+        <span class="tool-tag">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
+          plan_mode_question
+        </span>
+        <span class="echip" style="cursor:default"><span class="dot-ind ok"></span><b>已回答</b>&nbsp;预览范围 → 设置页+侧栏 · 切换方式 → 即时预览</span>
+      </div>
+
+      <div class="msg assistant" id="asst-plan">明确了，正在生成计划……</div>
+      <div class="chip-row" id="chip-plan" style="display:none">
+        <span class="tool-tag">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+          plan_mode_complete
+        </span>
+        <button class="echip" onclick="focusPanel('plan')"><b>实施计划 · 主题预览</b>&nbsp;4 步 · 待决策</button>
+      </div>
+
+      <div class="sec-label" style="margin-top:20px">边界态 · 聊天内的过期 chip</div>
+      <div class="chip-row">
+        <span class="echip" style="cursor:default;opacity:.75"><span class="dot-ind" style="background:var(--error);animation:none"></span>问卷已超时 · 引擎按 cancelled 处理</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 右侧 Plan Panel ══ -->
+  <aside class="panel" id="panel">
+    <div class="panel-head">
+      <div class="ph-row">
+        <div class="ph-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        </div>
+        <div><h2>Plan Mode</h2><div class="ph-sub">pi engine · 会话 #a3f2</div></div>
+        <span class="mode-pill">PLAN</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <!-- 答题器 -->
+      <div id="sec-ask">
+        <div class="sec-label">待回答</div>
+        <div class="askbox">
+          <div class="askbox-head">
+            <span class="chip" id="ak-chip">预览范围</span>
+            <span class="pg" id="ak-pg">1 / 2</span>
+          </div>
+          <div class="askbox-body">
+            <div class="qt" id="ak-text">主题预览应该覆盖哪些界面？</div>
+            <div id="ak-opts"></div>
+            <input id="ak-note" placeholder="自定义答案（可选）…" style="width:100%;margin-top:4px;padding:6px 9px;background:var(--glass);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11.5px;font-family:inherit" oninput="noteInput(this.value)">
+          </div>
+          <div class="askbox-foot">
+            <button class="pbtn" id="ak-skip">跳过</button>
+            <div style="flex:1"></div>
+            <button class="pbtn" id="ak-prev" disabled>上一题</button>
+            <button class="pbtn primary" id="ak-next" disabled>下一题</button>
+            <button class="pbtn primary" id="ak-submit" style="display:none" disabled>提交</button>
+          </div>
+        </div>
+      </div>
+      <!-- 已回答摘要 -->
+      <div id="sec-asked" style="display:none">
+        <div class="sec-label">已回答</div>
+        <div class="plan-mini">
+          <div class="pm-head" style="margin-bottom:4px"><b style="font-size:12px;color:var(--success)">✓ 2 / 2 已提交</b></div>
+          <ol style="padding-left:18px;font-size:11.5px;color:var(--text2);line-height:1.8">
+            <li>预览范围 → <b>设置页 + 侧栏</b></li>
+            <li>切换方式 → <b>即时预览</b></li>
+          </ol>
+        </div>
+      </div>
+      <!-- 计划 -->
+      <div id="sec-plan">
+        <div class="sec-label">计划</div>
+        <div class="empty" id="plan-empty">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+          <div>还没有计划提交<br>回答问题后引擎会生成完整方案</div>
+        </div>
+        <div class="plan-mini" id="plan-mini" style="display:none">
+          <div class="pm-head">
+            <b>实施计划 · 主题预览</b>
+            <span class="state-pill" id="pm-pill">待决策</span>
+          </div>
+          <ol>
+            <li>抽取 PreviewScope 容器组件</li>
+            <li>设置页主题卡接入悬停预览</li>
+            <li>侧栏跟随预览（CSS 变量作用域）</li>
+            <li>补 themeStore 单测与交互测试</li>
+          </ol>
+          <div class="pm-actions">
+            <button class="pbtn" onclick="toast('已展开计划全文')">全文</button>
+            <button class="pbtn" onclick="toast('已导出 docs/plans/theme-preview.md')">导出</button>
+            <button class="pbtn" onclick="toast('已存草稿')">存草稿</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="pbtn" style="flex:1" onclick="toast('留在 Plan mode 继续修改')">再改改</button>
+            <button class="pbtn" style="flex:1" onclick="toast('已放弃 · Plan mode 退出')">放弃</button>
+            <button class="pbtn primary" style="flex:2" onclick="approve()">批准实施</button>
+          </div>
+        </div>
+      </div>
+      <!-- 活动时间线 -->
+      <div>
+        <div class="sec-label">活动</div>
+        <div class="timeline" id="timeline">
+          <div class="tl-item"><span class="tl-dot act"></span><div><div class="tl-text">进入 Plan mode（/plan start）</div><div class="tl-time">14:02:11</div></div></div>
+          <div class="tl-item"><span class="tl-dot act"></span><div><div class="tl-text">plan_mode_question · 提出 2 个问题</div><div class="tl-time">14:02:34</div></div></div>
+          <div class="tl-item" id="tl-answer"><span class="tl-dot warn"></span><div><div class="tl-text">等待回答 · 问卷进行中</div><div class="tl-time" id="clock">14:02:40</div></div></div>
+          <div class="tl-item" style="opacity:.6"><span class="tl-dot"></span><div><div class="tl-text">另一会话的问卷已超时 cancelled</div><div class="tl-time">13:47:02</div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="pbtn" style="flex:1" onclick="toast('已退出 Plan mode')">退出 Plan</button>
+      <button class="pbtn" style="flex:1" onclick="toast('查看工具策略：plan 下禁写文件')">策略</button>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function toggleTheme(){const el=document.documentElement;el.dataset.theme=el.dataset.theme==='light'?'dark':'light'}
+function togglePanel(){
+  const p=document.getElementById('panel'),b=document.getElementById('panel-toggle')
+  p.classList.toggle('hidden')
+  b.textContent=p.classList.contains('hidden')?'展开面板':'收起面板'
+}
+let tid
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tid);tid=setTimeout(()=>t.classList.remove('show'),2200)}
+function focusPanel(sec){
+  const p=document.getElementById('panel')
+  if(p.classList.contains('hidden'))togglePanel()
+  const el=document.getElementById(sec==='ask'?'sec-ask':'sec-plan')
+  el.scrollIntoView({behavior:'smooth',block:'start'})
+}
+/* 面板答题器 */
+const QUESTIONS=[
+ {header:'预览范围',text:'主题预览应该覆盖哪些界面？',options:[
+  {label:'仅设置页',desc:'实现最简单'},
+  {label:'设置页 + 侧栏',desc:'覆盖最高频区域'},
+  {label:'全局浮窗',desc:'需窗口层级改造'}]},
+ {header:'切换方式',text:'预览时如何应用主题？',options:[
+  {label:'即时预览',desc:'悬停切换，移出还原'},
+  {label:'点击生效',desc:'行为可预期'}]}
+]
+const sel=[null,null],note=['',''];let page=0,done=false
+const $=id=>document.getElementById(id)
+function answered(i){return sel[i]!==null||note[i].trim().length>0}
+function renderAsk(){
+  const q=QUESTIONS[page]
+  $('ak-chip').textContent=q.header
+  $('ak-text').textContent=q.text
+  $('ak-pg').textContent=`${page+1} / 2`
+  $('ak-opts').innerHTML=q.options.map((o,i)=>
+   `<button class="opt ${sel[page]===i?'sel':''}" data-i="${i}"><span class="radio"></span><span><b>${o.label}</b><span>${o.desc}</span></span></button>`).join('')
+  $('ak-opts').querySelectorAll('.opt').forEach(b=>b.onclick=()=>{sel[page]=+b.dataset.i;renderAsk()})
+  $('ak-note').value=note[page]
+  $('ak-prev').disabled=page===0
+  const last=page===1
+  $('ak-next').style.display=last?'none':''
+  $('ak-submit').style.display=last?'':'none'
+  $('ak-next').disabled=!answered(page)
+  $('ak-submit').disabled=!(answered(0)&&answered(1))
+}
+$('ak-prev').onclick=()=>{if(page>0){page--;renderAsk()}}
+$('ak-next').onclick=()=>{if(answered(page)){page=1;renderAsk()}}
+function noteInput(v){note[page]=v;renderAsk()}
+$('ak-skip').onclick=()=>toast('已跳过 · 引擎收到 cancelled')
+$('ak-submit').onclick=()=>{
+  done=true
+  $('sec-ask').style.display='none';$('sec-asked').style.display=''
+  $('chip-answered').style.display='';document.querySelector('.chip-row .echip')?.closest('.chip-row')?.remove()
+  addTimeline('ok','问卷已提交 · 2 个回答','')
+  toast('回答已提交')
+  setTimeout(()=>{
+    $('plan-empty').style.display='none'
+    $('plan-mini').style.display=''
+    $('sec-plan').querySelector('.sec-label').textContent='计划 · 已提交'
+    $('chip-plan').style.display=''
+    $('asst-plan').textContent='计划已经生成，请在右侧面板审阅并决策。'
+    addTimeline('act','plan_mode_complete · 提交实施计划','')
+    addTimeline('warn','等待决策 · Implement here / Fresh / Discard','')
+  },1400)
+}
+function approve(){
+  $('pm-pill').textContent='已批准'
+  $('pm-pill').style.cssText='color:var(--success);background:var(--success-glow)'
+  addTimeline('ok','计划已批准 · 本会话开始实施','')
+  toast('已批准 · 实施开始')
+}
+function addTimeline(cls,text,time){
+  const t=new Date().toTimeString().slice(0,8)
+  const div=document.createElement('div')
+  div.className='tl-item'
+  div.innerHTML=`<span class="tl-dot ${cls}"></span><div><div class="tl-text">${text}</div><div class="tl-time">${time||t}</div></div>`
+  $('timeline').prepend(div)
+}
+/* 实时时钟：体现「活」的界面 */
+setInterval(()=>{const c=$('clock');if(c&&!done)c.textContent=new Date().toTimeString().slice(0,8)},1000)
+renderAsk()
+</script>
+</body>
+</html>

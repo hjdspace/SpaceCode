@@ -328,6 +328,26 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
     envVar: 'CLAUDE_CODE_VERIFY_PLAN=true',
     hasSpecialUI: false,
   },
+  {
+    name: 'plan_mode_question',
+    displayName: 'Plan Question',
+    icon: 'MessageCircleQuestion',
+    category: 'plan',
+    description: 'Ask structured questions before finalizing the plan (pi plan mode)',
+    availability: 'runtime-check',
+    runtimeCheckDescription: 'pi plan mode extension loaded',
+    hasSpecialUI: true,
+  },
+  {
+    name: 'plan_mode_complete',
+    displayName: 'Plan Complete',
+    icon: 'ClipboardCheck',
+    category: 'plan',
+    description: 'Present the finalized plan for review (pi plan mode)',
+    availability: 'runtime-check',
+    runtimeCheckDescription: 'pi plan mode extension loaded',
+    hasSpecialUI: true,
+  },
 
   // ═══════════════════════════════════════
   // workflow — 工作流/自动化

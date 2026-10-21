@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
 import type {
   ExtensionDialogCloseReason,
+  ExtensionDialogMethod,
   ExtensionDialogRequest,
 } from '@/shared/channels/claudeCode'
 
@@ -61,6 +62,25 @@ export class ExtensionDialogService {
 
   hasPending(sessionId: string): boolean {
     return this.list(sessionId).some(dialog => dialog.state === 'pending')
+  }
+
+  /**
+   * 跨会话列出全部 pending 对话框（按到达顺序）。
+   *
+   * 供 plan-mode 工具卡配对用：tool_use 卡没有 sessionId 可依赖（多 pane 下当前会话
+   * 不一定是卡片所属会话），而 dialogId 是 pi 自己的 UUID、标题由同一份 questions
+   * 数组生成 —— 配对按 title 消费时只能全局现取。纯查询，不改任何状态。
+   */
+  listPending(method?: ExtensionDialogMethod): ExtensionDialog[] {
+    const result: ExtensionDialog[] = []
+    for (const bySession of this.dialogs.value.values()) {
+      for (const dialog of bySession.values()) {
+        if (dialog.state !== 'pending') continue
+        if (method && dialog.method !== method) continue
+        result.push(dialog)
+      }
+    }
+    return result
   }
 
   /**
