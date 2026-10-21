@@ -178,7 +178,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 
-const props = defineProps<{ toolCall: ToolCall }>()
+const props = defineProps<{ toolCall: ToolCall; now?: number }>()
 const isExpanded = ref(false)
 const { t } = useI18n()
 
@@ -190,7 +190,8 @@ const isRunning = computed(() => props.toolCall.status === 'running' || props.to
 
 const duration = computed(() => {
   if (!props.toolCall.startTime) return null
-  const end = props.toolCall.endTime || Date.now()
+  // 父级传入每秒刷新的 now，运行中才会走秒；未传时维持原行为
+  const end = props.toolCall.endTime || props.now || Date.now()
   return ((end - props.toolCall.startTime) / 1000).toFixed(1)
 })
 
