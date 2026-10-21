@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as path from 'path'
 import { PiSessionProcess } from '../PiSessionProcess'
-import { resetPiCliProbeCache } from '../piCliResolver'
+import { MIN_PI_VERSION, resetPiCliProbeCache } from '../piCliResolver'
 import type { EngineSessionConfig } from '../types'
 import { info as loggerInfo, warn as loggerWarn } from '../../../infra/logger'
 
@@ -249,7 +249,7 @@ describe('resolveCliPath — 打包态只认随产物走的那份 pi (#52)', () 
 
     const proc = newProc()
 
-    expect(() => privates(proc).resolveCliPath()).toThrow(/below the required 1\.0\.0/)
+    expect(() => privates(proc).resolveCliPath()).toThrow(`below the required ${MIN_PI_VERSION}`)
     expect(proc.engineVersion).toBe('0.73.0')
     expect(proc.engineVersionCompatible).toBe(false)
   })
