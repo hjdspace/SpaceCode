@@ -39,6 +39,16 @@
         </span>
       </div>
 
+      <!-- Engine badge: 历史会话必须能一眼看出是 Pi 还是 Claude Code -->
+      <span
+        v-if="session.engineType"
+        class="engine-badge"
+        :class="`engine-${session.engineType}`"
+        :title="engineLabel"
+      >
+        {{ engineShort }}
+      </span>
+
       <!-- Title -->
       <span class="session-title">{{ session.title }}</span>
 
@@ -235,6 +245,18 @@ const menuTriggerRef = ref<HTMLButtonElement>()
 const menuPosition = ref({ top: 0, left: 0 })
 
 const showActions = computed(() => props.isHovered || menuOpen.value || props.isDeleting)
+
+const engineLabel = computed(() => {
+  if (props.session.engineType === 'pi') return t('explorer.enginePi')
+  if (props.session.engineType === 'claude-code') return t('explorer.engineClaudeCode')
+  return ''
+})
+
+const engineShort = computed(() => {
+  if (props.session.engineType === 'pi') return t('explorer.enginePi')
+  if (props.session.engineType === 'claude-code') return 'CC'
+  return ''
+})
 
 // 计算菜单样式
 const menuStyle = computed(() => ({
@@ -511,6 +533,22 @@ onUnmounted(() => {
   border-radius: 50%;
   background: var(--status-warning-muted, rgba(234, 179, 8, 0.15));
   color: var(--status-warning-foreground, #ca8a04);
+}
+
+.engine-badge {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: var(--surface-glass);
+
+  &.engine-pi {
+    color: var(--accent-primary);
+  }
 }
 
 .session-title {
