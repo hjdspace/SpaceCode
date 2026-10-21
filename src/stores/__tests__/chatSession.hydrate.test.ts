@@ -82,6 +82,28 @@ describe('chatSession hydrate race protection', () => {
     vi.clearAllMocks()
   })
 
+  it('requests history from the session engine', async () => {
+    seedSession('pi-session-1', { engineType: 'pi' })
+    mocks.getFullSession.mockResolvedValue({
+      engineType: 'pi',
+      messages: [
+        {
+          type: 'user',
+          uuid: 'u1',
+          timestamp: '2026-10-20T03:21:00.000Z',
+          message: { role: 'user', content: [{ type: 'text', text: 'pi history' }] },
+        },
+      ],
+    })
+
+    const store = useChatSessionStore()
+    await store.selectSession('pi-session-1')
+    await flushMicrotasks()
+
+    expect(mocks.getFullSession).toHaveBeenCalledWith('D:\\repo', 'pi-session-1', 'pi')
+    expect(store.sessions.find(s => s.id === 'pi-session-1')!.messages[0].content).toBe('pi history')
+  })
+
   it('preserves messages appended while JSONL hydration is in flight', async () => {
     // JSONL 快照：历史"你好"（重复 + API 错误会被重试去重折叠成一条）
     const gate = deferred<{
