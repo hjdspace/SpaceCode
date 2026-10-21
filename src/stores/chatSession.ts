@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
+import type { Session, Message, ToolCall, AgentInfo, SessionEngineType, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
 import { ErrorCategory } from '@/types'
 import type { RewindOption } from '@/types/rewind'
 import { messages, i18n } from '@/i18n'
@@ -21,6 +21,8 @@ import { buildStartupFingerprint, diffStartupConfig } from '@/utils/sessionStart
 import {
   loadSessionsFromStorage,
   saveSessionsToStorage,
+  loadDeletedSessionIds,
+  saveDeletedSessionIds,
   loadProjectsFromStorage,
   saveProjectsToStorage,
   setPersistenceLogger,
@@ -167,8 +169,13 @@ async function hydrateSessionsFromJsonl(sessions: Session[], messageIdsAtStart?:
       msg => typeof msg.content === 'string' && msg.content.includes('[Truncated for storage]')
     )
     try {
-      const fullSession = await claudeCode.getFullSession(projectPath, session.id)
+      // engineType 必须显式下发：Claude 与 pi 的 JSONL 根目录/文件名规则不同，
+      // 让主进程按会话自己的引擎取历史，老会话缺字段时才回退到自动识别。
+      const fullSession = await claudeCode.getFullSession(projectPath, session.id, session.engineType)
       if (!(fullSession?.messages as unknown[] | undefined)?.length) continue
+
+      const fullEngineType = fullSession.engineType as SessionEngineType | undefined
+      if (fullEngineType && !session.engineType) session.engineType = fullEngineType
 
       const restoredMessages = buildMessagesFromHistory(fullSession.messages as any[])
       if (restoredMessages.length === 0) continue
@@ -369,6 +376,20 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   const settingsStore = useSettingsStore()
 
   const sessions = ref<Session[]>(loadSessionsFromStorage())
+  // 历史恢复不能把用户刚删掉的会话重新拉回来；显式恢复时 createSession
+  // 会清掉对应墓碑。
+  const deletedSessionIds = new Set<string>(loadDeletedSessionIds())
+
+  function rememberDeletedSession(sessionId: string) {
+    deletedSessionIds.add(sessionId)
+    saveDeletedSessionIds([...deletedSessionIds])
+  }
+
+  function forgetDeletedSession(sessionId: string) {
+    if (deletedSessionIds.delete(sessionId)) {
+      saveDeletedSessionIds([...deletedSessionIds])
+    }
+  }
 
   interface SessionHistoryLite {
     projectPath?: string
@@ -376,6 +397,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     title?: string
     firstUserMessage?: string
     lastMessageTimestamp?: number
+    engineType?: SessionEngineType
+    engineSessionId?: string
     metadata?: {
       customTitle?: string
       timestamps?: {
@@ -695,12 +718,33 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const history = await listAllSessions() as SessionHistoryLite[]
       if (!Array.isArray(history) || history.length === 0) return 0
 
+      const historyById = new Map<string, SessionHistoryLite>()
+      for (const entry of history) {
+        if (!entry?.sessionId) continue
+        const existing = historyById.get(entry.sessionId)
+        if (!existing || (entry.lastMessageTimestamp ?? 0) > (existing.lastMessageTimestamp ?? 0)) {
+          historyById.set(entry.sessionId, entry)
+        }
+      }
+
       const knownIds = new Set(sessions.value.map(session => session.id))
       let recovered = 0
+      let backfilled = false
 
-      for (const entry of history) {
-        const id = entry?.sessionId
-        if (!id || knownIds.has(id)) continue
+      // 旧记录在 engineType 落地之前创建，可能只缺这一列。历史源里能认出来
+      // 就补上，避免左栏继续把它们当成“未知引擎”。
+      for (const session of sessions.value) {
+        if (session.engineType) continue
+        const entry = historyById.get(session.id)
+        if (!entry?.engineType) continue
+        session.engineType = entry.engineType
+        if (entry.engineSessionId) session.engineSessionId = entry.engineSessionId
+        backfilled = true
+      }
+
+      for (const entry of historyById.values()) {
+        const id = entry.sessionId!
+        if (knownIds.has(id) || deletedSessionIds.has(id)) continue
 
         const lastMessageAt = entry.lastMessageTimestamp
           || (entry.metadata?.timestamps?.lastMessageAt
@@ -722,6 +766,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           createdAt: Number.isFinite(createdAt) ? createdAt! : timestamp,
           updatedAt: timestamp,
           workingDirectory: projectPath,
+          // 恢复出的条目必须带上引擎归属；否则打开 pi 历史会被全局引擎
+          // （通常是 claude-code）接管，续聊接不到原来的 pi 会话文件。
+          engineType: entry.engineType,
+          engineSessionId: entry.engineSessionId,
           processStatus: 'none',
           isTabOpen: false,
           lastActivityAt: timestamp,
@@ -735,10 +783,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         }
       }
 
-      if (recovered > 0) {
+      if (recovered > 0 || backfilled) {
         sessions.value.sort((a, b) => b.updatedAt - a.updatedAt)
         saveSessionsToStorage(sessions.value)
-        saveProjects()
+        if (recovered > 0) saveProjects()
       }
       return recovered
     } catch (error) {
@@ -784,6 +832,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     options?: { ephemeral?: boolean; activate?: boolean },
   ): Session {
     const id = sessionId || createUuid()
+    // 显式恢复历史会话时清掉删除墓碑；随机 id 不可能命中。
+    if (sessionId) forgetDeletedSession(sessionId)
     // activate=false 供侧边任务使用：主会话必须保持 current，否则新建侧边任务
     // 会把中间区域切走并清掉主会话的 turn checkpoints
     const activate = options?.activate !== false
@@ -849,8 +899,10 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
     const appliedAgent = desiredAgent || undefined
 
-    const desiredEngine = settingsStore.engineType
-    const desiredEngineSource = settingsStore.engineSource
+    // 会话自己的引擎优先：历史 pi 会话不能因为全局引擎被切回 Claude 就用错引擎。
+    // 全局设置只负责给「还没有 engineType 的新会话」播种，与 Session.agent 同口径。
+    const desiredEngine = session.engineType ?? settingsStore.engineType
+    const desiredEngineSource = session.engineSource ?? settingsStore.engineSource
     const status = await claudeCode.getSessionStatus(sessionId)
     if (status?.isRunning) {
       const currentEngine = session.engineType
@@ -1587,10 +1639,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (session.processStatus === 'suspended') {
       const claudeCode = api.claudeCode
       if (claudeCode) {
-        const desiredEngine = settingsStore.engineType
-        const desiredEngineSource = settingsStore.engineSource
+        const desiredEngine = session.engineType ?? settingsStore.engineType
+        const desiredEngineSource = session.engineSource ?? settingsStore.engineSource
         const engineChanged = session.engineType && session.engineType !== desiredEngine
-        const engineSourceChanged = session.engineSource && session.engineSource !== desiredEngineSource
+        const engineSourceChanged = desiredEngine === 'claude-code'
+          && session.engineSource
+          && session.engineSource !== desiredEngineSource
         if (engineChanged || engineSourceChanged) {
           logger.info('ChatStore', `activateSession: suspended session uses engine=${session.engineType}/${session.engineSource}, current=${desiredEngine}/${desiredEngineSource} — restarting fresh | id=${sessionId.slice(0, 8)}`)
           try {
@@ -1644,7 +1698,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
     const index = sessions.value.findIndex(s => s.id === sessionId)
     if (index > -1) {
+      const removed = sessions.value[index]
       sessions.value.splice(index, 1)
+      if (!removed?.ephemeral) rememberDeletedSession(sessionId)
       if (currentSessionId.value === sessionId) {
         currentSessionId.value = sessions.value[0]?.id || null
       }
