@@ -289,6 +289,31 @@ export class PiProcessPool {
   }
 
   /**
+   * 运行中换模型。与权限模式同构：先把意图落到 `proc.config`（进程池 suspend/resume 是
+   * 按 config 重拼 spawn 参数的，只发命令不写 config 的话一次重启就换回旧模型），
+   * 再让进程发 RPC；发不出去就把 config 退回去，不留一个界面显示新模型、
+   * 重启后却起旧模型的中间态。
+   */
+  async setModel(sessionId: string, model: string | undefined): Promise<void> {
+    const proc = this.processes.get(sessionId)
+    if (!proc) throw new Error(`Session ${sessionId} not found`)
+    if (!model) {
+      // pi 的 set_model 只接受快照里某个具体 id，没有「恢复默认」这一说。
+      // 静默返回会让调用方以为已经切过去了，这里按不支持处理。
+      throw new Error(`Pi set_model requires an explicit model id | sessionId=${sessionId.slice(0, 8)}`)
+    }
+
+    const previous = proc.config.model
+    proc.config.model = model
+    try {
+      await proc.setModel(model)
+    } catch (err) {
+      proc.config.model = previous
+      throw err
+    }
+  }
+
+  /**
    * 让进程真的跑在 plan 上。三条偏差都收在这里，start / resume / switch / send 四条路
    * 不再各自排一遍重试：
    *  - 进程没带扩展（起的时候意图不是 plan）：换一次进程，历史靠 --session 接上；
