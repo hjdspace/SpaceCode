@@ -832,3 +832,48 @@ describe('PiSessionProcess prompt attachments', () => {
     await expect(sending).resolves.toBeUndefined()
   })
 })
+
+/**
+ * 运行中换模型。
+ *
+ * pi 的 RPC 面一直有 `set_model`，宿主没接。于是每次换模型都要杀进程重启，渲染层还把
+ * 「这台引擎没实现这个动作」记成 error —— 用户就是顺着那条红字来查一个并没有发生的故障。
+ * 这三条钉住接上之后的口径：provider 必须是 spawn 时实际用的那一个（compat 场景不是
+ * config.provider），失败必须把 pi 的原文带出去，没进程时不许静默冒充成功。
+ */
+describe('PiSessionProcess setModel — 运行中换模型', () => {
+  it('按 spawn 用的 provider 发 set_model 帧，并等它的应答', async () => {
+    const { proc, child } = await startUp({
+      provider: 'openai',
+      baseUrl: 'https://llm.internal.example/v1',
+      model: 'glm-5.3-flash',
+    })
+
+    const switching = proc.setModel('openai/kimi-k3')
+    expect(writtenFrames(child)).toEqual([
+      { id: 'req_1', type: 'set_model', provider: 'openai-compat', modelId: 'kimi-k3' },
+    ])
+
+    feed(child, JSON.stringify({ type: 'response', id: 'req_1', command: 'set_model', success: true }) + '\n')
+    await expect(switching).resolves.toBeUndefined()
+  })
+
+  it('pi 回 Model not found 时把原文抛出去 —— 上层据此才知道要回落重启', async () => {
+    const { proc, child } = await startUp()
+
+    const switching = proc.setModel('nope-4')
+    feed(child, JSON.stringify({
+      type: 'response',
+      id: 'req_1',
+      command: 'set_model',
+      success: false,
+      error: 'Model not found: anthropic/nope-4',
+    }) + '\n')
+
+    await expect(switching).rejects.toThrow('Model not found: anthropic/nope-4')
+  })
+
+  it('没有进程时抛，不静默 return 冒充已经切过去', async () => {
+    await expect(newProc().setModel('claude-x')).rejects.toThrow(/no running process/)
+  })
+})
