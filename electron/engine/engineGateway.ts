@@ -18,7 +18,7 @@ import type {
   ThinkingUpdateTiming,
   EffortLevel,
 } from './engines/types'
-import { info, warn, error } from '../infra/logger'
+import { info, warn, error, debug } from '../infra/logger'
 import { engineBlockedError } from '@/shared/engineErrors'
 import { removeSessionArtifacts } from '../session/tempArtifacts'
 
@@ -45,6 +45,21 @@ export function findEngineForSession(sessionId: string): IEngine {
 
 type AnyFn = (...args: any[]) => any
 
+/**
+ * 引擎没实现这个能力是**能力答复**，不是故障：调用方（换模型时的重启回退）本来就指望它
+ * 给出这个答案。按 error 记会在终端里把一次正常降级刷成红字，还会让人去查一条没有发生的
+ * 失败。真正需要响亮失败的（thinking / 权限模式 / 对话框）靠的是把异常抛回渲染层，
+ * 那一条不受这里影响 —— 这里只改记录级别。
+ */
+function logGatewayFailure(methodName: string, shortSid: string, startMs: number, err: unknown): void {
+  const elapsed = `elapsed=${Date.now() - startMs}ms`
+  if (err instanceof NotImplementedError) {
+    debug(TAG, `∅ ${methodName} | sid=${shortSid} | ${elapsed} | 该引擎没有这个能力，交由调用方回退`)
+    return
+  }
+  error(TAG, `✗ ${methodName} | sid=${shortSid} | ${elapsed}`, { error: String(err) })
+}
+
 function withLogging<T extends AnyFn>(
   methodName: string,
   fn: T,
@@ -64,7 +79,7 @@ function withLogging<T extends AnyFn>(
             return r
           },
           (err) => {
-            error(TAG, `✗ ${methodName} | sid=${shortSid} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+            logGatewayFailure(methodName, shortSid, startMs, err)
             throw err
           },
         )
@@ -72,7 +87,7 @@ function withLogging<T extends AnyFn>(
       info(TAG, `← ${methodName} | sid=${shortSid} | elapsed=${Date.now() - startMs}ms`)
       return result
     } catch (err) {
-      error(TAG, `✗ ${methodName} | sid=${shortSid} | elapsed=${Date.now() - startMs}ms`, { error: String(err) })
+      logGatewayFailure(methodName, shortSid, startMs, err)
       throw err
     }
   }) as T
