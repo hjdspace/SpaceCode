@@ -30,10 +30,19 @@ export function useModelSelector(options?: {
   const selectedModel = ref('')
   /**
    * 当前模型真实可用的档位；空集合表示该模型不可调节推理深度（引擎会整个丢弃 effort）。
-   * 先跟引擎那一维求交：内部引擎压根不认 xhigh，呈现出来就是递给 spawn 一颗雷。
+   *
+   * 档位有两维在这儿交汇：引擎族（pi 的 `--thinking` 词汇 ≠ Claude CLI 的 `--effort`）
+   * 和该族内部哪个二进制（内部 bundle 压根不认 xhigh）。以前只看后者，跑 pi 时套的是
+   * 内部 Claude 引擎那套 —— xhigh 被藏掉、max 被端出来，跟真正在跑的引擎说的不是同一句话。
+   * （模型那一维在 getSupportedEffortLevels 里，同样只对 claude-code 成立。）
    */
   const availableModes = computed<ReadonlyArray<EffortLevel>>(() =>
-    getSupportedEffortLevels(selectedModel.value, getEngineEffortLevels(settingsStore.engineSource))
+    getSupportedEffortLevels(
+      selectedModel.value,
+      getEngineEffortLevels(settingsStore.engineSource, settingsStore.engineType),
+      undefined,
+      settingsStore.engineType,
+    )
   )
   const selectedMode = ref<EffortLevel | null>(
     clampEffortLevel(settingsStore.effortLevel, availableModes.value)
