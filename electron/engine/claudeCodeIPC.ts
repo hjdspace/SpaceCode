@@ -5,7 +5,7 @@ import { EngineFactory } from './engines/EngineFactory'
 import type { EngineSessionConfig, EngineType, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from '../infra/logger'
 import { SessionHistoryManager, SessionLite } from '../session/sessionHistoryManager'
-import { detectInstalledCli, checkEnvironment, installCli, isCommandAvailable, installCommand } from './cliDetector'
+import { detectInstalledCli, checkEnvironment, installCli, checkCliUpdate, updateCli, isCommandAvailable, installCommand } from './cliDetector'
 import { proxyManager } from '../infra/proxyManager'
 import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from '../tools/mcpProbe'
 import { loadMcpConfig, saveMcpConfig, buildEnabledMcpConfig } from '../tools/mcpConfigStore'
@@ -241,6 +241,17 @@ export function registerClaudeCodeIPC() {
     const win = BrowserWindow.fromWebContents(event.sender)
     return installCli(win, (progress) => {
       win?.webContents.send(CLAUDE_CODE_EVENTS.onInstallProgress, progress)
+    })
+  })
+
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.checkCliUpdate, async () => {
+    return checkCliUpdate()
+  })
+
+  // 更新复用 installProgress 事件通道 —— 渲染端只有这一条安装/更新进度面。
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.updateCli, async (event) => {
+    return updateCli((progress) => {
+      event.sender.send(CLAUDE_CODE_EVENTS.onInstallProgress, progress)
     })
   })
 
