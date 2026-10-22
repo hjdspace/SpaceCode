@@ -29,6 +29,8 @@ vi.mock('@/services/electronAPI', () => ({
 describe('chat session placeholder title auto-rename', () => {
   beforeEach(() => {
     localStorage.clear()
+    // 标题生成按 i18n 语言决定提示词；钉住 zh-CN 与本文件的断言一致。
+    localStorage.setItem('claude_desktop_settings', JSON.stringify({ language: 'zh-CN' }))
     vi.resetModules()
     setActivePinia(createPinia())
     vi.clearAllMocks()
@@ -88,6 +90,8 @@ describe('chat session AI title replacement', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    // 标题生成按 i18n 语言决定提示词；钉住 zh-CN 与本文件的断言一致。
+    localStorage.setItem('claude_desktop_settings', JSON.stringify({ language: 'zh-CN' }))
     vi.resetModules()
     setActivePinia(createPinia())
     vi.clearAllMocks()
