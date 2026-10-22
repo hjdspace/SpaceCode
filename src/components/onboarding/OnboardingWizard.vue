@@ -1,6 +1,24 @@
 <template>
   <div class="ob-overlay" role="dialog" aria-modal="true">
     <div class="ob-card" :class="{ 'is-intro': onboarding.view === 'intro' }">
+      <div
+        v-if="onboarding.view === 'intro'"
+        class="ob-intro-lang ob-seg"
+        role="group"
+        :aria-label="t('onboarding.step.language.eyebrow')"
+      >
+        <button
+          v-for="option in INTRO_LANGUAGES"
+          :key="option.id"
+          type="button"
+          :class="{ 'is-active': settings.language === option.id }"
+          :aria-pressed="settings.language === option.id"
+          @click="selectIntroLanguage(option.id)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+
       <OnboardingRail v-if="onboarding.view === 'step'" />
 
       <div class="ob-main">
@@ -64,7 +82,9 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Component } from 'vue'
+import type { Locale } from '@/i18n'
 import { useOnboardingStore, SETTING_UP_STEPS, SUMMARY_STEP } from '@/stores/onboarding'
+import { useSettingsStore } from '@/stores/settings'
 import OnboardingRail from './OnboardingRail.vue'
 import LanguageStep from './steps/LanguageStep.vue'
 import AppearanceStep from './steps/AppearanceStep.vue'
@@ -76,6 +96,18 @@ import appIcon from '@/assets/app-icon.svg'
 
 const { t } = useI18n()
 const onboarding = useOnboardingStore()
+const settings = useSettingsStore()
+
+const INTRO_LANGUAGES: ReadonlyArray<{ id: Locale; label: string }> = [
+  { id: 'zh-CN', label: '中文' },
+  { id: 'en-US', label: 'EN' }
+]
+
+function selectIntroLanguage(next: Locale) {
+  if (settings.language === next) return
+  settings.language = next
+  void settings.saveSettings()
+}
 
 const STEP_COMPONENTS: ReadonlyArray<Component> = [
   LanguageStep,
@@ -125,6 +157,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .ob-card {
+  position: relative;
   width: min(880px, calc(100vw - 64px));
   height: min(580px, calc(100vh - 64px));
   display: grid;
@@ -156,6 +189,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 // ── intro ──
+.ob-intro-lang {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 1;
+}
+
 .ob-intro {
   flex: 1;
   display: flex;
