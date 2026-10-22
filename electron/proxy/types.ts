@@ -29,6 +29,21 @@ export interface CliDetectionResult {
   versionCompatible?: boolean
 }
 
+export interface CliUpdateCheck {
+  installed: boolean
+  installedVersion: string | null
+  latestVersion: string | null
+  hasUpdate: boolean
+  /**
+   * 二进制在 PATH 上但 `claude --version` 跑不出版本号 —— 安装已损坏（典型是
+   * npm wrapper 升上去了、~290MB 的原生平台包没下来，bin 只剩报错占位脚本）。
+   * 这是可自救状态，必须给重装修复入口，不能并进 checkFailed 把按钮藏掉。
+   */
+  unusable: boolean
+  /** 已装但没能问到最新版（无网络 / npm 不可用）。不能把它当成「已是最新」。 */
+  checkFailed: boolean
+}
+
 export interface EnvironmentCheck {
   node: EnvItemStatus
   npm: EnvItemStatus
