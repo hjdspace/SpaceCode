@@ -36,6 +36,8 @@ vi.mock('../cliDetector', () => ({
   detectInstalledCli: vi.fn(),
   checkEnvironment: vi.fn(),
   installCli: vi.fn(),
+  checkCliUpdate: vi.fn(),
+  updateCli: vi.fn(),
   isCommandAvailable: vi.fn(),
   installCommand: vi.fn(),
 }))
