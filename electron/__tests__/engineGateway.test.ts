@@ -399,7 +399,13 @@ describe('engineGateway', () => {
       ).rejects.toThrow(NotImplementedError)
     })
 
-    it('setModel throws when engine lacks it', async () => {
+    /**
+     * 能力缺口是**能力答复**，不是故障：调用方（chatSession.switchModel）本来就指望这个
+     * 信号走重启回退。按 error 记的代价是那每一次正常降级都在终端刷一条红字，用户顺着
+     * 它来查一个并没有发生的失败。抛照旧要抛（回退靠它），只是记录级别不再是 error。
+     * 这里的 pi 桩刻意缺 setModel —— 真 pi 引擎已经实现了它。
+     */
+    it('setModel 缺实现时仍抛，但按能力答复记录而不是 error', async () => {
       const engine = mockState.makePiEngine()
       engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
       mockState.engines.push(engine)
@@ -407,6 +413,10 @@ describe('engineGateway', () => {
       await expect(
         engineGateway.setModel('s1', 'gpt-4'),
       ).rejects.toThrow(NotImplementedError)
+
+      const errorCalls = (error as any).mock.calls
+        .filter((c: any[]) => c[0] === 'EngineGateway' && String(c[1]).includes('✗ setModel'))
+      expect(errorCalls).toHaveLength(0)
     })
 
     it('stopEngineTask throws when engine lacks it', async () => {

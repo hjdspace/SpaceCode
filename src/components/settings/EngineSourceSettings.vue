@@ -46,7 +46,10 @@
           <CheckCircle v-if="detectionResult.versionCompatible !== false" :size="16" />
           <AlertTriangle v-else :size="16" />
           <span class="cli-version">{{ detectionResult.version ? `v${detectionResult.version}` : $t('engineSource.cliDetected') }}</span>
-          <span v-if="detectionResult.versionCompatible === false" class="version-warning">{{ $t('engineSource.versionTooOld') }}</span>
+          <span v-if="updateCheck?.unusable" class="version-warning">{{ $t('engineSource.cliUnusable') }}</span>
+          <span v-else-if="detectionResult.versionCompatible === false" class="version-warning">{{ $t('engineSource.versionTooOld') }}</span>
+          <span v-if="updateHint" class="update-hint">{{ updateHint }}</span>
+          <span v-else-if="isUpToDate" class="up-to-date-hint">{{ $t('engineSource.upToDate') }}</span>
           <span class="cli-path">{{ detectionResult.path }}</span>
         </div>
 
@@ -75,9 +78,13 @@
             <span class="env-value">{{ envCheck.git.available ? envCheck.git.version : $t('engineSource.notInstalled') }}</span>
           </div>
         </div>
+
+        <div v-if="updatedHint" class="update-applied-hint">
+          {{ $t('engineSource.restartToApply') }}
+        </div>
       </div>
 
-      <div v-if="!detectionResult?.available && !isDetecting" class="form-group">
+      <div v-if="showActionPanel" class="form-group">
         <div v-if="installProgress" class="install-progress">
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: `${installProgress.percent || 0}%` }"></div>
@@ -94,26 +101,39 @@
         </div>
 
         <div class="install-actions">
-          <button
-            v-if="canInstall"
-            class="btn btn-primary"
-            :disabled="isInstalling"
-            @click="installCli"
-          >
-            <Download v-if="!isInstalling" :size="14" />
-            <Loader2 v-else :size="14" class="spin" />
-            {{ isInstalling ? $t('engineSource.installing') : $t('engineSource.installCli') }}
-          </button>
+          <template v-if="!detectionResult?.available">
+            <button
+              v-if="canInstall"
+              class="btn btn-primary"
+              :disabled="isInstalling"
+              @click="runCliTask('install')"
+            >
+              <Download v-if="!isInstalling" :size="14" />
+              <Loader2 v-else :size="14" class="spin" />
+              {{ isInstalling ? $t('engineSource.installing') : $t('engineSource.installCli') }}
+            </button>
+
+            <button
+              v-else-if="missingDeps.length > 0"
+              class="btn btn-secondary"
+              :disabled="isInstalling"
+              @click="runCliTask('install')"
+            >
+              <Download v-if="!isInstalling" :size="14" />
+              <Loader2 v-else :size="14" class="spin" />
+              {{ isInstalling ? $t('engineSource.installing') : $t('engineSource.installWithDeps', { deps: missingDeps.join(', ') }) }}
+            </button>
+          </template>
 
           <button
-            v-else-if="missingDeps.length > 0"
-            class="btn btn-secondary"
+            v-else-if="canUpdate"
+            class="btn btn-primary"
             :disabled="isInstalling"
-            @click="installCli"
+            @click="runCliTask('update')"
           >
-            <Download v-if="!isInstalling" :size="14" />
+            <RefreshCw v-if="!isInstalling" :size="14" />
             <Loader2 v-else :size="14" class="spin" />
-            {{ isInstalling ? $t('engineSource.installing') : $t('engineSource.installWithDeps', { deps: missingDeps.join(', ') }) }}
+            {{ isInstalling ? $t('engineSource.updating') : (updateCheck?.unusable ? $t('engineSource.repairCli') : $t('engineSource.updateCli')) }}
           </button>
         </div>
       </div>
@@ -145,7 +165,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import {
   Check, Package, Terminal, CheckCircle, CheckCircle2, XCircle,
-  AlertTriangle, AlertCircle, Download, Loader2
+  AlertTriangle, AlertCircle, Download, Loader2, RefreshCw
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
@@ -177,6 +197,15 @@ interface InstallProgressData {
   percent?: number
 }
 
+interface CliUpdateCheckData {
+  installed: boolean
+  installedVersion: string | null
+  latestVersion: string | null
+  hasUpdate: boolean
+  unusable: boolean
+  checkFailed: boolean
+}
+
 interface AdapterStatusData {
   running: boolean
   port: number
@@ -196,6 +225,8 @@ const envCheck = ref<EnvironmentCheck | null>(null)
 const isInstalling = ref(false)
 const installError = ref<string | null>(null)
 const installProgress = ref<InstallProgressData | null>(null)
+const updateCheck = ref<CliUpdateCheckData | null>(null)
+const updatedHint = ref(false)
 const adapterStatus = ref<AdapterStatusData | null>(null)
 
 let uninstallProgress: (() => void) | null = null
@@ -214,6 +245,31 @@ const missingDeps = computed(() => {
   if (!envCheck.value.npm.available) deps.push('npm')
   if (!envCheck.value.git.available) deps.push('Git')
   return deps
+})
+
+const canUpdate = computed(() => {
+  const check = updateCheck.value
+  if (!check?.installed || (!check.hasUpdate && !check.unusable)) return false
+  // 更新/重装只要 npm：不重复要求 Git 三件套齐全。
+  return envCheck.value?.npm.available ?? false
+})
+
+const isUpToDate = computed(() => {
+  const check = updateCheck.value
+  return !!check && check.installed && !check.hasUpdate && !check.unusable && !check.checkFailed
+})
+
+const updateHint = computed(() => {
+  const check = updateCheck.value
+  if (!check?.hasUpdate || !check.latestVersion) return ''
+  return t('engineSource.updateAvailable', { version: check.latestVersion })
+})
+
+// 安装与更新共用同一个面板 —— 更新时点了按钮也得看得见进度和错误。
+const showActionPanel = computed(() => {
+  if (isDetecting.value) return false
+  if (isInstalling.value || installProgress.value || installError.value) return true
+  return !detectionResult.value?.available || canUpdate.value
 })
 
 const adapterRunning = computed(() => adapterStatus.value?.running ?? false)
@@ -244,6 +300,8 @@ function selectSource(source: EngineSource) {
   } else {
     detectionResult.value = null
     envCheck.value = null
+    updateCheck.value = null
+    updatedHint.value = false
     installError.value = null
     installProgress.value = null
   }
@@ -273,12 +331,15 @@ function selectSource(source: EngineSource) {
 async function detectInstalled() {
   isDetecting.value = true
   try {
-    const [detection, env] = await Promise.all([
+    const [detection, env, update] = await Promise.all([
       api.detectInstalledCli(),
       api.checkEnvironment(),
+      // 查更新失败只意味着没有更新按钮，不能把已检测到的 CLI 一起抹掉。
+      api.checkCliUpdate().catch(() => null),
     ])
     detectionResult.value = detection
     envCheck.value = env
+    updateCheck.value = update
 
     if (detection?.available && detection.path) {
       settingsStore.setInstalledCliPath(detection.path)
@@ -286,29 +347,36 @@ async function detectInstalled() {
   } catch {
     detectionResult.value = null
     envCheck.value = null
+    updateCheck.value = null
   } finally {
     isDetecting.value = false
   }
 }
 
-async function installCli() {
+async function runCliTask(mode: 'install' | 'update') {
   isInstalling.value = true
   installError.value = null
   installProgress.value = null
+  updatedHint.value = false
 
   uninstallProgress = api.onInstallProgress((progress: InstallProgressData) => {
     installProgress.value = progress
   })
 
+  const fallbackError = mode === 'update' ? t('engineSource.updateFailed') : t('engineSource.installFailed')
+
   try {
-    const result = await api.installCli()
+    const result = mode === 'update' ? await api.updateCli() : await api.installCli()
     if (result?.success) {
       await detectInstalled()
+      // 进度条靠「已装/有新版」隐掉面板；更新成功后两者都变假，必须手动清空才不留尾。
+      installProgress.value = null
+      if (mode === 'update') updatedHint.value = true
     } else {
-      installError.value = result?.error || t('engineSource.installFailed')
+      installError.value = result?.error || fallbackError
     }
   } catch (err) {
-    installError.value = err instanceof Error ? err.message : t('engineSource.installFailed')
+    installError.value = err instanceof Error ? err.message : fallbackError
   } finally {
     isInstalling.value = false
     if (uninstallProgress) {
@@ -528,6 +596,25 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.update-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent-primary);
+  white-space: nowrap;
+}
+
+.up-to-date-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.update-applied-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .env-check {

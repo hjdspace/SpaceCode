@@ -82,11 +82,16 @@ describe('PiEngine.updateThinkingLevel', () => {
     expect(setThinkingLevel).toHaveBeenCalledWith('high')
   })
 
-  it('max 翻成 pi 词汇里的 xhigh：pi 的枚举没有 max，原样传会被直接拒', async () => {
+  /**
+   * 这条以前断言 max → xhigh，依据是「pi 的枚举没有 max」。pi 1.3.0 的
+   * `dist/cli/args.js` 里 VALID_THINKING_LEVELS 含 max，那个前提已经随版本失效 ——
+   * 照旧折价等于把用户选的最高档静默降一级，界面显示的和引擎按的又不是同一个。
+   */
+  it('max 原样下发：pi 认 max，折成 xhigh 是把最高档偷偷降一级', async () => {
     const setThinkingLevel = vi.fn(async () => {})
 
     await engineWithProcess(setThinkingLevel, { effortLevel: 'max' }).engine.updateThinkingLevel('s1', true)
-    expect(setThinkingLevel).toHaveBeenCalledWith('xhigh')
+    expect(setThinkingLevel).toHaveBeenCalledWith('max')
   })
 
   it('关掉思考就是 off，深度不再参与', async () => {
@@ -137,5 +142,61 @@ describe('PiEngine.updateEffortLevel', () => {
 
     await engine.updateEffortLevel('s1', 'high')
     expect(setThinkingLevel).toHaveBeenCalledWith('off')
+  })
+})
+
+/**
+ * 换模型与思考档位的联动。
+ *
+ * pi 的 `set_model` 内部会按**新模型**重算 thinking（回到 settings 默认），所以宿主换完
+ * 必须把用户选的档位补发回去，否则「换个模型，推理深度自己变了」。补发本身失败只告警：
+ * 模型确实已经切过去了，把整次切换判成失败会让上层去做没必要的重启。
+ */
+describe('PiEngine.setModel', () => {
+  function engineWithPool({ setModel, setThinkingLevel, config = {} }: {
+    setModel?: ReturnType<typeof vi.fn>
+    setThinkingLevel?: ReturnType<typeof vi.fn>
+    config?: Record<string, unknown>
+  }) {
+    const engine = new PiEngine()
+    const proc = { setThinkingLevel, config: { cwd: '/w', ...config } }
+    ;(engine as unknown as { pool: unknown }).pool = {
+      setModel: setModel ?? vi.fn(async () => {}),
+      getProcess: vi.fn(() => proc),
+    }
+    return { engine, proc }
+  }
+
+  it('切换成功后按会话原本的意图补发一次思考档位', async () => {
+    const setModel = vi.fn(async () => {})
+    const setThinkingLevel = vi.fn(async () => {})
+
+    await engineWithPool({ setModel, setThinkingLevel, config: { thinkingEnabled: true, effortLevel: 'xhigh' } })
+      .engine.setModel('s1', 'kimi-k3')
+
+    expect(setModel).toHaveBeenCalledWith('s1', 'kimi-k3')
+    expect(setThinkingLevel).toHaveBeenCalledWith('xhigh')
+  })
+
+  it('思考本来就关着时，换模型不会把它打开', async () => {
+    const setThinkingLevel = vi.fn(async () => {})
+
+    await engineWithPool({ setThinkingLevel, config: { thinkingEnabled: false, effortLevel: 'high' } })
+      .engine.setModel('s1', 'kimi-k3')
+
+    expect(setThinkingLevel).toHaveBeenCalledWith('off')
+  })
+
+  it('池里的切换失败原样抛出 —— 上层据此才晓得要回落重启', async () => {
+    const setModel = vi.fn(async () => { throw new Error('Model not found: openai-compat/nope') })
+
+    await expect(engineWithPool({ setModel }).engine.setModel('s1', 'nope'))
+      .rejects.toThrow('Model not found: openai-compat/nope')
+  })
+
+  it('补发档位失败时不算整次切换失败', async () => {
+    const setThinkingLevel = vi.fn(async () => { throw new Error('stdin EPIPE') })
+
+    await expect(engineWithPool({ setThinkingLevel }).engine.setModel('s1', 'kimi-k3')).resolves.toBeUndefined()
   })
 })

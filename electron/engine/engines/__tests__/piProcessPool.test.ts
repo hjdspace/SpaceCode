@@ -92,6 +92,13 @@ const H = vi.hoisted(() => {
       return true
     })
 
+    /** setModel 的回执：'ok' 成功；其余值抛该文本（模拟 pi 的 Model not found） */
+    static nextSetModelError: string | null = null
+
+    setModel = vi.fn(async () => {
+      if (FakePiProcess.nextSetModelError) throw new Error(FakePiProcess.nextSetModelError)
+    })
+
     handlers = new Map<string, Set<(...args: any[]) => void>>()
 
     start = vi.fn(async () => {
@@ -228,6 +235,7 @@ beforeEach(() => {
   FakePiProcess.nextStartError = null
   FakePiProcess.nextResumeError = null
   FakePiProcess.nextCapturedSessionFile = null
+  FakePiProcess.nextSetModelError = null
 })
 
 describe('startSession 四态路由', () => {
@@ -1064,5 +1072,42 @@ describe('扩展对话框的池侧编排 (#54)', () => {
     expect(proc.cancelPendingExtensionDialogs).toHaveBeenCalledWith('process_exit')
     expect(proc.cancelPendingExtensionDialogs.mock.invocationCallOrder[0])
       .toBeLessThan(proc.removeListener.mock.invocationCallOrder[0])
+  })
+})
+
+/**
+ * 运行中换模型。
+ *
+ * 与权限模式同构：池先把意图落到 `proc.config`，因为 suspend/resume 是按它重拼 spawn
+ * 参数的 —— 只发 RPC 不写 config，一次驱逐再恢复就把模型换回去了。反过来，发不出去时
+ * config 必须退回原值，否则留下「界面显示新模型、下次起来是旧模型」这种更难查的偏差。
+ */
+describe('setModel', () => {
+  it('下发成功时把新模型落到 proc.config，供之后 suspend/resume 重拼参数', async () => {
+    const { pool } = makePool()
+    await pool.startSession('s1', { ...CFG, model: 'glm-5.3-flash' })
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+
+    await pool.setModel('s1', 'kimi-k3')
+
+    expect(proc.setModel).toHaveBeenCalledWith('kimi-k3')
+    expect(proc.config).toMatchObject({ model: 'kimi-k3' })
+  })
+
+  it('pi 拒绝时把 config 退回原模型，并把原因抛给上层', async () => {
+    const { pool } = makePool()
+    await pool.startSession('s1', { ...CFG, model: 'glm-5.3-flash' })
+    const proc = pool.getProcess('s1')! as unknown as FakePiProcessInstance
+    FakePiProcess.nextSetModelError = 'Model not found: openai-compat/nope'
+
+    await expect(pool.setModel('s1', 'nope')).rejects.toThrow('Model not found: openai-compat/nope')
+    expect(proc.config).toMatchObject({ model: 'glm-5.3-flash' })
+  })
+
+  it('没有显式模型 id 时抛错，不静默当成已经切换', async () => {
+    const { pool } = makePool()
+    await pool.startSession('s1', CFG)
+
+    await expect(pool.setModel('s1', undefined)).rejects.toThrow(/requires an explicit model id/)
   })
 })

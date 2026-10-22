@@ -29,6 +29,7 @@ interface CompatModel {
   id: string
   name?: string
   reasoning?: boolean
+  thinkingLevelMap?: Record<string, string>
   input?: string[]
   contextWindow?: number
   maxTokens?: number
@@ -515,18 +516,50 @@ describe('writeModelsJsonOverride', () => {
       // $ 前缀不是风格问题：pi >=0.77 起只有 $NAME / ${NAME} 算环境变量引用，
       // 裸 'OPENAI_API_KEY' 会被当作字面量提交上去当 key 用，直接 401。
       apiKey: '$OPENAI_API_KEY',
+      // supportsReasoningEffort 以前写死 false，把 pi 自己的按商探测（?? detected）
+      // 一起废掉了；思考开的时候就没有任何途径把深度传给网关。
       compat: {
         supportsStore: false,
         supportsDeveloperRole: false,
-        supportsReasoningEffort: false,
         maxTokensField: 'max_tokens',
         supportsStrictMode: false,
       },
       models: [
-        { id: 'gpt-4o', name: 'gpt-4o', reasoning: false, input: ['text', 'image'], contextWindow: 128000, maxTokens: 16384 },
+        {
+          id: 'gpt-4o',
+          name: 'gpt-4o',
+          // reasoning:false 是那次「深度全是装饰」的根因：pi 的 getSupportedThinkingLevels
+          // 对它直接返回 ["off"]，于是 --thinking / set_thinking_level 一律被钳回 off。
+          // 五档要显式列出，否则 xhigh 与 max 在 pi 侧也算不可用。
+          reasoning: true,
+          thinkingLevelMap: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+          input: ['text', 'image'],
+          contextWindow: 128000,
+          maxTokens: 16384,
+        },
       ],
     })
     expect(H.writes[0].path).toBe(MODELS_JSON)
+  })
+
+  /**
+   * pi 的 set_model 只认启动快照里的模型，而 models.json 没有重读命令 —— 只登记当前
+   * 那一个，就等于让「输入框换模型」在这条引擎上永远只能靠重启（用户看到的那条
+   * NotImplementedError 就是这个形状）。
+   */
+  it('registers every model the input box can offer, not just the current one', () => {
+    H.existing.add(PI_AGENT_DIR)
+    const proc = newProc({
+      provider: 'openai',
+      baseUrl: 'https://llm.internal.example/v1',
+      model: 'glm-5.3-flash',
+      selectableModels: ['glm-5.3-flash', 'kimi-k3', 'openai/deepseek-v4', ''],
+    })
+
+    privates(proc).writeModelsJsonOverride('openai', 'https://llm.internal.example/v1')
+
+    expect(writtenModels().providers['openai-compat'].models?.map((m: any) => m.id))
+      .toEqual(['glm-5.3-flash', 'kimi-k3', 'deepseek-v4'])
   })
 
   it('registers the user-configured context window instead of pi 的默认 128000', () => {
@@ -541,7 +574,15 @@ describe('writeModelsJsonOverride', () => {
     privates(proc).writeModelsJsonOverride('openai', 'https://llm.internal.example/v1')
 
     expect(writtenModels().providers['openai-compat'].models).toEqual([
-      { id: 'qwen-audit', name: 'qwen-audit', reasoning: false, input: ['text', 'image'], contextWindow: 32000, maxTokens: 16384 },
+      {
+        id: 'qwen-audit',
+        name: 'qwen-audit',
+        reasoning: true,
+        thinkingLevelMap: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+        input: ['text', 'image'],
+        contextWindow: 32000,
+        maxTokens: 16384,
+      },
     ])
   })
 

@@ -157,6 +157,8 @@ export function createH5Adapter(): ElectronClaudeCodeAPI {
     detectInstalledCli: () => Promise.resolve(null),
     checkEnvironment: () => Promise.resolve(null),
     installCli: () => Promise.resolve(null),
+    checkCliUpdate: () => Promise.resolve(null),
+    updateCli: () => Promise.resolve(null),
     onInstallProgress: (_callback: (progress: any) => void) => () => {},
 
     // H5: 代理开关 / 引擎来源切换属桌面端设置（H5 下设置面板不渲染）

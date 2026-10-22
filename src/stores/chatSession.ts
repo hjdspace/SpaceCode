@@ -1021,6 +1021,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         systemPrompt: overrides?.systemPrompt,
         // 展开为普通对象，避免 Vue 响应式 Proxy 无法通过 Electron IPC 结构化克隆
         modelContextWindows: modelContextWindowsForEngine,
+        // pi 的 compat provider 要靠这份清单把可切换的模型一次登记进 models.json
+        selectableModels: selectableModelIdsForSession(session, effectiveModel),
         rtkEnabled: settingsStore.rtkEnabled,
       })
 
@@ -2180,6 +2182,27 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return undefined
   }
 
+  /**
+   * 这条会话在输入框里能被选中的模型真实 id。
+   *
+   * pi 的 compat provider 只认 spawn 前写进 models.json 的那份清单，而 `set_model`
+   * 没有重读文件的命令 —— 清单里没有的模型换不过去。所以这里必须按「界面上给不给选」
+   * 算，而不是按当前用的是哪个模型算：三个槽位 + 本会话已选的 + 跨重启记住的最近选择。
+   * claude-code 传的是别名（它自己按槽位路由），只有 pi 会读这个字段。
+   */
+  function selectableModelIdsForSession(session: Session | undefined, effectiveModel?: string): string[] {
+    const slots = getActiveProviderSlotConfig()
+    const ids = [
+      slots?.haikuModel,
+      slots?.sonnetModel,
+      slots?.opusModel,
+      session?.model,
+      settingsStore.lastSelectedModel,
+      effectiveModel,
+    ]
+    return [...new Set(ids.filter((m): m is string => typeof m === 'string' && m.trim() !== ''))]
+  }
+
   /** Temporary model override for the next initClaudeCodeSession call.
    *  Set by switchModel() to pass the user's chosen model (from the input-box
    *  dropdown) to the engine via --model CLI flag, instead of always using
@@ -2196,7 +2219,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
    */
   let _pendingModelChoice: string | undefined
 
-  async function switchModel(model: string, displayModel?: string, options?: { skipSetModel?: boolean }): Promise<void> {
+  async function switchModel(model: string, displayModel?: string, options?: { skipSetModel?: boolean }): Promise<'now' | 'next-turn'> {
     const sid = currentSessionId.value
 
     // 记录用户选择的模型（显示名）到 session，供 UI 面板使用
@@ -2209,7 +2232,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (!sid) {
       _pendingModelChoice = dm
       logger.info('ChatStore', `switchModel: no active session, stashing model choice | model=${dm}`)
-      return
+      return 'now'
     }
     _pendingModelChoice = undefined
     const session = sessions.value.find(s => s.id === sid)
@@ -2219,41 +2242,68 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
 
     const claudeCode = api.claudeCode
-    if (claudeCode && sid) {
-      const status = await claudeCode.getSessionStatus(sid)
-      if (status?.isRunning && !options?.skipSetModel) {
-        // ★ 优先通过 setModel control_request 切换模型（不重启会话）
-        try {
-          await claudeCode.setModel(sid, model)
-          logger.info('ChatStore', `switchModel: setModel control_request sent | id=${sid.slice(0, 8)} | model=${model}`)
-          return
-        } catch (error) {
-          logger.warn('ChatStore', `switchModel: setModel failed, falling back to restart | id=${sid.slice(0, 8)}`, { error: String(error) })
-          // setModel 失败，回退到重启会话
-          await claudeCode.stop(sid)
-          // ★ 临时覆盖 config.model，使 initClaudeCodeSession 使用用户选择的模型
-          // 而非 settingsStore.config.model（总是 sonnetModel）
-          _overrideModelForNextInit = model
-          try {
-            await initClaudeCodeSession(sid)
-          } finally {
-            _overrideModelForNextInit = undefined
-          }
-        }
-      } else {
-        // 引擎未运行（或 skipSetModel）：重启会话时使用用户选择的模型
-        if (status?.isRunning) {
-          await claudeCode.stop(sid)
-        }
-        _overrideModelForNextInit = model
-        try {
-          await initClaudeCodeSession(sid)
-        } finally {
-          _overrideModelForNextInit = undefined
-        }
+    if (!claudeCode) return 'now'
+    const status = await claudeCode.getSessionStatus(sid)
+    if (status?.isRunning && !options?.skipSetModel) {
+      // ★ 在线换模型：Claude 走 set_model 控制请求，pi 走 set_model RPC，都不用重启会话
+      try {
+        await claudeCode.setModel(sid, model)
+        logger.info('ChatStore', `switchModel: setModel control_request sent | id=${sid.slice(0, 8)} | model=${model}`)
+        return 'now'
+      } catch (error) {
+        logger.warn('ChatStore', `switchModel: setModel failed, falling back to restart | id=${sid.slice(0, 8)}`, { error: String(error) })
+        // setModel 失败，回退到重启会话
+        return restartSessionWithModel(sid, model, status)
       }
     }
-    logger.info('ChatStore', `switchModel | id=${sid?.slice(0, 8) || '(none)'} | model=${model}`)
+    // 引擎未运行（或 skipSetModel）：重启会话时使用用户选择的模型
+    return restartSessionWithModel(sid, model, status)
+  }
+
+  /**
+   * 靠重启把模型选择落到引擎上。
+   *
+   * 这一轮正在生成时不杀进程：stop 会连这次的输出和在飞工具一起丢掉，而用户只是
+   * 在旁边换了个下拉框。那种情况下选择已经记在 session.model / lastSelectedModel 上，
+   * 重开该会话即生效 —— 并且要明说这次没落到引擎上，静默不管用是另一半问题。
+   *
+   * @returns now = 已经按新模型把会话拉起来了；next-turn = 本轮没动，重开该会话才生效。
+   */
+  async function restartSessionWithModel(
+    sid: string,
+    model: string,
+    status: { isRunning?: boolean; status?: string } | null,
+  ): Promise<'now' | 'next-turn'> {
+    if (status?.isRunning && status.status === 'active') {
+      logger.info('ChatStore', `switchModel: turn in flight, session kept alive | id=${sid.slice(0, 8)} | model=${model}`)
+      pushModelNotice('chatInput.modelSwitchFailed')
+      return 'next-turn'
+    }
+    const claudeCode = api.claudeCode
+    if (status?.isRunning && claudeCode) {
+      await claudeCode.stop(sid)
+    }
+    // ★ 临时覆盖 config.model，使 initClaudeCodeSession 使用用户选择的模型
+    // 而非 settingsStore.config.model（总是 sonnetModel）
+    _overrideModelForNextInit = model
+    try {
+      await initClaudeCodeSession(sid)
+    } finally {
+      _overrideModelForNextInit = undefined
+    }
+    return 'now'
+  }
+
+  function pushModelNotice(messageKey: string): void {
+    errorHandler.pushToast({
+      id: createUuid(),
+      category: ErrorCategory.CONFIG_ERROR,
+      title: i18n.global.t('chatInput.model'),
+      message: i18n.global.t(messageKey),
+      autoDismiss: true,
+      dismissAfter: 6000,
+      createdAt: Date.now(),
+    })
   }
 
   async function startWorkAssistantSession(assistant: {

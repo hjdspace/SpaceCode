@@ -6,9 +6,10 @@ import type { InstallProgress } from '../../proxy/types'
 
 /**
  * Installer half of `cliDetector`: `runStreamingInstaller` plus the three
- * installers built on top of it (winget / brew / `curl … | sh`) and the
- * post-install re-detection. The detection layer itself is pinned by
- * `cliDetector.test.ts` next door; nothing here re-tests lookup order.
+ * installers built on top of it (winget / brew / `curl … | sh`), the
+ * post-install re-detection, and the npm-registry update check that decides
+ * whether the UI offers an install or an upgrade. The detection layer itself is
+ * pinned by `cliDetector.test.ts` next door; nothing here re-tests lookup order.
  *
  * The contract, in priority order — this is what the progress bar promises the
  * user while a 300-second installer is running:
@@ -29,6 +30,25 @@ import type { InstallProgress } from '../../proxy/types'
  *    script on Linux. The re-check after installing must not trust PATH alone,
  *    because Electron snapshots PATH at startup — a binary installed seconds ago
  *    is invisible to `which`/`where` but visible under the npm global bin.
+ * 6. **An update is done only when the version moved.** `npm install -g …@latest`
+ *    exiting 0 says nothing about the binary PATH resolves to, so `updateCli`
+ *    re-probes it and fails when it still answers the old version.
+ * 7. **A registry miss is `checkFailed`, never "up to date"** — telling a user
+ *    they are current because the network was unreachable is a claim the UI
+ *    cannot walk back, and it suppresses the one button that would fix it.
+ * 8. **A CLI that answers no version is `unusable`, which is actionable.** The
+ *    bricked install (wrapper upgraded, native platform package never downloaded)
+ *    must reach the repair path; folding it into `checkFailed` hides every
+ *    button and leaves the user staring at "version too old".
+ * 9. **npm is invoked through its resolved PATH entry.** `execFile('npm', …)`
+ *    is `spawn npm ENOENT` on Windows — npm is `npm.cmd` and CreateProcess does
+ *    not append PATHEXT. Answering the bare name in the fake made the entire
+ *    update feature dead in the packaged app while every test here stayed green.
+ * 10. **npm's script policy must not leave a stub.** npm 12 blocks install
+ *    scripts by default and still exits 0, so `claude` resolves to a 500-byte
+ *    placeholder. Installs pass `--allow-scripts` for the wrapper; if the CLI
+ *    still cannot answer `--version`, the package's own `install.cjs` is run
+ *    before the repair is declared failed.
  *
  * `isWindows` is a module-scope `process.platform` read, so every test imports
  * the module fresh under the platform it exercises (see `load`). Paths the
@@ -69,10 +89,12 @@ const probe = vi.hoisted(() => {
     versions: Map<string, string>
     npmRoot: string | null
     npmInstallError: Error | null
+    npmLatestVersion: string | null
     existing: Set<string>
     openExternal: string[]
     respond: (call: ExecCall) => ExecResult
     makeChild: () => FakeChild
+    isNpmCall: (command: string) => boolean
     reset: () => void
   } = {
     execCalls: [],
@@ -82,11 +104,23 @@ const probe = vi.hoisted(() => {
     versions: new Map(),
     npmRoot: null,
     npmInstallError: null,
+    npmLatestVersion: null,
     existing: new Set(),
     openExternal: [],
     respond: () => ({ stdout: '' }),
     makeChild,
+    isNpmCall,
     reset,
+  }
+
+  /**
+   * Matches an npm invocation whether the module passed the bare name or the
+   * path it resolved from PATH. Keying strictly on `'npm'` would have let the
+   * Windows `spawn npm ENOENT` bug pass every test in this file.
+   */
+  function isNpmCall(command: string): boolean {
+    const base = command.split(/[\\/]/).pop() ?? ''
+    return base.replace(/\.cmd$/i, '') === 'npm'
   }
 
   function makeSink(): Sink {
@@ -140,13 +174,17 @@ const probe = vi.hoisted(() => {
       if (!hit) return { error: new Error('ENOENT: not found on PATH') }
       return { stdout: hit }
     }
-    if (call.command === 'npm' && call.args[0] === 'root') {
+    if (isNpmCall(call.command) && call.args[0] === 'root') {
       if (!api.npmRoot) return { error: new Error('npm is not installed') }
       return { stdout: api.npmRoot }
     }
-    if (call.command === 'npm' && call.args[0] === 'install') {
+    if (isNpmCall(call.command) && call.args[0] === 'install') {
       if (api.npmInstallError) return { error: api.npmInstallError }
       return { stdout: '' }
+    }
+    if (isNpmCall(call.command) && call.args[0] === 'view') {
+      if (!api.npmLatestVersion) return { error: new Error('npm view exited with status 1') }
+      return { stdout: api.npmLatestVersion }
     }
     if (call.args[0] === '--version') {
       const version = api.versions.get(call.command)
@@ -164,6 +202,7 @@ const probe = vi.hoisted(() => {
     api.versions.clear()
     api.npmRoot = null
     api.npmInstallError = null
+    api.npmLatestVersion = null
     api.existing.clear()
     api.openExternal.length = 0
     api.respond = defaultRespond
@@ -293,8 +332,30 @@ async function waitForSpawns(count: number): Promise<void> {
 const lookupCalls = (): ExecCall[] =>
   probe.execCalls.filter((c) => c.command === 'where' || c.command === 'which')
 const npmInstallCalls = (): ExecCall[] =>
-  probe.execCalls.filter((c) => c.command === 'npm' && c.args[0] === 'install')
+  probe.execCalls.filter((c) => probe.isNpmCall(c.command) && c.args[0] === 'install')
+const npmViewCalls = (): ExecCall[] =>
+  probe.execCalls.filter((c) => probe.isNpmCall(c.command) && c.args[0] === 'view')
 const versionProbeCalls = (): ExecCall[] => probe.execCalls.filter((c) => c.args[0] === '--version')
+const postinstallCalls = (): ExecCall[] =>
+  probe.execCalls.filter((c) => (c.args[0] ?? '').endsWith('install.cjs'))
+
+/**
+ * Let `npm install -g` stand in for a real upgrade: after it runs, every
+ * `--version` probe answers `to`. Without this the fake always reports the same
+ * version and the update flow can never observe progress.
+ */
+function upgradeOnInstall(to: string): void {
+  const previous = probe.respond
+  let installed = false
+  probe.respond = (call) => {
+    if (probe.isNpmCall(call.command) && call.args[0] === 'install') {
+      installed = true
+      return { stdout: '' }
+    }
+    if (installed && call.args[0] === '--version') return { stdout: to }
+    return previous(call)
+  }
+}
 
 beforeEach(() => {
   probe.reset()
@@ -800,7 +861,12 @@ describe('installCli — dependency installers and the post-install re-check', (
 
     expect(probe.spawns).toHaveLength(0)
     expect(npmInstallCalls()).toHaveLength(1)
-    expect(npmInstallCalls()[0]?.args).toEqual(['install', '-g', '@anthropic-ai/claude-code'])
+    expect(npmInstallCalls()[0]?.args).toEqual([
+      'install',
+      '-g',
+      '--allow-scripts=@anthropic-ai/claude-code',
+      '@anthropic-ai/claude-code',
+    ])
     expect(frames).toEqual([
       { stage: 'installing', message: 'Installing @anthropic-ai/claude-code...', percent: 50 },
       { stage: 'verifying', message: 'Verifying installation...', percent: 90 },
@@ -1050,9 +1116,352 @@ describe('installCli — dependency installers and the post-install re-check', (
       message: 'Installation completed but CLI not detected',
       percent: 100,
     })
-    // All three lookup strategies were tried before giving up.
-    expect(lookupCalls().map((c) => c.args[0])).toEqual(['node', 'npm', 'git', 'claude'])
+    // All three lookup strategies were tried before giving up. The second
+    // `npm` is resolveNpmCommand() re-resolving the package manager for the
+    // `npm install -g` it is about to run.
+    expect(lookupCalls().map((c) => c.args[0])).toEqual(['node', 'npm', 'git', 'npm', 'claude'])
     expect(npmInstallCalls()).toHaveLength(1)
+  })
+
+  it('does not report success when claude is only a stub that answers no version', async () => {
+    const svc = await load('linux')
+    const NODE = path.join('/usr', 'bin', 'node')
+    const npmRoot = path.join('/usr', 'lib', 'node_modules')
+    const CLAUDE = path.join('/opt', 'claude')
+    const SCRIPT = path.join(npmRoot, '@anthropic-ai', 'claude-code', 'install.cjs')
+
+    available('node', NODE, 'v24.18.0')
+    available('npm', path.join('/usr', 'bin', 'npm'), '11.3.0')
+    available('git', path.join('/usr', 'bin', 'git'), '2.45.0')
+    available('claude', CLAUDE, '0')
+    probe.versions.delete(CLAUDE)
+    probe.npmRoot = npmRoot
+    probe.existing.add(SCRIPT)
+
+    const previous = probe.respond
+    probe.respond = (call) => {
+      if (call.command === NODE && call.args[0] === SCRIPT) {
+        return { stdout: '', stderr: 'native package still missing' }
+      }
+      return previous(call)
+    }
+
+    const frames: InstallProgress[] = []
+    const result = await svc.installCli(null, collect(frames))
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('claude --version still fails')
+    expect(postinstallCalls()).toHaveLength(1)
+    expect(last(frames)).toEqual({
+      stage: 'error',
+      message: 'Installed but claude --version still fails',
+      percent: 100,
+    })
+  })
+})
+
+describe('checkCliUpdate — comparing the installed CLI against npm', () => {
+  const NPM = path.join('/usr', 'bin', 'npm')
+
+  /** npm on PATH, a CLI on PATH answering `installed`, and a registry saying `latest`. */
+  async function ready(installed: string | null, latest: string | null): Promise<Detector> {
+    const svc = await load('linux')
+    available('npm', NPM, '11.3.0')
+    const claude = available('claude', path.join('/opt', 'claude'), '0')
+    if (installed === null) probe.versions.delete(claude)
+    else probe.versions.set(claude, installed)
+    probe.npmLatestVersion = latest
+    return svc
+  }
+
+  it('skips the registry entirely when no CLI is installed', async () => {
+    const svc = await load('linux')
+    available('npm', NPM, '11.3.0')
+    probe.npmLatestVersion = '2.1.307'
+
+    await expect(svc.checkCliUpdate()).resolves.toEqual({
+      installed: false,
+      installedVersion: null,
+      latestVersion: null,
+      hasUpdate: false,
+      unusable: false,
+      checkFailed: false,
+    })
+    expect(npmViewCalls()).toHaveLength(0)
+  })
+
+  it('flags an update only when the registry version is strictly newer', async () => {
+    const svc = await ready('2.1.227', '2.1.307')
+
+    await expect(svc.checkCliUpdate()).resolves.toEqual({
+      installed: true,
+      installedVersion: '2.1.227',
+      latestVersion: '2.1.307',
+      hasUpdate: true,
+      unusable: false,
+      checkFailed: false,
+    })
+    // `npm view`, not a direct registry fetch: it inherits the user's .npmrc
+    // mirror, so the version we advertise is one npm can actually install.
+    expect(npmViewCalls()[0]?.args).toEqual(['view', '@anthropic-ai/claude-code', 'version'])
+  })
+
+  it('runs npm through its resolved PATH entry, never the bare command name', async () => {
+    // Windows regression: `execFile('npm', …)` dies with `spawn npm ENOENT`
+    // because npm is npm.cmd and CreateProcess does not append PATHEXT. The
+    // whole update feature was dead in the packaged app and every test here
+    // still passed, because the fake answered the bare name.
+    const svc = await ready('2.1.227', '2.1.307')
+    await svc.checkCliUpdate()
+
+    const view = npmViewCalls()[0]
+    expect(view?.command).toBe(NPM)
+    expect(lookupCalls().map((c) => c.args[0])).toContain('npm')
+  })
+
+  it.each([
+    ['identical versions', '2.1.307', '2.1.307'],
+    // rc / slow channel users run ahead of the registry — not an update, and
+    // above all not a failure.
+    ['a local build newer than the registry', '2.2.0', '2.1.307'],
+  ])('reports no update for %s', async (_label, installed, latest) => {
+    const svc = await ready(installed, latest)
+
+    await expect(svc.checkCliUpdate()).resolves.toMatchObject({
+      hasUpdate: false,
+      unusable: false,
+      checkFailed: false,
+    })
+  })
+
+  it('surfaces a registry failure as checkFailed rather than as "up to date"', async () => {
+    const svc = await ready('2.1.227', null)
+
+    await expect(svc.checkCliUpdate()).resolves.toEqual({
+      installed: true,
+      installedVersion: '2.1.227',
+      latestVersion: null,
+      hasUpdate: false,
+      unusable: false,
+      checkFailed: true,
+    })
+  })
+
+  it('calls a CLI that answers no version unusable, not a failed check', async () => {
+    // The bricked-install state: npm upgraded the wrapper but the ~290 MB
+    // native package never landed, so bin/claude is a stub that only prints an
+    // error. Folding this into checkFailed hid every button and left the user
+    // with a bare "version too old" and no way out.
+    const svc = await ready(null, '2.1.307')
+
+    await expect(svc.checkCliUpdate()).resolves.toEqual({
+      installed: true,
+      installedVersion: null,
+      latestVersion: null,
+      hasUpdate: false,
+      unusable: true,
+      checkFailed: false,
+    })
+    // Pointless to ask the registry — a repair is needed either way.
+    expect(npmViewCalls()).toHaveLength(0)
+  })
+
+  it('answers a second check from the cache without re-querying npm', async () => {
+    const svc = await ready('2.1.227', '2.1.307')
+
+    await svc.checkCliUpdate()
+    await svc.checkCliUpdate()
+
+    expect(npmViewCalls()).toHaveLength(1)
+  })
+})
+
+describe('updateCli — npm @latest plus the version-advance re-check', () => {
+  const NPM = path.join('/usr', 'bin', 'npm')
+  const CLAUDE = path.join('/opt', 'claude')
+
+  /** npm + a CLI that answers `version` (or nothing, when null). */
+  async function ready(version: string | null): Promise<Detector> {
+    const svc = await load('linux')
+    available('npm', NPM, '11.3.0')
+    available('claude', CLAUDE, '0')
+    if (version === null) probe.versions.delete(CLAUDE)
+    else probe.versions.set(CLAUDE, version)
+    return svc
+  }
+
+  it('upgrades through npm and only reports success once the version moves', async () => {
+    const svc = await ready('2.1.227')
+    upgradeOnInstall('2.1.307')
+    const frames: InstallProgress[] = []
+
+    await expect(svc.updateCli(collect(frames))).resolves.toEqual({ success: true })
+
+    expect(npmInstallCalls()[0]?.command).toBe(NPM)
+    expect(npmInstallCalls()[0]?.args).toEqual([
+      'install',
+      '-g',
+      '--allow-scripts=@anthropic-ai/claude-code',
+      '@anthropic-ai/claude-code@latest',
+    ])
+    expect(frames).toEqual([
+      {
+        stage: 'installing',
+        message: 'Installing @anthropic-ai/claude-code@latest...',
+        percent: 50,
+      },
+      { stage: 'verifying', message: 'Verifying installation...', percent: 90 },
+      { stage: 'done', message: 'Updated to v2.1.307', percent: 100 },
+    ])
+    // Both probes must hit the same PATH-resolved binary — that is the file the
+    // next session will spawn.
+    expect(versionProbeCalls().map((c) => c.command)).toEqual([CLAUDE, CLAUDE])
+    // A healthy install needs no manual postinstall.
+    expect(postinstallCalls()).toHaveLength(0)
+  })
+
+  it('refuses to update when nothing is installed, without touching npm', async () => {
+    const svc = await load('linux')
+    const frames: InstallProgress[] = []
+
+    await expect(svc.updateCli(collect(frames))).resolves.toEqual({
+      success: false,
+      error: 'Claude Code CLI is not installed. Install it first.',
+    })
+    expect(npmInstallCalls()).toHaveLength(0)
+    expect(last(frames)).toEqual({
+      stage: 'error',
+      message: 'Claude Code CLI not detected',
+      percent: 100,
+    })
+  })
+
+  it('treats a version-less CLI as something to repair, not a reason to refuse', async () => {
+    // The bricked install must still reach npm — refusing here is what left the
+    // user with a dead CLI and no button.
+    const svc = await ready(null)
+    upgradeOnInstall('2.1.307')
+    const frames: InstallProgress[] = []
+
+    await expect(svc.updateCli(collect(frames))).resolves.toEqual({ success: true })
+    expect(npmInstallCalls()).toHaveLength(1)
+    expect(last(frames)).toEqual({ stage: 'done', message: 'Updated to v2.1.307', percent: 100 })
+  })
+
+  it('says so when the reinstall leaves claude --version still broken', async () => {
+    // npm can exit 0 with the native package still missing. Reporting success
+    // here would tell the user they are fixed when `claude` is still a stub.
+    const svc = await ready(null)
+    const frames: InstallProgress[] = []
+
+    const result = await svc.updateCli(collect(frames))
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('claude --version still fails')
+    expect(last(frames)).toEqual({
+      stage: 'error',
+      message: 'Reinstalled but claude --version still fails',
+      percent: 100,
+    })
+  })
+
+  it('runs the package install.cjs when npm leaves the native stub in place', async () => {
+    const svc = await load('linux')
+    const NODE = path.join('/usr', 'bin', 'node')
+    const npmRoot = path.join('/usr', 'lib', 'node_modules')
+    const CLAUDE = path.join('/opt', 'claude')
+    const SCRIPT = path.join(npmRoot, '@anthropic-ai', 'claude-code', 'install.cjs')
+
+    available('npm', path.join('/usr', 'bin', 'npm'), '11.3.0')
+    available('node', NODE, 'v24.18.0')
+    available('claude', CLAUDE, '0')
+    probe.versions.delete(CLAUDE)
+    probe.npmRoot = npmRoot
+    probe.existing.add(SCRIPT)
+
+    const previous = probe.respond
+    probe.respond = (call) => {
+      if (call.command === NODE && call.args[0] === SCRIPT) {
+        probe.versions.set(CLAUDE, '2.1.308')
+        return { stdout: '', stderr: '' }
+      }
+      return previous(call)
+    }
+
+    const frames: InstallProgress[] = []
+    await expect(svc.updateCli(collect(frames))).resolves.toEqual({ success: true })
+
+    expect(postinstallCalls()).toEqual([
+      { command: NODE, args: [SCRIPT], options: expect.objectContaining({ timeout: 120000 }) },
+    ])
+    expect(last(frames)).toEqual({ stage: 'done', message: 'Updated to v2.1.308', percent: 100 })
+  })
+
+  it('surfaces install.cjs output when the native binary still cannot run', async () => {
+    const svc = await load('linux')
+    const NODE = path.join('/usr', 'bin', 'node')
+    const npmRoot = path.join('/usr', 'lib', 'node_modules')
+    const CLAUDE = path.join('/opt', 'claude')
+    const SCRIPT = path.join(npmRoot, '@anthropic-ai', 'claude-code', 'install.cjs')
+
+    available('npm', path.join('/usr', 'bin', 'npm'), '11.3.0')
+    available('node', NODE, 'v24.18.0')
+    available('claude', CLAUDE, '0')
+    probe.versions.delete(CLAUDE)
+    probe.npmRoot = npmRoot
+    probe.existing.add(SCRIPT)
+
+    const previous = probe.respond
+    probe.respond = (call) => {
+      if (call.command === NODE && call.args[0] === SCRIPT) {
+        return {
+          stdout: '',
+          stderr: 'Native package "@anthropic-ai/claude-code-win32-x64" not found.\n',
+        }
+      }
+      return previous(call)
+    }
+
+    const frames: InstallProgress[] = []
+    const result = await svc.updateCli(collect(frames))
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('claude --version still fails')
+    expect(result.error).toContain(
+      'install.cjs: Native package "@anthropic-ai/claude-code-win32-x64" not found.',
+    )
+    expect(postinstallCalls()).toHaveLength(1)
+    expect(last(frames)).toEqual({
+      stage: 'error',
+      message: 'Reinstalled but claude --version still fails',
+      percent: 100,
+    })
+  })
+
+  it('fails when npm exits 0 but the CLI on PATH still answers the old version', async () => {
+    const svc = await ready('2.1.227')
+    const frames: InstallProgress[] = []
+
+    await expect(svc.updateCli(collect(frames))).resolves.toEqual({
+      success: false,
+      error: 'Update finished but the CLI on PATH still reports v2.1.227',
+    })
+    expect(last(frames)).toEqual({
+      stage: 'error',
+      message: 'Still running v2.1.227',
+      percent: 100,
+    })
+  })
+
+  it('opens the install guide when npm install fails', async () => {
+    const svc = await ready('2.1.227')
+    probe.npmInstallError = new Error('npm ERR! 404 Not Found')
+
+    const result = await svc.updateCli(collect([]))
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Failed to update CLI via npm')
+    expect(probe.openExternal).toEqual([CLI_OVERVIEW])
   })
 })
 

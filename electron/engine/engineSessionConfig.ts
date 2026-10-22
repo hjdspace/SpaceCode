@@ -96,6 +96,12 @@ export function loadEngineSessionConfig(cwd: string): EngineSessionConfig {
   const providerConfig = activeProviderConfig(settings)
 
   if (providerConfig?.sonnetModel) config.model = providerConfig.sonnetModel
+  // pi 的 compat provider 要在 spawn 前登记全部可切换模型（见 PiSessionProcess.compatRegistrableModelIds）
+  const selectableModels = [...new Set(
+    [providerConfig?.haikuModel, providerConfig?.sonnetModel, providerConfig?.opusModel]
+      .filter((m): m is string => typeof m === 'string' && m.trim() !== ''),
+  )]
+  if (selectableModels.length > 0) config.selectableModels = selectableModels
   if (providerConfig?.apiKey) config.apiKey = providerConfig.apiKey
   if (providerConfig?.baseUrl) config.baseUrl = providerConfig.baseUrl
   if (typeof settings.thinkingEnabled === 'boolean') config.thinkingEnabled = settings.thinkingEnabled

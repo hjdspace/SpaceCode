@@ -366,6 +366,17 @@ export interface CliDetectionResult {
   [key: string]: unknown
 }
 
+export interface CliUpdateCheck {
+  installed: boolean
+  installedVersion: string | null
+  latestVersion: string | null
+  hasUpdate: boolean
+  /** 二进制在 PATH 上但 `claude --version` 跑不出版本号 —— 安装已损坏，需要重装修复。 */
+  unusable: boolean
+  /** 已装但没能问到最新版（无网络 / npm 不可用）。不能把它当成「已是最新」。 */
+  checkFailed: boolean
+}
+
 export interface EnvironmentCheckResult {
   node: { available: boolean; version: string | null; path: string | null }
   npm: { available: boolean; version: string | null; path: string | null }
@@ -704,6 +715,20 @@ export const api = {
   installCli: (): Promise<{ success: boolean; error?: string } | null> => {
     if (electronAPI?.claudeCode?.installCli) {
       return electronAPI.claudeCode.installCli()
+    }
+    return Promise.resolve(null)
+  },
+
+  checkCliUpdate: (): Promise<CliUpdateCheck | null> => {
+    if (electronAPI?.claudeCode?.checkCliUpdate) {
+      return electronAPI.claudeCode.checkCliUpdate()
+    }
+    return Promise.resolve(null)
+  },
+
+  updateCli: (): Promise<{ success: boolean; error?: string } | null> => {
+    if (electronAPI?.claudeCode?.updateCli) {
+      return electronAPI.claudeCode.updateCli()
     }
     return Promise.resolve(null)
   },

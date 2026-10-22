@@ -9,13 +9,31 @@ export interface PiAgentEvent {
 }
 
 /**
+ * 扩展发的 fire-and-forget UI 帧：发了不回头，宿主没有可渲染也没有可应答的东西。
+ * 与 EXTENSION_DIALOG_METHODS 互斥 —— 那四类才需要宿主回帧。
+ */
+export const EXTENSION_NO_REPLY_UI_METHODS: ReadonlySet<string> = new Set([
+  'notify',
+  'setStatus',
+  'setWidget',
+  'setTitle',
+  'set_editor_text',
+])
+
+/**
  * mapper 有意丢弃（mapPiEvent 返回 null）且会周期性重复的「噪音帧」：turn 生命周期、
  * system 角色的消息框架、队列/会话信息。每回合固定出现，逐条 INFO 会刷屏 —— 原始层
  * （PiSessionProcess）与路由层（PiProcessPool）都用它静默。其余丢弃仍保留 INFO 诊断：
- * 未知类型（default 分支）、缺 assistantMessageEvent 的 message_update、缺 id/method 的
- * 扩展帧 —— 那些一旦出现就是异常信号。
+ * 未知类型（default 分支）、缺 assistantMessageEvent 的 message_update、扩展帧里
+ * 认不出的 method 或缺 id 的对话框 —— 那些一旦出现就是异常信号。
+ * 注意对话框帧即使 method 认得，缺 id 也算异常，不能顺手静默掉。
  */
-export function isExpectedDroppedPiEvent(event: { type: string; message?: { role?: string } }): boolean {
+export function isExpectedDroppedPiEvent(event: {
+  type: string
+  method?: unknown
+  id?: unknown
+  message?: { role?: string }
+}): boolean {
   if (event.type === 'turn_start' || event.type === 'turn_end' || event.type === 'queue_update' || event.type === 'session_info_changed') {
     return true
   }
@@ -23,6 +41,10 @@ export function isExpectedDroppedPiEvent(event: { type: string; message?: { role
     const role = event.message?.role
     // 缺 message 字段的畸形帧不算预期内，保持可见
     return typeof role === 'string' && role !== 'assistant' && role !== 'user'
+  }
+  if (event.type === 'extension_ui_request') {
+    // 只静默「明确不需要宿主回帧」的那五类；method 缺失或认不出来的仍然可见
+    return typeof event.method === 'string' && EXTENSION_NO_REPLY_UI_METHODS.has(event.method)
   }
   return false
 }

@@ -27,6 +27,14 @@ export interface EngineSessionConfig {
   permissionMode?: PermissionMode
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
+  /**
+   * 界面在这条会话上能给用户选的模型真实 id（当前 provider 的 haiku/sonnet/opus 槽位）。
+   *
+   * 只有 pi 用得上：它的 compat provider 模型清单是宿主在 spawn 前手写的 models.json，
+   * 而 `set_model` 只认这份启动时读到的快照、也没有重读命令。没登记进去的模型
+   * 就换不过去（见 PiSessionProcess.compatRegistrableModelIds）。
+   */
+  selectableModels?: string[]
   /** 是否启用 RTK (Rust Token Killer) token 优化 */
   rtkEnabled?: boolean
   /**

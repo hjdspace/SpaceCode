@@ -41,20 +41,31 @@ type SlotConfig = { haikuModel?: string; sonnetModel?: string; opusModel?: strin
  * 一个 store 上只挂一个 selector：两个实例会各自 watch 同一份 availableModes，
  * 回写和 emit 都会双份发生，测试结论就不再代表真实界面。
  *
- * `engineSource` 缺 'bundled'，跟真 store 的默认一致 —— 档位有两维（模型能力 + 引擎词汇），
- * 不写出来的用例就等于默认在测内部引擎那一套。
+ * `engineSource` 缺 'bundled'、`engineType` 缺 'claude-code'，都跟真 store 的默认一致 ——
+ * 档位有三维（模型能力 + 引擎族 + 该族里哪个二进制），不写出来的用例就等于默认在测
+ * 内部 Claude 引擎那一套。
  */
-function setupSelector(slots: SlotConfig = {}, emitted: string[] = [], engineSource: 'bundled' | 'installed' = 'bundled') {
+function setupSelector(
+  slots: SlotConfig = {},
+  emitted: string[] = [],
+  engineSource: 'bundled' | 'installed' = 'bundled',
+  engineType: 'claude-code' | 'pi' = 'claude-code',
+) {
   const settingsStore = useSettingsStore()
   settingsStore.authMethod = 'anthropic_compatible'
   settingsStore.engineSource = engineSource
+  settingsStore.engineType = engineType
   settingsStore.anthropicConfig = { ...settingsStore.anthropicConfig, apiKey: '', baseUrl: '', ...slots }
   const selector = useModelSelector({ onUpdateEffort: (e) => emitted.push(e) })
   return { selector, settingsStore, emitted }
 }
 
-function selectorFor(slots: SlotConfig = {}, engineSource: 'bundled' | 'installed' = 'bundled') {
-  return setupSelector(slots, [], engineSource)
+function selectorFor(
+  slots: SlotConfig = {},
+  engineSource: 'bundled' | 'installed' = 'bundled',
+  engineType: 'claude-code' | 'pi' = 'claude-code',
+) {
+  return setupSelector(slots, [], engineSource, engineType)
 }
 
 beforeEach(() => {
@@ -317,6 +328,25 @@ describe('推理深度档位随模型能力与引擎词汇变化', () => {
 
     selector.selectedModel.value = 'gpt-6.1-turbo'
     expect([...selector.availableModes.value]).toEqual(['low', 'medium', 'high', 'max'])
+  })
+
+  /**
+   * 用户报的那条现象：反复切换模型/深度时下拉里没有 xhigh。档位以前只看 engineSource
+   * （内部 bundle 还是安装版 CLI）—— 那是 Claude 那一族内部的差异，跑 pi 时套它等于
+   * 拿另一台引擎的词汇表做选项，xhigh 消失、max 还在。
+   */
+  it('pi 引擎用 pi 的词表：xhigh 呈现，且不被内部 Claude 的 4 档收窄', () => {
+    const { selector } = selectorFor({ opusModel: 'claude-opus-4-7' }, 'bundled', 'pi')
+
+    selector.selectedModel.value = 'claude-opus-4-7'
+    expect([...selector.availableModes.value]).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
+  it('pi 引擎不套 Claude 的按模型降档表 —— 那张表说的是另一台引擎', () => {
+    const { selector } = selectorFor({ sonnetModel: 'claude-haiku-4-5' }, 'bundled', 'pi')
+
+    selector.selectedModel.value = 'claude-haiku-4-5'
+    expect([...selector.availableModes.value]).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
   })
 
   it('一档都不能调的模型给出空集合', () => {

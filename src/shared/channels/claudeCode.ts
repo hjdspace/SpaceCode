@@ -18,6 +18,7 @@ import type { DeriveRendererApi, DeriveEventApi } from '@/shared/channelMap'
 import type { EffortLevel } from '@/shared/effort'
 import type {
   CliDetectionResult,
+  CliUpdateCheck,
   EnvironmentCheckResult,
   InstallProgress,
   ProxyStatus,
@@ -331,6 +332,14 @@ export const claudeCodeNamespace = defineNamespace({
       res: null as unknown as EnvironmentCheckResult | null,
     },
     installCli: {
+      req: [] as unknown as [],
+      res: null as unknown as { success: boolean; error?: string } | null,
+    },
+    checkCliUpdate: {
+      req: [] as unknown as [],
+      res: null as unknown as CliUpdateCheck | null,
+    },
+    updateCli: {
       req: [] as unknown as [],
       res: null as unknown as { success: boolean; error?: string } | null,
     },

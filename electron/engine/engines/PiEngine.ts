@@ -121,6 +121,27 @@ export class PiEngine implements IEngine {
   }
 
   /**
+   * 运行中换模型。pi 的 RPC 有 `set_model`，过去这里没有实现，渲染层每次都只能
+   * 把会话杀掉重启（并因此在用户切档位/模型时刷一条 NotImplementedError）。
+   *
+   * 换完必须补发一次思考档位：pi 的 setModel 内部会按**新模型**重算 thinking
+   * （回到 settings 默认），不补的话用户选的深度会被这次换模型悄悄改掉。
+   * 补发失败只告警 —— 模型确实已经换过去了，把整次切换判成失败反而更早。
+   */
+  async setModel(sessionId: string, model: string | undefined): Promise<void> {
+    info('PiEngine', `setModel | sessionId=${sessionId.slice(0, 8)} | model=${model}`)
+    await this.pool.setModel(sessionId, model)
+
+    const proc = this.pool.getProcess(sessionId)
+    if (!proc) return
+    try {
+      await proc.setThinkingLevel(this.piThinkingLevel(proc.config.thinkingEnabled === true, proc.config.effortLevel))
+    } catch (err) {
+      warn('PiEngine', `setModel: failed to re-apply thinking level | sessionId=${sessionId.slice(0, 8)}`, { error: String(err) })
+    }
+  }
+
+  /**
    * 应答一条 pi 扩展对话框。没有 `async`：写 stdin 是同步的，而这次调用的成败
    * 正是界面决定「收起卡片」还是「退回可重试」的唯一依据 (#54)。
    */
