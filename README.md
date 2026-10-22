@@ -9,10 +9,10 @@
 基于 Claude Code 引擎构建的新一代 AI 辅助编程桌面应用，深度融合大语言模型能力，为开发者提供智能化的代码编写、调试、重构和项目管理体验。
 
 [![Electron](https://img.shields.io/badge/Electron-43-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
-[![Vue 3](https://img.shields.io/badge/Vue%203-3.4-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
+[![Vue 3](https://img.shields.io/badge/Vue%203-3.5-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite)](https://vitejs.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Bun](https://img.shields.io/badge/Bun-%3E%3D1.3-black?style=flat-square&logo=bun)](https://bun.sh/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![Bun](https://img.shields.io/badge/Bun-%3E%3D1.3.11-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)]()
 
 [多模式核心](#多模式核心) · [会话编排](#-会话编排sleep-coding) · [Computer Use](#-computer-use桌面控制) · [Browser Use](#-browser-use浏览器自动化) · [桌面宠物](#-桌面宠物desktop-pet) · [移动端](#-移动端配套) · [更多特色](#更多特色) · [快速开始](#快速开始) · [项目结构](#项目结构) · [开发指南](#开发指南) · [技术栈](#技术栈)
@@ -25,7 +25,7 @@
 
 SpaceCode 是一款跨平台 AI 桌面助手，采用 **Electron + Vue 3 + TypeScript** 技术栈构建。它创造性地将 **AI 编程** 与 **AI 办公** 融合到同一应用中，通过顶部的 `💻 编码` / `💼 办公` 模式切换，在一款工具中同时满足开发者的代码编写需求和职场人的文档产出需求。
 
-项目采用 Monorepo 架构，包含桌面 GUI 应用（根目录）、CLI 核心引擎（`engine/`）和 Flutter 移动端配套应用（`mobile-app/`），支持扫码配对远程协作。
+仓库包含桌面 GUI 应用（根目录）、CLI 核心引擎（`engine/`）和 Flutter 移动端配套应用（`mobile-app/`），支持扫码配对远程协作。
 
 ---
 
@@ -50,14 +50,14 @@ SpaceCode 的核心是 **编码模式**、**办公模式** 和 **设计模式** 
 | 能力 | 说明 |
 |------|------|
 | **AI 对话编程** | 自然语言描述需求，AI 自动读写文件、执行命令、生成代码 |
-| **工具调用卡片** | Bash、Edit、Read、Write、Glob、Grep、WebFetch、WebSearch、Agent 等 13+ 工具的可视化卡片，每步操作清晰可见 |
+| **工具调用卡片** | Bash、Edit、Read、Write、Glob、Grep、WebFetch、WebSearch、Agent 等常用工具的可视化卡片，按工具类型渲染专属 UI |
 | **代码 Diff 预览** | 基于 `@git-diff-view` 的行级差异对比，AI 每次编辑都可审查 |
 | **集成终端** | 基于 xterm.js + node-pty，支持多终端标签页，与 AI 会话无缝协作 |
 | **Git SCM 面板** | 暂存、提交、推送、分支管理、Diff 查看，事件驱动自动刷新 |
 | **文件浏览器** | 项目树状导航，支持右键菜单与外部编辑器打开（VS Code、Cursor、Vim 等） |
 | **对话回滚（Rewind）** | 支持将对话和代码变更回滚到历史消息节点，提供 4 种回滚策略 |
-| **权限控制** | 自动批准 / 手动批准 / 始终拒绝 / 仅建议四种模式，精细控制 AI 操作范围 |
-| **斜杠命令** | 内联命令芯片 + 斜杠命令菜单，70+ 命令覆盖常用操作 |
+| **权限控制** | 默认 / 计划 / 自动编辑 / 完全信任四种模式，权限模式按会话归属并回读校验 |
+| **斜杠命令** | 内联命令芯片 + 斜杠命令菜单，统一检索内置命令、技能命令与 MCP 工具 |
 
 **对话回滚策略：**
 
@@ -266,15 +266,16 @@ SpaceCode 内置 Browser Use 浏览器自动化能力，让 AI 能够**操控真
 ### 🔌 MCP 协议与扩展生态
 
 - **MCP 服务器管理**：支持 stdio / SSE / HTTP 三种传输方式，可视化配置与连通性检测
+- **Pi MCP 管理**：读取 Pi 引擎的 MCP 服务器状态并启停，配置变更经投影层同步到引擎
 - **Computer Use MCP**：内置 `sc-computer-use` 预设，后端为 cua-driver 原生二进制，支持后台桌面操控（详见 [Computer Use](#-computer-use桌面控制) 章节）
 - **Browser Use MCP**：内置 `sc-browser-use` 预设，将浏览器操作暴露为 MCP 工具，支持本地与 Cloud Browser（详见 [Browser Use](#-browser-use浏览器自动化) 章节）
 - **内置 MCP 依赖安装**：一键安装与状态检测，提升环境配置体验
 
 ### 📚 技能库与智能体系统
 
-- **50+ 内置技能**：涵盖前端设计、PPT 生成、代码审查、TDD、文档创作、办公文档等领域
-- **技能管理器**：技能浏览、安装、编辑、分类过滤，支持本地技能与市场技能
-- **Agents 智能体**：完整的代理管理系统，70+ 内置 Agent，支持工作流编辑与执行
+- **130+ 内置技能**：涵盖前端设计、PPT 生成、代码审查、TDD、文档创作、办公文档等领域
+- **技能管理器 V2**：中心库、Agent 目标分发、技能包与快照诊断，支持本地技能与市场技能
+- **Agents 智能体**：80+ 内置 Agent（含 24 个办公助手），支持会话内选用与切换，并可由定时任务引用
 
 ### ⚡ 高级功能
 
@@ -284,6 +285,10 @@ SpaceCode 内置 Browser Use 浏览器自动化能力，让 AI 能够**操控真
 - **链路追踪（Trace）**：完整的会话链路追踪与调用详情查看，便于调试
 - **会话上下文面板**：Git 图表、分支创建、环境变量管理、任务面板
 - **迷你浏览器工作台**：内置 WebView 浏览器，支持 HTML 产物自动预览
+- **首次启动引导**：新装即进入向导，语言、外观、引擎、模型与工作区一次配好
+- **划词 AI 操作栏**：聊天与代码查看器中划选内容可快捷发送 AI 处理，引用以附件随消息传递
+- **会话文件变更追踪**：记录本次会话写过的文件，任务面板展示改动明细并支持 diff / review
+- **桌面通知**：任务完成、等待授权与计划确认时弹出系统通知
 
 ### 🐾 桌面宠物（Desktop Pet）
 
@@ -295,16 +300,16 @@ SpaceCode 内置桌面宠物系统，让 AI 编程助手在桌面角落陪伴你
 |------|------|
 | **Sprite Atlas 帧动画** | 基于 Sprite Atlas + CSS `background-position` 的帧切换实现（PetSpriteAtlas.vue），替代旧版 SVG 方案，渲染更流畅、资源更紧凑 |
 | **多状态动画** | 9 种状态动画 + 16 方向视线追踪（petAnimation.ts），宠物会随鼠标位置自然转头 |
-| **任务监控映射** | 通过 petSessionModel 将 SpaceCode 的 chatSession/turn store 映射为 5 状态模型（idle / thinking / acting / waiting / done），由 pet.ts store 聚合并经 IPC 推送至宠物窗口，AI 干活时宠物同步卖萌 |
+| **任务监控映射** | 通过 petSessionModel 将 SpaceCode 的 chatSession/turn store 映射为 4 状态模型（idle / running / waiting / failed），由 pet.ts store 聚合并经 IPC 推送至宠物窗口，AI 干活时宠物同步卖萌 |
 | **多只内置宠物** | 4 只独立精神图绘（Sprite 图集），在设置面板一键切换 |
 | **透明置顶窗口** | 透明顶层窗口，支持 16ms 光标采样拖拽，面板边缘翻转带 24px 滞回区间，区域穿透不挡操作（petWindowManager.ts） |
 | **设置面板** | PetSettings.vue 提供 4 只宠物选择、尺寸 / 动画 / 任务面板开关 |
-| **会话联动** | 宠物状态与桌面端会话生命周期绑定，回滚、暂停、续跑均会反映到宠物 |
+| **会话联动** | 宠物状态与桌面端会话生命周期绑定，任务运行、等待审批与失败均会反映到宠物 |
 
 **工作流程：**
 
 1. 在设置面板「桌面宠物」中选择喜爱的宠物与尺寸
-2. 开启任务面板开关，宠物窗口将在 AI 思考、工具调用、等待审批时切换对应动画
+2. 开启任务面板开关，宠物窗口将在 AI 运行、等待审批或任务失败时切换对应动画
 3. 拖拽宠物至屏幕任意边缘，自动翻转方向并避免遮挡图标
 4. 在不操作的区域点击穿透，正常使用下方应用
 
@@ -322,22 +327,24 @@ SpaceCode 提供功能完整的 Flutter 移动端配套应用（`mobile-app/`）
 
 | 能力 | 说明 |
 |------|------|
-| **Flutter 跨平台** | 支持 Android、iOS、macOS、Linux、Windows、Web 六端 |
+| **Flutter 跨平台** | 工程包含 Android、iOS、macOS、Linux、Windows、Web 六端目录；Termux / 前台服务等 Android 专属能力以 Android 为主 |
 | **扫码配对** | 扫描桌面端二维码快速连接，主题实时同步 |
-| **远程会话协作** | 移动端查看会话、审批工具调用、管理代理 |
+| **远程会话协作** | 查看 / 恢复 / 新建会话，审批工具调用，切换 Agent 与权限模式 |
 | **本地 Agent 引擎** | 独立运行的 Agent，支持续跑（maxTurns 150）、限流重试、SSE 流式响应 |
+| **GitHub 集成** | Device Flow 认证、仓库浏览、自动 clone 与自动 PR |
 | **文件浏览器与预览** | 项目目录树展开 / 折叠，文件点击进入主页面预览，支持代码高亮与 Markdown 渲染，顶部面包屑路径快速跳转 |
 | **内置终端与 Shell** | 工作区内执行 Shell 命令，GitPlugin 提供 12 个结构化 Git 工具 |
-| **Python 沙盒** | PythonPlugin 支持在移动端执行 Python 代码 |
-| **真 git clone（Termux 桥接）** | GitCloneService 分四段执行 git clone，TermuxReadiness 三态检测，token 通过临时 credential helper 注入不持久化 |
+| **Python 沙盒** | PythonPlugin 已实现；当前 Android 构建因 Chaquopy 16 暂不兼容 Gradle 9 而禁用，启用后可执行 Python 代码 |
+| **真 git clone（Termux 桥接）** | GitCloneService 分段执行 git clone，TermuxReadiness 三态检测，token 通过临时 credential helper 注入不持久化 |
 | **联网搜索** | WebSearchProvider 抽象 + Jina（默认免 Key）/ Tavily / Brave 三种 Provider，web_search / fetch_url 工具注册到 Agent（只读权限） |
+| **技能与语音** | 内置 / 桌面同步 / GitHub 三种技能来源；系统语音识别与云端 Whisper 两种输入方案 |
 | **权限拦截器** | CommandClassifier 命令危险等级分类 + PermissionInterceptorPlugin 异步询问流程 |
 | **前台服务保活** | Android 前台服务，防止 LLM 长任务被系统终止 |
 | **完整 i18n** | 中英文双语支持，覆盖会话、搜索、Termux、聊天输入等全部模块 |
 
 <div align="center">
 
-*移动端配套：从远程协作到本地 Agent，再到文件浏览、终端、Git、Python 沙盒与联网搜索*
+*移动端配套：从远程协作到本地 Agent，再到文件浏览、终端、Git 与联网搜索*
 
 </div>
 
@@ -357,8 +364,8 @@ SpaceCode 提供功能完整的 Flutter 移动端配套应用（`mobile-app/`）
 
 | 环境 | 最低版本 | 推荐版本 | 用途 |
 |------|----------|----------|------|
-| **Node.js** | >= 18 | >= 20 | Desktop 构建运行 |
-| **Bun** | >= 1.3.0 | >= 1.3.12 | CLI 引擎运行时 |
+| **Node.js** | >= 20.19 | >= 22.12 | Desktop 构建运行（Vite 8 / Electron 43） |
+| **Bun** | >= 1.3.11 | 1.4.x | CLI 引擎运行时 |
 | **npm** | >= 9 | 最新版 | 包管理器 |
 | **Git** | >= 2.x | 最新版 | 版本控制 |
 
@@ -388,9 +395,9 @@ npm run electron:dev
 | API Key | 认证密钥 | `sk-ant-xxxxx` |
 | 快速模型 | 轻量级模型 ID | `claude-haiku-4-5-20251001` |
 | 均衡模型 | 平衡型模型 ID | `claude-sonnet-4-6` |
-| 高性能模型 | 旗舰模型 ID | `claude-opus-4-6` |
+| 高性能模型 | 旗舰模型 ID | `claude-opus-4-8` |
 
-兼容所有 Anthropic API 规范的服务商（OpenRouter、AWS Bedrock 代理、Azure OpenAI 等），也可通过内置 API 代理桥接入 OpenAI 兼容接口。
+兼容 Anthropic API 规范的服务商（OpenRouter、AWS Bedrock、Google Vertex 等），也可通过内置 API 代理桥接入 OpenAI 兼容接口。
 
 ---
 
@@ -402,21 +409,29 @@ SpaceCode/
 │   ├── App.vue                 # 根组件（三栏布局）
 │   ├── components/             # UI 组件库
 │   │   ├── chat/               # 聊天组件（消息渲染、工具卡片、回滚、命令菜单）
-│   │   ├── layout/             # 布局组件（分屏容器、侧边栏、标题栏、终端）
+│   │   ├── layout/             # 布局组件（分屏容器、侧边栏、标题栏、信息面板 / WebView）
 │   │   ├── explorer/           # 文件浏览器
 │   │   ├── scm/                # Git 源码管理
 │   │   ├── terminal/           # 终端组件
 │   │   ├── settings/           # 设置面板
-│   │   ├── skills/             # 技能管理
+│   │   ├── skills/             # 技能浏览与技能市场
+│   │   ├── skill_manager/      # 技能管理器 V2（中心库 / 目标分发 / 技能包）
 │   │   ├── agents/             # Agent 智能体管理
 │   │   ├── mcp/                # MCP 配置
 │   │   ├── cron/               # 定时任务
-│   │   ├── work/               # 工作模式与办公助手
+│   │   ├── work/               # 办公模式、办公助手与产物预览
+│   │   ├── design/             # 设计模式（设计系统 / 模板 / 设计文件工作区）
+│   │   ├── mobile/             # 移动端配对入口
+│   │   ├── onboarding/         # 首次启动引导
 │   │   ├── debug/              # 链路追踪
 │   │   ├── orchestration/      # 会话编排画布（Task Node / 依赖连线 / 节点抽屉）
 │   │   ├── session-context/    # 会话上下文面板
+│   │   ├── pets/               # 桌面宠物渲染
 │   │   └── common/             # 通用 UI 组件
-│   ├── stores/                 # Pinia 状态管理（30+ 模块）
+│   ├── stores/                 # Pinia 状态管理（30+ 模块，含 turn / orchestration 子模块）
+│   ├── lib/                    # 领域逻辑（工具注册表、模型目录、宠物状态模型等）
+│   ├── utils/                  # 纯工具函数
+│   ├── shared/                 # 主进程 / 渲染进程共享的 IPC 通道与类型
 │   ├── composables/            # Vue 组合式函数
 │   ├── services/               # LLM 客户端、Electron API 服务
 │   ├── i18n/                   # 国际化（zh-CN / en-US）
@@ -430,6 +445,7 @@ SpaceCode/
 │   ├── session/                # 会话子进程、权限与历史管理
 │   ├── ipc/                    # IPC handler 注册（桌面 / H5 / IM / 移动端）
 │   ├── h5/                     # H5 服务与移动端 WebSocket 服务
+│   ├── im/                     # IM 适配器
 │   ├── imServer/               # IM 服务端（侧车进程与引擎翻译）
 │   ├── git/                    # Git 操作服务
 │   ├── cron/                   # 定时任务（调度器 / 文件仓 / 运行记录）
@@ -440,15 +456,16 @@ SpaceCode/
 │   ├── proxy/                  # API 代理模块（Anthropic ↔ OpenAI 转换）
 │   └── memory/ design/ pet/ windows/  # 记忆、设计模式、桌宠、窗口与托盘
 │
-├── scripts/
-│   └── download-cua-driver.mjs # cua-driver 二进制预下载脚本（构建前运行）
-│
+├── scripts/                    # 构建与维护脚本（引擎构建、Bun / 二进制下载、原生模块补丁）
 ├── engine/                     # CLI 核心引擎（Bun 独立子项目）
 ├── mobile-app/                 # Flutter 移动端配套应用
-├── resources/skills-lib/         # 内置技能库（50+ 技能）
-├── resources/agents-lib/         # 内置智能体库（70+ Agent）
-├── docs/                       # 设计文档与原型
-├── tests/                      # 测试套件
+├── resources/                  # 随应用分发的静态资源
+│   ├── skills-lib/             # 内置技能库（130+ 技能）
+│   ├── agents-lib/             # 内置智能体库（80+ Agent，含 24 个办公助手）
+│   ├── design-systems-lib/     # 设计模式的设计系统库
+│   └── builtin-hooks/ browser-use/ officecli/ cua-driver/  # 内置 Hook 与工具资源
+├── docs/                       # 设计文档、ADR 与原型
+├── tests/                      # 跨模块集成与场景测试（单元测试与源码同处 __tests__/）
 └── package.json                # Desktop 项目配置
 ```
 
@@ -460,8 +477,8 @@ SpaceCode/
 
 ```bash
 # ─── 开发 ───
-npm run electron:dev              # 启动 Electron 开发模式
-npm run dev                       # 仅启动 Vite 前端开发服务器
+npm run electron:dev              # 启动 Vite + Electron 开发模式
+npm run dev                       # 与 electron:dev 相同（vite-plugin-electron 直接拉起主进程）
 
 # ─── 构建 ───
 npm run build                     # 类型检查 + Vite 构建
@@ -469,10 +486,14 @@ npm run electron:build            # 完整 Electron 打包（图标 + 引擎 + e
 npm run electron:build:win        # 仅打包 Windows
 npm run electron:build:mac        # 仅打包 macOS
 npm run electron:build:linux      # 仅打包 Linux
+npm run electron:build:local      # 本地完整打包（国内镜像 + 跳过 TLS 校验）
+npm run electron:build:win:local  # 本地打包 Windows
+npm run electron:build:mac:local  # 本地打包 macOS
+npm run electron:build:linux:local # 本地打包 Linux
 
 # ─── 引擎 ───
-cd engine && bun install          # 安装 CLI 引擎依赖
-cd engine && bun run build-desktop.ts  # 构建桌面版引擎
+npm run engine:install            # 安装 CLI 引擎依赖（根目录 postinstall 已自动执行）
+npm run engine:build:desktop      # 构建桌面版引擎（注入客户端 feature 名单并冒烟校验）
 
 # ─── 测试 ───
 npm run test:changed              # 只跑受改动影响的测试（主进程与渲染层共用 Vitest）
@@ -489,13 +510,13 @@ npm run changelog                 # 生成 CHANGELOG
 
 | 平台 | 产物格式 |
 |------|----------|
-| **Windows** | NSIS 安装包（`.exe`）+ 便携版 |
-| **macOS** | DMG + ZIP |
-| **Linux** | AppImage + DEB |
+| **Windows** | NSIS 安装包（`.exe`，x64） |
+| **macOS** | DMG + ZIP（CI 构建 Apple Silicon） |
+| **Linux** | AppImage + DEB（x64） |
 
 ### 代码规范
 
-- TypeScript 严格模式，`@/` 路径别名映射到 `src/`
+- TypeScript 严格模式，`@/` 映射到 `src/`、`@electron/` 映射到 `electron/`
 - Vue SFC 使用 `<script setup lang="ts">` + scoped SCSS
 - 组件文件名 PascalCase，composables 使用 `use` 前缀，stores 使用驼峰命名
 - 遵循 Conventional Commits 规范（feat/fix/style/refactor 等前缀）
@@ -510,14 +531,14 @@ npm run changelog                 # 生成 CHANGELOG
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | **Electron** | 43.x | 跨平台桌面应用框架 |
-| **Vue 3** | 3.4.x | 前端框架（Composition API） |
+| **Vue 3** | 3.5.x | 前端框架（Composition API） |
 | **Vite** | 8.x | 构建工具（极速热更新） |
-| **TypeScript** | 5.x | 类型安全（strict 模式） |
-| **Pinia** | 2.x | Vue 状态管理 |
-| **SCSS** | 1.71.x | CSS 预处理器 |
+| **TypeScript** | 6.x | 类型安全（strict 模式） |
+| **Pinia** | 4.x | Vue 状态管理 |
+| **SCSS** | 1.104.x | CSS 预处理器 |
 | **xterm.js** | 6.x | 终端模拟器渲染 |
 | **node-pty** | 1.x | 伪终端（PTY）管理 |
-| **marked** | 12.x | Markdown 解析 |
+| **marked** | 18.x | Markdown 解析 |
 | **highlight.js** | 11.x | 语法高亮 |
 | **mermaid** | 11.x | 图表渲染 |
 | **electron-builder** | 26.x | 应用打包工具 |
@@ -527,7 +548,7 @@ npm run changelog                 # 生成 CHANGELOG
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **Bun** | >= 1.3.0 | JavaScript 运行时、包管理器、构建工具 |
+| **Bun** | >= 1.3.11 | JavaScript 运行时、包管理器、构建工具 |
 | **TypeScript** | 6.x | 类型安全 |
 | **React** | 19.x | 终端 UI 渲染（配合 Ink） |
 | **Commander.js** | 14.x | CLI 参数解析 |
@@ -548,9 +569,9 @@ npm run changelog                 # 生成 CHANGELOG
 
 | 平台 | 状态 | 说明 |
 |------|------|------|
-| ✅ Windows | 完整支持 | NSIS 安装包 + 便携版，支持 x64 |
-| ✅ macOS | 完整支持 | DMG + ZIP，Intel & Apple Silicon |
-| ✅ Linux | 完整支持 | AppImage + DEB |
+| ✅ Windows | 完整支持 | NSIS 安装包，支持 x64 |
+| ✅ macOS | 完整支持 | DMG + ZIP；CI 构建 Apple Silicon，Intel 可本地构建 |
+| ✅ Linux | 完整支持 | AppImage + DEB，支持 x64 |
 
 ---
 
@@ -576,6 +597,7 @@ SpaceCode 持续演进中，以下为近期规划方向（非承诺，可能调�
 
 ### ✅ 已完成里程碑
 
+- v0.8.x：会话编排画布、首次启动引导、计划模式与子代理、Pi MCP 管理、技能管理器 V2、划词 AI 操作栏、会话文件变更追踪、Bash 实时输出与思考力度全链路
 - v0.7.x：桌面宠物 Sprite Atlas 重构 + 多只宠物内置 + 任务监控映射、移动端文件浏览器与代码预览、Tavily 免费代理搜索
 - v0.6.x：桌面宠物、多模型 Profile、IM 集成、办公助手画廊
 - v0.5.x：分屏多会话、Computer Use、Browser Use、设计模式

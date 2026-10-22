@@ -1,8 +1,8 @@
 # SpaceCode Mobile
 
-SpaceCode 移动客户端，基于 Flutter 构建。提供本地 AI Agent、GitHub 仓库管理、桌面端协同等能力，支持在手机上完成编码任务。
+SpaceCode 移动客户端，基于 Flutter 构建。既能作为桌面端的远程协作终端，也能脱离桌面端，使用本地 Agent 完成编码任务。
 
-当前版本：**v0.2.0**
+当前版本：**v0.3.1**
 
 ## 功能
 
@@ -10,9 +10,18 @@ SpaceCode 移动客户端，基于 Flutter 构建。提供本地 AI Agent、GitH
 
 - OpenAI 兼容的 `/chat/completions` 接口，支持任意兼容服务（OpenAI、DeepSeek、Moonshot、Together、OpenRouter 等）
 - **流式输出**：LLM 回复实时逐 token 显示
-- **工具调用**：自动调用 `list_files` / `read_file` / `write_file` 完成代码读写，最多 8 轮循环
+- **工具调用**：Workspace 文件读写、Git、Shell、技能与联网搜索工具，自动多轮循环（Python 插件当前构建未启用）
+- **长任务续跑**：单次最多 150 轮，达到上限后可点「继续上次任务」接着执行
+- **限流重试**：429 响应按 `Retry-After` 自动等待重试
+- **Agent 选择**：每个会话可独立选择并切换 Agent
 - **模型选择**：从 API 拉取模型列表（OpenAI `/models` 接口），支持下拉选择或手动输入
-- 配置持久化：API Key / Base URL / Model 保存到本地，重启后自动加载
+- 配置持久化：API Key / Base URL / Model、权限模式与流式开关保存到本地，重启后自动加载
+
+### 权限与安全
+
+- **命令危险等级分类**：CommandClassifier 将工具与 Shell 命令分为 `read` / `write` / `dangerous`
+- **异步权限询问**：PermissionInterceptorPlugin 在执行前拦截高风险操作，等待用户确认
+- **Token 不落盘**：Termux git clone 通过临时 credential helper 注入 token，完成后清除 remote URL 中的凭据
 
 ### GitHub 集成
 
@@ -24,7 +33,43 @@ SpaceCode 移动客户端，基于 Flutter 构建。提供本地 AI Agent、GitH
 
 ### 桌面端协同
 
-通过扫码连接 SpaceCode 桌面端，把手机作为远程输入设备。
+通过扫码连接 SpaceCode 桌面端，经 WebSocket 协议协作：
+
+- 查看、恢复、新建与切换桌面端会话
+- 审批或拒绝工具调用
+- 切换当前会话的 Agent 与权限模式
+
+### 文件、终端与 Git
+
+- **文件浏览器**：项目目录树展开 / 折叠，文件点击进入主页面预览，支持代码高亮、Markdown 渲染与面包屑跳转
+- **内置终端**：工作区内执行 Shell 命令，stdout / stderr / exit 事件流式回显
+- **GitPlugin**：提供 12 个结构化 Git 工具（status / log / diff / show / add / commit / branch / push / pull / reset 等）
+
+### Python 沙盒与 Termux
+
+- **PythonPlugin**：基于 Chaquopy 实现，可执行 Python 代码与脚本文件；当前 Android 构建因 Chaquopy 16 暂不兼容 Gradle 9 而禁用，启用后生效
+- **真 git clone**：GitCloneService 通过 Termux 桥接分段执行 `git clone`，产出含 `.git` 的完整仓库
+- **TermuxReadiness**：未安装 / 已安装但 git 不可用 / 完全就绪三态检测，并在设置页引导修复
+
+### 技能与联网搜索
+
+- **技能来源**：内置技能、桌面端同步、本地技能库与 GitHub 技能源
+- **技能管理**：浏览、安装、预览与删除
+- **联网搜索**：WebSearchProvider 抽象，内置 Jina（默认免 Key）、Tavily 与 Brave 三种 Provider
+- **只读工具**：`web_search` / `fetch_url` 以只读权限注册到 Agent
+
+### 语音与国际化
+
+- **语音输入**：系统语音识别与云端 Whisper 两种方案
+- **完整 i18n**：中英文双语，覆盖会话、搜索、Termux、聊天输入等模块
+- **Android 保活**：前台服务防止 LLM 长任务被系统终止
+
+## 平台
+
+Flutter 工程包含 Android、iOS、macOS、Linux、Windows、Web 六端目录。
+
+- **Android**：能力最完整，包含 Termux git clone 与前台服务保活；Python 沙盒代码已实现，当前构建暂未启用
+- **其他平台**：共享同一套 Flutter 工程；Termux / Python 等能力以 Android 实现为准，其他平台需按实际构建结果验证
 
 ## 快速开始
 
@@ -60,6 +105,26 @@ flutter build apk --release \
 
 产物路径：`build/app/outputs/flutter-apk/app-release.apk`
 
+## 使用流程
+
+### 本地 Agent 模式
+
+1. 打开 App → 设置 → 配置 API Key / Base URL / Model（点模型右侧刷新按钮可拉取列表）
+2. 返回聊天页 → 工作区工具栏选择本地目录
+3. 输入问题，Agent 会自动调用工具读写文件
+
+### GitHub 仓库模式
+
+1. 设置 → 点「连接 Github」→ 浏览器完成 Device Flow 认证
+2. 返回聊天页 → 工作区工具栏选择 GitHub 仓库与分支
+3. 提问，Agent 会自动 clone 仓库到本地工作目录
+4. Agent 完成修改后自动创建 PR，附 PR 链接到回复
+
+### 桌面端协同模式
+
+1. 设置 → 扫码连接桌面端
+2. 连接后可查看 / 切换会话、审批工具调用、切换 Agent 与权限模式
+
 ## GitHub OAuth 配置
 
 本地 Agent 的 GitHub 集成使用 Device Flow，需要在 GitHub 注册 OAuth App：
@@ -75,52 +140,39 @@ flutter build apk --release \
 > Client ID 是公开标识符，可以硬编码到 App 里，不算敏感信息。
 > Client Secret 才是密钥（Device Flow 不需要）。
 
-## 使用流程
-
-### 本地 Agent 模式
-
-1. 打开 App → 设置 → 配置 API Key / Base URL / Model（点模型右侧刷新按钮可拉取列表）
-2. 返回聊天页 → 工作栏选择「本地」模式 → 选择工作目录
-3. 输入问题，Agent 会自动调用工具读写文件
-
-### GitHub 仓库模式
-
-1. 设置 → 点「连接 Github」→ 浏览器完成 Device Flow 认证
-2. 返回聊天页 → 工作栏第一个 chip 切换到「云端」→ 选择仓库 → 选择分支
-3. 提问，Agent 会自动 clone 仓库到本地工作目录
-4. Agent 完成修改后自动创建 PR，附 PR 链接到回复
-
 ## 项目结构
 
 ```
 mobile-app/
 ├── lib/
 │   ├── main.dart                      # 应用入口
-│   ├── app.dart                      # App 根组件
-│   ├── routing/router.dart           # 路由配置
+│   ├── app.dart                       # App 根组件
+│   ├── routing/router.dart            # 路由配置
 │   ├── core/
-│   │   ├── agent/
-│   │   │   ├── local_agent_service.dart    # 本地 Agent（流式 + 工具调用）
+│   │   ├── agent/                     # Agent 循环、模型客户端、工具插件、权限拦截
+│   │   │   ├── local_agent_service.dart
 │   │   │   ├── openai_compatible_model.dart
-│   │   │   └── agent_types.dart
-│   │   ├── config/mobile_config.dart       # 配置持久化
-│   │   ├── github/
-│   │   │   ├── github_service.dart         # GitHub API
-│   │   │   └── github_browser_auth.dart   # Device Flow 认证弹窗
-│   │   ├── workspace/workspace_target.dart
-│   │   └── connection/                    # 桌面端连接
+│   │   │   ├── command_classifier.dart
+│   │   │   ├── permission_interceptor.dart
+│   │   │   ├── termux_bridge.dart
+│   │   │   └── plugins/               # workspace / git / python / shell / skill / web
+│   │   ├── config/                    # 配置持久化
+│   │   ├── connection/                # 桌面端 WebSocket 连接与扫码
+│   │   ├── foreground/                # Android 前台服务保活
+│   │   ├── github/                    # Device Flow、仓库与 clone
+│   │   ├── i18n/                      # 中英文文案
+│   │   ├── protocol/                  # 桌面端 WS 协议
+│   │   ├── skills/                    # 技能加载、安装与来源
+│   │   ├── storage/ theme/ voice/ workspace/
 │   └── features/
-│       ├── chat/
-│       │   ├── chat_controller.dart       # 聊天状态 + Agent 调度
-│       │   ├── models/
-│       │   └── widgets/
-│       │       ├── message_bubble.dart
-│       │       ├── tool_call_card.dart    # 工具调用 UI
-│       │       └── markdown_renderer.dart # Markdown 渲染（含流式）
-│       ├── settings/settings_screen.dart   # 设置页（API 配置 + GitHub 认证）
-│       └── ...
-├── android/                              # Android 原生配置
-└── pubspec.yaml                          # Flutter 依赖配置
+│       ├── chat/                      # 聊天、工作区工具栏与 Agent 调度
+│       ├── files/                     # 文件浏览与预览
+│       ├── sessions/                  # 会话列表
+│       ├── settings/                  # 设置页
+│       ├── skills/                    # 技能管理
+│       └── terminal/                  # 终端
+├── android/ ios/ macos/ linux/ windows/ web/  # 六端工程目录
+└── pubspec.yaml                       # Flutter 依赖配置
 ```
 
 ## CI/CD
@@ -137,8 +189,8 @@ Android release APK 已集成到 GitHub Actions release 流程（`.github/workfl
 ```bash
 # 1. 更新 pubspec.yaml 的 version 字段
 # 2. 提交并打 tag
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 ## 开发
