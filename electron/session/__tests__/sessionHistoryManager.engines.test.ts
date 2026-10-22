@@ -61,6 +61,10 @@ async function loadManager() {
 }
 
 beforeEach(() => {
+  // 生产代码优先读 CLAUDE_CONFIG_DIR / XDG_CONFIG_HOME；CI runner 会设置后者，
+  // 不隔离会让 .claude 目录落到真实 home 之外，测试在 Linux 上必挂。
+  vi.stubEnv('CLAUDE_CONFIG_DIR', '')
+  vi.stubEnv('XDG_CONFIG_HOME', '')
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'history-engines-'))
   H.home = path.join(tmpRoot, 'home')
   H.userData = path.join(tmpRoot, 'userData')
@@ -69,6 +73,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   fs.rmSync(tmpRoot, { recursive: true, force: true })
 })
 
