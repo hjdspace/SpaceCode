@@ -35,6 +35,9 @@ function mockProfile(id: string, name: string, authMethod: AuthMethod = 'openai_
 
 describe('settings store — profile actions', () => {
   beforeEach(() => {
+    // Profile 默认名走 i18n，必须钉住语言；否则 jsdom 的 en-US 会得到 "Default"。
+    localStorage.clear()
+    localStorage.setItem('claude_desktop_settings', JSON.stringify({ language: 'zh-CN' }))
     setActivePinia(createPinia())
     vi.clearAllMocks()
   })
