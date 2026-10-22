@@ -3,6 +3,7 @@ import { mount, config } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { createPinia, setActivePinia } from 'pinia'
 import AgentTimeline from '../AgentTimeline.vue'
+import { resolveToolComponent } from '@/components/chat/tools/index'
 import { extensionDialogService, type ExtensionDialog } from '@/services/extensionDialogService'
 import type { Message } from '@/types'
 import zhCN from '@/i18n/locales/zh-CN'
@@ -151,6 +152,52 @@ describe('AgentTimeline timelineEvents 归一化', () => {
     expect(chips[0]).toContain('+2')
     expect(chips[1]).toContain('app.ts')
     expect(chips.join('')).not.toContain('unknown')
+  })
+
+  /**
+   * plan 模式的两张交互卡（问卷 / 计划）是用户决策的承重面：折进「N 个工具调用」
+   * 等于把 Plan 藏起来 —— 用户只剩一个英文行动菜单，看不到要批准的是什么。
+   * 它们必须永远独立成行；同轮的普通工具照常成组。
+   */
+  it('plan_mode_complete 不折进工具组，普通工具照常成组', async () => {
+    // 预热动态 import 缓存：vite-node 首次加载 .vue 模块链是跨多个宏任务的异步 I/O，
+    // 不预热的话断言时机取决于模块加载速度（flaky）。生产构建下是预打包 chunk，无此问题。
+    await resolveToolComponent('plan_mode_complete')
+    await resolveToolComponent('Write')
+
+    const msg: Message = {
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      toolCalls: [
+        { id: 'p1', name: 'plan_mode_complete', input: { plan: '## 背景\n切换主题后只能整页生效。' }, status: 'completed' },
+        { id: 'w1', name: 'Write', input: { path: 'a.ts', content: 'a' }, status: 'completed' },
+        { id: 'w2', name: 'Write', input: { path: 'b.ts', content: 'b' }, status: 'completed' },
+      ],
+      timelineEvents: [
+        { id: 'tool-p1', type: 'tool_call', timestamp: 1, status: 'completed', toolCallId: 'p1' },
+        { id: 'tool-w1', type: 'tool_call', timestamp: 2, status: 'completed', toolCallId: 'w1' },
+        { id: 'tool-w2', type: 'tool_call', timestamp: 3, status: 'completed', toolCallId: 'w2' },
+      ],
+    }
+
+    const wrapper = mountTimeline([msg])
+    // 只有两条 Write 成组；plan 卡独立在组外
+    const groups = wrapper.findAll('.tool-group')
+    expect(groups).toHaveLength(1)
+    expect(groups[0].text()).not.toContain('背景')
+
+    // 缓存已热，onMounted 的加载在微任务内完成
+    for (let i = 0; i < 3; i++) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    await wrapper.vm.$nextTick()
+    // 只断言同步渲染的卡片头部：正文走 MarkdownRenderer 的 rAF 节流渲染，
+    // jsdom 下时序不可控（正文渲染本身由 PlanModeCompleteToolCard.test.ts 覆盖）；
+    // 「plan 内容不在组内」已由 groups[0].text() 断言保证。
+    expect(wrapper.find('.plan-complete-card').exists()).toBe(true)
+    expect(wrapper.find('.plan-complete-card').text()).toContain('实施计划')
   })
 })
 

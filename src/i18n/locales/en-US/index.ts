@@ -44,6 +44,7 @@ import errors from './errors'
 import trace from './trace'
 import permission from './permission'
 import piExtensionDialog from './piExtensionDialog'
+import planMode from './planMode'
 import hookSettings from './hookSettings'
 import agents from './agents'
 import update from './update'
@@ -116,6 +117,7 @@ export default {
   trace,
   permission,
   piExtensionDialog,
+  planMode,
   hookSettings,
   agents,
   update,

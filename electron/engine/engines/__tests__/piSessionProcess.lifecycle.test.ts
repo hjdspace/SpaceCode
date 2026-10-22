@@ -165,6 +165,18 @@ function attachment(name: string, data: string, mimeType = 'image/png'): ImageAt
   return { id: 'img-1', name, type: 'image', mimeType, previewUrl: '', data }
 }
 
+/**
+ * settings.json 的重试预算投影是 start() 的合法副作用（429 退避预算，见 piRetrySettings）。
+ * 附件用例的「零落盘」断言只关心 sendMessage 流程，把投影写入滤掉再比。
+ */
+function attachmentFlowWrites(): Array<{ path: string; data: Buffer | string }> {
+  return H.writes.filter((w) => !String(w.path).endsWith(path.join('.pi', 'agent', 'settings.json')))
+}
+
+function attachmentFlowMkdirs(): string[] {
+  return H.mkdirs.filter((p) => !p.endsWith(path.join('.pi', 'agent')))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
@@ -699,8 +711,8 @@ describe('PiSessionProcess prompt attachments', () => {
     const sending = proc.sendMessage('', [attachment('diagram v1.png', `data:image/png;base64,${b64}`)])
 
     // @"路径" → Read 这条链在非 Anthropic 网关上会把图片 block 整块丢掉，模型只拿到路径
-    expect(H.mkdirs).toEqual([])
-    expect(H.writes).toEqual([])
+    expect(attachmentFlowMkdirs()).toEqual([])
+    expect(attachmentFlowWrites()).toEqual([])
     expect(writtenFrames(child)).toEqual([
       {
         id: 'req_1',
@@ -730,7 +742,7 @@ describe('PiSessionProcess prompt attachments', () => {
       { type: 'image', data: b64, mimeType: 'image/jpeg' },
       { type: 'image', data: b64, mimeType: 'image/png' },
     ])
-    expect(H.writes).toEqual([])
+    expect(attachmentFlowWrites()).toEqual([])
 
     feed(child, ackFor('req_1'))
     await expect(sending).resolves.toBeUndefined()
@@ -745,11 +757,11 @@ describe('PiSessionProcess prompt attachments', () => {
       attachment('diagram.bmp', `data:image/bmp;base64,${Buffer.from('BMPS').toString('base64')}`, 'image/bmp'),
     ])
 
-    expect(H.mkdirs).toEqual([])
-    expect(path.dirname(H.writes[0].path)).toBe(uploadDir)
-    expect(path.basename(H.writes[0].path)).toMatch(/-diagram\.bmp\.bmp$/)
+    expect(attachmentFlowMkdirs()).toEqual([])
+    expect(path.dirname(attachmentFlowWrites()[0].path)).toBe(uploadDir)
+    expect(path.basename(attachmentFlowWrites()[0].path)).toMatch(/-diagram\.bmp\.bmp$/)
     const frame = writtenFrames(child)[0]
-    expect(frame.message).toBe(`@"${H.writes[0].path}" describe this`)
+    expect(frame.message).toBe(`@"${attachmentFlowWrites()[0].path}" describe this`)
     expect(frame.images).toBeUndefined()
 
     feed(child, ackFor('req_1'))
@@ -771,7 +783,7 @@ describe('PiSessionProcess prompt attachments', () => {
       const { proc, child } = await startUp({}, `pi-mime-${ext}-0001`)
       const sending = proc.sendMessage('look', [attachment('file name.png', `data:${mimeType};base64,${b64}`, mimeType)])
 
-      expect(path.basename(H.writes[0].path).endsWith(`-file_name.png.${ext}`)).toBe(true)
+      expect(path.basename(attachmentFlowWrites()[0].path).endsWith(`-file_name.png.${ext}`)).toBe(true)
 
       feed(child, ackFor('req_1'))
       await sending
@@ -790,7 +802,7 @@ describe('PiSessionProcess prompt attachments', () => {
 
     const frame = writtenFrames(child)[0]
     expect(frame.images).toEqual([{ type: 'image', data: b64, mimeType: 'image/png' }])
-    expect(frame.message).toBe(`@"${H.writes[0].path}" 两份一起看`)
+    expect(frame.message).toBe(`@"${attachmentFlowWrites()[0].path}" 两份一起看`)
 
     feed(child, ackFor('req_1'))
     await expect(sending).resolves.toBeUndefined()
@@ -811,7 +823,7 @@ describe('PiSessionProcess prompt attachments', () => {
       expect.stringContaining(`[${SHORT_ID}] Failed to save image: broken.png`),
       expect.objectContaining({ message: 'Invalid image data format' }),
     )
-    expect(H.writes).toEqual([])
+    expect(attachmentFlowWrites()).toEqual([])
     const frames = writtenFrames(child)
     expect(frames[0].message).toBe('compare these')
     expect(frames[0].images).toEqual([{ type: 'image', data: good.toString('base64'), mimeType: 'image/png' }])

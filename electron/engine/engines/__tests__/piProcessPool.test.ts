@@ -14,6 +14,9 @@
  *   - 驱逐阶梯的候选过滤（isRunning / canSafelySuspend）与 lastActivityAt 排序
  *   - routeEvent 的丢弃路径（mapPiEvent null、channel 表未命中、窗口缺失）与
  *     监听器隔离（单 listener 抛错不影响其余）
+ *   - routeEvent 经重试桥分诊（429 中间态）：agent_end(error) 扣住等下一拍，
+ *     auto_retry_start 放行横幅、auto_retry_end(false) 连同错误 result 放行、
+ *     300ms 兜底与 killSession 作废（详见 piRetryBridge.test.ts）
  *   - 控制面（sendMessage/abort/suspend/resume/kill）的前置校验与转发
  *
  * mapPiEvent 用 mock 注入归一化结果：真实实现产不出合成事件类型，channel 表
@@ -556,6 +559,109 @@ describe('routeEvent 事件路由', () => {
       type: 'error',
       message: 'x',
     })
+  })
+})
+
+describe('routeEvent 经重试桥分诊（429 中间态）', () => {
+  /** 按帧类型动态映射：agent_end → result、auto_retry_* → system（同 PiEventMapper 的形状） */
+  function mapByFrameType(stopReason: string | null) {
+    H.mapPiEvent.mockImplementation((_sid: string, raw: any) => {
+      if (raw.type === 'agent_end') {
+        return { type: 'result', data: { stop_reason: stopReason ?? 'end_turn', is_error: stopReason === 'error' } }
+      }
+      if (raw.type === 'auto_retry_start') {
+        return { type: 'system', data: { subtype: 'api_retry', attempt: 1, maxRetries: 10, retryInMs: 500 } }
+      }
+      if (raw.type === 'auto_retry_end') {
+        return { type: 'system', data: { subtype: 'auto_retry_end', success: raw.success } }
+      }
+      return null
+    })
+  }
+
+  function sendsOf(win: { webContents: { send: ReturnType<typeof vi.fn> } }) {
+    return (win.webContents.send as ReturnType<typeof vi.fn>).mock.calls.map(([channel, payload]) => ({
+      channel,
+      subtype: payload?.data?.subtype,
+      stopReason: payload?.data?.stop_reason,
+    }))
+  }
+
+  it('agent_end(error) 被扣住不结算，auto_retry_start 放行横幅，恢复后成功 result 正常结算', async () => {
+    const { pool, win } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+
+    // 错误收场 → 扣住，回合保持 loading
+    mapByFrameType('error')
+    proc.emit('message', { type: 'agent_end' })
+    expect(win!.webContents.send).not.toHaveBeenCalled()
+
+    // pi 决定重试：横幅放行
+    proc.emit('message', { type: 'auto_retry_start' })
+    expect(win!.webContents.send).toHaveBeenCalledTimes(1)
+    expect(sendsOf(win!)[0]).toMatchObject({ channel: CHANNEL_BY_SUFFIX['system'], subtype: 'api_retry' })
+
+    // 退避后续跑成功：最终 result 正常结算（重试状态一并清掉）
+    mapByFrameType(null)
+    proc.emit('message', { type: 'agent_end' })
+    expect(sendsOf(win!)).toHaveLength(2)
+    expect(sendsOf(win!)[1]).toMatchObject({ channel: CHANNEL_BY_SUFFIX['result'], stopReason: 'end_turn' })
+  })
+
+  it('重试预算耗尽：auto_retry_end(false) 时横幅事件与错误 result 一起放行', async () => {
+    const { pool, win } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    mapByFrameType('error')
+
+    proc.emit('message', { type: 'agent_end' })
+    proc.emit('message', { type: 'auto_retry_start' })
+    expect(win!.webContents.send).toHaveBeenCalledTimes(1)
+
+    proc.emit('message', { type: 'auto_retry_end', success: false })
+
+    // 先横幅（渲染层收重试提示）后错误 result（落错误卡片）
+    const sends = sendsOf(win!)
+    expect(sends).toHaveLength(3)
+    expect(sends[1]).toMatchObject({ channel: CHANNEL_BY_SUFFIX['system'], subtype: 'auto_retry_end' })
+    expect(sends[2]).toMatchObject({ channel: CHANNEL_BY_SUFFIX['result'], stopReason: 'error' })
+  })
+
+  it('不重试的错误：300ms 兜底窗口后错误 result 放行，行为与未桥接一致', async () => {
+    const { pool, win } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    mapByFrameType('error')
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      proc.emit('message', { type: 'agent_end' })
+      expect(win!.webContents.send).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(300)
+      expect(sendsOf(win!)).toEqual([
+        { channel: CHANNEL_BY_SUFFIX['result'], subtype: undefined, stopReason: 'error' },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('killSession 丢弃扣住的中间态错误：进程退场后不再补发错误卡片', async () => {
+    const { pool, win } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    mapByFrameType('error')
+
+    proc.emit('message', { type: 'agent_end' })
+    expect(win!.webContents.send).not.toHaveBeenCalled()
+
+    pool.killSession('seed-0')
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      vi.advanceTimersByTime(1000)
+      expect(win!.webContents.send).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

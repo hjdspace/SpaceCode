@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi Plan Mode UI 重构 — 三方案选择</title>
+<style>
+:root{
+  --font:'Inter','Noto Sans SC',-apple-system,'Segoe UI',system-ui,sans-serif;
+  --bg:#f8f9fb;--elevated:#fff;--surface-soft:#f3f4f8;
+  --glass:rgba(24,25,31,.02);--glass-hover:rgba(24,25,31,.04);
+  --border:rgba(24,25,31,.06);--border-strong:rgba(24,25,31,.12);
+  --text:#18191f;--text2:#44475a;--muted:#5c5f7a;
+  --accent:#0d9488;--accent-glow:rgba(13,148,136,.12);
+  --success:#059669;--warning:#d97706;--error:#dc2626;
+  --shadow-md:0 4px 12px rgba(24,25,31,.08);--shadow-lg:0 8px 24px rgba(24,25,31,.11);
+  --radius-lg:12px;--t-fast:150ms cubic-bezier(.4,0,.2,1);
+}
+[data-theme=dark]{
+  --bg:#0d0d0d;--elevated:#1f1f1f;--surface-soft:#121212;
+  --glass:rgba(255,255,255,.03);--glass-hover:rgba(255,255,255,.05);
+  --border:rgba(255,255,255,.06);--border-strong:rgba(255,255,255,.12);
+  --text:#f5f5f5;--text2:#a3a3a3;--muted:#737373;
+  --accent:#3b82f6;--accent-glow:rgba(59,130,246,.25);
+  --shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;transition:background 250ms}
+.wrap{max-width:1060px;margin:0 auto;padding:40px 24px 80px}
+header h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+header .sub{color:var(--muted);font-size:13.5px;margin-top:8px;max-width:760px}
+header .ctx{margin-top:14px;padding:10px 14px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;background:var(--glass);font-size:12.5px;color:var(--text2);line-height:1.7}
+header .ctx code{font-family:ui-monospace,Consolas,monospace;font-size:11px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:28px}
+.card{display:flex;flex-direction:column;background:var(--elevated);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;text-decoration:none;color:inherit;transition:all var(--t-fast);box-shadow:var(--shadow-md)}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg);border-color:var(--accent)}
+.card .visual{height:120px;position:relative;overflow:hidden;border-bottom:1px solid var(--border);background:var(--surface-soft);display:flex;align-items:center;justify-content:center}
+.card .visual svg{opacity:.9}
+.card .body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:10px;flex:1}
+.card .top{display:flex;align-items:center;gap:9px}
+.card .badge{padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:var(--accent)}
+.card h2{font-size:15.5px;font-weight:650}
+.card .axis{font-size:11.5px;color:var(--accent);font-weight:600}
+.card .pos{font-size:13px;color:var(--text2)}
+.card .trade{font-size:12px;line-height:1.65;border-top:1px dashed var(--border);padding-top:10px;margin-top:auto}
+.card .trade .win{color:var(--success)}
+.card .trade .lose{color:var(--warning)}
+.card .trade b{font-weight:650}
+.foot{margin-top:30px;font-size:12px;color:var(--muted);line-height:1.8}
+.theme-btn{position:fixed;top:20px;right:20px;padding:6px 14px;border-radius:6px;border:1px solid var(--border-strong);background:var(--elevated);color:var(--text2);font-size:12px;cursor:pointer;font-family:inherit;box-shadow:var(--shadow-md)}
+</style>
+</head>
+<body>
+<button class="theme-btn" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light'">切换深浅</button>
+<div class="wrap">
+  <header>
+    <h1>pi Plan Mode UI 重构 — 三方案</h1>
+    <p class="sub">现状：<code>ExtensionDialogCard.vue</code> 一张卡应付 select / confirm / input / editor 四种引擎对话框，标题是一段多行纯文本、选项是无层级按钮，且与 <code>plan_mode_question</code> / <code>plan_mode_complete</code> 的工具调用卡片互不关联。以下三个原型回答同一件事：pi 专属工具的 UI 应该长成什么样。</p>
+    <div class="ctx">演示故事（三个原型共用）：「给设置页加主题预览」→ pi 提出问卷（plan_mode_question，2 题）→ 提交计划（plan_mode_complete）→ 用户批准实施。每页均含深浅主题、汇总/超时等边界态，可直接交互。</div>
+  </header>
+
+  <div class="grid">
+    <a class="card" href="plan-mode-redesign-a.html">
+      <div class="visual">
+        <svg width="230" height="86" viewBox="0 0 230 86" fill="none">
+          <rect x="10" y="6" width="150" height="20" rx="5" fill="rgba(13,148,136,.14)"/>
+          <rect x="18" y="12" width="60" height="8" rx="3" fill="#0d9488"/>
+          <rect x="10" y="34" width="150" height="46" rx="6" fill="rgba(24,25,31,.05)"/>
+          <rect x="18" y="42" width="90" height="7" rx="3" fill="rgba(24,25,31,.25)"/>
+          <rect x="18" y="56" width="110" height="7" rx="3" fill="rgba(24,25,31,.14)"/>
+          <rect x="18" y="70" width="70" height="6" rx="3" fill="#0d9488" opacity=".55"/>
+          <circle cx="200" cy="40" r="14" fill="rgba(13,148,136,.14)"/><path d="M195 40l3.5 3.5 6-7" stroke="#0d9488" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <rect x="180" y="62" width="40" height="10" rx="5" fill="rgba(24,25,31,.1)"/>
+        </svg>
+      </div>
+      <div class="body">
+        <div class="top"><span class="badge">A</span><h2>卡片同构</h2></div>
+        <div class="axis">轴线：对话流内联卡片为中心</div>
+        <p class="pos">pi 工具卡并入现有卡片家族 —— plan_mode_question 完全对齐 AskUserQuestionToolCard（图标头 / 进度点 / 选项描述 / 自定义输入 / 汇总折叠），plan_mode_complete 升级为带目录与行动条的计划文档卡。</p>
+        <div class="trade">
+          <div class="win"><b>胜在</b>：与你的参考方向一致；学习成本零；改动收敛在 tool cards 层</div>
+          <div class="lose"><b>代价</b>：问答与计划仍是时间线里的两张卡，跨卡上下文要靠滚动</div>
+        </div>
+      </div>
+    </a>
+
+    <a class="card" href="plan-mode-redesign-b.html">
+      <div class="visual">
+        <svg width="230" height="86" viewBox="0 0 230 86" fill="none">
+          <rect x="26" y="6" width="178" height="74" rx="7" fill="rgba(24,25,31,.05)" stroke="rgba(24,25,31,.15)"/>
+          <rect x="26" y="6" width="178" height="16" rx="7" fill="rgba(13,148,136,.16)"/>
+          <rect x="36" y="11" width="52" height="6" rx="3" fill="#0d9488"/>
+          <rect x="36" y="30" width="46" height="7" rx="3" fill="rgba(24,25,31,.3)"/>
+          <rect x="36" y="44" width="150" height="5" rx="2.5" fill="rgba(24,25,31,.14)"/>
+          <rect x="36" y="54" width="120" height="5" rx="2.5" fill="rgba(24,25,31,.14)"/>
+          <rect x="36" y="68" width="40" height="8" rx="4" fill="#0d9488"/>
+          <rect x="82" y="68" width="40" height="8" rx="4" fill="rgba(24,25,31,.12)"/>
+          <rect x="8" y="26" width="86" height="18" rx="9" fill="rgba(217,119,6,.16)"/>
+          <rect x="18" y="32" width="60" height="6" rx="3" fill="#d97706" opacity=".8"/>
+        </svg>
+      </div>
+      <div class="body">
+        <div class="top"><span class="badge">B</span><h2>计划文档中心</h2></div>
+        <div class="axis">轴线：决策文档 + 行动条为中心</div>
+        <p class="pos">plan_mode_complete 升格为「决策文档」主角：标题栏 + 工具栏 + 分节正文 + 步骤文件落点 + 底部行动条（批准 / 再改改 / 存草稿 / 放弃）。问卷收成一行 chip，点开浮层作答。</p>
+        <div class="trade">
+          <div class="win"><b>胜在</b>：决策动作集中一处；计划阅读体验最好；贴合 plan mode 的本质</div>
+          <div class="lose"><b>代价</b>：问卷被压缩，多题时浮层答题略局促；实现面更大（文档卡 + 浮层）</div>
+        </div>
+      </div>
+    </a>
+
+    <a class="card" href="plan-mode-redesign-c.html">
+      <div class="visual">
+        <svg width="230" height="86" viewBox="0 0 230 86" fill="none">
+          <rect x="10" y="6" width="128" height="74" rx="7" fill="rgba(24,25,31,.04)"/>
+          <rect x="20" y="16" width="70" height="9" rx="4.5" fill="rgba(13,148,136,.3)"/>
+          <rect x="20" y="34" width="88" height="6" rx="3" fill="rgba(24,25,31,.14)"/>
+          <rect x="20" y="46" width="60" height="6" rx="3" fill="rgba(24,25,31,.14)"/>
+          <rect x="150" y="6" width="70" height="74" rx="7" fill="rgba(13,148,136,.1)" stroke="#0d9488" stroke-width="1.2"/>
+          <rect x="158" y="14" width="34" height="7" rx="3.5" fill="#0d9488"/>
+          <rect x="158" y="30" width="54" height="6" rx="3" fill="rgba(24,25,31,.2)"/>
+          <rect x="158" y="42" width="44" height="6" rx="3" fill="rgba(24,25,31,.14)"/>
+          <rect x="158" y="58" width="30" height="9" rx="4.5" fill="#0d9488"/>
+          <circle cx="204" cy="32" r="3" fill="#d97706"><animate attributeName="opacity" values="1;.3;1" dur="1.6s" repeatCount="indefinite"/></circle>
+        </svg>
+      </div>
+      <div class="body">
+        <div class="top"><span class="badge">C</span><h2>会话面板中心</h2></div>
+        <div class="axis">轴线：会话级状态中枢为中心</div>
+        <p class="pos">新增右侧常驻 Plan 面板：当前问题答题器、计划摘要与行动、带实时时钟的活动时间线都收进面板；聊天流只留可点击的轻量 chip 提醒。</p>
+        <div class="trade">
+          <div class="win"><b>胜在</b>：plan 全程状态一屏可见；聊天不被大卡打断；chip 模式对长会话最友好</div>
+          <div class="lose"><b>代价</b>：新增面板层，需与 splitLayout / InfoPanel 抢宽度，窄窗口要降级；改动面最大</div>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <div class="foot">
+    选择建议：想最小风险拿到「与 AskUserQuestion 同一家族」的观感 → <b>A</b>；想让 plan mode 的核心产出（计划）获得最好的阅读与决策体验 → <b>B</b>；想要一个 plan 专属的常驻驾驶舱并接受面板布局成本 → <b>C</b>。三个方案共享同一套语义 token 映射与数据降级策略，选定后可在细化阶段互相吸收细节（如 A 吸收 B 的目录、C 吸收 A 的选项卡）。
+  </div>
+</div>
+</body>
+</html>

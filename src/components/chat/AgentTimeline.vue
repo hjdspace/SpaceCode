@@ -423,6 +423,9 @@ const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate
 // 数组）以 JSON 形式泄露到卡片下方，且 Allow 按钮会以不带 answers 的原始
 // input 提交，破坏问答流程。
 const SELF_PERMISSION_TOOL_NAMES = new Set(['AskUserQuestion'])
+// plan 模式的两张交互卡是用户决策的承重面：问卷要答题、计划要读完才能行动，
+// 折进「N 个工具调用」等于把 Plan 藏起来（截图中计划卡整个消失）——永远独立成行。
+const PROMOTED_TOOL_NAMES = new Set(['plan_mode_question', 'plan_mode_complete'])
 
 const emit = defineEmits<{
   toolSubmit: [toolId: string, updatedInput: Record<string, unknown>]
@@ -970,6 +973,7 @@ function isGroupableToolEvent(event: TimelineEvent): boolean {
   const tool = toolOf(event)
   if (!tool) return false
   if (SELF_PERMISSION_TOOL_NAMES.has(tool.name)) return false
+  if (PROMOTED_TOOL_NAMES.has(tool.name)) return false
   return !getPendingPermission(tool.id)
 }
 

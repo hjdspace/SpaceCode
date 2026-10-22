@@ -1215,7 +1215,12 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     if (isError || looksLikeApiError) {
       const errorText = resultText || 'API error'
       logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] result event has error, routing to handleError | isError=${isError} | looksLikeApiError=${looksLikeApiError} | errorText=${errorText.slice(0, 120)}`)
-      handleError(sessionId, ts, new Error(errorText))
+      // pi 的上游拒绝（429/5xx/网络）由引擎内部退避重试（预算见 piRetrySettings 投影），
+      // 全部失败后才以 stop_reason:'error' 收场。这是"引擎已尽力"的最终失败：
+      // abort+重发整段历史只会再次撞限速，前端不该再接一轮重发循环。
+      const engineRetriesExhausted = result?.stop_reason === 'error' && sink.get(sessionId)?.engineType === 'pi'
+      const error = Object.assign(new Error(errorText), engineRetriesExhausted ? { engineRetriesExhausted: true } : {})
+      handleError(sessionId, ts, error)
       return
     }
 
@@ -1506,7 +1511,13 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       phase: 'stream',
     })
 
-    if (autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
+    // pi 以 stop_reason:'error' 收场 = 引擎内部重试已全部失败（打标见 handleResult）。
+    // 再发起 abort+重发只会重复撞限速，还可能跟 followUp 队列赛跑 —— 直接落错误卡片，
+    // 与 claude-code「CLI 内部重试耗尽后报错」的观感对齐。
+    const engineRetriesExhausted =
+      (error as { engineRetriesExhausted?: boolean }).engineRetriesExhausted === true
+
+    if (!engineRetriesExhausted && autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
       const claudeCode = getClaudeCode()
       if (claudeCode) {
         try { claudeCode.abort(sessionId) } catch { /* ignore */ }
