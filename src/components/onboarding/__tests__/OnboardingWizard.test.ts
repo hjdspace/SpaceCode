@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
@@ -8,8 +7,7 @@ import OnboardingWizard from '../OnboardingWizard.vue'
 import SearchableSelect from '@/components/settings/SearchableSelect.vue'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useSettingsStore } from '@/stores/settings'
-import enUS from '@/i18n/locales/en-US'
-import zhCN from '@/i18n/locales/zh-CN'
+import { i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 
@@ -35,17 +33,11 @@ vi.mock('@/services/h5ApiClient', () => ({
 const SETTINGS_KEY = 'claude_desktop_settings'
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
-function makeI18n() {
-  return createI18n({
-    legacy: false,
-    locale: 'zh-CN',
-    fallbackLocale: 'en-US',
-    messages: { 'zh-CN': zhCN, 'en-US': enUS },
-  })
-}
-
 async function mountWizard() {
   localStorage.clear()
+  // 组件挂全局 i18n 实例：语言切换由 settings store 的 watcher 同步到它，
+  // 用测试自己造的新实例会绕过这条真实路径。
+  i18n.global.locale.value = 'zh-CN'
   const pinia: Pinia = createPinia()
   setActivePinia(pinia)
   // 已完成首启动标记：这些用例考的是卡片内部行为，不是自动弹出。
@@ -60,7 +52,6 @@ async function mountWizard() {
   await tick()
   onboarding.start()
 
-  const i18n = makeI18n()
   const wrapper = mount(OnboardingWizard, { global: { plugins: [pinia, i18n] } })
   await nextTick()
   return { wrapper, settings, onboarding, i18n, pinia }
@@ -124,6 +115,22 @@ describe('引导卡', () => {
 
     expect(onboarding.step).toBe(3)
     expect(wrapper.find('.ob-head h1').text()).toBe('接一个大模型')
+  })
+
+  it('欢迎页就能切语言，不必先点开始设置', async () => {
+    const { wrapper, settings, i18n } = await mountWizard()
+
+    const toggles = wrapper.findAll('.ob-intro-lang button')
+    expect(toggles.map(el => el.text())).toEqual(['中文', 'EN'])
+
+    await toggles[1].trigger('click')
+    await tick()
+
+    expect(settings.language).toBe('en-US')
+    expect(i18n.global.locale.value).toBe('en-US')
+    expect(wrapper.text()).toContain('Welcome to SpaceCode')
+    expect(wrapper.find('.ob-intro-lang .is-active').text()).toBe('EN')
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}').language).toBe('en-US')
   })
 
   it('切语言即时改文案并落盘，不需要重启', async () => {

@@ -22,20 +22,24 @@ vi.mock('@/services/electronAPI', async (importOriginal) => {
   return { ...actual, api: { ...(actual.api as object), writeFile: apiMocks.writeFile } }
 })
 
-vi.mock('@/i18n', () => ({
-  i18n: {
-    global: {
-      locale: { value: 'zh-CN' },
-      t: (key: string) => key,
+vi.mock('@/i18n', () => {
+  const locale = { value: 'zh-CN' }
+  return {
+    i18n: {
+      global: {
+        locale,
+        t: (key: string) => key,
+      },
     },
-  },
-  detectSystemLanguage: () => 'zh-CN',
-  // chatSession.ts 模块级读取 messages 收集占位会话标题，mock 必须提供同构导出
-  messages: {
-    'zh-CN': { common: { newChat: '新对话' } },
-    'en-US': { common: { newChat: 'New Chat' } },
-  },
-}))
+    applyLocale: (next: 'zh-CN' | 'en-US') => { locale.value = next },
+    detectSystemLanguage: () => 'zh-CN',
+    // chatSession.ts 模块级读取 messages 收集占位会话标题，mock 必须提供同构导出
+    messages: {
+      'zh-CN': { common: { newChat: '新对话' } },
+      'en-US': { common: { newChat: 'New Chat' } },
+    },
+  }
+})
 
 import { useSelectionBarStore } from '@/stores/selectionBar'
 import { useAppStore } from '@/stores/app'

@@ -28,6 +28,7 @@ vi.mock('@/services/h5ApiClient', () => ({
 
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
+import { i18n } from '@/i18n'
 import { useSettingsStore } from '../settings'
 import { useOnboardingStore, STEP_COUNT } from '../onboarding'
 
@@ -88,6 +89,17 @@ describe('启动判定', () => {
     await settled()
 
     expect(onboarding.visible).toBe(false)
+  })
+})
+
+describe('语言同步', () => {
+  it('gui-settings.json 读定后，语言同步到 i18n 与 <html lang>', async () => {
+    createStores({ language: 'zh-CN' })
+
+    await settled()
+
+    expect(i18n.global.locale.value).toBe('zh-CN')
+    expect(document.documentElement.lang).toBe('zh-CN')
   })
 })
 

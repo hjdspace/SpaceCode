@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { type Locale, detectSystemLanguage, i18n } from '@/i18n'
+import { ref, computed, watch } from 'vue'
+import { type Locale, applyLocale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import type { ModelProfile, ModelCapabilityOverride, ProfilesFile, ProfileApplyFailure } from '@/types/profile'
@@ -970,6 +970,10 @@ export const useSettingsStore = defineStore('settings', () => {
       saveSettings()
     }
   }
+
+  // language 是渲染语言的唯一写入源。gui-settings.json / .env 是异步读进来的，
+  // 若只改 store 不改 i18n，首屏引导会停在启动时那份旧语言上。
+  watch(language, (next) => applyLocale(next), { immediate: true })
 
   // Priority: gui-settings.json (highest) > localStorage > .env (fallback) > defaults
   loadFromGuiSettingsFile()

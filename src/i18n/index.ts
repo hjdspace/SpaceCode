@@ -32,6 +32,14 @@ export function createI18nInstance(locale: Locale = defaultLocale) {
 /** Global i18n instance for use outside Vue components */
 export const i18n = createI18nInstance()
 
+/** Apply a locale to the running app: messages + <html lang>. */
+export function applyLocale(locale: Locale): void {
+  i18n.global.locale.value = locale
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = locale
+  }
+}
+
 export function getSavedLanguage(): Locale {
   try {
     const saved = localStorage.getItem('claude_desktop_settings')

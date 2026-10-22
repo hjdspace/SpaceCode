@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
-import { i18n, getSavedLanguage } from './i18n'
+import { i18n, getSavedLanguage, applyLocale } from './i18n'
 import './styles/global.scss'
 import './styles/design.scss'
 import './styles/mobile.scss'
@@ -12,9 +12,9 @@ import { useTurnStore } from '@/stores/turn'
 
 installRandomUUIDFallback()
 
-// Set locale from saved preference
-const savedLocale = getSavedLanguage()
-i18n.global.locale.value = savedLocale
+// First-frame locale before the settings store finishes loading;
+// the store watcher re-applies once gui-settings.json is read.
+applyLocale(getSavedLanguage())
 
 const app = createApp(App)
 app.use(createPinia())

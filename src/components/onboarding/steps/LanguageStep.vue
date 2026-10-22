@@ -20,12 +20,10 @@
 </template>
 
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
 import { Check } from 'lucide-vue-next'
 import type { Locale } from '@/i18n'
 import { useSettingsStore } from '@/stores/settings'
 
-const { locale } = useI18n()
 const settingsStore = useSettingsStore()
 
 const LANGUAGE_OPTIONS: ReadonlyArray<{ id: Locale; name: string; flag: string }> = [
@@ -35,7 +33,6 @@ const LANGUAGE_OPTIONS: ReadonlyArray<{ id: Locale; name: string; flag: string }
 
 function selectLanguage(next: Locale) {
   if (settingsStore.language === next) return
-  locale.value = next
   settingsStore.language = next
   void settingsStore.saveSettings()
 }
