@@ -8,6 +8,7 @@ dist/
 *.egg
 dist-electron/
 *.lock
+!engine/bun.lock
 
 # Node
 node_modules/
