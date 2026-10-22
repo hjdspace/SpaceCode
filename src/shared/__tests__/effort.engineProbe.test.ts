@@ -1,13 +1,16 @@
 // @vitest-environment node
 /**
- * 把 effort.ts 里硬编码的两套引擎词汇表钉在**真实二进制**上。
+ * 把 effort.ts 里硬编码的引擎词汇表钉在**真实二进制**上。
  *
- * 这两个集合是抄来的，抄来的东西会随引擎升级腐烂 —— 而腐烂的代价不对称：内部引擎对不认的
- * `--effort` 值抛 InvalidArgumentError 直接 exit 1，用户看到的是"引擎进程异常"，不会有人
- * 联想到一张档位表。所以这里不测代码自洽，测代码跟引擎是否还说同一句话。
+ * 一共三套：Claude 内部引擎 bundle、安装版 CLI、pi。这些集合是抄来的，抄来的东西会随引擎
+ * 升级腐烂 —— 而腐烂的代价不对称：内部引擎对不认的 `--effort` 值抛 InvalidArgumentError
+ * 直接 exit 1，用户看到的是"引擎进程异常"，不会有人联想到一张档位表；pi 那边反过来只
+ * warn 一句照旧起进程，腐烂就变成"界面显示的档位引擎根本没按"。所以这里不测代码自洽，
+ * 测代码跟引擎是否还说同一句话。
  *
  * 探针刻意用 `--version` 收尾：参数校验发生在任何 API 调用之前，因此零凭据消耗，也不会真的
- * 起一个会话。产物缺席（没跑过 engine:build:desktop / 没装 CLI）就跳过对应那一格，不编造结论。
+ * 起一个会话。产物缺席（没跑过 engine:build:desktop / 没装 CLI / 没装 pi）就跳过对应那一格，
+ * 不编造结论。
  */
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
@@ -15,7 +18,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { BUNDLED_ENGINE_EFFORT_LEVELS, INSTALLED_ENGINE_EFFORT_LEVELS } from '../effort.ts'
+import { BUNDLED_ENGINE_EFFORT_LEVELS, INSTALLED_ENGINE_EFFORT_LEVELS, PI_ENGINE_EFFORT_LEVELS, toPiThinkingLevel } from '../effort.ts'
 
 const bunWin = fileURLToPath(new URL('../../../engine/bin/bun.exe', import.meta.url))
 const bunUnix = fileURLToPath(new URL('../../../engine/bin/bun', import.meta.url))
@@ -94,5 +97,52 @@ describe('引擎 --effort 词汇表对账', () => {
   it('两维不是一维：xhigh 只在安装版词表里，这条差异就是那次崩溃的全部成因', () => {
     expect(BUNDLED_ENGINE_EFFORT_LEVELS).not.toContain('xhigh')
     expect(INSTALLED_ENGINE_EFFORT_LEVELS).toContain('xhigh')
+  })
+})
+
+/**
+ * pi 是第三套词汇，而且失败模式又不一样：`--thinking bogus` 只 warn 一句然后照旧起进程
+ * （退出码 0）。以前 effort.ts 里关于 pi 的那段注释就是没探针看着的抄件 —— 它写「pi 没有
+ * max」，于是桌面的 max 被静默折成 xhigh；pi 1.3.0 其实认 max。
+ */
+const piCli = fileURLToPath(new URL('../../../node_modules/@earendil-works/pi-coding-agent/dist/cli.js', import.meta.url))
+const HAS_PI = existsSync(piCli)
+
+/** 问 pi 二进制自己：`--thinking` 到底收哪几个值。答案与 --effort 那两套同形，复用同一个解析。 */
+function probePiThinkingLevels(): string[] | null {
+  const r = spawnSync(process.execPath, [piCli, '--thinking', 'definitely-not-a-level', '--version'], {
+    encoding: 'utf-8',
+    timeout: 60_000,
+  })
+  if (r.error) return null
+  return parseAcceptedLevels(`${r.stdout ?? ''}\n${r.stderr ?? ''}`)
+}
+
+const PI = HAS_PI ? probePiThinkingLevels() : null
+
+describe('pi --thinking 词汇表对账', () => {
+  it.skipIf(!PI)('桌面呈现给 pi 的每一档，pi 二进制都真的认', () => {
+    expect(PI!.length, '无法从 pi 输出解析词表，报错文案可能改了').toBeGreaterThan(0)
+    for (const level of PI_ENGINE_EFFORT_LEVELS) {
+      expect(PI).toContain(level)
+    }
+  })
+
+  /**
+   * 这条就是那次「max 被降级」的成因凭证：抄件说 pi 没有 max，二进制说有。
+   * 抄件会腐烂，探针不会。
+   */
+  it.skipIf(!PI)('pi 认 max —— 所以桌面不得再把 max 折成 xhigh', () => {
+    expect(PI).toContain('max')
+    expect(toPiThinkingLevel(true, 'max')).toBe('max')
+  })
+
+  it.skipIf(!PI)('off 与 minimal 是 pi 的词，但不进桌面档位表', () => {
+    // off 是「思考开关」的表达（toPiThinkingLevel(false, …)），不是一档深度
+    expect(PI).toContain('off')
+    expect(PI_ENGINE_EFFORT_LEVELS).not.toContain('off')
+    // minimal 会被原样映射成 reasoning_effort=minimal，MaaS 那类网关按枚举硬拒（实测 400）
+    expect(PI).toContain('minimal')
+    expect(PI_ENGINE_EFFORT_LEVELS).not.toContain('minimal')
   })
 })
