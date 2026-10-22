@@ -38,7 +38,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.3
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
@@ -73,7 +73,7 @@ jobs:
         run: npm run patch:node-pty
 
       - name: Install engine dependencies
-        run: cd engine && bun install && node ../scripts/repair-workspace-links.cjs
+        run: cd engine && bun install --frozen-lockfile && node ../scripts/repair-workspace-links.cjs
 
       - name: Copy Bun binary to engine/bin (Linux/macOS)
         if: matrix.platform != 'win'

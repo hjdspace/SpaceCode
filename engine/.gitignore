@@ -10,6 +10,7 @@ coverage
 !.vscode/extensions.json
 *.suo
 *.lock
+!/bun.lock
 src/utils/vendor/
 
 # AI tool runtime directories

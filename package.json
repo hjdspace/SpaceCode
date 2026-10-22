@@ -9,7 +9,7 @@
   "description": "SpaceCode - AI Agent Desktop Application (Electron + Vue 3)",
   "main": "dist-electron/main.js",
   "scripts": {
-    "engine:install": "cd engine && bun install --backend=hardlink && node ../scripts/repair-workspace-links.cjs",
+    "engine:install": "cd engine && bun install --frozen-lockfile --backend=hardlink && node ../scripts/repair-workspace-links.cjs",
     "engine:build:desktop": "node scripts/build-engine-desktop.cjs",
     "postinstall": "npm run patch:node-pty && npm run patch:dev-electron && npm run engine:install",
     "patch:node-pty": "node scripts/patch-node-pty.cjs",
