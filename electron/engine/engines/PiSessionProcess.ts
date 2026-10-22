@@ -32,6 +32,33 @@ import { findAgentDefinition } from './agentDefinitions'
 import { syncPiMcpConfigFromStore } from '../../tools/piMcpProjection'
 import { mergeRetrySettings } from './piRetrySettings'
 
+/**
+ * compat provider 里每个模型条目的思考能力声明。
+ *
+ * 这张条目表由宿主手抄，pi 对它没有目录可查，所以 `reasoning` 写什么就是什么。以前一律写
+ * `false`，代价是整条深度链路空转：pi 的 `getSupportedThinkingLevels()` 对 `reasoning:false`
+ * 直接返回 `["off"]`，于是 `--thinking high` 与 `set_thinking_level` 都被钳回 off，
+ * openai-completions 那条发 `reasoning_effort` 的分支永远进不去 —— 界面上那些档位
+ * 全是装饰（实测 glm + MaaS 就是这个形态）。
+ *
+ * 声明为可思考是 wire 中性的：档位关到 off 时 pi 不带 `reasoning_effort`（映射表刻意
+ * 不含 `off` 键），只有用户真的选了深度才多这一个字段。而那个字段正是同一条网关在
+ * Claude 路径上天天收的（见 proxy/thinkingParams.ts 的实测枚举）。
+ *
+ * 五档要显式列出：`xhigh` / `max` 在 `getSupportedThinkingLevels` 里只有
+ * `thinkingLevelMap` 给出键才算可用，缺了就静默掉两档。
+ */
+const PI_COMPAT_REASONING_CAPABILITY = {
+  reasoning: true,
+  thinkingLevelMap: {
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    xhigh: 'xhigh',
+    max: 'max',
+  },
+} as const
+
 /** pi RPC `prompt` 帧里的 ImageContent：扁平形状，与 Anthropic 的嵌套 source 不同 */
 interface PiImageContent {
   type: 'image'
@@ -534,6 +561,34 @@ export class PiSessionProcess extends EventEmitter {
     } catch (err) {
       // 写不进去就是没生效，别降级成 warn 冒充成功。
       throw new Error(`Failed to write set_thinking_level to pi: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /**
+   * 运行中换模型：pi 的 RPC 有 `set_model`，它会把选择写进本会话历史（`model_change`），
+   * 下一轮就用新模型 —— 不需要把进程杀掉重来。
+   *
+   * 只在快照里认得这个模型时才可能成功：compat provider 的可用清单由 spawn 前那次
+   * models.json 写入决定（见 compatRegistrableModelIds），所以没登记过的 id 会拿到
+   * `Model not found`。这条错误必须原样抛出去 —— 上层据此决定是回落到重启，
+   * 抹平成 resolve() 等于告诉用户「已经换过去了」。
+   */
+  async setModel(modelId: string): Promise<void> {
+    const proc = this._process
+    if (!proc || this.status === 'exited') {
+      throw new Error(`Pi session ${this.sessionId.slice(0, 8)} has no running process to apply model`)
+    }
+
+    const provider = this.spawnProviderName()
+    const id = this.stripProviderPrefix(modelId)
+    info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Switching model | provider=${provider || '(default)'} | model=${id}`)
+
+    const frame: Record<string, unknown> = { type: 'set_model', modelId: id }
+    if (provider) frame.provider = provider
+
+    const response = await this.rpcRequest(proc, frame, 10_000, 'Timeout waiting for set_model response')
+    if (response?.success === false) {
+      throw new Error(String(response.error || 'set_model failed'))
     }
   }
 
@@ -1105,6 +1160,28 @@ export class PiSessionProcess extends EventEmitter {
     return PiSessionProcess.DEFAULT_CONTEXT_WINDOW
   }
 
+  /** 去掉 `<provider>/` 前缀：models.json 里的条目 id 不带 provider，spawn 参数也不带。 */
+  private stripProviderPrefix(model: string): string {
+    const compatPrefix = `${PiSessionProcess.COMPAT_PROVIDER_NAME}/`
+    if (model.toLowerCase().startsWith(compatPrefix.toLowerCase())) return model.slice(compatPrefix.length)
+    return model.replace(/^openai\//i, '')
+  }
+
+  /**
+   * compat provider 要登记的模型 id：当前模型 + 界面能给用户选的那些（配置里的
+   * haiku/sonnet/opus 槽位，由 chatSession 随会话配置带下来）。
+   *
+   * 为什么必须一次登记全：pi 的 `set_model` 只在启动时读到的可用快照里找模型
+   * （`rpc-mode.js` 找不到就回 `Model not found`），而 models.json 没有重读命令。
+   * 只登记当前那一个，等于让「输入框换模型」在这条引擎上永远只能靠重启。
+   */
+  private compatRegistrableModelIds(): string[] {
+    const ids = [this.config.model, ...(this.config.selectableModels ?? [])]
+      .filter((m): m is string => typeof m === 'string' && m.trim() !== '')
+      .map((m) => this.stripProviderPrefix(m))
+    return [...new Set(ids)]
+  }
+
   /**
    * Write a models.json override so Pi CLI can use custom OpenAI-compatible
    * endpoints.
@@ -1148,28 +1225,29 @@ export class PiSessionProcess extends EventEmitter {
         cp.compat = {
           supportsStore: false,
           supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
           maxTokensField: 'max_tokens',
           supportsStrictMode: false,
         }
 
-        // Add the model if specified
-        if (this.config.model) {
-          const modelId = this.config.model.replace(/^openai\//i, '')
+        // Register the current model plus every model the UI can offer for this
+        // provider. pi's `set_model` only accepts ids already in its available
+        // snapshot, and models.json is read once at spawn with no refresh command,
+        // so a model that is not registered here cannot be switched to live.
+        for (const modelId of this.compatRegistrableModelIds()) {
           if (!cp.models) cp.models = []
           // Remove existing entry for this model to avoid duplicates
           cp.models = cp.models.filter((m: any) => m.id !== modelId)
           cp.models.push({
             id: modelId,
             name: modelId,
-            reasoning: false,
+            ...PI_COMPAT_REASONING_CAPABILITY,
             input: ['text', 'image'],
             contextWindow: this.resolveContextWindow(modelId),
             maxTokens: 16384,
           })
         }
 
-        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Wrote models.json compat provider | provider=${compatName} | api=openai-completions | baseUrl=${baseUrl} | model=${this.config.model}`)
+        info('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Wrote models.json compat provider | provider=${compatName} | api=openai-completions | baseUrl=${baseUrl} | models=${this.compatRegistrableModelIds().join(',') || '(none)'}`)
       } else {
         // Original behavior: just set baseUrl for the provider
         if (!existing.providers[provider]) {
@@ -1249,14 +1327,24 @@ export class PiSessionProcess extends EventEmitter {
     }
   }
 
+  /**
+   * The provider this session's process is actually addressed by: the compat
+   * provider when we registered a custom OpenAI-compatible endpoint, otherwise
+   * the resolved built-in one. `--provider` and RPC `set_model` must use the
+   * same value — pi looks models up by `provider/id` in its snapshot.
+   */
+  private spawnProviderName(): string | undefined {
+    return this.shouldUseCompatProvider()
+      ? PiSessionProcess.COMPAT_PROVIDER_NAME
+      : this.resolveEffectiveProvider()
+  }
+
   private buildArgs(): string[] {
     const args: string[] = []
 
     // When using the compat provider (openai-compat), pass that as --provider
     // so Pi CLI resolves the model from our custom models.json entry.
-    const provider = this.shouldUseCompatProvider()
-      ? PiSessionProcess.COMPAT_PROVIDER_NAME
-      : this.resolveEffectiveProvider()
+    const provider = this.spawnProviderName()
 
     if (provider) {
       args.push('--provider', provider)
