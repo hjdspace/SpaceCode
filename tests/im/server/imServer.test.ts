@@ -140,6 +140,8 @@ describe('ImServer', () => {
           engineSource: 'installed',
           installedCliPath: 'C:\\tools\\claude.exe',
           modelContextWindows: { 'test-sonnet': 400000 },
+          // 三个槽位都带给引擎：pi 的 compat provider 靠这份清单在 spawn 前登记可切换模型
+          selectableModels: ['test-haiku', 'test-sonnet', 'test-opus'],
           rtkEnabled: true,
         })
       } finally {
