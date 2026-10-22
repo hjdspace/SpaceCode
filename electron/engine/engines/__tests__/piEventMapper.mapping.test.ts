@@ -438,6 +438,23 @@ describe('isExpectedDroppedPiEvent', () => {
     expect(isExpectedDroppedPiEvent({ type: 'something_totally_new' })).toBe(false)
     expect(isExpectedDroppedPiEvent({ type: 'message_update' })).toBe(false)
   })
+
+  /**
+   * 扩展的 fire-and-forget 帧（MCP 告警的 notify 就在这一批）每回合都会发，宿主确实没有
+   * 可渲染的东西。以前它们不在静音名单里，于是每次都是一条
+   * `route → DROPPED | rawType=extension_ui_request` —— 一句正常降级长得像故障。
+   */
+  it('不需要回帧的扩展 UI 帧 → true（notify 那五类不再刷 DROPPED）', () => {
+    for (const method of ['notify', 'setStatus', 'setWidget', 'setTitle', 'set_editor_text']) {
+      expect(isExpectedDroppedPiEvent({ type: 'extension_ui_request', id: 'ui-1', method })).toBe(true)
+    }
+  })
+
+  it('认不出的 method、以及缺 id 的对话框帧 → false（那是异常，要保持可见）', () => {
+    expect(isExpectedDroppedPiEvent({ type: 'extension_ui_request', id: 'ui-1', method: 'some_new_dialog' })).toBe(false)
+    expect(isExpectedDroppedPiEvent({ type: 'extension_ui_request' })).toBe(false)
+    expect(isExpectedDroppedPiEvent({ type: 'extension_ui_request', method: 'confirm' })).toBe(false)
+  })
 })
 
 /**
