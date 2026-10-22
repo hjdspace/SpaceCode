@@ -257,7 +257,7 @@ const emit = defineEmits<{
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const onboarding = useOnboardingStore()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
 const showLangDropdown = ref(false)
 const showEngineSource = ref(false)
@@ -268,9 +268,8 @@ const languages = [
 ]
 
 const currentLanguage = computed({
-  get: () => locale.value as Locale,
+  get: () => settingsStore.language,
   set: (val: Locale) => {
-    locale.value = val
     settingsStore.language = val
     settingsStore.saveSettings()
     emit('change')
