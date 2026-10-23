@@ -109,7 +109,9 @@ describe('sweepStaleTempArtifacts', () => {
 })
 
 describe('sessionTempDir', () => {
-  it('固定落在系统临时目录的 SpaceCode 下', () => {
-    expect(sessionTempDir()).toBe(path.join(os.tmpdir(), 'SpaceCode'))
+  it('固定落在系统临时目录下，并按 uid 分目录', () => {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : null
+    const expected = path.join(os.tmpdir(), uid === null ? 'SpaceCode' : `SpaceCode-${uid}`)
+    expect(sessionTempDir()).toBe(expected)
   })
 })
