@@ -551,16 +551,27 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
-  /** 在右侧面板打开 Design 预览工作区 */
+  /** 登记 Design 预览标签并设为激活，但不改动右侧面板显隐。
+   *  设为激活是必需的：DesignFileWorkspace 只有作为激活标签时才挂载，文件监听靠它登记产物。 */
+  function mountDesignPreviewTab() {
+    panelHome.value = false
+    if (!infoPanelTabs.value.some(t => t.id === 'design-preview')) {
+      infoPanelTabs.value.push({
+        id: 'design-preview',
+        type: 'design-preview',
+        title: 'Design',
+        icon: markRaw(Palette),
+        data: null,
+        closeable: false,
+      })
+    }
+    activeInfoTabId.value = 'design-preview'
+  }
+
+  /** 展开右侧面板到 Design 预览工作区（产物产出、或用户显式要求在预览中打开时调用） */
   function openDesignPreview() {
-    openInfoTab({
-      id: 'design-preview',
-      type: 'design-preview',
-      title: 'Design',
-      icon: markRaw(Palette),
-      data: null,
-      closeable: false
-    })
+    mountDesignPreviewTab()
+    infoPanelVisible.value = true
   }
 
   /** 关闭 Design 预览工作区 */
@@ -1169,6 +1180,7 @@ export const useAppStore = defineStore('app', () => {
     goPanelHome,
     openTerminalInPanel,
     openArtifactsPanel,
+    mountDesignPreviewTab,
     openDesignPreview,
     closeDesignPreview,
     openBlankWebview,

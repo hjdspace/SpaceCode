@@ -481,13 +481,21 @@ describe('面板快捷入口', () => {
     expect(store.infoPanelVisible).toBe(true)
   })
 
-  it('openArtifactsPanel / openDesignPreview + closeDesignPreview', () => {
+  it('openArtifactsPanel / mountDesignPreviewTab + openDesignPreview + closeDesignPreview', () => {
     const store = useAppStore()
     store.openArtifactsPanel()
     expect(store.activeInfoTabId).toBe('artifacts-panel')
-    store.openDesignPreview()
+    store.toggleInfoPanel()
+    expect(store.infoPanelVisible).toBe(false)
+    // 设计模式入口：只登记并激活设计预览标签，不改动右侧面板显隐（默认收起）
+    store.mountDesignPreviewTab()
     expect(store.activeInfoTabId).toBe('design-preview')
     expect(store.activeInfoTab?.closeable).toBe(false)
+    expect(store.infoPanelVisible).toBe(false)
+    // 产物产出时弹开：复用同一个固定标签，不重复 push
+    store.openDesignPreview()
+    expect(store.infoPanelVisible).toBe(true)
+    expect(store.infoPanelTabs.map(t => t.id)).toEqual(['artifacts-panel', 'design-preview'])
     store.closeDesignPreview()
     expect(store.activeInfoTabId).toBe('artifacts-panel')
   })

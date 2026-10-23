@@ -53,6 +53,7 @@ import { Palette } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
 import { useTurnStore } from '@/stores/turn'
 import { useChatSessionStore } from '@/stores/chatSession'
+import { useAppStore } from '@/stores/app'
 import { useDesignSession } from '@/composables/useDesignSession'
 import { useMcpStore } from '@/stores/mcp'
 import { api } from '@/services/electronAPI'
@@ -68,6 +69,7 @@ const designStore = useDesignStore()
 const turnStore = useTurnStore()
 const chatSessionStore = useChatSessionStore()
 const mcpStore = useMcpStore()
+const appStore = useAppStore()
 const { activeSessionId } = storeToRefs(designStore)
 const { createDesignSession, submitQuestionForm, stopDesignGeneration, switchDesignSystem, buildDesignMessage } = useDesignSession()
 
@@ -143,6 +145,7 @@ function onStop() {
 
 function openArtifact(path: string) {
   designStore.addTab({ name: path.split('/').pop() || path, path, updatedAt: Date.now() })
+  appStore.openDesignPreview()
 }
 
 function submitForm(answers: Record<string, unknown>) {

@@ -42,12 +42,14 @@ import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { FileText, FileCode } from 'lucide-vue-next'
 import { useDesignStore } from '@/stores/design'
+import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import DesignPreview from './DesignPreview.vue'
 import WorkspaceTabsBar from './WorkspaceTabsBar.vue'
 
 const { t } = useI18n()
 const designStore = useDesignStore()
+const appStore = useAppStore()
 const { openTabs, activeTabPath, previewHtml, previewTitle, artifactFiles, activeSessionId, designWorkspace } = storeToRefs(designStore)
 const { addTab, removeTab, setActiveTab } = designStore
 const viewMode = ref<'preview' | 'source'>('preview')
@@ -99,8 +101,9 @@ watch(activeTabPath, async (p) => {
 }, { immediate: true })
 
 // ── 文件监听：接收 Electron 主进程 chokidar 推送的文件变更事件 ──
-// 监听器注册在 DesignFileWorkspace（始终挂载的右侧面板），
-// 而非 DesignPreview（条件渲染，初始无 tab 时不挂载）。
+// 监听器注册在 DesignFileWorkspace（设计模式的激活标签），而非 DesignPreview
+// （条件渲染，初始无 tab 时不挂载）。面板收起时 InfoPanel 用 v-show 隐藏，
+// 本组件仍在挂载状态，所以默认收起不影响这里侦测产物并弹开面板。
 let disposeFileChanged: (() => void) | null = null
 
 onMounted(() => {
@@ -117,6 +120,9 @@ onMounted(() => {
         path: filepath,
         updatedAt: Date.now(),
       })
+      // 新 HTML 产物 = 首次有设计产出：把默认收起的右侧面板弹开。
+      // 只认新文件，不认对已有文件的后续改写，避免 AI 逐段回写时反复弹。
+      if (isHtmlFile(filepath)) appStore.openDesignPreview()
     } else {
       existing.updatedAt = Date.now()
     }
