@@ -19,6 +19,7 @@ import type { EffortLevel } from '@/shared/effort'
 import type {
   CliDetectionResult,
   CliUpdateCheck,
+  CliUpdateState,
   EnvironmentCheckResult,
   InstallProgress,
   ProxyStatus,
@@ -335,8 +336,12 @@ export const claudeCodeNamespace = defineNamespace({
       req: [] as unknown as [],
       res: null as unknown as { success: boolean; error?: string } | null,
     },
-    checkCliUpdate: {
+    getCliUpdateState: {
       req: [] as unknown as [],
+      res: null as unknown as CliUpdateState | null,
+    },
+    checkCliUpdate: {
+      req: [] as unknown as [options?: { force?: boolean }],
       res: null as unknown as CliUpdateCheck | null,
     },
     updateCli: {
@@ -371,6 +376,7 @@ export const claudeCodeNamespace = defineNamespace({
     onExtensionDialogRequest: { channel: 'extension_dialog_request', args: [] as unknown as [data: EngineEvent] },
     onExtensionDialogClosed: { channel: 'extension_dialog_closed', args: [] as unknown as [data: EngineEvent] },
     onInstallProgress: { channel: 'installProgress', args: [] as unknown as [progress: InstallProgress] },
+    onCliUpdateState: { channel: 'cliUpdateState', args: [] as unknown as [state: CliUpdateState | null] },
   },
 })
 
