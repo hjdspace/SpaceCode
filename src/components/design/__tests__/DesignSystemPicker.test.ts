@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, config } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mount, flushPromises, config } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import DesignSystemPicker from '../DesignSystemPicker.vue'
+import DesignSystemPreviewModal from '../DesignSystemPreviewModal.vue'
 import zhCN from '@/i18n/locales/zh-CN'
 import enUS from '@/i18n/locales/en-US'
 
@@ -27,17 +28,42 @@ const systems = [
 ]
 
 // 菜单 Teleport 到 body 后不在 wrapper 子树内，交互用例把 teleport stub 掉就地渲染
-function mountPicker() {
+function mountPicker(stubs: Record<string, unknown> = {}) {
   return mount(DesignSystemPicker, {
     props: { systems, modelValue: null },
-    global: { stubs: { teleport: true } },
+    global: { stubs: { teleport: true, ...stubs } },
   })
+}
+
+// jsdom 没有布局，clientWidth 恒为 0 → 缩放测量会直接跳过。伪造容器宽与
+// ResizeObserver，才能穿过「量宽 → 算 scale」这条缝（漏绑 ref 时这里会红）。
+let restoreLayout: (() => void) | null = null
+function stubLayout(widthPx: number) {
+  const g = globalThis as Record<string, unknown>
+  const realObserver = g.ResizeObserver
+  g.ResizeObserver = class {
+    constructor(private readonly onResize: () => void) {}
+    observe() { this.onResize() }
+    disconnect() {}
+  }
+  const realDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => widthPx })
+  restoreLayout = () => {
+    g.ResizeObserver = realObserver
+    if (realDescriptor) Object.defineProperty(HTMLElement.prototype, 'clientWidth', realDescriptor)
+    else delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth
+    restoreLayout = null
+  }
 }
 
 describe('DesignSystemPicker', () => {
   beforeEach(() => {
     config.global.plugins = [i18n]
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    restoreLayout?.()
   })
 
   it('打开后渲染系统列表（含不指定选项）', async () => {
@@ -85,6 +111,35 @@ describe('DesignSystemPicker', () => {
     await w.vm.$nextTick()
 
     expect(document.querySelector('[data-testid="ds-picker-menu"]')).toBeTruthy()
+    w.unmount()
+  })
+
+  it('缩略图按桌面视口排版、按容器宽等比缩放，并禁掉内部滚动', async () => {
+    stubLayout(320)
+    const w = mountPicker()
+    await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
+    await w.find('[data-testid="ds-option-agentic"]').trigger('mouseenter')
+    await flushPromises()
+
+    const frame = w.find('[data-testid="ds-preview-frame"]')
+    expect(frame.exists()).toBe(true)
+    // showcase 页有 1180px 容器与 220px 固定侧栏，1:1 塞进 ~275px 的右列必出双滚动条
+    const frameStyle = (frame.element as HTMLIFrameElement).style
+    expect(frameStyle.width).toBe('1280px')
+    expect(frameStyle.height).toBe('720px')
+    expect(frameStyle.transform).toBe('scale(0.25)')
+    expect(frame.attributes('scrolling')).toBe('no')
+    w.unmount()
+  })
+
+  it('点击缩略图打开预览弹窗', async () => {
+    const w = mountPicker({ DesignSystemPreviewModal: true })
+    await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
+    await w.find('[data-testid="ds-option-agentic"]').trigger('mouseenter')
+    await flushPromises()
+
+    await w.find('[data-testid="ds-preview-frame-wrap"]').trigger('click')
+    expect(w.findComponent(DesignSystemPreviewModal).exists()).toBe(true)
     w.unmount()
   })
 })

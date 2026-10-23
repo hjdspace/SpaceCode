@@ -100,17 +100,28 @@
                   :title="`${swatch.name}: ${swatch.value}`"
                 />
               </div>
-              <div class="ds-preview-frame-wrap">
+              <button
+                ref="frameWrapRef"
+                type="button"
+                class="ds-preview-frame-wrap"
+                data-testid="ds-preview-frame-wrap"
+                :aria-label="t('design.designSystemPicker.openPreview')"
+                @click="openPreviewModal"
+              >
                 <div v-if="previewLoading" class="ds-preview-frame-empty">{{ t('common.loading') }}</div>
                 <iframe
                   v-else-if="previewHtml"
                   class="ds-preview-frame"
                   :srcdoc="previewHtml"
                   sandbox="allow-scripts"
+                  scrolling="no"
+                  tabindex="-1"
+                  aria-hidden="true"
+                  :style="frameStyle"
                   data-testid="ds-preview-frame"
                 />
                 <div v-else class="ds-preview-frame-empty">{{ t('design.preview.noPreview') }}</div>
-              </div>
+              </button>
             </div>
             <button
               type="button"
@@ -169,6 +180,39 @@ const previewHtml = ref('')
 const previewLoading = ref(false)
 const previewModalSystem = ref<DesignSystemSummary | null>(null)
 let previewRequestId = 0
+
+// 缩略图按真实桌面视口排版再等比缩放：showcase 页的 .container 是 1180px 且带
+// 220px 固定侧栏，浮层右列只有 ~275px，1:1 渲染必然横竖都出滚动条。
+const DESIGN_VIEWPORT = { width: 1280, height: 720 }
+const frameWrapRef = ref<HTMLButtonElement | null>(null)
+const previewScale = ref(1)
+let frameResizeObserver: ResizeObserver | null = null
+
+const frameStyle = computed(() => ({
+  width: `${DESIGN_VIEWPORT.width}px`,
+  height: `${DESIGN_VIEWPORT.height}px`,
+  transform: `scale(${previewScale.value})`,
+}))
+
+function measurePreviewScale() {
+  const width = frameWrapRef.value?.clientWidth || 0
+  if (width) previewScale.value = width / DESIGN_VIEWPORT.width
+}
+
+function teardownPreviewResizeObserver() {
+  frameResizeObserver?.disconnect()
+  frameResizeObserver = null
+}
+
+// 浮层是 v-if 渲染的，且未选中设计系统时整块缩略图不存在，
+// 所以跟着模板 ref 的挂载/卸载走，而不是只在 open 时测一次。
+watch(frameWrapRef, (el) => {
+  teardownPreviewResizeObserver()
+  if (!el || typeof ResizeObserver === 'undefined') return
+  frameResizeObserver = new ResizeObserver(measurePreviewScale)
+  frameResizeObserver.observe(el)
+  measurePreviewScale()
+})
 
 // 菜单 Teleport 到 body 后按视口定位，避免被右侧设计产物面板裁掉/压住
 const { menuRef, menuStyle } = useAnchoredMenu(wrapRef, open, { width: 560, gap: 14, maxHeight: 400 })
@@ -271,6 +315,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('mousedown', onPointer)
   document.removeEventListener('keydown', onKey)
+  teardownPreviewResizeObserver()
 })
 </script>
 
@@ -522,11 +567,16 @@ onUnmounted(() => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44);
 }
 
+/* 整块缩略图即「打开预览」入口，故用 button；iframe 自身 pointer-events:none 让点击落在这里 */
 .ds-preview-frame-wrap {
+  display: block;
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  min-height: 140px;
+  padding: 0;
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
   border: 1px solid #dce3ec;
   border-radius: 10px;
   overflow: hidden;
@@ -534,10 +584,14 @@ onUnmounted(() => {
 }
 
 .ds-preview-frame {
-  width: 100%;
-  height: 100%;
-  border: none;
+  /* width / height / transform 由 frameStyle 内联：按桌面视口排版后等比缩进本框 */
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  border: 0;
   background: white;
+  pointer-events: none;
 }
 
 .ds-preview-frame-empty {
@@ -554,7 +608,7 @@ onUnmounted(() => {
 
 .ds-preview-open {
   align-self: center;
-  transform: translateY(-14px);
+  margin: 12px 0 14px;
   min-height: 34px;
   display: inline-flex;
   align-items: center;
@@ -571,14 +625,12 @@ onUnmounted(() => {
   box-shadow: 0 12px 28px rgba(24, 25, 31, 0.14);
   transition:
     background var(--transition-fast),
-    border-color var(--transition-fast),
-    transform var(--transition-fast);
+    border-color var(--transition-fast);
 }
 
 .ds-preview-open:hover {
   background: var(--surface-soft);
   border-color: var(--surface-border-strong);
-  transform: translateY(-15px);
 }
 
 @keyframes scaleIn {
