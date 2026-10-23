@@ -21,6 +21,12 @@
             >
               <component :is="item.icon" :size="18" />
               <span>{{ item.label }}</span>
+              <i
+                v-if="item.id === 'general' && showCliUpdateDot"
+                class="nav-dot"
+                :title="cliUpdateTitle"
+                aria-hidden="true"
+              ></i>
             </button>
           </div>
 
@@ -117,6 +123,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore, type AuthSettings, type AuthMethod, type OAuthAccountInfo, type EngineType } from '@/stores/settings'
 import { useMemoryStore } from '@/stores/memory'
+import { api, type CliUpdateState } from '@/services/electronAPI'
 import appIcon from '@/assets/app-icon.svg'
 import AsyncLoadingState from '../common/AsyncLoadingState.vue'
 
@@ -184,6 +191,18 @@ const settingsData = ref<AuthSettings>({
 const visitedTabs = ref<Set<string>>(new Set(['general']))
 const cachedTabs = computed(() => Array.from(visitedTabs.value))
 
+const cliUpdateState = ref<CliUpdateState | null>(null)
+let offCliUpdateState: (() => void) | null = null
+
+const showCliUpdateDot = computed(() =>
+  settingsStore.engineSource === 'installed' && cliUpdateState.value?.result.hasUpdate === true,
+)
+
+const cliUpdateTitle = computed(() => {
+  const latest = cliUpdateState.value?.result.latestVersion
+  return latest ? t('engineSource.updateAvailable', { version: latest }) : t('engineSource.checkUpdate')
+})
+
 function switchTab(tabId: string) {
   activeTab.value = tabId
   visitedTabs.value.add(tabId)
@@ -205,10 +224,21 @@ const navigateHandler = (event: CustomEvent) => {
 
 onMounted(() => {
   window.addEventListener('settings-navigate', navigateHandler as EventListener)
+
+  // 主进程启动后会在后台查一次；订阅事件拿到后续结论，先拉一次缓存兜住
+  // 「检查已经完成、订阅才建立」的窗口。
+  offCliUpdateState = api.onCliUpdateState((state) => {
+    cliUpdateState.value = state
+  })
+  api.getCliUpdateState().then((state) => {
+    cliUpdateState.value = state
+  }).catch(() => {})
 })
 
 onUnmounted(() => {
   window.removeEventListener('settings-navigate', navigateHandler as EventListener)
+  offCliUpdateState?.()
+  offCliUpdateState = null
 })
 
 let isLoadingSettings = false
@@ -360,6 +390,16 @@ function handleBack() {
   }
 }
 
+.nav-dot {
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.15);
+  flex-shrink: 0;
+}
+
 .sidebar-footer {
   padding: 12px;
   border-top: 1px solid var(--border-subtle);
@@ -452,6 +492,10 @@ function handleBack() {
     span {
       display: none;
     }
+  }
+
+  .nav-dot {
+    display: none;
   }
 
   .sidebar-footer {
