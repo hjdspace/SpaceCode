@@ -34,8 +34,14 @@ export interface SweepResult {
   failed: number
 }
 
+/**
+ * /tmp 在 Linux 上多用户共享：同名目录若已被其他用户（或 root）创建，
+ * mkdirSync 对已存在目录不报错，随后写文件才会 EACCES。按 uid 分目录，
+ * 并收紧权限，避免会话产物（含代理配置、系统提示）被其他用户读到。
+ */
 export function sessionTempDir(): string {
-  return path.join(os.tmpdir(), 'SpaceCode')
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null
+  return path.join(os.tmpdir(), uid === null ? 'SpaceCode' : `SpaceCode-${uid}`)
 }
 
 /** 会话 id 会拼进文件名，必须先挡掉路径分隔符与 `..`。 */
@@ -70,9 +76,9 @@ export function writeSessionTempFile(
   content: string,
   rootDir: string = sessionTempDir(),
 ): string {
-  fs.mkdirSync(rootDir, { recursive: true })
+  fs.mkdirSync(rootDir, { recursive: true, mode: 0o700 })
   const filePath = path.join(rootDir, artifactName(sessionId, kind))
-  fs.writeFileSync(filePath, content, 'utf8')
+  fs.writeFileSync(filePath, content, { encoding: 'utf8', mode: 0o600 })
   return filePath
 }
 
