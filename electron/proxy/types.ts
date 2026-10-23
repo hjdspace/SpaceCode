@@ -44,6 +44,15 @@ export interface CliUpdateCheck {
   checkFailed: boolean
 }
 
+/** 主进程缓存的更新检查结论。设置页直接读它，不再每次 mount 都问 registry。 */
+export interface CliUpdateState {
+  result: CliUpdateCheck
+  /** 毫秒时间戳 */
+  checkedAt: number
+  /** 超过 TTL，允许后台静默刷新 */
+  stale: boolean
+}
+
 export interface EnvironmentCheck {
   node: EnvItemStatus
   npm: EnvItemStatus
