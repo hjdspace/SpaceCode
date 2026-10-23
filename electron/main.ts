@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from 'fs'
 import { config } from 'dotenv'
 import { TerminalManager } from './infra/terminalManager'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
-import { channelNames } from '@/shared/channelMap'
+import { channelNames, eventChannels } from '@/shared/channelMap'
 import { registerGitIPCHandlers } from './git/gitService'
 import { registerMemoryIPCHandlers } from './memory/memoryService'
 import { registerSkillsIPCHandlers, registerLocalLibraryIPCHandlers } from './skills/skillsService'
@@ -28,6 +28,7 @@ import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalle
 import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './tools/cuaDriverService'
 import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './tools/browserUseService'
 import { registerClaudeCodeIPC } from './engine/claudeCodeIPC'
+import { checkCliUpdate, getCliUpdateState, invalidateCliUpdateState } from './engine/cliDetector'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater, installUpdateOnQuit } from './infra/autoUpdaterService'
 import { engineGateway } from './engine/engineGateway'
 import { EngineFactory } from './engine/engines/EngineFactory'
@@ -62,6 +63,50 @@ import { H5Server } from './h5/h5Server'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
 const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
+const CLAUDE_CODE_EVENTS = eventChannels(claudeCodeNamespace.events, 'claude-code:')
+
+const CLI_UPDATE_CHECK_DELAY_MS = 30_000
+let cliUpdateCheckTimer: NodeJS.Timeout | null = null
+
+async function runCliUpdateCheck(): Promise<void> {
+  const cached = getCliUpdateState()
+  if (cached && !cached.stale) return
+  await checkCliUpdate()
+  const win = getMainWindow()
+  if (win && !win.isDestroyed()) {
+    win.webContents.send(CLAUDE_CODE_EVENTS.onCliUpdateState, getCliUpdateState())
+  }
+}
+
+/**
+ * 启动后延迟查一次 CLI 更新。装在安装版才查 —— 内置引擎不碰 PATH 上的 claude。
+ * 后台检查失败静默：没有网络不是用户需要处理的事情，设置页手动检查时才提示。
+ */
+function scheduleCliUpdateCheck(delayMs = CLI_UPDATE_CHECK_DELAY_MS, onlyIfInstalled = true): void {
+  if (cliUpdateCheckTimer) {
+    clearTimeout(cliUpdateCheckTimer)
+    cliUpdateCheckTimer = null
+  }
+  cliUpdateCheckTimer = setTimeout(() => {
+    cliUpdateCheckTimer = null
+    void (async () => {
+      try {
+        if (onlyIfInstalled) {
+          const settings = await loadGuiSettings()
+          if (settings?.engineSource !== 'installed') {
+            debug('CliUpdate', 'Startup check skipped: engine source is not installed')
+            return
+          }
+        }
+        await runCliUpdateCheck()
+        info('CliUpdate', 'Background CLI update check finished')
+      } catch (err) {
+        warn('CliUpdate', 'Background CLI update check failed', { error: String(err) })
+      }
+    })()
+  }, delayMs)
+  cliUpdateCheckTimer.unref?.()
+}
 
 // ============================================================
 // App Startup
@@ -177,6 +222,8 @@ app.whenReady().then(async () => {
   registerClaudeCodeIPC()
   info('Startup', 'Claude Code IPC handlers registered')
 
+  scheduleCliUpdateCheck()
+
   registerH5AccessIPCHandlers()
   info('Startup', 'H5 Access IPC handlers registered')
 
@@ -259,6 +306,11 @@ app.whenReady().then(async () => {
   // ── Engine source change handler ──────────────────────────────
   ipcMain.handle(CLAUDE_CODE_CHANNELS.notifyEngineSourceChanged, async (_, source: string) => {
     info('EngineSource', `Engine source changed to: ${source}`)
+    if (source === 'installed') {
+      // 切回安装版时重新核对一次：CLI 可能在用内置引擎期间被外部升级。
+      invalidateCliUpdateState()
+      scheduleCliUpdateCheck(0, false)
+    }
     const guiSettings = await loadGuiSettings()
     const authMethod = guiSettings?.authMethod
     if (authMethod && !['anthropic_compatible', 'claudeai', 'console'].includes(authMethod)) {

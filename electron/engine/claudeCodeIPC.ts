@@ -1,11 +1,22 @@
 import { ipcMain, BrowserWindow, app } from 'electron'
+import type { WebContents } from 'electron'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { EngineFactory } from './engines/EngineFactory'
 import type { EngineSessionConfig, EngineType, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from '../infra/logger'
 import { SessionHistoryManager, SessionLite } from '../session/sessionHistoryManager'
-import { detectInstalledCli, checkEnvironment, installCli, checkCliUpdate, updateCli, isCommandAvailable, installCommand } from './cliDetector'
+import {
+  detectInstalledCli,
+  checkEnvironment,
+  installCli,
+  checkCliUpdate,
+  getCliUpdateState,
+  invalidateCliUpdateState,
+  updateCli,
+  isCommandAvailable,
+  installCommand,
+} from './cliDetector'
 import { proxyManager } from '../infra/proxyManager'
 import { probeMcpServer, type McpProbeConfig, type McpProbeResult } from '../tools/mcpProbe'
 import { loadMcpConfig, saveMcpConfig, buildEnabledMcpConfig } from '../tools/mcpConfigStore'
@@ -38,6 +49,12 @@ let mainWindow: BrowserWindow | null = null
 export function setMainWindow(window: BrowserWindow) {
   mainWindow = window
   EngineFactory.setMainWindow(window)
+}
+
+/** 把主进程的更新结论推给渲染层；settings 的导航红点靠它保持同步。 */
+function sendCliUpdateState(target: WebContents | null | undefined) {
+  if (!target || target.isDestroyed()) return
+  target.send(CLAUDE_CODE_EVENTS.onCliUpdateState, getCliUpdateState())
 }
 
 /**
@@ -239,20 +256,37 @@ export function registerClaudeCodeIPC() {
 
   ipcMain.handle(CLAUDE_CODE_CHANNELS.installCli, async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    return installCli(win, (progress) => {
-      win?.webContents.send(CLAUDE_CODE_EVENTS.onInstallProgress, progress)
-    })
+    try {
+      return await installCli(win, (progress) => {
+        win?.webContents.send(CLAUDE_CODE_EVENTS.onInstallProgress, progress)
+      })
+    } finally {
+      invalidateCliUpdateState()
+      sendCliUpdateState(win?.webContents)
+    }
   })
 
-  ipcMain.handle(CLAUDE_CODE_CHANNELS.checkCliUpdate, async () => {
-    return checkCliUpdate()
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.getCliUpdateState, async () => {
+    return getCliUpdateState()
+  })
+
+  // force 只给「用户点了检查更新」和安装/更新后的复核；后台检查走缓存与退避。
+  ipcMain.handle(CLAUDE_CODE_CHANNELS.checkCliUpdate, async (event, options?: { force?: boolean }) => {
+    const result = await checkCliUpdate({ force: options?.force === true })
+    sendCliUpdateState(event.sender)
+    return result
   })
 
   // 更新复用 installProgress 事件通道 —— 渲染端只有这一条安装/更新进度面。
   ipcMain.handle(CLAUDE_CODE_CHANNELS.updateCli, async (event) => {
-    return updateCli((progress) => {
-      event.sender.send(CLAUDE_CODE_EVENTS.onInstallProgress, progress)
-    })
+    try {
+      return await updateCli((progress) => {
+        event.sender.send(CLAUDE_CODE_EVENTS.onInstallProgress, progress)
+      })
+    } finally {
+      invalidateCliUpdateState()
+      sendCliUpdateState(event.sender)
+    }
   })
 
   ipcMain.handle(CLAUDE_CODE_CHANNELS.getProxyStatus, async () => {

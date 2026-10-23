@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { shell } from 'electron'
-import { CliDetectionResult, CliUpdateCheck, EnvironmentCheck, EnvItemStatus, InstallProgress } from '../proxy/types'
+import { CliDetectionResult, CliUpdateCheck, CliUpdateState, EnvironmentCheck, EnvItemStatus, InstallProgress } from '../proxy/types'
 import { info, warn, debug } from '../infra/logger'
 
 const SCOPE = 'CliDetector'
@@ -158,8 +158,41 @@ export async function detectInstalledCli(): Promise<CliDetectionResult> {
 }
 
 const LATEST_VERSION_TTL_MS = 10 * 60 * 1000
+/** 一次成功检查的保鲜期。设置页、导航红点都读这份结论。 */
+const UPDATE_STATE_TTL_MS = 12 * 60 * 60 * 1000
+/** registry 查询失败后的重试间隔，避免每次打开界面都去打一次不可达的网络。 */
+const UPDATE_RETRY_BACKOFF_MS = 5 * 60 * 1000
+
 let latestVersionCache: { version: string; at: number } | null = null
 let latestVersionInflight: Promise<string | null> | null = null
+
+interface CliUpdateAttempt {
+  result: CliUpdateCheck
+  at: number
+}
+
+/** 最近一次问过 registry 的结论；null 表示还没成功检查过。 */
+let updateState: CliUpdateAttempt | null = null
+/** 最近一次尝试（含失败），用于失败退避和「刚查过但没问通」的展示。 */
+let lastAttempt: CliUpdateAttempt | null = null
+let updateInflight: Promise<CliUpdateCheck> | null = null
+
+export function getCliUpdateState(): CliUpdateState | null {
+  if (!updateState) return null
+  return {
+    result: updateState.result,
+    checkedAt: updateState.at,
+    stale: Date.now() - updateState.at >= UPDATE_STATE_TTL_MS,
+  }
+}
+
+/**
+ * 安装/更新/切换引擎来源之后调用：本机 CLI 已经变了，旧结论不再成立。
+ */
+export function invalidateCliUpdateState(): void {
+  updateState = null
+  lastAttempt = null
+}
 
 /**
  * npm 上的最新发布版。
@@ -198,31 +231,63 @@ async function fetchLatestCliVersion(): Promise<string | null> {
   return latestVersionInflight
 }
 
-export async function checkCliUpdate(): Promise<CliUpdateCheck> {
-  const detection = await detectInstalledCli()
-
-  if (!detection.available) {
-    return { installed: false, installedVersion: null, latestVersion: null, hasUpdate: false, unusable: false, checkFailed: false }
+/**
+ * 查询更新。
+ *
+ * 默认命中 12h 缓存；`force: true` 用于用户点「检查更新」和安装/更新后的复核 ——
+ * 这两种场景必须重新 spawn `claude --version`，不能拿旧结论糊弄。
+ */
+export async function checkCliUpdate(options: { force?: boolean } = {}): Promise<CliUpdateCheck> {
+  if (!options.force) {
+    if (updateState && Date.now() - updateState.at < UPDATE_STATE_TTL_MS) {
+      return updateState.result
+    }
+    if (lastAttempt && Date.now() - lastAttempt.at < UPDATE_RETRY_BACKOFF_MS) {
+      return lastAttempt.result
+    }
   }
+  if (updateInflight) return updateInflight
 
-  // PATH 上有 claude 但 --version 跑不出来：这份安装是坏的。此时不必再问
-  // registry —— 有没有新版都要重装，而把这一态并进 checkFailed 会让界面
-  // 一个按钮都不给，用户只能看着一句「版本过旧」。
-  if (!detection.version) {
-    warn(SCOPE, 'CLI found on PATH but it reports no version — installation is broken', { path: detection.path })
-    return { installed: true, installedVersion: null, latestVersion: null, hasUpdate: false, unusable: true, checkFailed: false }
+  const run = (async (): Promise<CliUpdateCheck> => {
+    const detection = await detectInstalledCli()
+    let result: CliUpdateCheck
+
+    if (!detection.available) {
+      result = { installed: false, installedVersion: null, latestVersion: null, hasUpdate: false, unusable: false, checkFailed: false }
+    } else if (!detection.version) {
+      // PATH 上有 claude 但 --version 跑不出来：这份安装是坏的。此时不必再问
+      // registry —— 有没有新版都要重装，而把这一态并进 checkFailed 会让界面
+      // 一个按钮都不给，用户只能看着一句「版本过旧」。
+      warn(SCOPE, 'CLI found on PATH but it reports no version — installation is broken', { path: detection.path })
+      result = { installed: true, installedVersion: null, latestVersion: null, hasUpdate: false, unusable: true, checkFailed: false }
+    } else {
+      const latest = await fetchLatestCliVersion()
+      if (!latest) {
+        result = { installed: true, installedVersion: detection.version, latestVersion: null, hasUpdate: false, unusable: false, checkFailed: true }
+      } else {
+        // 本地比 registry 新（rc / slow 通道）也是「无更新」，不是失败。
+        const hasUpdate = latest !== detection.version && isVersionGte(latest, detection.version)
+        info(SCOPE, 'CLI update check', { installed: detection.version, latest, hasUpdate })
+        result = { installed: true, installedVersion: detection.version, latestVersion: latest, hasUpdate, unusable: false, checkFailed: false }
+      }
+    }
+
+    const at = Date.now()
+    lastAttempt = { result, at }
+    // registry 没答上来时不覆盖上一次成功结论：宁可继续展示旧版本，也不要把
+    // 「无法检查」写成一个新鲜的「已是最新」。
+    if (!result.checkFailed) {
+      updateState = { result, at }
+    }
+    return result
+  })()
+
+  updateInflight = run
+  try {
+    return await run
+  } finally {
+    if (updateInflight === run) updateInflight = null
   }
-
-  const latest = await fetchLatestCliVersion()
-  if (!latest) {
-    return { installed: true, installedVersion: detection.version, latestVersion: null, hasUpdate: false, unusable: false, checkFailed: true }
-  }
-
-  // 本地比 registry 新（rc / slow 通道）也是「无更新」，不是失败。
-  const hasUpdate = latest !== detection.version && isVersionGte(latest, detection.version)
-  info(SCOPE, 'CLI update check', { installed: detection.version, latest, hasUpdate })
-
-  return { installed: true, installedVersion: detection.version, latestVersion: latest, hasUpdate, unusable: false, checkFailed: false }
 }
 
 async function checkEnvItem(name: string, versionArgs: string[] = ['--version']): Promise<EnvItemStatus> {

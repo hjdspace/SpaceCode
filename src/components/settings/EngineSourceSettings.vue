@@ -46,16 +46,32 @@
           <CheckCircle v-if="detectionResult.versionCompatible !== false" :size="16" />
           <AlertTriangle v-else :size="16" />
           <span class="cli-version">{{ detectionResult.version ? `v${detectionResult.version}` : $t('engineSource.cliDetected') }}</span>
-          <span v-if="updateCheck?.unusable" class="version-warning">{{ $t('engineSource.cliUnusable') }}</span>
+          <span v-if="cliUnusable" class="version-warning">{{ $t('engineSource.cliUnusable') }}</span>
           <span v-else-if="detectionResult.versionCompatible === false" class="version-warning">{{ $t('engineSource.versionTooOld') }}</span>
           <span v-if="updateHint" class="update-hint">{{ updateHint }}</span>
           <span v-else-if="isUpToDate" class="up-to-date-hint">{{ $t('engineSource.upToDate') }}</span>
+          <span v-else-if="updateCheck?.checkFailed" class="update-check-failed">{{ $t('engineSource.checkUpdateFailed') }}</span>
           <span class="cli-path">{{ detectionResult.path }}</span>
         </div>
 
         <div v-else class="cli-status not-found">
           <AlertTriangle :size="16" />
           <span>{{ $t('engineSource.cliNotFound') }}</span>
+        </div>
+
+        <div v-if="!isDetecting && detectionResult?.available" class="update-check-row">
+          <button
+            class="btn btn-secondary btn-compact"
+            :disabled="isCheckingUpdate || isInstalling"
+            @click="checkUpdates(true)"
+          >
+            <Loader2 v-if="isCheckingUpdate" :size="14" class="spin" />
+            <RefreshCw v-else :size="14" />
+            {{ isCheckingUpdate ? $t('engineSource.checkingUpdate') : $t('engineSource.checkUpdate') }}
+          </button>
+          <span v-if="lastCheckedLabel" class="update-check-meta">
+            {{ $t('engineSource.lastChecked', { time: lastCheckedLabel }) }}
+          </span>
         </div>
 
         <div v-if="!isDetecting && !detectionResult?.available && envCheck" class="env-check">
@@ -133,7 +149,7 @@
           >
             <RefreshCw v-if="!isInstalling" :size="14" />
             <Loader2 v-else :size="14" class="spin" />
-            {{ isInstalling ? $t('engineSource.updating') : (updateCheck?.unusable ? $t('engineSource.repairCli') : $t('engineSource.updateCli')) }}
+            {{ isInstalling ? $t('engineSource.updating') : (cliUnusable ? $t('engineSource.repairCli') : $t('engineSource.updateCli')) }}
           </button>
         </div>
       </div>
@@ -206,6 +222,12 @@ interface CliUpdateCheckData {
   checkFailed: boolean
 }
 
+interface CliUpdateStateData {
+  result: CliUpdateCheckData
+  checkedAt: number
+  stale: boolean
+}
+
 interface AdapterStatusData {
   running: boolean
   port: number
@@ -223,9 +245,11 @@ const isDetecting = ref(false)
 const detectionResult = ref<CliDetectionResult | null>(null)
 const envCheck = ref<EnvironmentCheck | null>(null)
 const isInstalling = ref(false)
+const isCheckingUpdate = ref(false)
 const installError = ref<string | null>(null)
 const installProgress = ref<InstallProgressData | null>(null)
-const updateCheck = ref<CliUpdateCheckData | null>(null)
+const updateState = ref<CliUpdateStateData | null>(null)
+const updateCheck = computed(() => updateState.value?.result ?? null)
 const updatedHint = ref(false)
 const adapterStatus = ref<AdapterStatusData | null>(null)
 
@@ -247,16 +271,32 @@ const missingDeps = computed(() => {
   return deps
 })
 
+// 坏安装以本机探测为准：PATH 上有 claude 但 --version 跑不出版本号。
+// 更新结论可能来自 12h 缓存，不能拿它判断「现在这份 CLI 还能不能用」。
+const cliUnusable = computed(() => {
+  const detection = detectionResult.value
+  return !!detection?.available && !detection.version
+})
+
 const canUpdate = computed(() => {
-  const check = updateCheck.value
-  if (!check?.installed || (!check.hasUpdate && !check.unusable)) return false
+  if (!detectionResult.value?.available) return false
   // 更新/重装只要 npm：不重复要求 Git 三件套齐全。
-  return envCheck.value?.npm.available ?? false
+  if (!(envCheck.value?.npm.available ?? false)) return false
+  return cliUnusable.value || updateCheck.value?.hasUpdate === true
 })
 
 const isUpToDate = computed(() => {
+  if (!detectionResult.value?.available || cliUnusable.value) return false
   const check = updateCheck.value
-  return !!check && check.installed && !check.hasUpdate && !check.unusable && !check.checkFailed
+  return !!check && check.installed && !check.hasUpdate && !check.checkFailed
+})
+
+const lastCheckedLabel = computed(() => {
+  if (!updateState.value) return ''
+  return new Date(updateState.value.checkedAt).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 })
 
 const updateHint = computed(() => {
@@ -296,11 +336,11 @@ const stageLabel = computed(() => {
 function selectSource(source: EngineSource) {
   settingsStore.setEngineSource(source)
   if (source === 'installed') {
-    detectInstalled()
+    void detectInstalled().then(refreshUpdateStateIfStale)
   } else {
     detectionResult.value = null
     envCheck.value = null
-    updateCheck.value = null
+    updateState.value = null
     updatedHint.value = false
     installError.value = null
     installProgress.value = null
@@ -331,26 +371,67 @@ function selectSource(source: EngineSource) {
 async function detectInstalled() {
   isDetecting.value = true
   try {
-    const [detection, env, update] = await Promise.all([
+    const [detection, env, cachedUpdate] = await Promise.all([
       api.detectInstalledCli(),
       api.checkEnvironment(),
+      // 只读主进程缓存：真正查 registry 由启动后的后台检查或「检查更新」按钮触发。
       // 查更新失败只意味着没有更新按钮，不能把已检测到的 CLI 一起抹掉。
-      api.checkCliUpdate().catch(() => null),
+      api.getCliUpdateState().catch(() => null),
     ])
     detectionResult.value = detection
     envCheck.value = env
-    updateCheck.value = update
+    updateState.value = cachedUpdate
 
     if (detection?.available && detection.path) {
       settingsStore.setInstalledCliPath(detection.path)
     }
+
+    // 缓存的安装状态/版本和本机探测对不上 = CLI 在应用外被装过/升级过。
+    // 这时缓存结论已经不成立，必须强制重查，不能继续显示旧的「发现新版本」。
+    const cacheMismatch = !!cachedUpdate && (
+      cachedUpdate.result.installed !== !!detection?.available ||
+      (!!detection?.version && !!cachedUpdate.result.installedVersion &&
+        cachedUpdate.result.installedVersion !== detection.version)
+    )
+    if (cacheMismatch) {
+      void checkUpdates(true)
+    }
   } catch {
     detectionResult.value = null
     envCheck.value = null
-    updateCheck.value = null
+    updateState.value = null
   } finally {
     isDetecting.value = false
   }
+}
+
+/**
+ * force=false 时由主进程决定要不要真的查：12h 内直接回缓存，失败还会退避。
+ * 用户点「检查更新」和安装/更新后复核才用 force=true。
+ */
+async function checkUpdates(force = true) {
+  if (isCheckingUpdate.value) return
+  isCheckingUpdate.value = true
+  try {
+    const result = await api.checkCliUpdate({ force })
+    // 后台自动刷新查失败时保留已有结论（包括「发现新版本」）；用户主动点按钮
+    // 或首次没有任何结论时才把失败摆到界面上。
+    if (result && (force || !result.checkFailed || !updateState.value)) {
+      updateState.value = { result, checkedAt: Date.now(), stale: false }
+    }
+  } catch {
+    // 保留上一次结论；按钮保持可点，下一次手动检查会重试
+  } finally {
+    isCheckingUpdate.value = false
+  }
+}
+
+/** 缓存过期或首次启动还没查过时，后台补一次，不阻塞本机检测结果的展示。 */
+function refreshUpdateStateIfStale() {
+  if (!detectionResult.value?.available) return
+  const cached = updateState.value
+  if (cached && !cached.stale) return
+  void checkUpdates(false)
 }
 
 async function runCliTask(mode: 'install' | 'update') {
@@ -372,6 +453,8 @@ async function runCliTask(mode: 'install' | 'update') {
       // 进度条靠「已装/有新版」隐掉面板；更新成功后两者都变假，必须手动清空才不留尾。
       installProgress.value = null
       if (mode === 'update') updatedHint.value = true
+      // 主进程在安装/更新后已失效缓存，这里强制核对一次，把版本从旧结论推进到新结论。
+      await checkUpdates(true)
     } else {
       installError.value = result?.error || fallbackError
     }
@@ -429,7 +512,7 @@ watch(engineSource, (newSource) => {
 
 onMounted(() => {
   if (engineSource.value === 'installed') {
-    detectInstalled()
+    void detectInstalled().then(refreshUpdateStateIfStale)
   }
   if (showAdapterStatus.value) {
     startAdapterRefresh()
@@ -611,6 +694,23 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.update-check-failed {
+  font-size: 11px;
+  color: var(--warning);
+  white-space: nowrap;
+}
+
+.update-check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-check-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .update-applied-hint {
   font-size: 11px;
   color: var(--text-muted);
@@ -756,6 +856,11 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 500;
   transition: all 0.2s;
+
+  &.btn-compact {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
 
   &.btn-primary {
     background: var(--accent-primary);

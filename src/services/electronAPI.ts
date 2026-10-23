@@ -377,6 +377,12 @@ export interface CliUpdateCheck {
   checkFailed: boolean
 }
 
+export interface CliUpdateState {
+  result: CliUpdateCheck
+  checkedAt: number
+  stale: boolean
+}
+
 export interface EnvironmentCheckResult {
   node: { available: boolean; version: string | null; path: string | null }
   npm: { available: boolean; version: string | null; path: string | null }
@@ -719,11 +725,25 @@ export const api = {
     return Promise.resolve(null)
   },
 
-  checkCliUpdate: (): Promise<CliUpdateCheck | null> => {
-    if (electronAPI?.claudeCode?.checkCliUpdate) {
-      return electronAPI.claudeCode.checkCliUpdate()
+  getCliUpdateState: (): Promise<CliUpdateState | null> => {
+    if (electronAPI?.claudeCode?.getCliUpdateState) {
+      return electronAPI.claudeCode.getCliUpdateState()
     }
     return Promise.resolve(null)
+  },
+
+  checkCliUpdate: (options?: { force?: boolean }): Promise<CliUpdateCheck | null> => {
+    if (electronAPI?.claudeCode?.checkCliUpdate) {
+      return electronAPI.claudeCode.checkCliUpdate(options)
+    }
+    return Promise.resolve(null)
+  },
+
+  onCliUpdateState: (callback: (state: CliUpdateState | null) => void): (() => void) => {
+    if (electronAPI?.claudeCode?.onCliUpdateState) {
+      return electronAPI.claudeCode.onCliUpdateState(callback)
+    }
+    return () => {}
   },
 
   updateCli: (): Promise<{ success: boolean; error?: string } | null> => {

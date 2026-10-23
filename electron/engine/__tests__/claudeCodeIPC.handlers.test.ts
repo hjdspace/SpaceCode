@@ -70,7 +70,9 @@ const cli = vi.hoisted(() => ({
   detectInstalledCli: vi.fn(),
   checkEnvironment: vi.fn(),
   installCli: vi.fn(),
+  getCliUpdateState: vi.fn(),
   checkCliUpdate: vi.fn(),
+  invalidateCliUpdateState: vi.fn(),
   updateCli: vi.fn(),
   isCommandAvailable: vi.fn(),
   installCommand: vi.fn(),
@@ -323,18 +325,35 @@ describe('会话历史 handler', () => {
 })
 
 describe('CLI 安装 / 更新与代理状态', () => {
-  it('detectInstalledCli / checkEnvironment / checkCliUpdate 原样透传', async () => {
+  it('detectInstalledCli / checkEnvironment / getCliUpdateState 原样透传', async () => {
     cli.detectInstalledCli.mockResolvedValue({ available: true })
     cli.checkEnvironment.mockResolvedValue({ ok: true })
-    cli.checkCliUpdate.mockResolvedValue({ updateAvailable: false })
+    const cached = { result: { hasUpdate: true }, checkedAt: 1, stale: false }
+    cli.getCliUpdateState.mockReturnValue(cached)
 
     await expect(handler('claude-code:detectInstalledCli')({})).resolves.toEqual({ available: true })
     await expect(handler('claude-code:checkEnvironment')({})).resolves.toEqual({ ok: true })
-    await expect(handler('claude-code:checkCliUpdate')({})).resolves.toEqual({ updateAvailable: false })
+    await expect(handler('claude-code:getCliUpdateState')({})).resolves.toEqual(cached)
+  })
+
+  it('checkCliUpdate 默认不吃缓存（force=false），并把最新结论广播给渲染层', async () => {
+    const result = { installed: true, hasUpdate: true }
+    const state = { result, checkedAt: 2, stale: false }
+    cli.checkCliUpdate.mockResolvedValue(result)
+    cli.getCliUpdateState.mockReturnValue(state)
+    const send = vi.fn()
+    const event = { sender: { send, isDestroyed: () => false } }
+
+    await expect(handler('claude-code:checkCliUpdate')(event)).resolves.toEqual(result)
+    expect(cli.checkCliUpdate).toHaveBeenCalledWith({ force: false })
+    expect(send).toHaveBeenCalledWith('claude-code:cliUpdateState', state)
+
+    await handler('claude-code:checkCliUpdate')(event, { force: true })
+    expect(cli.checkCliUpdate).toHaveBeenLastCalledWith({ force: true })
   })
 
   it('installCli 从 event.sender 还原窗口，进度经 onInstallProgress 送回渲染层', async () => {
-    const fakeWin = { webContents: { send: vi.fn() } }
+    const fakeWin = { webContents: { send: vi.fn(), isDestroyed: () => false } }
     ;(BrowserWindow.fromWebContents as ReturnType<typeof vi.fn>).mockReturnValue(fakeWin)
     cli.installCli.mockResolvedValue({ success: true })
 
@@ -346,12 +365,15 @@ describe('CLI 安装 / 更新与代理状态', () => {
     const progressCb = cli.installCli.mock.calls[0][1] as (p: unknown) => void
     progressCb(progress)
     expect(fakeWin.webContents.send).toHaveBeenCalledWith('claude-code:installProgress', progress)
+    // 装完本机 CLI 变了，旧结论必须作废并通知界面
+    expect(cli.invalidateCliUpdateState).toHaveBeenCalled()
+    expect(fakeWin.webContents.send).toHaveBeenCalledWith('claude-code:cliUpdateState', cli.getCliUpdateState())
   })
 
   it('updateCli 的进度直接发到 event.sender（渲染端复用同一条进度通道）', async () => {
     cli.updateCli.mockResolvedValue({ success: true })
     const send = vi.fn()
-    const event = { sender: { send } }
+    const event = { sender: { send, isDestroyed: () => false } }
 
     await expect(handler('claude-code:updateCli')(event)).resolves.toEqual({ success: true })
 
@@ -359,6 +381,8 @@ describe('CLI 安装 / 更新与代理状态', () => {
     const progressCb = cli.updateCli.mock.calls[0][0] as (p: unknown) => void
     progressCb(progress)
     expect(send).toHaveBeenCalledWith('claude-code:installProgress', progress)
+    expect(cli.invalidateCliUpdateState).toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith('claude-code:cliUpdateState', cli.getCliUpdateState())
   })
 
   it('getProxyStatus / isProxyRunning 委托 proxyManager', async () => {

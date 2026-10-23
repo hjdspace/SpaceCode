@@ -277,6 +277,7 @@ describe('api 嵌套命名空间（electronAPI.claudeCode.*）兜底', () => {
     ['detectInstalledCli', [], null],
     ['checkEnvironment', [], null],
     ['installCli', [], null],
+    ['getCliUpdateState', [], null],
     ['checkCliUpdate', [], null],
     ['updateCli', [], null],
     ['getProxyStatus', [], null],
