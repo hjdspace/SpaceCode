@@ -39,31 +39,44 @@ import { FolderOpen } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { useAppStore } from '@/stores/app'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { api } from '@/services/electronAPI'
 import { getRecentProjectRoots, recordRecentProjectRoot } from '@/utils/recentProjectRoots'
+import { normalizeAbsolutePath } from '@/utils/normalizePath'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
 const appStore = useAppStore()
+const sessionStore = useChatSessionStore()
 
 const defaultPath = ref('')
 const recent = ref<string[]>([])
 const busy = ref(false)
 
-function applyPath(path: string) {
+async function applyPath(path: string) {
   if (!path) return
-  settingsStore.projectRoot = path
-  appStore.setProjectRoot(path)
-  recordRecentProjectRoot(path)
+  // 先建目录再登记：项目列表里的路径要能真的打开（侧边栏「打开文件夹」等）
+  try {
+    await api.ensureDir(path)
+  } catch (err) {
+    console.error('[Onboarding] Failed to ensure workspace directory:', err)
+  }
+  const normalized = normalizeAbsolutePath(path)
+  settingsStore.projectRoot = normalized
+  appStore.setProjectRoot(normalized)
+  // 只写 app/settings 两处不够：聊天页与「+」文件选择器读的是 chatSession 的目录，
+  // 漏掉它就会出现「引导里设过了，主界面还是旧目录」。
+  sessionStore.addProject(normalized)
+  sessionStore.switchProject(normalized)
+  recordRecentProjectRoot(normalized)
   recent.value = getRecentProjectRoots()
-  void api.ensureDir(path)
   void settingsStore.saveSettings()
 }
 
 async function browse() {
   try {
     const result = await api.selectFolder()
-    if (!result.canceled && result.filePaths[0]) applyPath(result.filePaths[0])
+    if (!result.canceled && result.filePaths[0]) await applyPath(result.filePaths[0])
   } catch (err) {
     console.error('[Onboarding] Failed to browse folder:', err)
   }
@@ -75,7 +88,7 @@ async function useDefault() {
     const path = defaultPath.value || (await api.ensureDefaultWorkspace())
     if (path) {
       defaultPath.value = path
-      applyPath(path)
+      await applyPath(path)
     }
   } catch (err) {
     console.error('[Onboarding] Default workspace unavailable:', err)

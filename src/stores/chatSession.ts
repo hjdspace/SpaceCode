@@ -821,8 +821,27 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
   }
 
+  /**
+   * 切换「当前项目指针」。空会话跟着指针走：主聊天页与「+」工作区选择器读的是会话快照
+   * （workingDirectory computed 优先取快照），指针换了而快照不动，新设的工作目录
+   * 就在这两处“看不见”。
+   * 两道闸门：canSwitchWorkingDirectory 挡住本地已有消息的会话；engineSessionId 挡住
+   * 从引擎 JSONL 恢复但尚未 hydrate 的会话 —— 那种会话本地 messages 恒为空，
+   * 历史却已经落在旧项目目录下，换目录等于 --resume 找不到历史。
+   */
   function switchProject(projectPath: string) {
-    currentProjectRoot.value = projectPath
+    const next = projectPath ? normalizeAbsolutePath(projectPath) : projectPath
+    currentProjectRoot.value = next
+    if (!next) return
+
+    const session = getSession(currentSessionId.value)
+    if (!session || session.engineSessionId) return
+    if (!canSwitchWorkingDirectory(session.id)) return
+
+    if (session.workingDirectory === next) return
+
+    session.workingDirectory = next
+    saveToStorage()
   }
 
   function createSession(
