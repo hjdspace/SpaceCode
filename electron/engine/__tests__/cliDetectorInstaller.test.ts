@@ -1274,6 +1274,64 @@ describe('checkCliUpdate — comparing the installed CLI against npm', () => {
 
     expect(npmViewCalls()).toHaveLength(1)
   })
+
+  it('serves the cached conclusion to the settings page without spawning the CLI again', async () => {
+    const svc = await ready('2.1.227', '2.1.307')
+    await svc.checkCliUpdate()
+    const probes = versionProbeCalls().length
+
+    await svc.checkCliUpdate()
+
+    expect(versionProbeCalls()).toHaveLength(probes)
+    expect(svc.getCliUpdateState()).toEqual({
+      result: expect.objectContaining({ installedVersion: '2.1.227', latestVersion: '2.1.307', hasUpdate: true }),
+      checkedAt: expect.any(Number),
+      stale: false,
+    })
+  })
+
+  it('re-checks once the 12h window expires, and a forced check ignores both caches', async () => {
+    const svc = await ready('2.1.227', '2.1.307')
+    await svc.checkCliUpdate()
+    const afterFirst = versionProbeCalls().length
+
+    vi.advanceTimersByTime(13 * 60 * 60 * 1000)
+    expect(svc.getCliUpdateState()?.stale).toBe(true)
+
+    await svc.checkCliUpdate()
+    const afterStale = versionProbeCalls().length
+    expect(afterStale).toBeGreaterThan(afterFirst)
+
+    await svc.checkCliUpdate({ force: true })
+    expect(versionProbeCalls().length).toBeGreaterThan(afterStale)
+  })
+
+  it('drops the cached conclusion when the CLI is installed, updated, or the source changes', async () => {
+    const svc = await ready('2.1.227', '2.1.307')
+    await svc.checkCliUpdate()
+    expect(svc.getCliUpdateState()).not.toBeNull()
+
+    svc.invalidateCliUpdateState()
+
+    expect(svc.getCliUpdateState()).toBeNull()
+  })
+
+  it('keeps the last good conclusion when a later registry query fails', async () => {
+    const svc = await ready('2.1.227', '2.1.307')
+    await svc.checkCliUpdate()
+    // 让 10 分钟 registry 缓存过期，强制检查才会真的再问一次 npm
+    vi.advanceTimersByTime(11 * 60 * 1000)
+    probe.npmLatestVersion = null
+
+    await expect(svc.checkCliUpdate({ force: true })).resolves.toMatchObject({ checkFailed: true })
+
+    // 失败的尝试不能把「发现新版本」改成一次新鲜的「无法检查」。
+    expect(svc.getCliUpdateState()?.result).toMatchObject({
+      installedVersion: '2.1.227',
+      latestVersion: '2.1.307',
+      hasUpdate: true,
+    })
+  })
 })
 
 describe('updateCli — npm @latest plus the version-advance re-check', () => {
