@@ -15,29 +15,18 @@ import {
 const PROCESSOR_NAME = 'spacecode-voice-input'
 
 /**
- * 以 inline source + Blob URL 注册 AudioWorklet：避免为一小段处理器
- * 增加一个需要按打包路径解析的静态资源。
+ * audioWorklet.addModule() 受 CSP 的 `script-src` 约束，Blob URL 会被 'self' 拦掉，
+ * 所以处理器由 `public/voice/pcm-processor.js` 以第一方脚本提供。相对 document.baseURI
+ * 解析：dev 命中 Vite publicDir 根，打包（file:// 的 dist/index.html）与 h5（dist 静态根）
+ * 都命中 dist 下的同名文件。此处的名字必须与该文件里 registerProcessor 的入参一致。
  */
-const PROCESSOR_SOURCE = `
-class SpaceCodeVoiceInputProcessor extends AudioWorkletProcessor {
-  process(inputs) {
-    const channel = inputs[0] && inputs[0][0]
-    if (channel) {
-      const copy = new Float32Array(channel)
-      this.port.postMessage(copy.buffer, [copy.buffer])
-    }
-    return true
-  }
-}
-registerProcessor('${PROCESSOR_NAME}', SpaceCodeVoiceInputProcessor)
-`
+const PROCESSOR_PATH = 'voice/pcm-processor.js'
 
 export function createBrowserVoiceCapture(): VoiceCapturePort {
   let context: AudioContext | null = null
   let stream: MediaStream | null = null
   let source: MediaStreamAudioSourceNode | null = null
   let node: AudioWorkletNode | null = null
-  let workletUrl: string | null = null
   let track: MediaStreamTrack | null = null
   const chunker = new Pcm16Chunker()
 
@@ -63,10 +52,6 @@ export function createBrowserVoiceCapture(): VoiceCapturePort {
     if (context) {
       void context.close().catch(() => {})
       context = null
-    }
-    if (workletUrl) {
-      URL.revokeObjectURL(workletUrl)
-      workletUrl = null
     }
     chunker.reset()
   }
@@ -126,8 +111,7 @@ export function createBrowserVoiceCapture(): VoiceCapturePort {
 
     try {
       if (!context.audioWorklet) throw new Error('AudioWorklet is not available')
-      workletUrl = URL.createObjectURL(new Blob([PROCESSOR_SOURCE], { type: 'application/javascript' }))
-      await context.audioWorklet.addModule(workletUrl)
+      await context.audioWorklet.addModule(new URL(PROCESSOR_PATH, document.baseURI).href)
       node = new AudioWorkletNode(context, PROCESSOR_NAME, {
         numberOfInputs: 1,
         numberOfOutputs: 0,
