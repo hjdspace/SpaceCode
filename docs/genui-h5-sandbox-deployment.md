@@ -17,7 +17,7 @@
 
 浏览器把每张卡片渲染成 `<iframe sandbox="allow-scripts">` 指向第二端口的 `/index.html`。
 第二端口与主服务**同 site、不同 origin**：卡片读不到父文档、读不到主服务的存储，
-但**没有**桌面端那样的 OOPIF 进程隔离（见第 5 节残余风险）。
+但**没有**桌面端那样的 OOPIF 进程隔离（见第 6 节残余风险）。
 
 ## 2. 必须把两个端口一起暴露
 
@@ -43,7 +43,105 @@
 - **同源不算第二源**：沙箱端口配成与主服务一致（`443`/`80` 也算一致）时渲染端会直接拒绝它 ——
   同源 iframe 不是沙箱（ADR 0015 备选方案第一条）。
 
-## 3. 配置项
+## 3. 反向代理与隧道的具体接法
+
+四条前提，缺一条卡片就起不来（都可在代码里对应到判定）：
+
+1. **沙箱源与页面不同 origin**：协议、主机名、端口任一不同才算不同源。同源 iframe 不是沙箱，
+   渲染端 `isUsableH5BaseUrl` 会把同源的注入值直接判为无效。
+2. **沙箱源与页面同主机名**：源由 `Host` 头或"公网访问地址"的主机名拼出，
+   换主机名（`sandbox.example.com`）的接法不在本方案范围内。
+3. **沙箱源不带路径前缀**：注入值只接受根路径（`pathname` 必须是空或 `/`，且无查询串与片段），
+   所以**路径型反代（`https://host/sandbox/`）不可行**。一个对外端口对应一个源，没有例外。
+4. **https 页面的沙箱源也得是 https**：否则浏览器按混合内容拦掉。
+
+服务端逐响应算源（同时写进父文档的 `frame-src` 和带 nonce 的引导脚本，两处出自同一次计算）：
+
+- 显式配了「卡片沙箱端口」就以它为准；
+- 否则取「浏览器可见的主端口 + 1」；可见端口指"公网访问地址"里写的端口，或 `Host` 头里的端口；
+  **两处都看不见端口时（443 / 80 这类默认端口）退回服务自己监听的端口 + 1** ——
+  反代丢了 `Host` 里的端口就会走到这一支，算出来的端口通常没人监听。
+
+### 方案 A — `ssh -L` 隧道（临时远程办公）
+
+```sh
+ssh -N -L 18080:127.0.0.1:8080 -L 18081:127.0.0.1:8081 user@server
+```
+
+浏览器开 `http://127.0.0.1:18080`。`Host` 头带得上端口，推导给出
+`http://127.0.0.1:18081`，正好是第二条隧道 —— 只要两个本地端口保持 +1 关系，什么都不用配。
+
+### 方案 B — nginx 端口型反代 + TLS（长期部署）
+
+```nginx
+map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+
+server {                                        # 主服务
+  listen 8443 ssl;
+  server_name h5.example.com;
+  ssl_certificate     /etc/letsencrypt/live/h5.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/h5.example.com/privkey.pem;
+
+  location /ws {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host:$server_port;   # 端口别丢，见下面这条要点
+  }
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host:$server_port;
+  }
+}
+
+server {                                        # 沙箱第二端口：同主机名，对外主端口 +1
+  listen 8444 ssl;
+  server_name h5.example.com;
+  ssl_certificate     /etc/letsencrypt/live/h5.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/h5.example.com/privkey.pem;
+  location / { proxy_pass http://127.0.0.1:8081; }
+}
+```
+
+要点：
+
+- `proxy_set_header Host $host:$server_port;` 是让上游看得见浏览器实际用的 8443，
+  于是推导出 8444。写成 `$host`（丢掉端口）时上游会退回"自己监听的端口 + 1"= 8081，
+  父页面的 `frame-src` 指向 `h5.example.com:8081`（协议看有没有配「公网访问地址」：
+  配了 `https://…` 就是 https，没配则退回 http），而那个端口没人对外。
+  嫌 `Host` 头不好控制时，直接填「公网访问地址」`https://h5.example.com:8443` 也能对上 —— 它带端口，
+  推导就是 `:8444`，不再看 `Host` 头。
+- 反代**不要改写 HTML 响应体**（`sub_filter`、gzip 后再拼之类）。沙箱源是逐响应写进文档的，
+  正文被替换过一次，注入的源与引导脚本就对不上了。
+- 第二端口没有鉴权、也不该有：它只服务构建产物本身。别把任何私有文件放进
+  `dist/genui-sandbox/`，也别把它反代到别的服务上。
+
+不想保持 +1 关系时（防火墙只放行既定端口）：把「公网访问地址」填成
+`https://h5.example.com:18443`、「卡片沙箱端口」填成 `28443`，反代按这两个端口各配一个
+`listen ... ssl`，分别转发到 `127.0.0.1:8080` 与 `127.0.0.1:8081`。
+
+### 方案 C — 云隧道（要看隧道能不能同主机名开第二个端口）
+
+一条隧道一个子域名的那种（把 `sandbox.h5.example.com` 指到第二端口）**不支持**：
+注入的源必须与页面同主机名。要用云隧道，就得选能在**同一主机名上暴露多个 TCP 端口**的方案，
+按方案 B 的端口关系配。
+
+### 在真实代理后跑一次「渲染 → 提交 → 刷新」
+
+发布前必须做一次，直连通过不等于代理后通过：
+
+1. 用另一台机器/手机打开 `https://<对外主机>:<对外主端口>/?token=…`，连上桌面端正在跑的会话。
+2. 让模型出一张卡（技能 `genui-card`，或直接说"给我一个部署参数表单"）。
+   **预期**：卡片渲染出表单；浏览器 Network 里 `index.html` 与 `sandbox.js` 都来自
+   `:主端口+1` 那个源并返回 200；父文档响应的 `Content-Security-Policy` 里
+   `frame-src` 就是那个源。
+3. 填两个字段并提交。**预期**：对话里出现一条带卡片摘要的用户消息，卡片转只读。
+4. 刷新页面。**预期**：回放后卡片仍在原位、仍是只读，正文里不出现裸的 `schemaJson` 围栏。
+5. 对照失败态：「卡片沙箱源无法访问」= 第二端口没对外或证书不对；
+   「当前宿主未接入卡片沙箱」= 第二端口在本进程就没绑定成功（先看设置页状态）。
+
+## 4. 配置项
 
 设置 → H5 远程访问 → 高级设置：
 
@@ -52,7 +150,7 @@
 
 对应持久化字段是 `h5-access.json` 的 `sandboxPort`（旧文件缺该字段时按"主端口 + 1"处理）。
 
-## 4. 排查顺序
+## 5. 排查顺序
 
 1. **设置页 → 服务器状态**：看"沙箱端口"是否显示"未监听"。是 → 该端口被别的进程占用，
    换个显式端口再重开 H5（`netstat -ano | findstr :8081` / `lsof -i :8081`）。
@@ -72,7 +170,7 @@
    （响应头与文档里的 `<meta>` 同值），所以看到 `frame-src` 报错时，先确认浏览器拿到的
    是最新响应而不是缓存 —— 文档带 `Cache-Control: no-cache`，正常应当回源。
 
-## 5. 残余风险（接受，不是待办）
+## 6. 残余风险（接受，不是待办）
 
 - **只有跨 origin，没有进程隔离**：第二端口与主服务同 site，恶意卡片里的死循环会拖住同进程的页面。
   桌面端由 OOPIF 隔离，H5 端不做（PRD Out of Scope 明确排除）。

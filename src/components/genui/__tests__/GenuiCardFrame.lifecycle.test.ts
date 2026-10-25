@@ -210,4 +210,19 @@ describe('内容不可用时的可见占位', () => {
     expect(wrapper.text()).toContain('卡片协议版本')
     wrapper.unmount()
   })
+
+  /**
+   * 票 09 第 7 条（升级路径）：早期开发版落盘的卡片记录根本没有 `protocolVersion` 字段。
+   * 打开这种旧会话时它必须走同一条降级说明，而不是"字段缺失 = 版本匹配"地起一个沙箱。
+   */
+  it('旧会话里没有版本字段的卡片同样降级，不会因为 undefined 而起沙箱', () => {
+    const legacy = cardRecord() as Record<string, unknown>
+    delete legacy.protocolVersion
+
+    const wrapper = mountFrame({ card: legacy })
+
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.text()).toContain('卡片协议版本')
+    wrapper.unmount()
+  })
 })

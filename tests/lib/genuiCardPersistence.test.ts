@@ -221,3 +221,44 @@ describe('损坏 metadata 的兜底', () => {
     expect(loaded[0].messages[0].content).toBe('已提交卡片「报名表」，共 1 个字段')
   })
 })
+
+/**
+ * 票 09 第 7 条（升级路径）：卡片是后加的能力，旧版本落盘的会话里根本没有 `genUiCards` 这个键。
+ * 读取时的卡片兜底不能顺手改动别的 metadata —— 旧会话打开后普通消息、推理与工具调用
+ * 必须逐字不变，否则"升级后旧会话打不开"这类事只会在用户机器上暴露。
+ */
+describe('旧版本会话（不含卡片字段）照常打开', () => {
+  it('没有 genUiCards 的 metadata 逐字保留，兜底不改动任何一条消息', () => {
+    const legacy = sessionOf([
+      { id: 'u1', role: 'user', content: '看看这个仓库', timestamp: 1 },
+      {
+        id: 'm1',
+        role: 'assistant',
+        content: '这是一个 Electron 项目',
+        timestamp: 2,
+        metadata: {
+          gitBranch: 'main',
+          reasoning: [{ text: '先读 package.json', duration: 120, endTime: 320 }],
+          toolCalls: [{ id: 'tool-1', name: 'Read', input: { file_path: 'package.json' }, status: 'done' }],
+          contextUsage: { input: 1200, output: 340 },
+        } as unknown as Session['messages'][number]['metadata'],
+      },
+    ])
+    localStorage.setItem('chat_sessions_v2', JSON.stringify([legacy]))
+
+    const loaded = loadSessionsFromStorage()
+
+    expect(loaded[0].messages).toEqual(legacy.messages)
+    expect(loaded[0].messages[1].metadata).toEqual(legacy.messages[1].metadata)
+  })
+
+  it('连 metadata 都没有的旧消息也不会被补出卡片字段', () => {
+    const bare = sessionOf([{ id: 'm1', role: 'assistant', content: '纯文本回复', timestamp: 2 }])
+    localStorage.setItem('chat_sessions_v2', JSON.stringify([bare]))
+
+    const loaded = loadSessionsFromStorage()
+
+    expect(loaded[0].messages[0].metadata).toBeUndefined()
+    expect(loaded[0].messages[0].content).toBe('纯文本回复')
+  })
+})

@@ -7,6 +7,7 @@
  *
  * `FixtureCard` 是票 01 留下的调试卡：它不在物料白名单里，真实技能输出永远不会用到，
  * 走自检渲染分支，好让「断网 / 读不到父文档 / eval 可用」这几条承载前提随时可用肉眼复核。
+ * 这条分支只在开发产物里（`__GENUI_DEBUG__`），装到用户机器上的那份不含自检件。
  */
 import {
   GENUI_MSG_ACTION,
@@ -193,7 +194,9 @@ function renderRealCard(init: GenuiInitMessage): void {
 
 function render(init: GenuiInitMessage): void {
   applyTheme(init.theme)
-  if (init.schema?.componentName === GENUI_FIXTURE_COMPONENT_NAME) {
+  // 调试卡与自检件只在开发产物里：生产构建把 __GENUI_DEBUG__ 定成 false，
+  // 下面这一支连同 renderFixture / renderSelfChecks 一起被死代码消除（票 09 第 2 条）。
+  if (__GENUI_DEBUG__ && init.schema?.componentName === GENUI_FIXTURE_COMPONENT_NAME) {
     renderFixture(init)
     return
   }

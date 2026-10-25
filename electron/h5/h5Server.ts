@@ -12,6 +12,7 @@ import { redactSecretsInJson } from './h5ConfigRedactor'
 import { H5AuthService } from './h5AuthService'
 import { renderH5Document, resolveH5SandboxBaseUrl } from './h5DocumentPolicy'
 import { startSandboxStaticServer, type SandboxStaticServer } from '../genui/sandboxStaticServer'
+import { resolveSandboxResourceRoot } from '../genui/sandboxRoot'
 import { newGenuiCspNonce } from '@/shared/genuiSandbox'
 import { engineGateway } from '../engine/engineGateway'
 import { isEffortLevel } from '@/shared/effort'
@@ -85,8 +86,10 @@ export class H5Server {
 
   constructor(authService: H5AuthService, sandboxResourceRoot?: string) {
     this.authService = authService
-    // 与主窗口产物同级的独立资源目录，口径与 electron/main.ts 的沙箱资源根一致
-    this.sandboxResourceRoot = sandboxResourceRoot ?? join(__dirname, '..', 'dist', 'genui-sandbox')
+    // 与打包协议同一个锚点：app path 下的 dist/genui-sandbox。
+    // 不按本模块的 __dirname 反推 —— H5 服务可能被搬进 dist-electron 的子目录，
+    // 那样第二端口会在安装包里指向一个不存在的位置，而 dev 一切正常。
+    this.sandboxResourceRoot = sandboxResourceRoot ?? resolveSandboxResourceRoot(app.getAppPath())
   }
 
   async start(port?: number): Promise<H5ServerStatus> {

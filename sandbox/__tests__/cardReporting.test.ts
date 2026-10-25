@@ -16,6 +16,10 @@ import {
   type GenuiTheme,
 } from '@/shared/genuiSandbox'
 
+// 同握手用例：这条测试跑开发形态的文档源码，`__GENUI_DEBUG__` 由构建期的 esbuild define
+// 注入，vitest 直接 import 时这里自己钉住（fixture 卡与自检件因此在渲染分支里）。
+vi.stubGlobal('__GENUI_DEBUG__', true)
+
 // 与握手用例同理：物料替身让这条测试只跑编排，不背上官方 SDK 的构建时间。
 vi.mock('../cardMaterials', () => ({
   renderOfficialCard: (context: {

@@ -15,6 +15,7 @@ import { GENUI_SANDBOX_CSP, GENUI_SANDBOX_DEV_BASE_URL, GENUI_SANDBOX_SCHEME } f
 import { buildGenuiSandbox, SANDBOX_ENTRY_FILE, SANDBOX_THEME_FILE } from '../scripts/genui-sandbox-build.mjs'
 
 const outDir = mkdtempSync(join(tmpdir(), 'genui-sandbox-out-'))
+const devOutDir = mkdtempSync(join(tmpdir(), 'genui-sandbox-dev-out-'))
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 beforeAll(async () => {
@@ -23,6 +24,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(outDir, { recursive: true, force: true })
+  rmSync(devOutDir, { recursive: true, force: true })
 })
 
 function read(name: string) {
@@ -72,6 +74,45 @@ describe('沙箱构建产物', () => {
     // 下发时这条 meta 会被逐响应改写成同一条策略加当次 nonce（sandboxResponse），
     // 所以静态产物里留的是不含 nonce 的那一份基准
     expect(meta?.[1].replace(/\s+/g, ' ').trim()).toBe(GENUI_SANDBOX_CSP)
+  })
+})
+
+/**
+ * 票 09 第 2 条：调试 fixture 与承载自检只在开发产物里。
+ *
+ * 自检卡（`FixtureCard`）会主动 `fetch(location.href)` 试探 `connect-src`、用 `new Function`
+ * 试探 `unsafe-eval`，并把沙箱自己的源、拦截结果画到卡片上 —— 那是给人看的诊断件，
+ * 不该出现在装到用户机器上的那份产物里。两侧都跑真构建，钉的是产物本身而不是配置字段。
+ */
+describe('调试入口只随开发产物存在', () => {
+  // 只用纯 ASCII 字面量：esbuild 默认把非 ASCII 转义成 \uXXXX，那样的"命中"取决于转义口径
+  const DEBUG_MARKERS = [
+    'FixtureCard',
+    'sandbox self-check',
+    'parent document unreadable',
+    'own storage blocked',
+  ]
+
+  it('默认（生产）产物里一个调试标记都没有', () => {
+    const js = read(SANDBOX_ENTRY_FILE)
+    for (const marker of DEBUG_MARKERS) {
+      expect(js, `生产沙箱产物里不应留下调试标记 ${marker}`).not.toContain(marker)
+    }
+  })
+
+  it('生产产物仍然走真实卡片链路：握手与物料渲染都在', () => {
+    const js = read(SANDBOX_ENTRY_FILE)
+    expect(js).toContain('genui:ready')
+    expect(js).toContain('genui:init')
+    expect(js).toContain('schema-render-container')
+  })
+
+  it('开发产物保留调试入口，自检前提仍能在肉眼验收时读出来', async () => {
+    await buildGenuiSandbox({ outDir: devOutDir, mode: 'development' })
+    const js = readFileSync(join(devOutDir, SANDBOX_ENTRY_FILE), 'utf-8')
+    for (const marker of DEBUG_MARKERS) {
+      expect(js, `开发沙箱产物应保留调试标记 ${marker}`).toContain(marker)
+    }
   })
 })
 

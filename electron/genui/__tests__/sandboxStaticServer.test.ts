@@ -15,7 +15,23 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { GENUI_SANDBOX_CSP } from '@/shared/genuiSandbox'
-import { startSandboxStaticServer } from '../sandboxStaticServer'
+import { shouldStartDesktopSandboxHost, startSandboxStaticServer } from '../sandboxStaticServer'
+
+/**
+ * 票 09 第 2 条：装好的应用不许多开一个只为开发期的本机端口。
+ * 判据是运行时的，而主进程产物里它不会被折成常量 —— 所以钉在这里，不靠"代码在 if 里"。
+ */
+describe('开发期沙箱主机的启动判据', () => {
+  it.each([
+    ['打包态', { isPackaged: true, nodeEnv: undefined }, false],
+    ['打包态即使 NODE_ENV 没设成 production', { isPackaged: true, nodeEnv: 'development' }, false],
+    ['开发态', { isPackaged: false, nodeEnv: 'development' }, true],
+    ['开发态但 NODE_ENV 未设置', { isPackaged: false, nodeEnv: undefined }, true],
+    ['production 环境变量下不起（跑测试或脚本时）', { isPackaged: false, nodeEnv: 'production' }, false],
+  ] as const)('%s → %s', (_label, origin, expected) => {
+    expect(shouldStartDesktopSandboxHost(origin)).toBe(expected)
+  })
+})
 
 /** 去掉逐响应注入的一次性 nonce，剩下的必须与共用口径逐字一致。 */
 function withoutNonce(csp: string | null): string {

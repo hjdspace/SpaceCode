@@ -15,6 +15,10 @@ import {
   type GenuiTheme,
 } from '@/shared/genuiSandbox'
 
+// 沙箱文档侧的测试跑的是开发形态：`__GENUI_DEBUG__` 在生产构建里由 esbuild define 定成
+// false（调试卡与自检件随之被消除），vitest 直接 import 源码时没人注入，这里自己钉住。
+vi.stubGlobal('__GENUI_DEBUG__', true)
+
 // 这条测试钉的是握手，不是物料。官方渲染器的依赖链有 2000 多个模块，真导进来会让
 // 一个握手用例背上半分钟的构建时间；替身渲染同样走 mountGenuiCard 这条编排缝。
 vi.mock('../cardMaterials', () => ({

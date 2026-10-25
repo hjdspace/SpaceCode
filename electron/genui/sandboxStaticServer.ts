@@ -18,6 +18,18 @@ import { resolveSandboxFile, sandboxResponse } from './sandboxFiles'
 
 export type SandboxStaticServer = { port: number; stop: () => Promise<void> }
 
+/**
+ * 桌面开发期的沙箱主机该不该起 —— 打包态一律不起（票 09 第 2 条）。
+ *
+ * 这条服务只为「开发期的桌面窗口」存在：它多开一个本机端口，而打包环境的沙箱资源由
+ * `spacecode-genui://` 协议提供。判据留成可注入的纯函数，是因为主进程产物里 Rollup 不会
+ * 把运行时检查折掉 —— 「装好的应用不会监听这个端口」这件事必须能被测试钉住，
+ * 而不是靠"看起来在 if (isDev) 里"。H5 的第二端口不走这条判断（那是生产功能）。
+ */
+export function shouldStartDesktopSandboxHost(origin: { isPackaged: boolean; nodeEnv?: string }): boolean {
+  return origin.nodeEnv !== 'production' && !origin.isPackaged
+}
+
 export type SandboxStaticServerOptions = {
   resourceRoot: string
   /** 监听地址。桌面开发绑回环，H5 要绑 `0.0.0.0` 才让局域网里的手机连得上。 */

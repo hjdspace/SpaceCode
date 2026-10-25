@@ -75,3 +75,60 @@ describe('平台判定', () => {
     expect(open).toHaveBeenCalledOnce()
   })
 })
+
+/**
+ * 票 09 第 4 条的另一半：上面那些用例说"该碰的碰对了"，这里说"除此之外一条都没碰"。
+ *
+ * 整层 `electronAPI` 换成会记录**属性全路径**的 Proxy（只记录一层拦不住把 `openExternal`
+ * 换成 `openPath` 那种改法）。卡片能请求的四个动作里只有 copy 与 openLink 经这条端口
+ * （expand 在组件内收口、submit 走提交端口，两者由 GenuiCardFrame 的用例钉住），
+ * 跑完之后被读到的路径必须只有剪贴板写与外链开这两条 —— 以后谁给适配器接上
+ * `ipcRenderer`、文件系统或引擎入口，这里立刻红。
+ */
+describe('桌面适配器可触达的宿主能力是封闭的', () => {
+  function trackEnv<T extends object>(label: string, target: T, touched: string[]): T {
+    return new Proxy(target, {
+      get(object, key) {
+        const value = Reflect.get(object, key)
+        if (typeof key !== 'string') return value
+        const path = `${label}.${key}`
+        touched.push(path)
+        return value !== null && typeof value === 'object' ? trackEnv(path, value as object, touched) : value
+      },
+    }) as T
+  }
+
+  it('copy 与 openLink 跑完，读到的属性路径只有那两条', async () => {
+    const touched: string[] = []
+    const api = {
+      clipboard: { writeText: async () => {} },
+      shell: { openExternal: async () => {} },
+    }
+    const port = createDesktopCardActionPort({
+      electronAPI: trackEnv('electronAPI', api, touched) as CardActionEnv['electronAPI'],
+    })
+
+    await port.copyText('hello')
+    await port.openExternal('https://example.com/docs')
+
+    expect([...new Set(touched)].sort()).toEqual([
+      'electronAPI.clipboard',
+      'electronAPI.clipboard.writeText',
+      'electronAPI.shell',
+      'electronAPI.shell.openExternal',
+    ])
+  })
+
+  it('记录器不是恒空的：别的键被读过就一定会留下', async () => {
+    const touched: string[] = []
+    const api = { clipboard: { writeText: async () => {} }, shell: { openPath: async () => {} } }
+    const tracked = trackEnv('electronAPI', api, touched) as CardActionEnv['electronAPI']
+
+    await createDesktopCardActionPort({ electronAPI: tracked }).copyText('x')
+    // 模拟"适配器被人多接了一条通路"：只要读了 shell，记录里就会出现
+    void (tracked as { shell: { openPath: () => Promise<void> } }).shell.openPath()
+
+    expect(touched).toContain('electronAPI.shell')
+    expect(touched).toContain('electronAPI.shell.openPath')
+  })
+})

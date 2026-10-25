@@ -22,6 +22,11 @@ import { fileURLToPath } from 'node:url'
 export const SANDBOX_ENTRY_FILE = 'sandbox.js'
 /** 沙箱自己的外壳样式；`sandbox.css` 这个名字留给 esbuild 产出的物料样式。 */
 export const SANDBOX_THEME_FILE = 'sandbox.theme.css'
+/**
+ * 产物相对仓库根（打包态即相对 app path）的目录。消费方 `electron/genui/sandboxRoot.ts`
+ * 按同一个相对路径去找；两边各写一遍就等于等着漂移。
+ */
+export const SANDBOX_OUT_DIR_REL = join('dist', 'genui-sandbox')
 const STATIC_FILES = ['index.html', SANDBOX_THEME_FILE]
 
 /**
@@ -39,17 +44,25 @@ const ASSET_LOADERS = {
   '.ttf': 'dataurl',
 }
 
+/**
+ * 沙箱入口的构建模式（`mode` 参数）：
+ *
+ * `production`（默认，也是 `npm run build` 走的那条）把 `__GENUI_DEBUG__` 定成 `false`，
+ * esbuild 因此死代码消除掉 `FixtureCard` 调试卡与它那一整块承载自检 —— 生产产物里既不
+ * `fetch` 探 `connect-src`，也不 `new Function` 探 `unsafe-eval`（票 09 第 2 条）。
+ * `development` 只给 Vite 的 watch 用，自检件留在产物里供肉眼验收。
+ */
 function sandboxPaths(repoRoot) {
   const sandboxDir = join(repoRoot, 'sandbox')
   return {
     sandboxDir,
-    outDir: join(repoRoot, 'dist', 'genui-sandbox'),
+    outDir: join(repoRoot, SANDBOX_OUT_DIR_REL),
     entry: join(sandboxDir, 'main.ts'),
     alias: { '@': join(repoRoot, 'src') },
   }
 }
 
-function esbuildOptions(repoRoot, outDir) {
+function esbuildOptions(repoRoot, outDir, mode) {
   const paths = sandboxPaths(repoRoot)
   return {
     entryPoints: [paths.entry],
@@ -61,7 +74,11 @@ function esbuildOptions(repoRoot, outDir) {
     // 物料体积按官方 mini 名单过滤后仍有数 MB，不压缩首帧会明显拖住卡片
     minify: true,
     // Vue 与物料都按 NODE_ENV 选生产分支；沙箱里没有人需要 devtools 提示
-    define: { 'process.env.NODE_ENV': '"production"' },
+    // __GENUI_DEBUG__ 决定调试卡与自检件是否留在产物里，见上面的构建模式说明
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __GENUI_DEBUG__: mode === 'development' ? 'true' : 'false',
+    },
     loader: ASSET_LOADERS,
     alias: paths.alias,
     logLevel: 'warning',
@@ -74,21 +91,22 @@ async function copyStaticFiles(repoRoot, outDir) {
   await Promise.all(STATIC_FILES.map((name) => copyFile(join(sandboxDir, name), join(outDir, name))))
 }
 
-/** 构建一次，返回产物目录。 */
-export async function buildGenuiSandbox({ repoRoot = process.cwd(), outDir } = {}) {
+/** 构建一次，返回产物目录。默认生产模式（不含调试件）。 */
+export async function buildGenuiSandbox({ repoRoot = process.cwd(), outDir, mode = 'production' } = {}) {
   const target = outDir ?? sandboxPaths(repoRoot).outDir
   await copyStaticFiles(repoRoot, target)
-  await build(esbuildOptions(repoRoot, target))
+  await build(esbuildOptions(repoRoot, target, mode))
   return target
 }
 
 /**
  * 开发期持续构建。返回停止函数，宿主（`vite.config.mts` 的开发插件）在服务关闭时调用。
+ * 调试件只在开发产物里，所以这条固定用 development 模式。
  */
 export async function watchGenuiSandbox({ repoRoot = process.cwd(), outDir } = {}) {
   const target = outDir ?? sandboxPaths(repoRoot).outDir
   await copyStaticFiles(repoRoot, target)
-  const ctx = await context(esbuildOptions(repoRoot, target))
+  const ctx = await context(esbuildOptions(repoRoot, target, 'development'))
   await ctx.watch()
   return async () => {
     await ctx.dispose()

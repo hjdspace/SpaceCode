@@ -50,7 +50,12 @@ import { setupLinuxPlatform } from './infra/platformSetup'
 import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
 import { installProcessErrorGuards, markQuitting, hideDockIcon } from './infra/appLifecycle'
 import { registerGenuiSandboxProtocol, registerGenuiSandboxScheme } from './genui/sandboxProtocol'
-import { startSandboxStaticServer, type SandboxStaticServer } from './genui/sandboxStaticServer'
+import { resolveSandboxResourceRoot } from './genui/sandboxRoot'
+import {
+  shouldStartDesktopSandboxHost,
+  startSandboxStaticServer,
+  type SandboxStaticServer,
+} from './genui/sandboxStaticServer'
 
 // ── Split modules ───────────────────────────────────────────────
 import { createWindow, createSplashScreen, closeSplashScreen, getMainWindow } from './windows/mainWindow'
@@ -162,8 +167,8 @@ app.commandLine.appendSwitch('no-sandbox')
 // GenUI 卡片沙箱：scheme 必须在 app ready 之前注册，处理器在 ready 之后挂
 registerGenuiSandboxScheme()
 
-/** 沙箱静态产物目录：与主窗口 `dist/index.html` 同级的独立资源目录。 */
-const genuiSandboxRoot = resolve(__dirname, '../dist/genui-sandbox')
+/** 沙箱静态产物目录：相对 app path 的独立资源目录，口径见 `genui/sandboxRoot.ts`。 */
+const genuiSandboxRoot = resolveSandboxResourceRoot(app.getAppPath())
 
 // ============================================================
 // Shared state (lifecycle-scoped)
@@ -368,9 +373,10 @@ app.whenReady().then(async () => {
   registerGenuiSandboxProtocol({ resourceRoot: genuiSandboxRoot })
   info('Startup', 'GenUI sandbox protocol registered')
 
-  if (isDev) {
+  if (shouldStartDesktopSandboxHost({ isPackaged: app.isPackaged, nodeEnv: process.env.NODE_ENV })) {
     // 开发环境换主机名与端口服务同一份产物，确保跨 site 拿到 OOPIF 进程隔离。
     // 端口被占（第二个实例等）只让卡片退化成错误占位，不拖垮应用启动。
+    // 打包态永远进不来这条分支：那份沙箱由 spacecode-genui:// 协议提供，不多开本机端口。
     try {
       genuiSandboxDevServer = await startSandboxStaticServer({
         resourceRoot: genuiSandboxRoot,

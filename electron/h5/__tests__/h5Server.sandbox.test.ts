@@ -11,7 +11,7 @@
  * 资源根是注入的临时目录：闸门（`resolveSandboxFile`）按 realpath 判归属，
  * 那是打包环境里也在跑的同一份代码，所以这里用真文件而不是假 fs。
  */
-import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -42,12 +42,14 @@ vi.mock('../../session/sessionHistoryManager', async () => {
 })
 
 import { H5Server } from '../h5Server'
+import { resolveSandboxResourceRoot } from '../../genui/sandboxRoot'
 import { GENUI_SANDBOX_CSP } from '@/shared/genuiSandbox'
 import {
   auth,
   authStub,
   attempt,
   cspMetaOf,
+  electronMock,
   freeMainPort,
   freePort,
   gatewayStub,
@@ -281,5 +283,57 @@ describe('第二端口只服务沙箱静态资源', () => {
       headers: { Origin: 'http://evil.example' },
     })
     expect(res.headers['access-control-allow-origin']).toBeUndefined()
+  })
+})
+
+/**
+ * 票 09 第 1 条：生产链路上没人给 H5Server 注入资源根，它得自己去安装目录找。
+ * 锚点是 app path 而不是本模块的 __dirname —— 主进程 chunk 的分块布局一变，
+ * 表现就是"开发一切正常、安装包里的卡片全空白"。
+ */
+describe('没注入资源根时按 app path 定位沙箱产物', () => {
+  const PACKAGED_SENTINEL = 'packaged-install-sandbox-document'
+  const fakeInstall = mkdtempSync(join(tmpdir(), 'h5-genui-install-'))
+  const fakeAppPath = join(fakeInstall, 'resources', 'app.asar')
+  const packagedRoot = resolveSandboxResourceRoot(fakeAppPath)
+
+  function seedPackagedTree(): void {
+    mkdirSync(packagedRoot, { recursive: true })
+    writeFileSync(
+      join(packagedRoot, 'index.html'),
+      '<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy"' +
+        ` content="${GENUI_SANDBOX_CSP}" /></head><body>${PACKAGED_SENTINEL}</body></html>`,
+    )
+  }
+
+  let getAppPathSpy: ReturnType<typeof vi.spyOn>
+
+  beforeAll(seedPackagedTree)
+
+  beforeEach(() => {
+    getAppPathSpy = vi.spyOn(electronMock.app, 'getAppPath').mockReturnValue(fakeAppPath)
+  })
+
+  afterEach(() => {
+    getAppPathSpy.mockRestore()
+  })
+
+  afterAll(() => {
+    rmSync(fakeInstall, { recursive: true, force: true })
+  })
+
+  it('第二端口服务的是 app path 下那份产物', async () => {
+    const server = await attempt(async () => {
+      const candidate = new H5Server(auth)
+      await candidate.start(await freeMainPort())
+      if (candidate.getStatus().sandboxRunning) return candidate
+      candidate.stop()
+      return null
+    })
+
+    const res = await rawRequest({ port: server.getStatus().sandboxPort, path: '/index.html' })
+    expect(res.status).toBe(200)
+    expect(res.body).toContain(PACKAGED_SENTINEL)
+    server.stop()
   })
 })
