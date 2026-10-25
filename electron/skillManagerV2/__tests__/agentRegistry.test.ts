@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, afterEach } from 'vitest'
 import * as path from 'path'
 import * as os from 'os'
@@ -30,6 +31,7 @@ describe('agentRegistry', () => {
       expect(ids).toContain('workbuddy')
       expect(ids).toContain('zcode')
       expect(ids).toContain('windsurf')
+      expect(ids).toContain('pi')
     })
 
     it('each agent has a non-empty skillsDir', () => {
@@ -163,5 +165,88 @@ describe('claude-code 的 CLAUDE_CONFIG_DIR 覆盖', () => {
     process.env.CLAUDE_CONFIG_DIR = path.join(os.tmpdir(), 'skill-registry-claude-cfg3')
 
     expect(getBuiltInAgent('codex')?.skillsDir).toBe(path.join(homeDir, '.codex', 'skills'))
+  })
+})
+
+/**
+ * 票 08 第 1 条：Pi 的技能目录是 `${PI_CODING_AGENT_DIR || ~/.pi/agent}/skills`。
+ * `~/.pi/agents` 是**子代理定义**目录，混用会让「谁装了这份技能」在管理视图里失真；
+ * 共享的 `~/.agents/skills` 会被 Pi 读取，但它是 `agents` 伪条目，不是 Pi 的专用 Target。
+ */
+describe('pi 的技能目录', () => {
+  const homeDir = path.join(os.tmpdir(), 'skill-registry-pi-home')
+
+  afterEach(() => {
+    delete process.env.PI_CODING_AGENT_DIR
+    setHomeOverride(null)
+  })
+
+  it('默认是 ~/.pi/agent/skills', () => {
+    setHomeOverride(homeDir)
+
+    expect(getBuiltInAgent('pi')?.skillsDir).toBe(path.join(homeDir, '.pi', 'agent', 'skills'))
+  })
+
+  it('PI_CODING_AGENT_DIR 覆盖技能目录与配置路径', () => {
+    setHomeOverride(homeDir)
+    const agentDir = path.join(os.tmpdir(), 'skill-registry-pi-cfg')
+    process.env.PI_CODING_AGENT_DIR = agentDir
+
+    const agent = getBuiltInAgent('pi')
+    expect(agent?.skillsDir).toBe(path.join(agentDir, 'skills'))
+    expect(agent?.configPath).toBe(path.join(agentDir, 'settings.json'))
+    expect(agent?.mcpConfigPath).toBe(path.join(agentDir, 'mcp.json'))
+  })
+
+  it('空白值按未设置处理', () => {
+    setHomeOverride(homeDir)
+    process.env.PI_CODING_AGENT_DIR = '   '
+
+    expect(getBuiltInAgent('pi')?.skillsDir).toBe(path.join(homeDir, '.pi', 'agent', 'skills'))
+  })
+
+  it('~ 前缀与裸 ~ 都按 home 展开（与 pi 的 getAgentDir 同口径）', () => {
+    setHomeOverride(homeDir)
+    process.env.PI_CODING_AGENT_DIR = '~/custom-pi'
+
+    expect(getBuiltInAgent('pi')?.skillsDir).toBe(path.join(homeDir, 'custom-pi', 'skills'))
+
+    process.env.PI_CODING_AGENT_DIR = '~'
+
+    expect(getBuiltInAgent('pi')?.skillsDir).toBe(path.join(homeDir, 'skills'))
+  })
+
+  it('返回的技能目录从不落在 ~/.pi/agents 下', () => {
+    setHomeOverride(homeDir)
+
+    const dirs = [
+      getBuiltInAgent('pi')!.skillsDir,
+      ...(pathsForAgent('pi')?.skillDirs ?? []),
+      ...agentSkillDirs('pi'),
+    ]
+    const agentDefinitionsDir = path.join(homeDir, '.pi', 'agents')
+    for (const dir of dirs) {
+      expect(dir === agentDefinitionsDir || dir.startsWith(agentDefinitionsDir + path.sep)).toBe(false)
+    }
+    expect(dirs).toContain(path.join(homeDir, '.pi', 'agent', 'skills'))
+  })
+
+  it('读取共享的 ~/.agents/skills，但 Pi 的主目录仍排在它前面', () => {
+    setHomeOverride(homeDir)
+
+    expect(pathsForAgent('pi')?.skillDirs).toEqual([
+      path.join(homeDir, '.pi', 'agent', 'skills'),
+      sharedSkillsDir(),
+    ])
+    expect(agentSkillDirs('pi')[0]).toBe(path.join(homeDir, '.pi', 'agent', 'skills'))
+  })
+
+  it('PI_CODING_AGENT_DIR 同时决定 pathsForAgent 与 agentSkillDirs', () => {
+    setHomeOverride(homeDir)
+    const agentDir = path.join(os.tmpdir(), 'skill-registry-pi-cfg2')
+    process.env.PI_CODING_AGENT_DIR = agentDir
+
+    expect(pathsForAgent('pi')?.skillDirs[0]).toBe(path.join(agentDir, 'skills'))
+    expect(agentSkillDirs('pi')[0]).toBe(path.join(agentDir, 'skills'))
   })
 })

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from 'vitest'
 import { AGENT_CLI_META, detectAgentVersion } from '../agentVersions'
 
@@ -18,6 +19,13 @@ describe('agentVersions', () => {
     expect(AGENT_CLI_META['codex'].npmPackage).toBe('@openai/codex')
     expect(AGENT_CLI_META['gemini'].npmPackage).toBe('@google/gemini-cli')
     expect(AGENT_CLI_META['kimi'].npmPackage).toBe('@moonshot-ai/kimi-code')
+  })
+
+  it('recognizes the Pi CLI under its current package name', () => {
+    expect(AGENT_CLI_META['pi']).toEqual({
+      binaries: ['pi'],
+      npmPackage: '@earendil-works/pi-coding-agent',
+    })
   })
 
   it('keeps binary aliases for renamed CLIs', () => {

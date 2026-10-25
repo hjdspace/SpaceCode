@@ -67,6 +67,14 @@ function computeBuiltInAgents(): BuiltInAgent[] {
     icon: 'claude',
   },
   {
+    id: 'pi',
+    displayName: 'Pi',
+    skillsDir: path.join(piAgentDir(), 'skills'),
+    configPath: path.join(piAgentDir(), 'settings.json'),
+    mcpConfigPath: path.join(piAgentDir(), 'mcp.json'),
+    icon: 'pi',
+  },
+  {
     id: 'codex',
     displayName: 'Codex',
     skillsDir: path.join(home(), '.codex', 'skills'),
@@ -343,22 +351,38 @@ function kimiCodeHome(): string {
  * 技能目录再硬编码 `~/.claude` 就会出现「Claude 换了配置目录，SpaceCode 还把技能装到旧地方」。
  */
 function claudeConfigDir(): string {
-  const override = process.env.CLAUDE_CONFIG_DIR
+  return envPath('CLAUDE_CONFIG_DIR', path.join(home(), '.claude'))
+}
+
+/**
+ * Pi 的全局 agent 目录：`$PI_CODING_AGENT_DIR` 覆盖，否则 `~/.pi/agent`。
+ * 单数 `agent` 是 pi 自己的配置根（`getAgentDir()`），`~/.pi/agents` 是子代理定义目录，
+ * 不是技能目录。口径见 ADR 0016。
+ */
+function piAgentDir(): string {
+  return envPath('PI_CODING_AGENT_DIR', path.join(home(), '.pi', 'agent'))
+}
+
+/** 目录类环境变量：未设置或空白取默认值，`~` 前缀按 home 展开。 */
+function envPath(envName: string, fallback: string): string {
+  const override = process.env[envName]
   if (override && override.trim()) return expandHomeDir(override.trim())
-  return path.join(home(), '.claude')
+  return fallback
 }
 
 /**
  * Agents that also load the shared `~/.agents/skills` directory.
  * That directory is scanned separately as the `agents` pseudo-agent.
- * Reference: AgentBro `agent_meta::inherits_shared_agents_skills`.
+ * Reference: AgentBro `agent_meta::inherits_shared_agents_skills`;
+ * Pi also reads it (package-manager `userAgentsSkillsDir`).
  */
 export function inheritsSharedAgentsSkills(agentId: string): boolean {
-  return agentId === 'codex' || agentId === 'kimi' || agentId === 'openclaw' || agentId === 'zcode'
+  return agentId === 'codex' || agentId === 'kimi' || agentId === 'openclaw' || agentId === 'zcode' || agentId === 'pi'
 }
 
 /** Expand a leading `~` in a config value against the real home dir. */
 function expandHomeDir(value: string): string {
+  if (value === '~') return home()
   if (value.startsWith('~/') || value.startsWith('~\\')) {
     return path.join(home(), value.slice(2))
   }

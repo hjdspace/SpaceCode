@@ -66,9 +66,16 @@ describe('内置技能名单', () => {
     }
   })
 
-  it('生成式 UI 技能在名单里，且只铺给 Claude Code（Pi 是票 08）', () => {
-    const spec = BUNDLED_SKILLS.find((s) => s.skillId === GENUI_SKILL_ID)
-    expect(spec?.targetAgentIds).toEqual(['claude-code'])
+  it('生成式 UI 技能在名单里，同时铺给 Claude Code 与 Pi', () => {
+    const specs = BUNDLED_SKILLS.filter((s) => s.skillId === GENUI_SKILL_ID)
+    expect(specs).toHaveLength(1)
+    expect(specs[0].targetAgentIds).toEqual(['claude-code', 'pi'])
+  })
+
+  it('同一技能只有一份正文资源，不存在 Pi 专用版本', () => {
+    const root = bundledSkillsRoot({ appPath: join(repoRoot, 'dist-electron') })
+    expect(existsSync(join(root, `${GENUI_SKILL_ID}-pi`))).toBe(false)
+    expect(BUNDLED_SKILLS.filter((s) => s.skillId.startsWith(GENUI_SKILL_ID))).toHaveLength(1)
   })
 
   it('来源标记与安装路径无关', () => {

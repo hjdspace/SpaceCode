@@ -23,6 +23,7 @@ export interface AgentCliMeta {
 /** How each registry agent's CLI is invoked on this machine. */
 export const AGENT_CLI_META: Record<string, AgentCliMeta> = {
   'claude-code': { binaries: ['claude'], npmPackage: '@anthropic-ai/claude-code' },
+  pi: { binaries: ['pi'], npmPackage: '@earendil-works/pi-coding-agent' },
   codex: { binaries: ['codex'], npmPackage: '@openai/codex' },
   gemini: { binaries: ['gemini'], npmPackage: '@google/gemini-cli' },
   opencode: { binaries: ['opencode'], npmPackage: 'opencode-ai' },

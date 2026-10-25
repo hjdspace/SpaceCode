@@ -31,7 +31,9 @@ Accepted（2026-10-25）。术语见根目录 `CONTEXT.md` 的 Generative UI 与
 - 换引擎或新增 Agent 时只决定它的技能目录，不复制技能内容；删除中心库 Skill 会同时撤销两个 Target。
 - 「只给 Pi 不给 Claude」通过 Target/Claim 粒度表达，不靠复制文件。
 - frontmatter 必须取两者交集：Pi 要求 name 小写连字符且 ≤64、description 必填 ≤1024；Claude 更宽松。
-- `link` 模式依赖 Agent 扫描器跟随符号链接。Pi 侧需在实现阶段实测；不成立就对该 Target 用 `copy` 并纳入 Diagnose，而不是给 Pi 单独维护一份文本。
+- **实测（`@earendil-works/pi-coding-agent` 1.3.0）**：`dist/core/skills.js` 与真实会话的发现层（`dist/core/package-manager.js` 的 `collectSkillEntries`，经 `DefaultResourceLoader`）都对目录项先 `statSync` 再递归，符号链接与 Windows junction 都会被跟随。因此 Pi Target 保持默认 `link`，link 失败仍按 `linkFailPolicy` 退 `copy`。判据钉在 `electron/skillManagerV2/__tests__/piSkillVisibility.test.ts`：`loadSkills` 与 `DefaultResourceLoader` 两条路径都断言可见；上游若改成不跟随，该测试变红，再把这个 Target 改为 copy 并同步诊断口径。
+- 自定义 `--system-prompt` / `--append-system-prompt` 只替换或追加 preamble，`<skills>` 段照常追加（`dist/core/system-prompt.js`）；技能可见性不依赖默认提示，同一测试用真实 builder 钉住。
+- Diagnose 按 Target/Agent 通用：Pi 的断链、过期 copy、内容漂移与未管理技能走与其它 Agent 完全相同的检测与修复路径（`electron/skillManagerV2/__tests__/service-diagnosis.test.ts`）。
 - 技能正文与渲染端版本同批升级：物料升级而技能没升级时，模型会按旧物料写 schema。
 
 ## Alternatives considered

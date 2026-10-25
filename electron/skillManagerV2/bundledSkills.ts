@@ -23,7 +23,7 @@ export const BUNDLED_SKILLS_RESOURCE_DIR = 'builtin-skills'
 
 /**
  * 一份技能装到哪些 Agent。
- * Pi 的 Target 在票 08 补：那份技能正文已经是同源的，只差安装目录。
+ * 正文只有一份：两个引擎读同一份 SKILL.md，差异只在安装目录（ADR 0016）。
  */
 export type BundledSkillSpec = {
   skillId: string
@@ -31,7 +31,7 @@ export type BundledSkillSpec = {
 }
 
 export const BUNDLED_SKILLS: readonly BundledSkillSpec[] = [
-  { skillId: GENUI_SKILL_ID, targetAgentIds: ['claude-code'] },
+  { skillId: GENUI_SKILL_ID, targetAgentIds: ['claude-code', 'pi'] },
 ]
 
 /**
