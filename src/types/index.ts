@@ -1,3 +1,5 @@
+import type { GenuiCardFallback, GenuiCardRecord } from './genui'
+
 export enum ErrorCategory {
   RATE_LIMIT = 'rate_limit',
   SERVER_ERROR = 'server_error',
@@ -204,6 +206,16 @@ export interface MessageMetadata {
   commandFiles?: SessionCommandFile[]
   /** 自动重试状态：供内部重试流程跟踪，不直接展示给用户 */
   retryState?: RetryState
+  /**
+   * 该助手消息里的生成式 UI 卡片记录，渲染在消息下方的沙箱 iframe 中。
+   * 由助手正文的 ` ```schemaJson ` 围栏投影而来（见 lib/genui/cardProjection）。
+   */
+  genUiCards?: GenuiCardRecord[]
+  /**
+   * 没能成卡的围栏：正文保留原样代码块，这里只挂一条可见说明，
+   * 让用户知道内容没有被静默丢弃（畸形 JSON / 非白名单组件 / 超限）。
+   */
+  genUiCardFallbacks?: GenuiCardFallback[]
 }
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'

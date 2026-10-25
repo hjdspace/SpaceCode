@@ -16,6 +16,8 @@ vi.mock('electron', () => ({
     getAppPath: vi.fn(() => os.tmpdir()),
   },
   ipcMain: { handle: vi.fn(), on: vi.fn() },
+  // main.ts 在 ready 之前注册沙箱协议，这条调用是模块级副作用，必须给到 mock 表面
+  protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
   BrowserWindow: {},
   Menu: {},
   Tray: {},

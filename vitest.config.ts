@@ -56,6 +56,8 @@ export default defineConfig({
       'tests/**/*.test.ts',
       'src/**/*.test.ts',
       'electron/**/*.test.ts',
+      // 沙箱文档是独立入口，它与宿主桥之间的端口消息往返只能在这里钉住
+      'sandbox/**/*.test.ts',
     ],
     coverage: {
       // Vitest 3+ removed `coverage.all`: files matching `include` are always

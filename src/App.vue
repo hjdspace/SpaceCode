@@ -87,6 +87,7 @@ import { defineAsyncComponent, ref, onMounted, onUnmounted, watch, type Componen
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
+import { createGenuiDebugApi } from '@/lib/genui/debugFixture'
 import { useSettingsStore } from '@/stores/settings'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useFontStore } from '@/stores/font'
@@ -462,6 +463,26 @@ async function initH5MirrorSession() {
 
 onMounted(() => {
   void loadSkillsManager()
+
+  // 生成式 UI 卡片的调试入口：只渲染内置 fixture，不接受外部 Schema（票 01 承载链路验收用）。
+  window.__SPACECODE_GENUI_DEBUG__ = createGenuiDebugApi({
+    appendFixtureMessage: (card) => {
+      if (!sessionStore.currentSessionId) return false
+      sessionStore.addMessage({
+        role: 'assistant',
+        content: t('genui.fixtureDebugNote'),
+        metadata: { genUiCards: [card] },
+      })
+      return true
+    },
+    fixtureLabels: () => ({
+      title: t('genui.fixture.title'),
+      rows: [
+        { label: t('genui.fixture.rows.carrier'), value: t('genui.fixture.rows.carrierValue') },
+        { label: t('genui.fixture.rows.usage'), value: t('genui.fixture.rows.usageValue') },
+      ],
+    }),
+  })
 
   // 空闲时预热右侧面板 chunk（xterm / @git-diff-view / 各 viewer），
   // 使首次打开面板（如点击 subagent 卡片）无需现场加载整棵模块树。

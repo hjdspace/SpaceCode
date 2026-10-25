@@ -1,13 +1,41 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type ViteDevServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron'
 import { resolve } from 'path'
+import { watchGenuiSandbox } from './scripts/genui-sandbox-build.mjs'
 
 // Electron-based IDEs (CatPaw, VS Code, etc.) set ELECTRON_RUN_AS_NODE=1 in their
 // integrated terminals. This causes vite-plugin-electron to spawn Electron as plain
 // Node.js, where require("electron") returns a string path instead of the module
 // object — crashing the main process on startup. Remove it so Electron runs normally.
 delete process.env.ELECTRON_RUN_AS_NODE
+
+/**
+ * 开发期持续构建卡片沙箱产物（`dist/genui-sandbox`）。
+ *
+ * 主进程在 dev 下把这份产物服务在 `http://localhost:5174`（与主窗口换主机名才换 site），
+ * 打包环境由 `spacecode-genui://` 协议服务同一份文件 —— 两侧加载的是同一个东西，
+ * 开发时看到的 opaque origin、断网与禁导航，打包后必然一致。
+ *
+ * 沙箱文档不设 Vite dev 实例：opaque origin 里 module script 走 CORS，
+ * 且 dev 客户端的 HMR WebSocket 会被沙箱 CSP 的 `connect-src 'none'` 挡掉。
+ */
+function genuiSandboxDevBuild() {
+  return {
+    name: 'genui-sandbox-dev-build',
+    apply: 'serve',
+    async configureServer(server: ViteDevServer) {
+      const repoRoot = import.meta.dirname
+      const stop = await watchGenuiSandbox({ repoRoot })
+      console.log('[genui-sandbox] watching sandbox -> dist/genui-sandbox')
+      const close = () => {
+        void stop()
+      }
+      server.httpServer?.on('close', close)
+      for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, close)
+    },
+  }
+}
 
 export default defineConfig({
   define: {
@@ -33,6 +61,7 @@ export default defineConfig({
         }
       }
     }),
+    genuiSandboxDevBuild(),
     electron([
       {
         entry: 'electron/main.ts',

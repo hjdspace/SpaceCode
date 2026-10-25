@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      与主进程协议处理器、开发期静态服务下发的 CSP 同一条（tests/genui-sandbox-artifact.test.ts 钉住）。
+      这里再放一份是纵深防御：有人直接双击打开产物时，它仍然是自约束的文档。
+      沙箱用经典脚本：opaque origin 下 module script 会按 CORS 请求发出，自定义协议不放行跨源请求。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'"
+    />
+    <title>GenUI card sandbox</title>
+    <link rel="stylesheet" href="./sandbox.css" />
+  </head>
+  <body>
+    <div id="card" class="card" data-state="waiting">
+      <div class="card-status">waiting for host handshake…</div>
+    </div>
+    <script src="./sandbox.js"></script>
+  </body>
+</html>

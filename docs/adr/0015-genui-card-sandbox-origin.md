@@ -22,6 +22,7 @@ Accepted（2026-10-25）。术语见根目录 `CONTEXT.md` 的 Generative UI 一
 2. **文档来源与主窗口分源：**
    - 桌面生产：自定义协议 `spacecode-genui://`，通过 `registerSchemesAsPrivileged` 注册为 standard + secure。
    - 桌面开发：独立 Vite 实例跑在 `http://localhost:5174`，主窗口是 `http://127.0.0.1:5173`。只换端口不算换 site（拿不到 OOPIF），必须同时换主机名。
+     - 票 01 落地备注：沙箱文档用**经典脚本**（不是 `type="module"`）。opaque origin 文档里 module script 一律按 CORS 发起（`Origin: null`），自定义协议要么开 `corsEnabled` 要么直接拒绝，等于把沙箱资源变成可被任意页面跨源读取。因此开发期不跑 Vite dev 实例，改由主进程起静态服务（`localhost:5174`）服务**与打包环境同一份** `dist/genui-sandbox` 产物，构建由 `vite.config.mts` 的开发插件持续 watch。换主机名 + 换端口这两条约束不变，且开发看到的 CSP、断网与禁导航与打包完全一致。
    - H5：独立源（主服务端口 +1），逐响应注入 CSP 与 nonce；父页面的 `frame-src` 只放行该源。
 3. **沙箱文档自带 CSP，不与主窗口共享：**
 
@@ -42,6 +43,7 @@ Accepted（2026-10-25）。术语见根目录 `CONTEXT.md` 的 Generative UI 一
    `unsafe-eval` 只存在于沙箱源。主窗口 CSP 保持原样，仅增加 framing 所需的 `frame-src`。
 4. **通信走 `MessageChannel` + 每卡 nonce。** 首次握手由宿主注入 nonce；之后宿主只接受 `event.source === iframe.contentWindow` 且 nonce 匹配的消息。卡片可用动作是固定白名单：submit / copy / expand / open external link。外链只允许 `http:` / `https:`，由主进程 `openExternal` 执行。
 5. **卡片不能导航。** 桌面端用 `will-frame-navigate` 拒绝、`setWindowOpenHandler` 返回 deny；沙箱不授予 `allow-top-navigation`。H5 端依赖 CSP 的 `form-action` / `base-uri` 与来源限制。
+   - 票 01 落地备注（Electron 43 实测）：子 frame 的 `will-frame-navigate` 事件里 `senderFrame` 为 `undefined`，主进程拿不到"该 frame 当前是什么文档"，因此闸门只能按目标 URL 判定 — 非主 frame 只放行精确的沙箱卡片文档 URL，指向沙箱源的其他目标（换 path、带查询串外泄）一律拒；跨源跳出由主窗口 CSP 的 `frame-src` 拦（实测落到 chrome-error，请求不出本机）。`window.open` 靠 `sandbox="allow-scripts"` 不给 `allow-popups` 拦住，未新增全局 `setWindowOpenHandler` —— 主窗口内既有 `target="_blank"` 链接会被一刀切的 deny 打断，属存量行为，不在本票顺手改。
 6. **每卡独立实例，离屏卸载。** 可视区外的卡片销毁 iframe 只保留快照占位；单卡消息大小与单条消息卡片数设上限，超限拒绝渲染而不是拖垮窗口。
 
 ## Consequences

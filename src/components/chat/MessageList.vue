@@ -42,6 +42,8 @@
               @submit-form="(answers: Record<string, unknown>) => emit('submitForm', answers)"
               @select-next="(prompt: string) => emit('selectNext', prompt)"
             />
+            <!-- 生成式 UI 卡片：属于本组消息，渲染在时间线之后 -->
+            <GenuiCardGroup :messages="item.group!.messages" />
           </div>
           <CurrentTurnChangeCard
             v-else-if="mode !== 'design' && item.type === 'turn-card'"
@@ -80,6 +82,7 @@ import { storeToRefs } from 'pinia'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
 import DesignBlocks from './DesignBlocks.vue'
+import GenuiCardGroup from '@/components/genui/GenuiCardGroup.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import ConversationMinimap from './ConversationMinimap.vue'

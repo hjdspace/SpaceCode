@@ -48,6 +48,8 @@ import { registerPetIpcHandlers } from './pet/petIpcHandlers'
 import { setupLinuxPlatform } from './infra/platformSetup'
 import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
 import { installProcessErrorGuards, markQuitting, hideDockIcon } from './infra/appLifecycle'
+import { registerGenuiSandboxProtocol, registerGenuiSandboxScheme } from './genui/sandboxProtocol'
+import { startGenuiSandboxDevServer, type GenuiSandboxDevServer } from './genui/sandboxDevServer'
 
 // ── Split modules ───────────────────────────────────────────────
 import { createWindow, createSplashScreen, closeSplashScreen, getMainWindow } from './windows/mainWindow'
@@ -156,10 +158,17 @@ if (process.platform === 'win32') {
 
 app.commandLine.appendSwitch('no-sandbox')
 
+// GenUI 卡片沙箱：scheme 必须在 app ready 之前注册，处理器在 ready 之后挂
+registerGenuiSandboxScheme()
+
+/** 沙箱静态产物目录：与主窗口 `dist/index.html` 同级的独立资源目录。 */
+const genuiSandboxRoot = resolve(__dirname, '../dist/genui-sandbox')
+
 // ============================================================
 // Shared state (lifecycle-scoped)
 // ============================================================
 let petWindowManager: PetWindowController | null = null
+let genuiSandboxDevServer: GenuiSandboxDevServer | null = null
 const terminalManager = new TerminalManager()
 
 // ============================================================
@@ -354,6 +363,21 @@ app.whenReady().then(async () => {
   registerPreviewServerIPCHandlers()
   info('Startup', 'Preview Server IPC handlers registered')
 
+  // ── GenUI 卡片沙箱承载 ────────────────────────────────────────
+  registerGenuiSandboxProtocol({ resourceRoot: genuiSandboxRoot })
+  info('Startup', 'GenUI sandbox protocol registered')
+
+  if (isDev) {
+    // 开发环境换主机名与端口服务同一份产物，确保跨 site 拿到 OOPIF 进程隔离。
+    // 端口被占（第二个实例等）只让卡片退化成错误占位，不拖垮应用启动。
+    try {
+      genuiSandboxDevServer = await startGenuiSandboxDevServer({ resourceRoot: genuiSandboxRoot })
+      info('Startup', `GenUI sandbox dev host ready on localhost:${genuiSandboxDevServer.port}`)
+    } catch (err) {
+      warn('Startup', 'GenUI sandbox dev host unavailable; cards will show an error placeholder:', err)
+    }
+  }
+
   // ── Auto Updater ──────────────────────────────────────────────
   registerAutoUpdaterIPC()
   if (!isDev) {
@@ -469,6 +493,11 @@ app.on('before-quit', async () => {
   await runQuitStep('hideDockIcon', hideDockIcon)
   await runQuitStep('installUpdateOnQuit', installUpdateOnQuit)
   await runQuitStep('cleanupPreviewServer', cleanupPreviewServer)
+  await runQuitStep('stopGenuiSandboxDevServer', async () => {
+    if (!genuiSandboxDevServer) return
+    await genuiSandboxDevServer.stop()
+    genuiSandboxDevServer = null
+  })
   await runQuitStep('cleanupOfficeCli', cleanupOfficeCli)
   await runQuitStep('cleanupCuaDriverMcp', cleanupCuaDriverMcp)
   await runQuitStep('cleanupBrowserUseMcp', cleanupBrowserUseMcp)
