@@ -30,6 +30,7 @@ import { playTaskCompleteSound } from '@/utils/notificationSound'
 import { api } from '@/services/electronAPI'
 import { i18n } from '@/i18n'
 import { mergeGenuiCardRecords, projectGenuiCards } from '@/lib/genui/cardProjection'
+import { applyGenuiCardBudget } from '@/lib/genui/cardLifecycle'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -428,7 +429,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
    * metadata 仅在 id 集合变化时改写，普通文本回复完全不碰 metadata，也不多出空数组。
    * 返回值是给消息与当前 text 事件用的可见正文。
    */
-  function syncCardProjection(ts: TurnState, message: Message, final: boolean): { content: string; blockText: string } {
+  function syncCardProjection(sessionId: string, ts: TurnState, message: Message, final: boolean): { content: string; blockText: string } {
     const projection = projectGenuiCards(ts.accumulatedContent, ts.assistantMessageId, { final })
     const cards = projection.cards.length
       ? mergeGenuiCardRecords(message.metadata?.genUiCards, projection.cards)
@@ -436,6 +437,10 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     if (cards?.length && !sameRecordIds(cards, message.metadata?.genUiCards)) {
       message.metadata = { ...message.metadata, genUiCards: cards }
+      // 会话卡片配额当场生效：新卡片把预算顶穿时，最旧那张立刻退成可见占位。
+      // 内存里看到的因此就是即将落盘的那份，不留「界面还有、存下来已过期」的分裂状态。
+      const session = sink.get(sessionId)
+      if (session) applyGenuiCardBudget(session)
     }
     // 降级说明按整份替换：它没有需要保留的状态，而一条消息里可以先后出现多条降级
     // （两张坏围栏、或第 9 张卡超限），只比「有没有」会让第二条永远不上屏。
@@ -473,7 +478,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const message = getAssistantMessage(sessionId, ts)
     if (!message) return
 
-    const { content, blockText } = syncCardProjection(ts, message, final)
+    const { content, blockText } = syncCardProjection(sessionId, ts, message, final)
 
     const textEvent = ts.currentTextEventId
       ? message.timelineEvents?.find(event => event.id === ts.currentTextEventId)
@@ -886,7 +891,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
                 content: visibleBlock(ts, block.text),
                 status: 'running'
               })
-              if (msg) syncCardProjection(ts, msg, false)
+              if (msg) syncCardProjection(sessionId, ts, msg, false)
             } else if (block.type === 'thinking') {
               if (ts.streamingHandledThinking) continue
               const thinkingText = block.thinking || block.text || ''
@@ -933,7 +938,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           if (ts.accumulatedContent) {
             const message = getAssistantMessage(sessionId, ts)
             const view = message
-              ? syncCardProjection(ts, message, false)
+              ? syncCardProjection(sessionId, ts, message, false)
               : { content: ts.accumulatedContent, blockText: '' }
             sink.patchMessage(sessionId, ts.assistantMessageId, { content: view.content })
           }
@@ -954,7 +959,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
             ts.currentTextContent = textEventId === previousEventId
               ? `${ts.currentTextContent}${deltaText}`
               : deltaText
-            const view = msg ? syncCardProjection(ts, msg, false) : null
+            const view = msg ? syncCardProjection(sessionId, ts, msg, false) : null
             updateTimelineEvent(sessionId, ts, textEventId, {
               content: view ? view.blockText : deltaText,
               status: 'running'
@@ -1319,7 +1324,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           })
         }
         // 收口投影：流式期间隐藏的「仍未闭合围栏」这时必须回到正文里当普通代码块显示。
-        const settled = syncCardProjection(ts, msg, true)
+        const settled = syncCardProjection(sessionId, ts, msg, true)
         if (msg.content !== settled.content) msg.content = settled.content
         const settledTextEvent = ts.currentTextEventId
           ? msg.timelineEvents?.find(event => event.id === ts.currentTextEventId)

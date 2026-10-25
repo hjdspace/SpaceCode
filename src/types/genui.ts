@@ -38,10 +38,16 @@ export type GenuiCardSubmissionMeta = {
  */
 export type GenuiCardRecord = {
   id: string
-  schema: Record<string, unknown>
+  /**
+   * 卡片渲染所需的 schema；null = payload 已被会话预算丢弃（见 `expired`），
+   * 或被兜底判定为不可渲染。记录本身仍在，位置与顺序不变。
+   */
+  schema: Record<string, unknown> | null
   protocolVersion: number
   /** 已提交：卡片转为只读，重复提交被忽略 */
   submitted?: GenuiCardSubmittedMark
+  /** 超出会话卡片预算后只留可见占位，正文与提交结果不受影响 */
+  expired?: true
 }
 
 /** 卡片没能成卡的原因。每条都对应正文里保留下来的原样围栏。 */

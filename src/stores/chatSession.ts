@@ -16,6 +16,7 @@ import { errorHandler } from '@/services/errorHandler'
 import { generateSessionTitle } from '@/services/aiSessionTitle'
 import { createUuid } from '@/utils/uuid'
 import { buildMessagesFromHistory } from '@/utils/sessionRestore'
+import { mergeGenuiCardRecords } from '@/lib/genui/cardProjection'
 import { normalizeAbsolutePath } from '@/utils/normalizePath'
 import { buildStartupFingerprint, diffStartupConfig } from '@/utils/sessionStartup'
 import {
@@ -206,9 +207,10 @@ async function hydrateSessionsFromJsonl(sessions: Session[], messageIdsAtStart?:
       //   • metadata.artifacts    — 办公模式产物汇总
       //   • metadata.warning     — 前端生成的警告信息
       //   • metadata.commandFiles — 回合窗口内观测到的间接改动（会话 review 的文件清单）
+      //   • metadata.genUiCards   — 卡片记录与它的提交只读状态（票 05）
       // buildMessagesFromHistory 从 JSONL 重建消息时会丢失这些字段，导致重开后
-      // 用时统计变为 0、产物汇总卡片消失。此处从 localStorage 保存的旧消息中
-      // 按助手消息位置提取这些字段，重建后按位置合并回去
+      // 用时统计变为 0、产物汇总卡片消失、已提交的卡片又能改。此处从 localStorage 保存的
+      // 旧消息中按助手消息位置提取这些字段，重建后按位置合并回去
       // （旧/新消息的 SpaceCode UUID 与引擎 UUID 不同，无法按 id 匹配）。
       const oldExtraMetaByAssistantIdx = new Map<number, Partial<MessageMetadata>>()
       let oldAssistantIdx = 0
@@ -222,11 +224,26 @@ async function hydrateSessionsFromJsonl(sessions: Session[], messageIdsAtStart?:
           if (md.artifacts?.length) extra.artifacts = md.artifacts
           if (md.warning) extra.warning = md.warning
           if (md.commandFiles?.length) extra.commandFiles = md.commandFiles
+          // 卡片按 id 合并的入口：已有记录优先，提交状态与已驱逐的占位都不能被重投影冲掉。
+          if (md.genUiCards?.length) extra.genUiCards = md.genUiCards
           if (Object.keys(extra).length > 0) {
             oldExtraMetaByAssistantIdx.set(oldAssistantIdx, extra)
           }
         }
         oldAssistantIdx++
+      }
+
+      // 提交气泡的折叠标记同样是前端特有，而用户消息没有「按位置」可对：
+      // JSONL 里混着 tool_result 之类的 user 记录，位置对齐会把标记贴到别的消息上，
+      // 表现就是一条无辜的消息被折叠成别人的摘要。所以按正文精确认领、认领一条消耗一条
+      // —— 正文一致才是同一条提交消息的可靠证据，宁可漏折叠也不认错。
+      const submissionMetaByContent = new Map<string, MessageMetadata['genUiSubmission'][]>()
+      for (const oldMsg of session.messages) {
+        const submission = oldMsg.metadata?.genUiSubmission
+        if (oldMsg.role !== 'user' || !submission) continue
+        const pending = submissionMetaByContent.get(oldMsg.content) ?? []
+        pending.push(submission)
+        submissionMetaByContent.set(oldMsg.content, pending)
       }
 
       session.messages = restoredMessages.map(msg => ({
@@ -259,12 +276,28 @@ async function hydrateSessionsFromJsonl(sessions: Session[], messageIdsAtStart?:
           if (newMsg.role !== 'assistant') continue
           const savedMeta = oldExtraMetaByAssistantIdx.get(newAssistantIdx)
           if (savedMeta) {
+            // 卡片是**合并**而不是覆盖：重投影会带出旧记录里没有的新卡，
+            // 而已有记录（含提交状态与已驱逐的占位）按 id 优先留下。
+            const savedCards = savedMeta.genUiCards
             newMsg.metadata = {
               ...(newMsg.metadata || {}),
               ...savedMeta,
+              ...(savedCards
+                ? { genUiCards: mergeGenuiCardRecords(savedCards, newMsg.metadata?.genUiCards ?? []) }
+                : {}),
             }
           }
           newAssistantIdx++
+        }
+      }
+
+      // 提交气泡：按正文认回折叠标记，认不到就原样显示全文（内容不会被折叠吞掉）。
+      if (submissionMetaByContent.size > 0) {
+        for (const newMsg of session.messages) {
+          if (newMsg.role !== 'user' || newMsg.metadata?.genUiSubmission) continue
+          const pending = submissionMetaByContent.get(newMsg.content)
+          if (!pending?.length) continue
+          newMsg.metadata = { ...(newMsg.metadata || {}), genUiSubmission: pending.shift()! }
         }
       }
 

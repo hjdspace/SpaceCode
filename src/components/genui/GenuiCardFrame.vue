@@ -8,55 +8,73 @@
   已提交的卡片保留 iframe 但整层 inert：卡片画面上方盖一条摘要带，只读由宿主判定，
   不靠沙箱自己「禁用按钮」。提交失败留在下方错误行，画面保持可编辑（票 04）。
 
+  离开视口就卸载 iframe、留一块与最后测量高度等高的占位，滚回来从 schema 重建（票 05）：
+  沙箱实例是可丢的，卡片内的临时输入不承诺跨卸载保留，只有落到 metadata 的东西还在。
+  payload 被会话预算丢弃 / 记录形状损坏 / 协议版本对不上，各给一句可见说明，
+  都不开 iframe，也不带走同组里别的卡片。
+
   展开在同一组件的弹窗内新起一个沙箱实例（schema 仍经 postMessage 注入），
   原 iframe 留在原位不动 —— 关闭弹窗就是回到展开前的那张卡。
 -->
 <template>
   <div
+    ref="rootRef"
     class="genui-card"
     :data-state="state.status"
     :data-theme="theme"
     :data-submitted="card.submitted ? 'true' : undefined"
+    :data-offscreen="isOffscreen ? 'true' : undefined"
   >
-    <iframe
-      v-if="showFrame"
-      :key="frameToken"
-      ref="frameRef"
-      class="genui-card-frame"
-      sandbox="allow-scripts"
-      referrerpolicy="no-referrer"
-      :src="docUrl"
-      :style="frameStyle"
-      :title="t('genui.cardLabel')"
-      :inert="isReadonly || undefined"
-    ></iframe>
-
-    <div v-else class="genui-card-error" role="alert">
-      <span class="genui-card-error-text">{{ errorText }}</span>
-      <button
-        v-if="canRetry"
-        type="button"
-        class="genui-card-retry"
-        @click="retry"
-      >{{ t('genui.retry') }}</button>
+    <!-- 内容不在或渲染不了：说明必须看得见，卡片不会静默消失 -->
+    <div v-if="placeholderText" class="genui-card-placeholder-note" role="status">
+      <span class="genui-card-placeholder-text">{{ placeholderText }}</span>
+      <span v-if="card.submitted" class="genui-card-placeholder-summary">{{ card.submitted.summary }}</span>
     </div>
 
-    <p v-if="isReadonly" class="genui-card-submitted" role="status">
-      {{ card.submitted?.summary }}
-    </p>
+    <template v-else>
+      <iframe
+        v-if="showFrame"
+        :key="frameToken"
+        ref="frameRef"
+        class="genui-card-frame"
+        sandbox="allow-scripts"
+        referrerpolicy="no-referrer"
+        :src="docUrl"
+        :style="frameStyle"
+        :title="t('genui.cardLabel')"
+        :inert="isReadonly || undefined"
+      ></iframe>
 
-    <div v-if="showExpand" class="genui-card-actions">
-      <button
-        ref="expandButtonRef"
-        type="button"
-        class="genui-card-expand"
-        @click="openExpanded"
-      >{{ t('genui.actions.expand') }}</button>
-    </div>
+      <!-- 离屏占位：等高，且摘要带与动作行照旧渲染，滚回来时整块高度不变 -->
+      <div v-else-if="isOffscreen" class="genui-card-offscreen" :style="frameStyle" aria-hidden="true"></div>
 
-    <p v-if="actionErrorKey" class="genui-card-action-error" role="alert">
-      {{ actionErrorText }}
-    </p>
+      <div v-else class="genui-card-error" role="alert">
+        <span class="genui-card-error-text">{{ errorText }}</span>
+        <button
+          v-if="canRetry"
+          type="button"
+          class="genui-card-retry"
+          @click="retry"
+        >{{ t('genui.retry') }}</button>
+      </div>
+
+      <p v-if="isReadonly" class="genui-card-submitted" role="status">
+        {{ card.submitted?.summary }}
+      </p>
+
+      <div v-if="showExpand" class="genui-card-actions">
+        <button
+          ref="expandButtonRef"
+          type="button"
+          class="genui-card-expand"
+          @click="openExpanded"
+        >{{ t('genui.actions.expand') }}</button>
+      </div>
+
+      <p v-if="actionErrorKey" class="genui-card-action-error" role="alert">
+        {{ actionErrorText }}
+      </p>
+    </template>
 
     <div v-if="expanded" class="genui-card-expand-backdrop" @click.self="closeExpanded">
       <div
@@ -96,7 +114,8 @@ import { createCardBridge, type CardBridge, type CardBridgeState } from '@/lib/g
 import { resolveCardActionPort, type CardActionPort } from '@/lib/genui/cardActionAdapters'
 import type { CardAction } from '@/lib/genui/cardActions'
 import type { GenuiCardSubmissionResult } from '@/lib/genui/cardSubmission'
-import { GENUI_ACTION_TIMEOUT_MS, type GenuiTheme } from '@/shared/genuiSandbox'
+import { isCardSchemaRenderable } from '@/lib/genui/cardLifecycle'
+import { GENUI_ACTION_TIMEOUT_MS, GENUI_SANDBOX_PROTOCOL_VERSION, type GenuiTheme } from '@/shared/genuiSandbox'
 import type { GenuiCardRecord, SandboxSource } from '@/types/genui'
 
 const props = withDefaults(defineProps<{
@@ -121,6 +140,7 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 
+const rootRef = ref<HTMLElement | null>(null)
 const frameRef = ref<HTMLIFrameElement | null>(null)
 const frameToken = ref(0)
 /** 沙箱报来的内容高度；没报到之前沿用样式里的占位高度 */
@@ -139,10 +159,32 @@ const expandButtonRef = ref<HTMLButtonElement | null>(null)
 const closeButtonRef = ref<HTMLButtonElement | null>(null)
 
 let bridge: CardBridge | null = null
+let observer: IntersectionObserver | null = null
 
 const docUrl = computed(() => props.source?.docUrl ?? '')
 const frameStyle = computed(() => (frameHeight.value ? { height: `${frameHeight.value}px` } : {}))
-const showFrame = computed(() => props.source !== null && state.value.status !== 'error')
+/**
+ * 三种「内容不在或渲染不了」的形状各给一句可见说明，顺序不能改：
+ * 被预算丢掉的 payload 本来就没有 schema，不该再被报成 metadata 损坏。
+ */
+const isContentExpired = computed(() => props.card.expired === true)
+const isVersionMismatch = computed(
+  () => !isContentExpired.value && props.card.protocolVersion !== GENUI_SANDBOX_PROTOCOL_VERSION,
+)
+const isSchemaUnusable = computed(
+  () => !isContentExpired.value && !isVersionMismatch.value && !isCardSchemaRenderable(props.card.schema),
+)
+const placeholderText = computed(() => {
+  if (isContentExpired.value) return t('genui.lifecycle.expired')
+  if (isVersionMismatch.value) return t('genui.fallbacks.reasons.protocol-version')
+  if (isSchemaUnusable.value) return t('genui.lifecycle.unavailable')
+  return ''
+})
+/** 离开视口 = 卸载 iframe 只留等高占位；在屏名额不必另记账，视口本身就是上限 */
+const isOffscreen = ref(false)
+const showFrame = computed(
+  () => props.source !== null && state.value.status !== 'error' && !isOffscreen.value && !placeholderText.value,
+)
 /** 只读由 metadata 决定：已提交的卡片 inert，再点也发不出 submit */
 const isReadonly = computed(() => !!props.card.submitted)
 const showExpand = computed(
@@ -240,10 +282,11 @@ function detach(): void {
 function attach(): void {
   detach()
   const frame = frameRef.value
-  if (!frame || !props.source) return
+  if (!frame || !props.source || placeholderText.value) return
   bridge = createCardBridge({
     iframe: frame,
-    schema: props.card.schema,
+    // 只有渲染形状可用的卡才会走到这里（showFrame 已经把占位挡在外面）
+    schema: props.card.schema ?? {},
     theme: props.theme,
     locale: props.locale,
     protocolVersion: props.card.protocolVersion,
@@ -280,6 +323,18 @@ async function retry(): Promise<void> {
   attach()
 }
 
+// 滚回视口 = 换 key 重建 iframe：新文档从 metadata 里的 schema 重新开始，
+// 随卸载断开的旧桥不会把上一轮的握手状态带回来。
+watch(isOffscreen, (offscreen) => {
+  if (offscreen) {
+    detach()
+    return
+  }
+  frameToken.value += 1
+  if (props.source) state.value = { status: 'connecting' }
+  void nextTick(attach)
+})
+
 watch(
   () => [props.theme, props.locale] as const,
   () => {
@@ -287,8 +342,33 @@ watch(
   },
 )
 
-onMounted(attach)
-onBeforeUnmount(detach)
+/**
+ * 视口观察只挂在最外层实例上：弹窗里的副本本来就是给用户看全貌的，不参与让位。
+ * 宿主没有 IntersectionObserver（测试环境 / 老浏览器）时不记账，卡片照常渲染。
+ */
+function observeVisibility(): void {
+  if (props.expandable === false) return
+  const root = rootRef.value
+  if (!root || typeof IntersectionObserver === 'undefined') return
+  observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.target !== root) continue
+      isOffscreen.value = !entry.isIntersecting
+    }
+  })
+  observer.observe(root)
+}
+
+onMounted(() => {
+  observeVisibility()
+  attach()
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
+  detach()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -309,6 +389,50 @@ onBeforeUnmount(detach)
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg, 12px);
   background: var(--bg-secondary);
+}
+
+/* 离屏占位：与 iframe 同边框同圆角，只把内容换成一层底色，滚回来不跳布局 */
+.genui-card-offscreen {
+  width: 100%;
+  min-width: 0;
+  height: 260px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-secondary);
+}
+
+/* 已提交带的摘要：留在画面下方，滚出再滚回也读得到自己交了什么 */
+.genui-card-submitted {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* 内容过期 / 损坏 / 版本不匹配：说明必须看得见，卡片不会静默消失 */
+.genui-card-placeholder-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--surface-border);
+  border-radius: var(--radius-md, 8px);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.genui-card-placeholder-text,
+.genui-card-placeholder-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.genui-card-placeholder-summary {
+  color: var(--text-primary);
 }
 
 .genui-card-error {

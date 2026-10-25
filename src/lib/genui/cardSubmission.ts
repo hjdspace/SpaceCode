@@ -98,12 +98,12 @@ function prettyJson(value: unknown): string {
 
 /** 卡片标识：`props.title` 优先，其次根组件名，都没有就退回卡片 id。 */
 function cardLabel(card: GenuiCardRecord): string {
-  const schema = card.schema
-  const title = isRecord(schema?.props) && typeof schema.props.title === 'string'
+  const schema = card.schema ?? {}
+  const title = isRecord(schema.props) && typeof schema.props.title === 'string'
     ? schema.props.title.trim()
     : ''
   if (title) return title
-  const componentName = typeof schema?.componentName === 'string' ? schema.componentName.trim() : ''
+  const componentName = typeof schema.componentName === 'string' ? schema.componentName.trim() : ''
   return componentName || card.id
 }
 

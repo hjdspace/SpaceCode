@@ -288,8 +288,8 @@ describe('mergeGenuiCardRecords 按确定性 id 去重', () => {
     const merged = mergeGenuiCardRecords(existing, [card(`${M}:card:0`, '新'), card(`${M}:card:1`)])
 
     expect(merged).toHaveLength(2)
-    expect(merged[0].schema.props).toEqual({ title: '旧' })
-    expect(merged[1].id).toBe(`${M}:card:1`)
+    expect(merged[0]?.schema?.props).toEqual({ title: '旧' })
+    expect(merged[1]?.id).toBe(`${M}:card:1`)
   })
 
   it('没有既有记录时按注入顺序返回', () => {

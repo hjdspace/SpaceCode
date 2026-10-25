@@ -421,6 +421,78 @@ describe('跨 text 块的围栏（模型在 JSON 中间插了一次工具调用�
   })
 })
 
+describe('会话卡片预算当场生效', () => {
+  /** 单卡 schema 顶着 64KB 限额；8 张就贴着 512KB 的会话预算，第 9 张必然把它顶穿。 */
+  function bigCardSchema(): string {
+    return JSON.stringify({ componentName: 'TinyForm', pad: 'x'.repeat(64 * 1024 - 60) })
+  }
+
+  function seedCardHeavyMessage(sessionStore: ReturnType<typeof useChatSessionStore>, count: number) {
+    const cards = Array.from({ length: count }, (_, index) => ({
+      id: `heavy:card:${index}`,
+      schema: JSON.parse(bigCardSchema()),
+      protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION,
+    }))
+    sessionStore.addMessage(
+      { id: 'heavy', role: 'assistant', content: '上一条回复的卡片', metadata: { genUiCards: cards } },
+      SESSION,
+    )
+    return cards
+  }
+
+  function heavyMessage() {
+    return useChatSessionStore()
+      .getSessionMessages(SESSION)
+      .find(message => message.id === 'heavy')!
+  }
+
+  /** 回合里正在生成的那条助手消息（与预置的 heavy 区分开）。 */
+  function turnMessage(): Message | undefined {
+    return useChatSessionStore()
+      .getSessionMessages(SESSION)
+      .find(message => message.role === 'assistant' && message.id !== 'heavy')
+  }
+
+  it('新卡片成卡时，会话里最旧的那张当场转为过期占位', async () => {
+    const fake = fakeApi()
+    const sessionStore = useChatSessionStore()
+    await beginTurn(fake)
+    const seeded = seedCardHeavyMessage(sessionStore, 8)
+
+    stream(
+      fake,
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: fence(formSchema('顶穿预算的一张')) } },
+    )
+    flushStreaming()
+
+    // 顶穿预算的是最旧那张，不是刚出现这张
+    expect(heavyMessage().metadata?.genUiCards![0]).toMatchObject({ id: seeded[0].id, schema: null, expired: true })
+    expect(heavyMessage().metadata?.genUiCards![7].schema).not.toBeNull()
+
+    const message = turnMessage()
+    expect(message?.metadata?.genUiCards).toHaveLength(1)
+    expect(message?.content).toBe('')
+  })
+
+  it('被驱逐的卡片不会再被下一次投影复活', async () => {
+    const fake = fakeApi()
+    const sessionStore = useChatSessionStore()
+    await beginTurn(fake)
+    seedCardHeavyMessage(sessionStore, 8)
+
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: fence(formSchema('A')) } })
+    flushStreaming()
+    const evictedId = heavyMessage().metadata!.genUiCards![0].id
+
+    // 同一条正文重复投影（result 收口就是一次重复投影）
+    stream(fake, { type: 'content_block_stop', index: 0 })
+    flushStreaming()
+
+    expect(heavyMessage().metadata?.genUiCards).toHaveLength(8)
+    expect(heavyMessage().metadata?.genUiCards![0]).toMatchObject({ id: evictedId, schema: null, expired: true })
+  })
+})
+
 describe('零行为变化', () => {
   it('普通文本回复不碰 metadata', async () => {
     const fake = fakeApi()

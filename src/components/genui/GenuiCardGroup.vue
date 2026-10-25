@@ -35,6 +35,7 @@ import GenuiCardFrame from './GenuiCardFrame.vue'
 import { resolveSandboxSource, type SandboxSource } from '@/lib/genui/sandboxUrl'
 import { createCardSubmissionPort } from '@/lib/genui/cardSubmissionPort'
 import { toSandboxTheme } from '@/lib/genui/themeTokens'
+import { toDisplayCards, toDisplayFallbacks } from '@/lib/genui/cardLifecycle'
 import type { GenuiTheme } from '@/shared/genuiSandbox'
 import type { GenuiCardFallback, GenuiCardRecord } from '@/types/genui'
 import type { Message } from '@/types'
@@ -47,12 +48,16 @@ const props = defineProps<{
 
 const { t, locale } = useI18n()
 
+/**
+ * 记录先归一成可渲染形状（规则在 `cardLifecycle`）：metadata 损坏时不去起沙箱，
+ * 而是占住原来那一格给一句可见说明 —— 卡片不会静默消失，同组别的卡也不受牵连。
+ */
 const cards = computed<GenuiCardRecord[]>(() =>
-  props.messages.flatMap((message) => message.metadata?.genUiCards ?? []),
+  props.messages.flatMap((message) => toDisplayCards(message.metadata?.genUiCards, message.id ?? '')),
 )
 
 const fallbacks = computed<GenuiCardFallback[]>(() =>
-  props.messages.flatMap((message) => message.metadata?.genUiCardFallbacks ?? []),
+  props.messages.flatMap((message) => toDisplayFallbacks(message.metadata?.genUiCardFallbacks)),
 )
 
 /**

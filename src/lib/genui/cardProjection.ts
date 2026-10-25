@@ -12,6 +12,7 @@
  */
 import { GENUI_SANDBOX_PROTOCOL_VERSION } from '@/shared/genuiSandbox'
 import { isGenuiComponentAllowed } from '@/shared/genuiMaterials'
+import { utf8ByteLength } from './cardActions'
 import type { GenuiCardFallback, GenuiCardFallbackReason, GenuiCardRecord } from '@/types/genui'
 
 /** 单卡 schema 原文上限（PRD §1：超限按后面的卡降级为文本处理）。 */
@@ -19,6 +20,33 @@ export const GENUI_MAX_CARD_SCHEMA_BYTES = 64 * 1024
 
 /** 单条消息的卡片数上限。 */
 export const GENUI_MAX_CARDS_PER_MESSAGE = 8
+
+/**
+ * 卡片 id 的分隔符与形状：`${messageId}${SEP}${围栏序号}`。
+ * id 由正文里第几个围栏决定，与渲染时刻无关 —— 投影因此是幂等的，
+ * 重投影、历史回放与落盘找回的都是同一张卡（票 05 第 2 条）。
+ */
+export const GENUI_CARD_ID_SEPARATOR = ':card:'
+
+export type GenuiCardIdParts = { messageId: string; index: number }
+
+/** 拼出确定性的卡片 id。 */
+export function buildGenuiCardId(messageId: string, index: number): string {
+  return `${messageId}${GENUI_CARD_ID_SEPARATOR}${index}`
+}
+
+/**
+ * 反解卡片 id。序号取**最后**一段 `:card:` 之后的数字：消息 id 本身也可能带冒号
+ * （引擎给的消息 id 就长这样），从前往后找会把它自己的片段当成序号。
+ */
+export function cardIdParts(id: unknown): GenuiCardIdParts | null {
+  if (typeof id !== 'string') return null
+  const at = id.lastIndexOf(GENUI_CARD_ID_SEPARATOR)
+  if (at <= 0 || at + GENUI_CARD_ID_SEPARATOR.length >= id.length) return null
+  const index = Number(id.slice(at + GENUI_CARD_ID_SEPARATOR.length))
+  if (!Number.isInteger(index) || index < 0) return null
+  return { messageId: id.slice(0, at), index }
+}
 
 /** 卡片围栏的语言标记，大小写敏感。 */
 export const GENUI_CARD_FENCE_INFO = 'schemaJson'
@@ -51,8 +79,6 @@ type FenceSlot = {
   /** 围栏内的原文（已去掉行尾 `\r`） */
   body: string
 }
-
-const byteLength = (value: string): number => new TextEncoder().encode(value).length
 
 const stripCr = (line: string): string => (line.endsWith('\r') ? line.slice(0, -1) : line)
 
@@ -138,7 +164,7 @@ function evaluateSlot(
   slot: FenceSlot,
   options: { protocolVersion: number; maxSchemaBytes: number },
 ): { schema: Record<string, unknown> } | { reason: GenuiCardFallbackReason } {
-  if (byteLength(slot.body) > options.maxSchemaBytes) {
+  if (utf8ByteLength(slot.body) > options.maxSchemaBytes) {
     return { reason: 'oversized-schema' }
   }
 
@@ -207,7 +233,7 @@ export function projectGenuiCards(
     }
 
     cards.push({
-      id: `${messageId}:card:${slot.index}`,
+      id: buildGenuiCardId(messageId, slot.index),
       schema: (verdict as { schema: Record<string, unknown> }).schema,
       protocolVersion,
     })
@@ -219,13 +245,34 @@ export function projectGenuiCards(
 
 /**
  * 按确定性 id 合并卡片记录：既有记录优先（票 04/05 的提交状态挂在记录上，不能被重投影冲掉），
- * 新出现的按投影顺序追加。历史回放与流式收口都走这里，因此同一 schema 重复投影不会多出一张卡。
+ * 新出现的按**围栏序号**补位。历史回放与流式收口都走这里，因此同一张卡不会被画两遍。
+ *
+ * 对齐用的是围栏序号而不是整条 id：引擎 JSONL 重放出来的消息 id 是引擎那套 UUID，
+ * 与 SpaceCode 存的不是一套，只有「这条消息里的第几张卡」是同一件事。
  */
 export function mergeGenuiCardRecords(
   existing: GenuiCardRecord[] | undefined,
   incoming: GenuiCardRecord[],
 ): GenuiCardRecord[] {
-  if (!existing?.length) return [...incoming]
-  const seen = new Set(existing.map(card => card.id))
-  return [...existing, ...incoming.filter(card => !seen.has(card.id))]
+  const byIndex = new Map<number, GenuiCardRecord>()
+  /** id 反解不出序号的记录不参与序号对齐，原序保留在最后。 */
+  const unpinned: GenuiCardRecord[] = []
+
+  const keep = (card: GenuiCardRecord): void => {
+    const parts = cardIdParts(card.id)
+    if (!parts) {
+      if (!unpinned.some(known => known.id === card.id)) unpinned.push(card)
+      return
+    }
+    // 已有记录优先：同一个序号只认第一次见到的那条
+    if (!byIndex.has(parts.index)) byIndex.set(parts.index, card)
+  }
+
+  for (const card of existing ?? []) keep(card)
+  for (const card of incoming) keep(card)
+
+  const aligned = [...byIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, card]) => card)
+  return [...aligned, ...unpinned]
 }
