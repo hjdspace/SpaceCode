@@ -1,3 +1,39 @@
+## [0.8.12](https://github.com/hjdspace/SpaceCode/compare/v0.8.11...v0.8.12) (2026-10-25)
+
+### Features
+
+- **voice:** 语音输入全链路落地：识别模型安装、校验与设置页管理，流式识别会话与音频通道，输入框听写（采音、实时转写、终稿提交），Alt+V 全局热键在最近聚焦的输入框开始听写
+- **genui:** 生成式 UI 卡片落地：桌面沙箱承载与 nonce 握手，卡片渲染真实内容并隔离卡片动作
+- **chat input:** 新增提示词优化入口与交互逻辑
+- **design:** 设计系统选择器支持预览缩放与弹窗，设计预览面板改为按需弹开
+- **engine:** 新增 CLI 更新检查与修复流程，设置页提示更新状态，检查结果带缓存与失效重检
+- **engine:** 支持会话内运行时模型切换（Pi setModel），会话配置新增可选模型列表与 reasoning 能力，思考力度按引擎类型注入
+- **i18n:** 引导向导与设置页选择语言后即时生效，无需重启
+- **security:** 临时产物目录按 uid 设置目录与文件权限
+- **build:** Bun 版本统一升级至 1.4.3，纳入 bun.lock 并改用 frozen-lockfile 安装
+
+### Bug Fixes
+
+- **voice:** AudioWorklet 处理器改为同源静态文件加载
+- **voice:** 补齐录音失败路径的状态收口与重试
+- **chat:** 修复语音录制模式下输入框空态显示异常
+- **chat:** 修复切换工作区后聊天页目录不同步
+- **engine:** 模型切换失败与 CLI 更新检查补充明确错误提示
+
+### Refactor
+
+- Pi 事件过滤函数参数收敛，进程池日志输出规则优化
+- 会话可切换模式按 engineType 重构
+- 移除临时文件 PLAN.md 与 pet-window.html
+
+### Tests
+
+- 补齐 H5AuthService、HttpClient、claudeCodeIPC、CLI 更新缓存、Pi setModel 与事件过滤等单测
+
+### Docs
+
+- 新增生成式 UI 卡片产品规格，以及语音输入与 GenUI 相关 ADR
+
 ## [0.8.11](https://github.com/hjdspace/SpaceCode/compare/v0.8.10...v0.8.11) (2026-10-21)
 
 ### Features
