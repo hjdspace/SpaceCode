@@ -59,6 +59,7 @@ import { registerRtkIPCHandlers } from './ipc/rtkIpcHandlers'
 import { registerMobileIPCHandlers, getMobileServer, setMobileServer, getMobileUnsubscribe, setMobileUnsubscribe } from './ipc/mobileIpcHandlers'
 import { registerSettingsIPCHandlers, loadGuiSettings, reconcileProxyWithSettings } from './ipc/settingsIpc'
 import { registerTraceIPCHandlers } from './ipc/traceIpc'
+import { registerVoiceIPCHandlers } from './voice/voiceIpcHandlers'
 import { H5Server } from './h5/h5Server'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
@@ -232,6 +233,9 @@ app.whenReady().then(async () => {
 
   registerRtkIPCHandlers()
   info('Startup', 'RTK IPC handlers registered')
+
+  registerVoiceIPCHandlers()
+  info('Startup', 'Voice Input IPC handlers registered')
 
   // ── Core IPC (window, fs, shell, terminal, settings, trace, etc.) ──
   registerCoreIPCHandlers(terminalManager)

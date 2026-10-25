@@ -69,6 +69,7 @@ import memorySettings from './memorySettings'
 import selectionActions from './selectionActions'
 import sideTask from './sideTask'
 import onboarding from './onboarding'
+import voiceInput from './voiceInput'
 
 export default {
   common,
@@ -142,4 +143,5 @@ export default {
   selectionActions,
   sideTask,
   onboarding,
+  voiceInput,
 }

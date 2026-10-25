@@ -88,6 +88,8 @@ export interface AuthSettings {
   aiSessionTitleEnabled?: boolean
   /** 是否在侧边栏显示技能管理器入口；默认隐藏 */
   showSkillsManagerEntry?: boolean
+  /** 语音模型的自定义下载地址，仅作为 GitHub 与镜像都失败后的第三顺位来源 */
+  voiceInputCustomUrl?: string
   /** 用户最近一次在输入框下拉中选择的模型（实际模型名，非别名）。
    *  持久化以避免 GUI 重启后回退到 sonnet 槽位。 */
   lastSelectedModel?: string
@@ -321,6 +323,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
   const aiSessionTitleEnabled = ref<boolean>(saved.aiSessionTitleEnabled ?? false)
   const showSkillsManagerEntry = ref<boolean>(saved.showSkillsManagerEntry ?? false)
+  const voiceInputCustomUrl = ref<string>(saved.voiceInputCustomUrl ?? '')
   const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
   const hasCompletedOnboarding = ref<boolean>(saved.hasCompletedOnboarding === true)
 
@@ -560,6 +563,7 @@ export const useSettingsStore = defineStore('settings', () => {
       rtkEnabled: rtkEnabled.value,
       aiSessionTitleEnabled: aiSessionTitleEnabled.value,
       showSkillsManagerEntry: showSkillsManagerEntry.value,
+      voiceInputCustomUrl: voiceInputCustomUrl.value.trim() || undefined,
       lastSelectedModel: lastSelectedModel.value || undefined,
       hasCompletedOnboarding: hasCompletedOnboarding.value
     }
@@ -872,6 +876,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
     if (settings.aiSessionTitleEnabled !== undefined) aiSessionTitleEnabled.value = settings.aiSessionTitleEnabled
     if (settings.showSkillsManagerEntry !== undefined) showSkillsManagerEntry.value = settings.showSkillsManagerEntry
+    if (settings.voiceInputCustomUrl !== undefined) voiceInputCustomUrl.value = settings.voiceInputCustomUrl
     if (settings.hasCompletedOnboarding !== undefined) hasCompletedOnboarding.value = settings.hasCompletedOnboarding
   }
 
@@ -955,6 +960,11 @@ export const useSettingsStore = defineStore('settings', () => {
     saveSettings()
   }
 
+  function setVoiceInputCustomUrl(url: string): Promise<{ success: boolean; proxyState?: string; error?: string }> {
+    voiceInputCustomUrl.value = url.trim()
+    return saveSettings()
+  }
+
   /**
    * 一次性迁移: 默认字号 14 → 15。
    * 仅当当前值仍停留在旧默认 14 时提升, 显式选择过其他字号的用户不受影响;
@@ -1020,6 +1030,8 @@ export const useSettingsStore = defineStore('settings', () => {
     rtkEnabled,
     aiSessionTitleEnabled,
     showSkillsManagerEntry,
+    voiceInputCustomUrl,
+    setVoiceInputCustomUrl,
     lastSelectedModel,
     hasCompletedOnboarding,
     settingsReady,

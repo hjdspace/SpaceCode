@@ -4,6 +4,7 @@ import { terminalNamespace } from '@/shared/channels/terminal'
 import { updateNamespace } from '@/shared/channels/update'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { memoryChannels } from '@/shared/channels/memory'
+import { voiceNamespace } from '@/shared/channels/voice'
 import type { EffortLevel } from '@/shared/effort'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
@@ -256,6 +257,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   memory: {
     ...createPreloadBridge(memoryChannels, ipcRenderer, 'memory:'),
   } satisfies import('@/shared/channels/memory').MemoryRendererApi,
+
+  // Voice Input API — 识别模型管理；录音会话面在后续票据扩展
+  voice: {
+    ...createPreloadBridge(voiceNamespace.channels, ipcRenderer, 'voice:'),
+    ...createEventBridge(voiceNamespace.events, ipcRenderer, 'voice:'),
+  } satisfies import('@/shared/channels/voice').VoiceRendererApi
+    & import('@/shared/channels/voice').VoiceEventApi,
 
   // ClaudeCode Engine API — invoke channels 与事件订阅均表驱动注册
   claudeCode: {

@@ -14,7 +14,7 @@ import { aggregateLocalTokenStats } from '../session/tokenStatsService'
 
 // ── Path helpers ────────────────────────────────────────────────
 
-function getGuiSettingsPath(): string {
+export function getGuiSettingsPath(): string {
   return join(app.getPath('home'), '.claude', 'gui-settings.json')
 }
 

@@ -11,6 +11,7 @@ export default {
   h5Access: 'H5 Remote Access',
   memory: 'Memory',
   rtk: 'RTK Optimization',
+  voiceInput: 'Voice Input',
   shortcuts: 'Shortcuts',
   pet: 'Pet',
   hooks: 'Hooks',

@@ -11,6 +11,7 @@ export default {
   h5Access: 'H5 远程访问',
   memory: '记忆',
   rtk: 'RTK 优化',
+  voiceInput: '语音输入',
   shortcuts: '快捷键',
   pet: '桌面宠物',
   hooks: 'Hook',

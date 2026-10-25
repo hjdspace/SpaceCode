@@ -8,19 +8,11 @@ import * as https from 'https'
 import { createWriteStream, createReadStream, existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
 import { pipeline } from 'stream/promises'
 import { info, warn, error, debug } from '../infra/logger'
+import { GITHUB_MIRROR_PREFIXES } from '@/shared/githubMirrorPrefixes'
 
 const RTK_GITHUB_REPO = 'rtk-ai/rtk'
 const RTK_API_URL = `https://api.github.com/repos/${RTK_GITHUB_REPO}/releases/latest`
 const DOWNLOAD_TIMEOUT_MS = 120_000
-
-/**
- * GitHub 加速镜像前缀列表（国内访问 GitHub Releases 速度慢时自动回退）。
- * 镜像通过在原始 GitHub URL 前添加前缀来代理请求。
- */
-const GITHUB_MIRROR_PREFIXES = [
-  'https://gh-proxy.com/',
-  'https://ghproxy.net/',
-]
 
 /** 直接下载的连接超时时间（ms），超时后自动切换镜像 */
 const DIRECT_CONNECT_TIMEOUT_MS = 15_000

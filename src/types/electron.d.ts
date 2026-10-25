@@ -26,6 +26,7 @@ import type {
 import type { GitRendererApi } from '@/shared/channels/git'
 import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
 import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
+import type { VoiceRendererApi, VoiceEventApi } from '@/shared/channels/voice'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
@@ -407,6 +408,8 @@ export interface ElectronRtkAPI {
 
 export interface ElectronUpdateAPI extends UpdateRendererApi, UpdateEventApi {}
 
+export interface ElectronVoiceAPI extends VoiceRendererApi, VoiceEventApi {}
+
 export interface ElectronImWechatAPI {
   startQrLogin: () => Promise<{ qrcodeUrl: string; qrcodeId: string }>
   checkQrStatus: (qrcodeId: string) => Promise<{
@@ -544,6 +547,7 @@ export interface ElectronAPI {
   h5Access: ElectronH5AccessAPI
   rtk: ElectronRtkAPI
   update: ElectronUpdateAPI
+  voice: ElectronVoiceAPI
   cron: ElectronCronAPI
 
   changelog: {
