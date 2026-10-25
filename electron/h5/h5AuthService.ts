@@ -34,19 +34,22 @@ export class H5AuthService {
 
   private readSettings(): H5AccessSettings {
     if (this.cachedSettings) return this.cachedSettings
+    let parsed: H5AccessSettings
     try {
-      const raw = readFileSync(this.settingsPath, 'utf-8')
-      this.cachedSettings = JSON.parse(raw)
+      parsed = JSON.parse(readFileSync(this.settingsPath, 'utf-8'))
     } catch {
-      this.cachedSettings = {
+      parsed = {
         enabled: false,
         token: null,
         tokenPreview: null,
         publicBaseUrl: null,
         fixedPort: null,
+        sandboxPort: null,
       }
     }
-    return this.cachedSettings!
+    // 老版本落盘的 JSON 没有沙箱端口这一项：undefined 漏进判定会让第二端口永远起不来
+    this.cachedSettings = { ...parsed, sandboxPort: parsed.sandboxPort ?? null }
+    return this.cachedSettings
   }
 
   private writeSettings(settings: H5AccessSettings): void {
@@ -95,7 +98,9 @@ export class H5AuthService {
     return { settings: next, token }
   }
 
-  updateSettings(input: Partial<Pick<H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>): H5AccessSettings {
+  updateSettings(
+    input: Partial<Pick<H5AccessSettings, 'publicBaseUrl' | 'fixedPort' | 'sandboxPort'>>,
+  ): H5AccessSettings {
     const current = this.readSettings()
     const next: H5AccessSettings = { ...current, ...input }
     this.writeSettings(next)

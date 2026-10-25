@@ -8,7 +8,8 @@
  *
  * 一直是 esbuild：沙箱入口只用 `h()` 组装官方组件，不需要 SFC 编译，而 IIFE 输出正好符合
  * 「经典脚本」这一硬约束（opaque origin 文档里 module script 按 CORS 发起，自定义协议
- * 不放行跨源请求）。`electron/genui/sandboxProtocol.ts` 与 `sandboxDevServer.ts` 因此都不用改。
+ * 不放行跨源请求）。三个消费方（`electron/genui/sandboxProtocol.ts`、
+ * `electron/genui/sandboxStaticServer.ts` 与 H5 的第二端口）因此都不用改。
  *
  * `repoRoot` 由调用方给出：Vite 会把配置文件打进临时文件再 import，届时
  * `import.meta.url` 不再指向仓库根，靠它反推会算错源目录。

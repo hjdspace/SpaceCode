@@ -66,9 +66,11 @@ describe('沙箱构建产物', () => {
     expect(js).toContain('genui:error')
   })
 
-  it('文档里的 CSP 与主进程下发的 CSP 逐字一致', () => {
+  it('产物里的 CSP meta 与主进程下发的口径同源', () => {
     const html = read('index.html')
     const meta = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/)
+    // 下发时这条 meta 会被逐响应改写成同一条策略加当次 nonce（sandboxResponse），
+    // 所以静态产物里留的是不含 nonce 的那一份基准
     expect(meta?.[1].replace(/\s+/g, ' ').trim()).toBe(GENUI_SANDBOX_CSP)
   })
 })

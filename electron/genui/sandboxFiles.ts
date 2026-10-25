@@ -1,14 +1,16 @@
 /**
- * 沙箱静态资源的文件闸门 — 自定义协议处理器与开发期静态服务共用同一套判定。
+ * 沙箱静态资源的文件闸门 — 打包协议、桌面开发期静态服务与 H5 第二端口共用同一套判定。
  *
- * 两条链路必须给出同一个答案，否则"开发能看到的东西打包后读不到"（或反过来）
+ * 三条链路必须给出同一个答案，否则"开发能看到的东西打包后读不到"（或反过来）
  * 就成了只在某一侧暴露的问题。规则与 `electron/infra/previewServer.ts` 同源：
  * 先归一化百分号编码，再用 realpath 口径判归属，只服务白名单 MIME，不做目录列举。
+ * 这套判定比 H5 主服务的静态目录更严（那边有 SPA 回落），沙箱没有回落可言。
  */
 import { statSync } from 'fs'
 import { extname, resolve } from 'path'
 import { canonicalize, inside } from '../infra/pathBoundary'
-import { GENUI_SANDBOX_CSP } from '@/shared/genuiSandbox'
+import { withCspMeta } from '../infra/cspDocument'
+import { GENUI_SANDBOX_CSP, newGenuiCspNonce, withCspScriptNonce } from '@/shared/genuiSandbox'
 
 /** 沙箱只需要自己的文档、脚本、样式与字体；其余扩展名一律不服务。 */
 export const SANDBOX_MIME: Record<string, string> = {
@@ -30,15 +32,33 @@ export const SANDBOX_MIME: Record<string, string> = {
   '.otf': 'font/otf',
 }
 
-/** 沙箱文档及其子资源统一的响应头：CSP 逐响应下发，禁止类型嗅探。 */
-export function sandboxResponseHeaders(contentType: string): Record<string, string> {
+export type SandboxResponse = { headers: Record<string, string>; body: Buffer }
+
+/**
+ * 一条沙箱响应的全部形状：逐响应生成 nonce、下发 CSP、并把文档自带的 CSP meta
+ * 换成同一条策略。三条链路（打包协议、桌面开发期、H5 第二端口）共用这一个函数，
+ * 于是卡片文档在任何宿主上看到的指令集都逐字一致，只有当次 nonce 不同。
+ *
+ * 只换响应头是不够的：浏览器对同一个文档执行 meta ∩ 响应头，静态 meta 会把
+ * nonce 授权的内联脚本连同自身策略一起继续拦着。
+ */
+export function sandboxResponse(contentType: string, raw: Buffer): SandboxResponse {
+  const csp = withCspScriptNonce(GENUI_SANDBOX_CSP, newGenuiCspNonce())
+  const isDocument = contentType.startsWith('text/html')
+  const body = isDocument
+    ? Buffer.from(withCspMeta(raw.toString('utf-8'), csp), 'utf-8')
+    : raw
+
   return {
-    'Content-Type': contentType,
-    'Content-Security-Policy': GENUI_SANDBOX_CSP,
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'no-referrer',
-    // 沙箱产物文件名不带 hash，开发期重建后必须重新取到新版本
-    'Cache-Control': 'no-cache',
+    body,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Security-Policy': csp,
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      // 沙箱产物文件名不带 hash，开发期重建后必须重新取到新版本
+      'Cache-Control': 'no-cache',
+    },
   }
 }
 

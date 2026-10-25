@@ -26,7 +26,7 @@ const i18n = createI18n({
 })
 config.global.plugins = [i18n]
 
-const SOURCE = { baseUrl: 'http://localhost:5174', docUrl: `http://localhost:5174${GENUI_SANDBOX_DOC_PATH}` }
+const SOURCE = { baseUrl: 'http://localhost:5174', docUrl: `http://localhost:5174${GENUI_SANDBOX_DOC_PATH}`, kind: 'dev' as const }
 
 const CARD = {
   id: 'm1:card:0',
@@ -81,7 +81,6 @@ describe('握手失败收口到该卡的错误占位', () => {
     expect(wrapper.find('button').text()).toBe('重试')
     wrapper.unmount()
   })
-
   it('伪造的回信不会把卡片骗成 ready', async () => {
     const wrapper = mountFrame()
     const frame = wrapper.find('iframe').element
@@ -119,6 +118,99 @@ describe('握手失败收口到该卡的错误占位', () => {
     expect(wrapper.text()).toContain('当前宿主未接入卡片沙箱')
     expect(wrapper.find('button').exists()).toBe(false)
     wrapper.unmount()
+  })
+})
+
+/**
+ * H5 的第二个源（票 06 第 5 条）：握手超时既可能是卡片起不来，也可能是那个端口没人监听。
+ * 后者要说清"去暴露第二个端口"，并且仍然给重试 —— 不能留一个永久空白的 iframe。
+ */
+describe('第二个源不可达时给出可诊断的部署错误', () => {
+  const H5_SOURCE = {
+    baseUrl: 'http://192.168.1.20:8081',
+    docUrl: `http://192.168.1.20:8081${GENUI_SANDBOX_DOC_PATH}`,
+    kind: 'h5' as const,
+  }
+
+  it('探不到沙箱源时换成部署错误说明，并保留重试', async () => {
+    const fetchStub = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchStub)
+    try {
+      const wrapper = mountFrame({ source: H5_SOURCE })
+      vi.advanceTimersByTime(5_000)
+      await flushPromises()
+
+      expect(fetchStub).toHaveBeenCalledWith(
+        `http://192.168.1.20:8081${GENUI_SANDBOX_DOC_PATH}`,
+        expect.objectContaining({ mode: 'no-cors', credentials: 'omit' }),
+      )
+      expect(wrapper.find('iframe').exists()).toBe(false)
+      expect(wrapper.text()).toContain('卡片沙箱源无法访问')
+      expect(wrapper.find('button').text()).toBe('重试')
+      wrapper.unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('源探得到时保留原来的握手说明，不跟着喊部署问题', async () => {
+    const fetchStub = vi.fn().mockResolvedValue({ type: 'opaque' })
+    vi.stubGlobal('fetch', fetchStub)
+    try {
+      const wrapper = mountFrame({ source: H5_SOURCE })
+      vi.advanceTimersByTime(5_000)
+      await flushPromises()
+
+      expect(fetchStub).toHaveBeenCalled()
+      expect(wrapper.text()).toContain('卡片未能与宿主完成握手')
+      wrapper.unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('桌面的两个宿主不探测：那个源不是靠端口找得到的', async () => {
+    const fetchStub = vi.fn().mockResolvedValue({})
+    vi.stubGlobal('fetch', fetchStub)
+    try {
+      const wrapper = mountFrame()
+      vi.advanceTimersByTime(5_000)
+      await flushPromises()
+
+      expect(fetchStub).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('卡片未能与宿主完成握手')
+      wrapper.unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('重试后旧一次的探测结论不改写新一次的状态', async () => {
+    let rejectProbe = true
+    const fetchStub = vi.fn(async () => {
+      if (rejectProbe) throw new TypeError('Failed to fetch')
+      return { type: 'opaque' }
+    })
+    vi.stubGlobal('fetch', fetchStub)
+    try {
+      const wrapper = mountFrame({ source: H5_SOURCE })
+      vi.advanceTimersByTime(5_000)
+      await flushPromises()
+      expect(wrapper.text()).toContain('卡片沙箱源无法访问')
+
+      // 运维把端口暴露上了之后再重试：这一次探测得到响应，卡片回到"握手没完成"的原始说明
+      rejectProbe = false
+      await wrapper.find('button').trigger('click')
+      await flushPromises()
+      vi.advanceTimersByTime(5_000)
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('卡片未能与宿主完成握手')
+      expect(wrapper.text()).not.toContain('卡片沙箱源无法访问')
+      wrapper.unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

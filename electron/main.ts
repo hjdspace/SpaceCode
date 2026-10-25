@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from 'fs'
 import { config } from 'dotenv'
 import { TerminalManager } from './infra/terminalManager'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { GENUI_SANDBOX_DEV_PORT } from '@/shared/genuiSandbox'
 import { channelNames, eventChannels } from '@/shared/channelMap'
 import { registerGitIPCHandlers } from './git/gitService'
 import { registerMemoryIPCHandlers } from './memory/memoryService'
@@ -49,7 +50,7 @@ import { setupLinuxPlatform } from './infra/platformSetup'
 import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
 import { installProcessErrorGuards, markQuitting, hideDockIcon } from './infra/appLifecycle'
 import { registerGenuiSandboxProtocol, registerGenuiSandboxScheme } from './genui/sandboxProtocol'
-import { startGenuiSandboxDevServer, type GenuiSandboxDevServer } from './genui/sandboxDevServer'
+import { startSandboxStaticServer, type SandboxStaticServer } from './genui/sandboxStaticServer'
 
 // ── Split modules ───────────────────────────────────────────────
 import { createWindow, createSplashScreen, closeSplashScreen, getMainWindow } from './windows/mainWindow'
@@ -168,7 +169,7 @@ const genuiSandboxRoot = resolve(__dirname, '../dist/genui-sandbox')
 // Shared state (lifecycle-scoped)
 // ============================================================
 let petWindowManager: PetWindowController | null = null
-let genuiSandboxDevServer: GenuiSandboxDevServer | null = null
+let genuiSandboxDevServer: SandboxStaticServer | null = null
 const terminalManager = new TerminalManager()
 
 // ============================================================
@@ -371,7 +372,13 @@ app.whenReady().then(async () => {
     // 开发环境换主机名与端口服务同一份产物，确保跨 site 拿到 OOPIF 进程隔离。
     // 端口被占（第二个实例等）只让卡片退化成错误占位，不拖垮应用启动。
     try {
-      genuiSandboxDevServer = await startGenuiSandboxDevServer({ resourceRoot: genuiSandboxRoot })
+      genuiSandboxDevServer = await startSandboxStaticServer({
+        resourceRoot: genuiSandboxRoot,
+        // URL 里用 localhost 这个主机名（换主机名才换 site），绑回环即可
+        bindHost: '127.0.0.1',
+        port: GENUI_SANDBOX_DEV_PORT,
+        label: 'dev',
+      })
       info('Startup', `GenUI sandbox dev host ready on localhost:${genuiSandboxDevServer.port}`)
     } catch (err) {
       warn('Startup', 'GenUI sandbox dev host unavailable; cards will show an error placeholder:', err)

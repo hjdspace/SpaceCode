@@ -31,6 +31,15 @@ export const GENUI_SANDBOX_PROD_BASE_URL = `${GENUI_SANDBOX_SCHEME}://${GENUI_SA
 /** 沙箱文档入口；卡片 iframe 只加载这一个文档。 */
 export const GENUI_SANDBOX_DOC_PATH = '/index.html'
 
+/**
+ * H5 宿主把**权威沙箱源**交给渲染端用的 window 属性名。
+ *
+ * 由 H5 服务端逐响应写进文档（带 CSP nonce 的内联引导脚本），与同一份响应里的
+ * `frame-src` 出自同一个计算 — 渲染端不再自己按"端口 +1"推导，因为走反向代理时
+ * 浏览器看到的端口与服务端监听的端口不是一回事。桌面两个宿主用不到它。
+ */
+export const GENUI_H5_SANDBOX_GLOBAL = '__SPACECODE_GENUI_SANDBOX__'
+
 /** 渲染端与沙箱共同声明的协议版本；不一致时卡片降级为错误占位。 */
 export const GENUI_SANDBOX_PROTOCOL_VERSION = 1
 
@@ -50,6 +59,34 @@ export const GENUI_SANDBOX_CSP = [
   "frame-src 'none'",
   "object-src 'none'",
 ].join('; ')
+
+/**
+ * 生成一条响应级 CSP nonce。只在**主进程**调用（Node 一直有完整 WebCrypto）：
+ * H5 的 http 源不是安全上下文，渲染端拿不到 `crypto.randomUUID`，所以这条不能下放到渲染侧。
+ */
+export function newGenuiCspNonce(): string {
+  return crypto.randomUUID()
+}
+
+/**
+ * 把一次性 nonce 追加进 CSP 的 `script-src`，其余指令逐字不动。
+ *
+ * 沙箱与 H5 父文档的策略都**逐响应**生成：nonce 每次换新，内联脚本只能由当次响应授权，
+ * 而不是回头往 `script-src` 里塞 `'unsafe-inline'`。下发时文档自带的 CSP meta 会被改写成
+ * 同一个字符串（`sandboxFiles.withCspMeta` / `h5DocumentPolicy`），否则浏览器按 meta 与响应头
+ * 的交集执行，头里的 nonce 永远轮不到说话。
+ * `style-src` 刻意不加 — 物料在运行时注入 `<style>`，CSP3 规定策略里出现 nonce/hash 来源时
+ * `style-src` 的 `'unsafe-inline'` 被忽略，加了等于把卡片样式整体打死。
+ */
+export function withCspScriptNonce(csp: string, nonce: string): string {
+  return csp
+    .split(';')
+    .map((directive) => {
+      const trimmed = directive.trim()
+      return trimmed.split(/\s+/)[0] === 'script-src' ? `${trimmed} 'nonce-${nonce}'` : trimmed
+    })
+    .join('; ')
+}
 
 export type GenuiTheme = 'light' | 'dark'
 

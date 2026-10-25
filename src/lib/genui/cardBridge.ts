@@ -25,6 +25,7 @@ import {
   type GenuiTheme,
 } from '@/shared/genuiSandbox'
 import { parseCardAction, type CardAction, type CardActionRejection } from './cardActions'
+import { createUuid } from '@/utils/uuid'
 
 /** 握手时限：超过即认为这张卡起不来（PRD §3 默认 5 秒）。 */
 export const GENUI_HANDSHAKE_TIMEOUT_MS = 5_000
@@ -37,7 +38,9 @@ export const GENUI_MAX_FRAME_HEIGHT = 4_000
 
 /**
  * 卡片起不来的原因。`unsupported-origin` 由宿主自己判定（沙箱源还没接入），
- * 其余来自桥与 frame 的观测；`render-failed` 是沙箱握手成功后自己报上来的渲染失败。
+ * 其余来自桥与 frame 的观测；`render-failed` 是沙箱握手成功后自己报上来的渲染失败；
+ * `sandbox-unreachable` 也是宿主判定的 —— H5 上桥超时后做过可达性探测，
+ * 确认第二个源没人应答（端口没暴露、被防火墙拦下或混合内容）才换成它（票 06 第 5 条）。
  */
 export type CardBridgeFailure =
   | 'handshake-timeout'
@@ -46,6 +49,7 @@ export type CardBridgeFailure =
   | 'render-failed'
   | 'action-timeout'
   | 'unsupported-origin'
+  | 'sandbox-unreachable'
 
 /**
  * 被丢弃的卡片消息及原因。只记录「已经通过 nonce 与来源校验」的消息 ——
@@ -95,7 +99,7 @@ export type CardBridgeOptions = {
   /** 默认当前窗口的 message 事件源；测试注入假窗口 */
   hostWindow?: HostMessageSource
   createChannel?: () => ChannelLike
-  /** 每卡一次性密钥，默认走 crypto.randomUUID */
+  /** 每卡一次性密钥；走 `createUuid` 而不是 `crypto.randomUUID`，H5 的 http 源不是安全上下文 */
   nonce?: string
   schema: Record<string, unknown>
   theme: GenuiTheme
@@ -143,7 +147,7 @@ function messageByteLength(value: unknown): number | null {
 export function createCardBridge(options: CardBridgeOptions): CardBridge {
   const hostWindow: HostMessageSource = options.hostWindow ?? window
   const channel = (options.createChannel ?? (() => new MessageChannel()))()
-  const nonce = options.nonce ?? crypto.randomUUID()
+  const nonce = options.nonce ?? createUuid()
   const expectedVersion = options.protocolVersion ?? GENUI_SANDBOX_PROTOCOL_VERSION
   const timeoutMs = options.handshakeTimeoutMs ?? GENUI_HANDSHAKE_TIMEOUT_MS
 

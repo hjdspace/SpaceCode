@@ -28,7 +28,7 @@ const i18n = createI18n({
 })
 config.global.plugins = [i18n]
 
-const SOURCE = { baseUrl: 'http://localhost:5174', docUrl: `http://localhost:5174${GENUI_SANDBOX_DOC_PATH}` }
+const SOURCE = { baseUrl: 'http://localhost:5174', docUrl: `http://localhost:5174${GENUI_SANDBOX_DOC_PATH}`, kind: 'dev' as const }
 const NONCE = '11111111-2222-3333-4444-555555555555'
 
 const SCHEMA = { componentName: 'TinyForm', props: { title: '报名表' } }

@@ -72,6 +72,9 @@ vi.mock('fs', async (importOriginal) => {
     },
     readFileSync: (p: string) => {
       dist.touched.push(p)
+      if (dist.unstatable.has(p)) {
+        throw Object.assign(new Error(`EBUSY: resource busy or locked, open '${p}'`), { code: 'EBUSY' })
+      }
       const content = dist.files.get(p) ?? dist.sensitive.get(p)
       if (content === undefined) throw new Error(`ENOENT: open '${p}'`)
       return content
@@ -111,17 +114,42 @@ vi.mock('../../session/sessionHistoryManager', async () => {
 import { H5Server } from '../h5Server'
 import {
   TEST_TOKEN,
+  attempt,
   auth,
+  cspDirectives,
+  cspMetaOf,
+  freeMainPort,
   gatewayStub,
+  holdPort,
   rawRequest,
   resetEngineFactoryStub,
   resetGatewayStub,
   resetHistoryStub,
   resetRuntime,
+  runtime,
 } from './h5TestKit'
+
+/**
+ * `serveFile` streams through a function-body `require('fs')`, and the document
+ * path reads through the module-level `fs` that this file mocks — so the genuine
+ * module is grabbed here to seed the real build artifact into the fake tree.
+ */
+const realFs = createRequire(import.meta.url)('fs') as {
+  createReadStream: (path: string) => unknown
+  readFileSync: (path: string, encoding: string) => string
+}
 
 /** Same expression the product uses, one directory level down. */
 const DIST_ROOT = join(__dirname, '..', '..', 'dist')
+
+/**
+ * 文档用的就是仓库根目录那份 `index.html` —— 构建只做资源指纹化，那条面向桌面的 CSP meta
+ * 原样带进 `dist/index.html`，桌面与 H5 共用同一个文件。H5 下发时逐响应改写它，
+ * 所以契约测试要钉住这份真实模板，而不是手搓一段。
+ */
+const REPO_INDEX_HTML = realFs.readFileSync(join(__dirname, '..', '..', '..', 'index.html'), 'utf-8')
+/** 改写后仍必须原样留在文档里的标记，用来证明内容没被换掉。 */
+const DOC_MARKER = '<div id="app"></div>'
 
 function seed(): void {
   dist.files.clear()
@@ -129,7 +157,7 @@ function seed(): void {
   dist.unstatable.clear()
   dist.statCalls.clear()
   dist.touched = []
-  dist.files.set(join(DIST_ROOT, 'index.html'), '<!doctype html><title>SpaceCode H5</title>')
+  dist.files.set(join(DIST_ROOT, 'index.html'), REPO_INDEX_HTML)
   dist.files.set(join(DIST_ROOT, 'assets', 'app.js'), 'console.log("app")')
   dist.files.set(join(DIST_ROOT, 'assets', 'entry.mjs'), 'export const a = 1')
   dist.files.set(join(DIST_ROOT, 'assets', 'ui.css'), 'body{color:red}')
@@ -180,10 +208,6 @@ class CapturedResponse {
 
 function asResponse(response: CapturedResponse): ServerResponse {
   return response as unknown as ServerResponse
-}
-
-const realFs = createRequire(import.meta.url)('fs') as {
-  createReadStream: (path: string) => unknown
 }
 
 describe('H5Server static surface', () => {
@@ -248,13 +272,15 @@ describe('H5Server static surface', () => {
   })
 
   describe('index + assets', () => {
-    it('serves index.html for the root path with a stream body', async () => {
+    it('serves index.html for the root path with the app payload intact', async () => {
       const res = await rawRequest({ port, path: '/' })
 
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
       expect(res.headers['cache-control']).toBe('no-cache')
-      expect(res.body).toBe('<!doctype html><title>SpaceCode H5</title>')
+      // 文档被改写的只有 CSP meta 与一段内联引导，其余内容原样留着
+      expect(res.body).toContain(DOC_MARKER)
+      expect(res.body).toContain('src="/src/main.ts"')
     })
 
     it.each([
@@ -289,7 +315,7 @@ describe('H5Server static surface', () => {
 
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
     })
 
     it('404s with the build hint when even index.html is missing', async () => {
@@ -306,7 +332,7 @@ describe('H5Server static surface', () => {
       const res = await rawRequest({ port, path: '/assets/nope.js' })
 
       expect(res.status).toBe(200)
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
     })
   })
 
@@ -332,7 +358,7 @@ describe('H5Server static surface', () => {
       expect(res.body).not.toContain(PLANTED_SECRET)
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
     })
 
     it('hands a raw dot-segment path to the sanitizer before the filesystem sees it', async () => {
@@ -348,7 +374,7 @@ describe('H5Server static surface', () => {
       expect(dist.touched.filter((p) => !p.startsWith(DIST_ROOT))).toEqual([])
       expect(res.body).not.toContain(PLANTED_SECRET)
       expect(res.status).toBe(200)
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
     })
 
     it('strips a backslash traversal prefix the same way', async () => {
@@ -361,14 +387,14 @@ describe('H5Server static surface', () => {
 
       expect(dist.touched.filter((p) => !p.startsWith(DIST_ROOT))).toEqual([])
       expect(res.body).not.toContain(PLANTED_SECRET)
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
     })
 
     it('serves nothing outside the root even when the request asks for a sibling tree', async () => {
       const res = await rawRequest({ port, path: '/../h5/h5Server.ts' })
 
       expect(res.status).toBe(200)
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
       expect(res.body).not.toContain(PLANTED_SECRET)
       expect(dist.touched.filter((p) => !p.startsWith(DIST_ROOT))).toEqual([])
     })
@@ -388,7 +414,7 @@ describe('H5Server static surface', () => {
       privateHandleHttp()({ headers: {} } as unknown as IncomingMessage, asResponse(res))
 
       expect(res.status).toBe(200)
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
     })
 
     it('defaults a target-less API request to GET instead of reading a body', async () => {
@@ -410,22 +436,131 @@ describe('H5Server static surface', () => {
 
   describe('serveFile failures', () => {
     it('answers 500 with the fs message when the file disappears between stat and stream', async () => {
-      const index = join(DIST_ROOT, 'index.html')
-      dist.unstatable.add(index)
+      const config = join(DIST_ROOT, 'config.json')
+      dist.unstatable.add(config)
 
-      const res = await rawRequest({ port, path: '/' })
+      const res = await rawRequest({ port, path: '/config.json' })
 
       expect(res.status).toBe(500)
       expect(res.headers['content-type']).toBe('application/json; charset=utf-8')
       expect(JSON.parse(res.body).error).toMatch(/EBUSY/)
     })
 
+    it('answers 500 for the document too when it disappears before the rewrite', async () => {
+      dist.unstatable.add(join(DIST_ROOT, 'index.html'))
+
+      const res = await rawRequest({ port, path: '/' })
+
+      expect(res.status).toBe(500)
+      expect(res.body).not.toContain(DOC_MARKER)
+    })
+
     it('falls back instead of streaming a directory-shaped request', async () => {
       const res = await rawRequest({ port, path: '/assets/' })
 
       expect(res.status).toBe(200)
-      expect(res.body).toContain('SpaceCode H5')
+      expect(res.body).toContain(DOC_MARKER)
       expect(dist.touched.filter((p) => !p.startsWith(DIST_ROOT))).toEqual([])
+    })
+  })
+
+  describe('parent document CSP contract (GenUI sandbox origin, ticket 06)', () => {
+    /** 构建产物里那条 meta 面向桌面；H5 必须逐响应换成第二个源。 */
+    const DESKTOP_MARKERS = ['spacecode-genui:', 'http://localhost:5174']
+
+    let docPort = 0
+    let sandboxPort = 0
+    let docServer: H5Server | null = null
+
+    /**
+     * 这一组要的是"第二端口真的监听上了"的那次启动：父页面的源由同一次计算给出，
+     * 端口被并行文件抢走时服务端就不广播它了（那是下面单独一条用例的行为）。
+     */
+    beforeEach(async () => {
+      docServer = await attempt(async () => {
+        const candidate = new H5Server(auth)
+        await candidate.start(await freeMainPort())
+        if (candidate.getStatus().sandboxRunning) return candidate
+        candidate.stop()
+        return null
+      })
+      const status = docServer.getStatus()
+      docPort = status.port
+      sandboxPort = status.sandboxPort
+    })
+
+    afterEach(() => {
+      docServer?.stop()
+      docServer = null
+    })
+
+    it('rewrites frame-src to the second origin and keeps header and meta identical', async () => {
+      const res = await rawRequest({ port: docPort, path: '/' })
+      const sandboxOrigin = `http://127.0.0.1:${sandboxPort}`
+
+      const headerCsp = res.headers['content-security-policy'] as string
+      expect(cspMetaOf(res.body)).toBe(headerCsp)
+      expect(cspDirectives(headerCsp)['frame-src']).toBe(`'self' ${sandboxOrigin}`)
+      for (const desktop of DESKTOP_MARKERS) {
+        expect(headerCsp).not.toContain(desktop)
+        expect(res.body).not.toContain(desktop)
+      }
+      // 卡片要用的 eval 只在沙箱源里存在，父页面永不放开
+      expect(headerCsp).not.toContain('unsafe-eval')
+    })
+
+    it('authorises the bootstrap script with the same per-response nonce it publishes', async () => {
+      const first = await rawRequest({ port: docPort, path: '/' })
+      const second = await rawRequest({ port: docPort, path: '/' })
+
+      const firstCsp = first.headers['content-security-policy'] as string
+      const firstNonce = cspDirectives(firstCsp)['script-src'].match(/'nonce-([^']+)'/)?.[1] ?? ''
+      expect(cspDirectives(firstCsp)['script-src']).toBe(`'self' 'nonce-${firstNonce}'`)
+      expect(firstNonce.length).toBeGreaterThan(8)
+      expect(first.body).toContain(`<script nonce="${firstNonce}">`)
+      // 引导脚本与 frame-src 出自同一次计算，渲染端不再自己推导端口
+      expect(first.body).toContain(`window.__SPACECODE_GENUI_SANDBOX__="http://127.0.0.1:${sandboxPort}"`)
+      expect(first.body.match(/__SPACECODE_GENUI_SANDBOX__/g)).toHaveLength(1)
+      expect(first.body.indexOf('__SPACECODE_GENUI_SANDBOX__')).toBeLessThan(
+        first.body.indexOf('src="/src/main.ts"'),
+      )
+      // 逐响应换新，两份响应不会共用一个 nonce
+      expect(second.headers['content-security-policy']).not.toBe(firstCsp)
+    })
+
+    it('follows the public base address when the operator is behind a proxy', async () => {
+      runtime.settings = { ...runtime.settings, publicBaseUrl: 'https://space.example.com' }
+
+      const res = await rawRequest({ port: docPort, path: '/' })
+
+      expect(cspDirectives(res.headers['content-security-policy'] as string)['frame-src']).toBe(
+        `'self' https://space.example.com:${sandboxPort}`,
+      )
+    })
+
+    it('leaves non-HTML assets untouched — no CSP rewrite, no bootstrap', async () => {
+      const res = await rawRequest({ port: docPort, path: '/assets/app.js' })
+
+      expect(res.body).toBe('console.log("app")')
+      expect(res.headers['content-security-policy']).toBeUndefined()
+    })
+
+    it('does not advertise the origin when the second port never came up', async () => {
+      // 第二端口没监听上时给源，卡片会先亮 5 秒空白 iframe 再换成超时；不如立即报错
+      const mainPort = await freeMainPort()
+      const release = await holdPort(mainPort + 1)
+      const down = new H5Server(auth)
+      await down.start(mainPort)
+
+      const res = await rawRequest({ port: mainPort, path: '/' })
+      expect(res.status).toBe(200)
+      expect(res.headers['content-security-policy']).toBeUndefined()
+      expect(res.body).not.toContain('__SPACECODE_GENUI_SANDBOX__')
+      // 构建产物那条面向桌面的 meta 原样留着，页面不是无策略状态
+      expect(cspMetaOf(res.body)).toContain('spacecode-genui:')
+
+      down.stop()
+      await release()
     })
   })
 })

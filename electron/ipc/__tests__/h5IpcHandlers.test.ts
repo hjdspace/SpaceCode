@@ -21,10 +21,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { join } from 'path'
 import type * as H5IpcModule from '../h5IpcHandlers'
 
-const DEFAULT_STATUS = { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }
+const DEFAULT_STATUS = { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0, sandboxPort: 0, sandboxRunning: false }
 
 function DEFAULT_SETTINGS() {
-  return { enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null }
+  return { enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null, sandboxPort: null }
 }
 
 const probe = vi.hoisted(() => {

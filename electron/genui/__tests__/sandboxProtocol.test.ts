@@ -18,19 +18,26 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { protocol } from 'electron'
-import {
-  GENUI_SANDBOX_CSP,
-  GENUI_SANDBOX_HOST,
-  GENUI_SANDBOX_SCHEME,
-} from '@/shared/genuiSandbox'
+import { GENUI_SANDBOX_CSP, GENUI_SANDBOX_HOST, GENUI_SANDBOX_SCHEME } from '@/shared/genuiSandbox'
 import { createSandboxRequestHandler, registerGenuiSandboxProtocol, registerGenuiSandboxScheme } from '../sandboxProtocol'
+
+/** 去掉逐响应注入的一次性 nonce，剩下的必须与共用口径逐字一致。 */
+function withoutNonce(csp: string | null): string {
+  return (csp ?? '').replace(/ 'nonce-[^']+'/g, '')
+}
 
 const root = mkdtempSync(join(tmpdir(), 'genui-sandbox-'))
 const OUTSIDE_SENTINEL = 'sentinel-outside-sandbox-root'
 
 mkdirSync(join(root, 'assets'), { recursive: true })
 mkdirSync(join(root, 'empty-dir'), { recursive: true })
-writeFileSync(join(root, 'index.html'), '<!DOCTYPE html><html><body>card</body></html>')
+// 与真实产物同形：文档自带一条 CSP meta（打包环境里就是 sandbox/index.html 的那一份），
+// 下发时必须被改写成与响应头同一条策略
+writeFileSync(
+  join(root, 'index.html'),
+  `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${GENUI_SANDBOX_CSP}" />` +
+    '<title>t</title></head><body>card</body></html>',
+)
 writeFileSync(join(root, 'assets', 'sandbox.js'), 'console.log("sandbox")')
 writeFileSync(join(root, 'assets', 'sandbox.css'), '#card{color:red}')
 writeFileSync(join(root, 'assets', 'icon.svg'), '<svg></svg>')
@@ -93,8 +100,24 @@ describe('沙箱文档与资源', () => {
     const res = await get('/index.html')
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8')
-    expect(res.headers.get('content-security-policy')).toBe(GENUI_SANDBOX_CSP)
+    expect(withoutNonce(res.headers.get('content-security-policy'))).toBe(GENUI_SANDBOX_CSP)
+    expect(res.headers.get('content-security-policy')).toMatch(/script-src 'self' 'unsafe-eval' 'nonce-[^']+'/)
+    // 文档执行的是 meta ∩ 响应头：meta 不同步改写，头里的 nonce 就永远授权不到东西
+    expect(res.body.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/)?.[1]).toBe(
+      res.headers.get('content-security-policy'),
+    )
     expect(res.body).toContain('card')
+  })
+
+  it('CSP 逐响应下发，nonce 每次换新且不放回内联脚本', async () => {
+    const first = (await get('/index.html')).headers.get('content-security-policy') ?? ''
+    const second = (await get('/index.html')).headers.get('content-security-policy') ?? ''
+
+    expect(first).not.toBe(second)
+    expect(withoutNonce(first)).toBe(withoutNonce(second))
+    // 动态口令的意义在于不必回头放开 'unsafe-inline'：这条永远不该出现在沙箱 CSP 里
+    expect(first).not.toContain("script-src 'self' 'unsafe-eval' 'unsafe-inline'")
+    expect(first).not.toMatch(/script-src[^;]*unsafe-inline/)
   })
 
   it('根路径落到入口文档', async () => {
@@ -118,6 +141,8 @@ describe('沙箱文档与资源', () => {
     const res = await get('/assets/sandbox.js')
     expect(res.headers.get('x-content-type-options')).toBe('nosniff')
     expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    // 子资源同样逐响应下发 CSP，不只文档带
+    expect(withoutNonce(res.headers.get('content-security-policy'))).toBe(GENUI_SANDBOX_CSP)
   })
 })
 

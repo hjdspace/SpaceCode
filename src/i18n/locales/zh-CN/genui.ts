@@ -8,6 +8,7 @@ export default {
     'render-failed': '卡片内容渲染失败',
     'action-timeout': '卡片动作超时，未收到确认',
     'unsupported-origin': '当前宿主未接入卡片沙箱',
+    'sandbox-unreachable': '卡片沙箱源无法访问：H5 部署请确认第二个端口已随主端口一起暴露',
   },
   actions: {
     expand: '展开',

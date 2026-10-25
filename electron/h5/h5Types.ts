@@ -8,6 +8,11 @@ export interface H5AccessSettings {
   tokenPreview: string | null
   publicBaseUrl: string | null
   fixedPort: number | null
+  /**
+   * GenUI 卡片沙箱的第二个端口（票 06）。`null` = 主服务端口 +1；
+   * 显式配置用于"+1 被别的服务占了"或"代理上另有端口规划"的部署。
+   */
+  sandboxPort: number | null
 }
 
 /** H5 服务器运行时状态 */
@@ -17,6 +22,10 @@ export interface H5ServerStatus {
   ip: string
   publicUrl: string | null
   connectedClients: number
+  /** 卡片沙箱该用的端口；主服务起来就有一个值，即使它没能成功监听 */
+  sandboxPort: number
+  /** 第二个端口是否真的在监听 —— false 时卡片只能显示部署错误 */
+  sandboxRunning: boolean
 }
 
 /** QR 码数据（桌面端显示，手机扫码） */

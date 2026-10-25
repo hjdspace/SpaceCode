@@ -79,5 +79,11 @@ export type GenuiDebugApi = {
 declare global {
   interface Window {
     __SPACECODE_GENUI_DEBUG__?: GenuiDebugApi
+    /**
+     * H5 服务端逐响应写进文档的卡片沙箱源（票 06）。与同一次响应的 `frame-src` 出自
+     * 同一个计算；桌面两个宿主不会带它。属性名的权威定义是
+     * `src/shared/genuiSandbox.ts` 的 `GENUI_H5_SANDBOX_GLOBAL`（接口里只能用字面量）。
+     */
+    __SPACECODE_GENUI_SANDBOX__?: string
   }
 }

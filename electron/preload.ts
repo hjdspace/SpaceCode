@@ -543,7 +543,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('h5:getStatus'),
     getSettings: (): Promise<import('./h5/h5Types').H5AccessSettings> =>
       ipcRenderer.invoke('h5:getSettings'),
-    updateSettings: (input: Partial<Pick<import('./h5/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
+    updateSettings: (input: Partial<Pick<import('./h5/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort' | 'sandboxPort'>>) =>
       ipcRenderer.invoke('h5:updateSettings', input),
     setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
       ipcRenderer.invoke('h5:setMirrorSession', sessionId, projectPath),

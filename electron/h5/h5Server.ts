@@ -10,6 +10,9 @@ import { isAllowedFetchUrlAfterResolution } from './h5FetchUrlValidator'
 import { H5PathGuard } from './h5PathGuard'
 import { redactSecretsInJson } from './h5ConfigRedactor'
 import { H5AuthService } from './h5AuthService'
+import { renderH5Document, resolveH5SandboxBaseUrl } from './h5DocumentPolicy'
+import { startSandboxStaticServer, type SandboxStaticServer } from '../genui/sandboxStaticServer'
+import { newGenuiCspNonce } from '@/shared/genuiSandbox'
 import { engineGateway } from '../engine/engineGateway'
 import { isEffortLevel } from '@/shared/effort'
 import { EngineFactory } from '../engine/engines/EngineFactory'
@@ -66,13 +69,24 @@ export class H5Server {
   private unsubEngineEvents: (() => void) | null = null
   private readonly pathGuard = new H5PathGuard()
 
+  /**
+   * GenUI 卡片沙箱的第二个源（票 06）。只服务 `dist/genui-sandbox` 那一份静态产物：
+   * 不接 API、不接鉴权、不碰引擎网关，也不接会话数据。
+   * `sandboxPort` 记下**该用**的端口，绑定失败也保留 —— 运维要知道该暴露哪一个。
+   */
+  private sandboxServer: SandboxStaticServer | null = null
+  private sandboxPort: number = 0
+  private readonly sandboxResourceRoot: string
+
   /** 镜像会话 — 桌面端当前活跃会话 */
   private mirrorSessionId: string | null = null
   private mirrorProjectPath: string | null = null
   private sessionMetadata: Map<string, { projectPath: string | null; title: string | null }> = new Map()
 
-  constructor(authService: H5AuthService) {
+  constructor(authService: H5AuthService, sandboxResourceRoot?: string) {
     this.authService = authService
+    // 与主窗口产物同级的独立资源目录，口径与 electron/main.ts 的沙箱资源根一致
+    this.sandboxResourceRoot = sandboxResourceRoot ?? join(__dirname, '..', 'dist', 'genui-sandbox')
   }
 
   async start(port?: number): Promise<H5ServerStatus> {
@@ -113,12 +127,44 @@ export class H5Server {
       ? `${settings.publicBaseUrl}`
       : `http://${ip}:${this.port}`
 
+    // 第二个源起不来不影响主服务：卡片会显示可诊断的部署错误（票 06 第 5 条）
+    await this.startSandboxServer(settings.sandboxPort ?? null)
+
     return {
       running: true,
       port: this.port,
       ip,
       publicUrl,
       connectedClients: 0,
+      sandboxPort: this.sandboxPort,
+      sandboxRunning: !!this.sandboxServer,
+    }
+  }
+
+  /**
+   * 只服务沙箱静态资源的第二个 HTTP 服务（票 06 第 1 条）。
+   * 端口默认主端口 +1，可显式配置；绑定失败只记日志，不自动换端口 ——
+   * 换了端口父页面的 frame-src 与运维的暴露规则就对不上了。
+   */
+  private async startSandboxServer(configuredPort: number | null): Promise<void> {
+    const wanted = configuredPort ?? this.port + 1
+    if (!Number.isInteger(wanted) || wanted < 1 || wanted > 65535) {
+      warn('H5Server', `Invalid GenUI sandbox port ${configuredPort}; second origin disabled`)
+      return
+    }
+    this.sandboxPort = wanted
+
+    try {
+      this.sandboxServer = await startSandboxStaticServer({
+        resourceRoot: this.sandboxResourceRoot,
+        // 与主服务同口径：H5 要让局域网里的设备也连得上
+        bindHost: '0.0.0.0',
+        port: wanted,
+        label: 'h5',
+      })
+    } catch (err) {
+      warn('H5Server', `GenUI sandbox origin :${wanted} unavailable; cards will show a deployment error`, err)
+      this.sandboxServer = null
     }
   }
 
@@ -141,6 +187,10 @@ export class H5Server {
       this.httpServer.close()
       this.httpServer = null
     }
+    if (this.sandboxServer) {
+      void this.sandboxServer.stop()
+      this.sandboxServer = null
+    }
     info('H5Server', 'Server stopped')
   }
 
@@ -158,6 +208,8 @@ export class H5Server {
       ip,
       publicUrl,
       connectedClients: this.clients.size,
+      sandboxPort: this.sandboxPort,
+      sandboxRunning: !!this.sandboxServer,
     }
   }
 
@@ -212,10 +264,10 @@ export class H5Server {
     }
 
     // 静态文件（H5 前端）— 在根路径提供，支持 SPA
-    this.handleStatic(pathname, res)
+    this.handleStatic(pathname, res, req.headers.host || '')
   }
 
-  private handleStatic(pathname: string, res: ServerResponse): void {
+  private handleStatic(pathname: string, res: ServerResponse, authority = ''): void {
     // 根路径 / → dist/index.html
     // /assets/* → dist/assets/*
     // 其他非文件路径 → SPA fallback to index.html
@@ -243,14 +295,71 @@ export class H5Server {
       // SPA fallback → index.html
       const indexPath = join(distRoot, 'index.html')
       if (existsSync(indexPath)) {
-        this.serveFile(indexPath, res)
+        this.serveStaticFile(indexPath, res, authority)
       } else {
         this.sendJson(res, 404, { error: 'H5 client not built. Run npm run build first.' })
       }
       return
     }
 
+    this.serveStaticFile(filePath, res, authority)
+  }
+
+  /** HTML 文档逐响应改写 CSP，其余资源保持流式下发。 */
+  private serveStaticFile(filePath: string, res: ServerResponse, authority: string): void {
+    if (extname(filePath).toLowerCase() === '.html') {
+      this.serveDocument(filePath, res, authority)
+      return
+    }
     this.serveFile(filePath, res)
+  }
+
+  /**
+   * 文档响应带两份同一个策略：响应头 + 改写后的 CSP meta。
+   * 浏览器会同时执行 meta 与响应头里的策略（取交集），构建产物里那条 meta 面向桌面，
+   * 留着它就会把第二个源一起拦掉 —— 所以必须真的改，而不是只加头。
+   */
+  private serveDocument(filePath: string, res: ServerResponse, authority: string): void {
+    const settings = this.authService.getSettings()
+    // 第二端口没监听上就不广播它的源：卡片立刻落回"宿主未接入沙箱"，
+    // 而不是先亮 5 秒空白 iframe 再换成超时（票 06 第 5 条）
+    const sandboxBaseUrl = this.sandboxServer
+      ? resolveH5SandboxBaseUrl({
+          requestAuthority: authority,
+          publicBaseUrl: settings.publicBaseUrl ?? null,
+          sandboxPort: settings.sandboxPort ?? null,
+          mainPort: this.port,
+        })
+      : null
+
+    let html: string
+    try {
+      html = readFileSync(filePath, 'utf-8')
+    } catch (err: any) {
+      this.sendJson(res, 500, { error: err.message })
+      return
+    }
+
+    // 算不出源（Host 畸形）时原样下发：那条面向桌面的 meta 至少还在，
+    // 卡片落回"宿主未接入沙箱"，比下发一条指向不确定地址的 frame-src 安全。
+    if (!sandboxBaseUrl) {
+      this.sendHtml(res, html)
+      return
+    }
+
+    const policy = renderH5Document(html, { sandboxBaseUrl, nonce: newGenuiCspNonce() })
+    this.sendHtml(res, policy.html, policy.csp)
+  }
+
+  private sendHtml(res: ServerResponse, html: string, csp?: string): void {
+    const body = Buffer.from(html, 'utf-8')
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': body.byteLength,
+      'Cache-Control': 'no-cache',
+      ...(csp ? { 'Content-Security-Policy': csp } : {}),
+    })
+    res.end(body)
   }
 
   private serveFile(filePath: string, res: ServerResponse): void {

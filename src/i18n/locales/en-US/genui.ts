@@ -8,6 +8,8 @@ export default {
     'render-failed': 'The card content failed to render',
     'action-timeout': 'The card action timed out before the host confirmed it',
     'unsupported-origin': 'This host does not provide a card sandbox',
+    'sandbox-unreachable':
+      'The card sandbox origin is unreachable. For H5 deployments, expose the second port alongside the main one.',
   },
   actions: {
     expand: 'Expand',

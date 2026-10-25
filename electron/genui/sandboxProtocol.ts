@@ -8,7 +8,7 @@
 import { protocol } from 'electron'
 import { readFileSync } from 'fs'
 import { GENUI_SANDBOX_HOST, GENUI_SANDBOX_SCHEME } from '@/shared/genuiSandbox'
-import { resolveSandboxFile, sandboxResponseHeaders } from './sandboxFiles'
+import { resolveSandboxFile, sandboxResponse } from './sandboxFiles'
 
 /** 处理器真正读到的字段，注入资源根后可脱离 Electron 测试。 */
 export type SandboxRequestLike = { url: string; method?: string }
@@ -71,7 +71,10 @@ export function createSandboxRequestHandler(
       return emptyResponse(404)
     }
 
-    const headers = sandboxResponseHeaders(decision.contentType)
-    return new Response(method === 'HEAD' ? null : new Uint8Array(body), { status: 200, headers })
+    const response = sandboxResponse(decision.contentType, body)
+    return new Response(method === 'HEAD' ? null : new Uint8Array(response.body), {
+      status: 200,
+      headers: response.headers,
+    })
   }
 }

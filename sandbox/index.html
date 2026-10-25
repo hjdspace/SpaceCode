@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
-      与主进程协议处理器、开发期静态服务下发的 CSP 同一条（tests/genui-sandbox-artifact.test.ts 钉住）。
+      与主进程下发的 CSP 同源（tests/genui-sandbox-artifact.test.ts 钉住这条基准）。
+      下发时三个宿主（打包协议、开发期静态服务、H5 第二端口）会把这条 meta 改写成
+      "同一条策略 + 当次 nonce"：浏览器执行 meta ∩ 响应头，不改写就等于头里的 nonce 永远授权不到东西。
       这里再放一份是纵深防御：有人直接双击打开产物时，它仍然是自约束的文档。
       沙箱用经典脚本：opaque origin 下 module script 会按 CORS 请求发出，自定义协议不放行跨源请求。
     -->

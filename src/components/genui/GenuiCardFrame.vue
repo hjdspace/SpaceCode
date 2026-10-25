@@ -111,6 +111,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { createCardBridge, type CardBridge, type CardBridgeState } from '@/lib/genui/cardBridge'
+import { probeSandboxReachability } from '@/lib/genui/sandboxProbe'
 import { resolveCardActionPort, type CardActionPort } from '@/lib/genui/cardActionAdapters'
 import type { CardAction } from '@/lib/genui/cardActions'
 import type { GenuiCardSubmissionResult } from '@/lib/genui/cardSubmission'
@@ -120,7 +121,7 @@ import type { GenuiCardRecord, SandboxSource } from '@/types/genui'
 
 const props = withDefaults(defineProps<{
   card: GenuiCardRecord
-  /** 沙箱源；null 表示当前宿主还没有接入沙箱（H5 在票 06 接入） */
+  /** 沙箱源；null 表示当前宿主还没有接入沙箱（服务端没注入源的 H5 构建、未知宿主） */
   source: SandboxSource | null
   theme: GenuiTheme
   locale: string
@@ -160,6 +161,8 @@ const closeButtonRef = ref<HTMLButtonElement | null>(null)
 
 let bridge: CardBridge | null = null
 let observer: IntersectionObserver | null = null
+/** 每一次挂载一个序号：探测回来时只对得上"当前这次"挂载。 */
+let diagnosisSeq = 0
 
 const docUrl = computed(() => props.source?.docUrl ?? '')
 const frameStyle = computed(() => (frameHeight.value ? { height: `${frameHeight.value}px` } : {}))
@@ -277,6 +280,28 @@ function closeExpanded(): void {
 function detach(): void {
   bridge?.dispose()
   bridge = null
+  // 进行中的可达性探测随这一次挂载作废：重试或滚出视口后不能再由它改写卡片状态
+  diagnosisSeq += 1
+}
+
+/**
+ * H5 上握手超时/加载失败有两种成因（票 06 第 5 条）：第二个源没人监听，或者源在而卡片
+ * 自己起不来。前者换成"沙箱源无法访问"并给出端口提示，后者保留原来的说明 ——
+ * 只在这张卡上分叉，同组其余卡片不受影响。桌面两个宿主没有这条路由，不探测。
+ */
+async function diagnose(next: CardBridgeState): Promise<void> {
+  if (next.status !== 'error') return
+  if (next.failure !== 'handshake-timeout' && next.failure !== 'frame-load-failed') return
+  const source = props.source
+  if (source?.kind !== 'h5') return
+
+  const seq = diagnosisSeq
+  const reachability = await probeSandboxReachability(source.baseUrl)
+  if (seq !== diagnosisSeq) return
+  if (state.value.status !== 'error') return
+  if (reachability === 'reachable') return
+
+  state.value = { status: 'error', failure: 'sandbox-unreachable' }
 }
 
 function attach(): void {
@@ -292,6 +317,7 @@ function attach(): void {
     protocolVersion: props.card.protocolVersion,
     onStateChange: (next) => {
       state.value = next
+      void diagnose(next)
     },
     onResize: (height) => {
       frameHeight.value = height

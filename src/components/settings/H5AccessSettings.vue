@@ -43,6 +43,16 @@
           <span class="detail-label">{{ $t('h5Access.port') }}</span>
           <span class="detail-value">{{ status.port }}</span>
         </div>
+        <!-- 卡片沙箱的第二端口：运维要知道该把哪一个一并暴露出去 -->
+        <div class="detail-item">
+          <span class="detail-label">{{ $t('h5Access.sandboxPortStatus') }}</span>
+          <span class="detail-value">
+            {{ status.sandboxPort }}
+            <span v-if="!status.sandboxRunning" class="sandbox-unavailable">
+              {{ $t('h5Access.sandboxPortUnreachable') }}
+            </span>
+          </span>
+        </div>
         <div class="detail-item">
           <span class="detail-label">{{ $t('h5Access.connectedClients') }}</span>
           <span class="detail-value">{{ status.connectedClients }}</span>
@@ -90,6 +100,22 @@
 
       <div class="setting-row">
         <div class="setting-info">
+          <span class="setting-label">{{ $t('h5Access.sandboxPort') }}</span>
+          <span class="setting-hint">{{ $t('h5Access.sandboxPortHint') }}</span>
+        </div>
+        <input
+          v-model.number="sandboxPortInput"
+          type="number"
+          class="port-input"
+          :placeholder="$t('h5Access.portPlaceholder')"
+          min="0"
+          max="65535"
+          @change="onUpdateSandboxPort"
+        />
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
           <span class="setting-label">{{ $t('h5Access.publicBaseUrl') }}</span>
           <span class="setting-hint">{{ $t('h5Access.publicBaseUrlHint') }}</span>
         </div>
@@ -122,12 +148,15 @@ const status = ref<H5ServerStatus>({
   ip: '',
   publicUrl: null,
   connectedClients: 0,
+  sandboxPort: 0,
+  sandboxRunning: false,
 })
 const tokenPreview = ref<string | null>(null)
 const fullToken = ref<string | null>(null)
 const qrCodeDataUrl = ref<string | null>(null)
 const regenerating = ref(false)
 const portInput = ref<number | null>(null)
+const sandboxPortInput = ref<number | null>(null)
 const baseUrlInput = ref<string>('')
 const buildStatus = ref<{ built: boolean; path: string }>({ built: false, path: '' })
 
@@ -158,6 +187,7 @@ onMounted(async () => {
   tokenPreview.value = settings.tokenPreview
   fullToken.value = settings.token
   portInput.value = settings.fixedPort
+  sandboxPortInput.value = settings.sandboxPort
   baseUrlInput.value = settings.publicBaseUrl || ''
 
   const currentStatus = await api.h5Access.getStatus()
@@ -222,6 +252,8 @@ async function onToggleEnable(value: boolean) {
       ip: '',
       publicUrl: null,
       connectedClients: 0,
+      sandboxPort: 0,
+      sandboxRunning: false,
     }
     qrCodeDataUrl.value = null
   }
@@ -247,6 +279,11 @@ async function onRegenerateToken() {
 
 async function onUpdatePort() {
   await api.h5Access.updateSettings({ fixedPort: portInput.value || null })
+}
+
+// 第二端口在主服务 start() 时绑定，改完要重新开启 H5 才换过来
+async function onUpdateSandboxPort() {
+  await api.h5Access.updateSettings({ sandboxPort: sandboxPortInput.value || null })
 }
 
 async function onUpdateBaseUrl() {
@@ -456,6 +493,14 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+/* 第二端口没监听上：卡片只能显示部署错误，这里先把线索摆在设置页 */
+.sandbox-unavailable {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warning, var(--text-muted));
 }
 
 .qr-section {
