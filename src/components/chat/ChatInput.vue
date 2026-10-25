@@ -168,6 +168,36 @@
             </button>
           </div>
 
+          <!-- 提示词优化进行中提示 -->
+          <Transition name="optimize-hint">
+            <span v-if="isOptimizing" class="optimize-hint" role="status" aria-live="polite">
+              <Sparkles :size="12" class="optimize-hint-icon" />
+              <span class="optimize-hint-label">{{ t('chatInput.optimizing') }}</span>
+              <span class="optimize-hint-dots" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </span>
+            </span>
+          </Transition>
+
+          <!-- design 模式扩展 slot：TemplatePicker 等设计专用工具栏按钮 -->
+          <slot name="toolbar-extra"></slot>
+        </div>
+
+        <!-- 右侧按钮组：优化提示词 + 语音输入 + 发送/停止 -->
+        <div class="toolbar-right">
+          <!-- 优化提示词按钮（位于发送按钮左侧） -->
+          <button
+            v-if="showActions"
+            class="optimize-btn"
+            :class="{ 'is-optimizing': isOptimizing }"
+            :disabled="isOptimizing || props.isSending || !hasContent"
+            :title="t('chatInput.optimizePrompt')"
+            @click.stop.prevent="handleOptimizePrompt"
+          >
+            <Loader2 v-if="isOptimizing" :size="16" class="spin" />
+            <Sparkles v-else :size="16" />
+          </button>
+
           <!-- 语音输入：录音中变为停止，并提供取消 -->
           <template v-if="voiceSupported">
             <button
@@ -196,37 +226,9 @@
             </button>
           </template>
 
-          <!-- 提示词优化进行中提示 -->
-          <Transition name="optimize-hint">
-            <span v-if="isOptimizing" class="optimize-hint" role="status" aria-live="polite">
-              <Sparkles :size="12" class="optimize-hint-icon" />
-              <span class="optimize-hint-label">{{ t('chatInput.optimizing') }}</span>
-              <span class="optimize-hint-dots" aria-hidden="true">
-                <span></span><span></span><span></span>
-              </span>
-            </span>
-          </Transition>
-
-          <!-- design 模式扩展 slot：TemplatePicker 等设计专用工具栏按钮 -->
-          <slot name="toolbar-extra"></slot>
-        </div>
-
-        <!-- 右侧按钮组：优化提示词 + 发送/停止 -->
-        <div v-if="showActions" class="toolbar-right">
-          <!-- 优化提示词按钮（位于发送按钮左侧） -->
-          <button
-            class="optimize-btn"
-            :class="{ 'is-optimizing': isOptimizing }"
-            :disabled="isOptimizing || props.isSending || !hasContent"
-            :title="t('chatInput.optimizePrompt')"
-            @click.stop.prevent="handleOptimizePrompt"
-          >
-            <Loader2 v-if="isOptimizing" :size="16" class="spin" />
-            <Sparkles v-else :size="16" />
-          </button>
-
           <!-- 发送/停止按钮 -->
           <button
+            v-if="showActions"
             class="send-btn"
             :class="{ 'has-content': hasContent, 'is-sending': props.isSending }"
             :disabled="disabled && !props.isSending"
