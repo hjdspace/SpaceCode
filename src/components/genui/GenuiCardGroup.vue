@@ -1,12 +1,12 @@
 <!--
-  消息区的生成式 UI 卡片分组（票 01）。
+  消息区的生成式 UI 卡片分组（票 01 承载 + 票 02 真实卡片）。
 
   卡片属于产生它的助手消息，渲染在该消息的 AgentTimeline 之后、下一条消息之前，
-  不插进时间线事件流，也不进侧栏。这里负责三件宿主侧的事：从 metadata 取卡片记录、
-  判定沙箱源、把应用实际生效的明暗与语言推给每张卡。
+  不插进时间线事件流，也不进侧栏。这里负责四件宿主侧的事：从 metadata 取卡片记录、
+  取降级说明、判定沙箱源、把应用实际生效的明暗与语言推给每张卡。
 -->
 <template>
-  <div v-if="cards.length" class="genui-card-group">
+  <div v-if="cards.length || fallbacks.length" class="genui-card-group">
     <GenuiCardFrame
       v-for="card in cards"
       :key="card.id"
@@ -15,6 +15,14 @@
       :theme="theme"
       :locale="locale"
     />
+
+    <!-- 没能成卡的围栏原文仍留在正文里，这里只补一句「为什么没渲染成界面」 -->
+    <div v-if="fallbacks.length" class="genui-card-fallbacks">
+      <p class="genui-card-fallbacks-label">{{ t('genui.fallbacks.label') }}</p>
+      <ul class="genui-card-fallbacks-list">
+        <li v-for="fallback in fallbacks" :key="fallback.id">{{ fallbackText(fallback) }}</li>
+      </ul>
+    </div>
   </div>
 </template>
 
@@ -25,7 +33,7 @@ import GenuiCardFrame from './GenuiCardFrame.vue'
 import { resolveSandboxSource, type SandboxSource } from '@/lib/genui/sandboxUrl'
 import { toSandboxTheme } from '@/lib/genui/themeTokens'
 import type { GenuiTheme } from '@/shared/genuiSandbox'
-import type { GenuiCardRecord } from '@/types/genui'
+import type { GenuiCardFallback, GenuiCardRecord } from '@/types/genui'
 import type { Message } from '@/types'
 
 const props = defineProps<{
@@ -34,11 +42,20 @@ const props = defineProps<{
   source?: SandboxSource | null
 }>()
 
-const { locale } = useI18n()
+const { t, locale } = useI18n()
 
 const cards = computed<GenuiCardRecord[]>(() =>
   props.messages.flatMap((message) => message.metadata?.genUiCards ?? []),
 )
+
+const fallbacks = computed<GenuiCardFallback[]>(() =>
+  props.messages.flatMap((message) => message.metadata?.genUiCardFallbacks ?? []),
+)
+
+function fallbackText(fallback: GenuiCardFallback): string {
+  const reason = t(`genui.fallbacks.reasons.${fallback.reason}`)
+  return fallback.componentName ? `${fallback.componentName} · ${reason}` : reason
+}
 
 // 沙箱源由运行环境决定，一个窗口一次判定，不必每条消息重算
 const hostSource = resolveSandboxSource(window.location)
@@ -73,5 +90,23 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* 降级说明：紧贴在同组卡片之后，颜色与工具卡一致走主题变量，不硬编码 */
+.genui-card-fallbacks {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.genui-card-fallbacks-label {
+  margin: 0;
+}
+
+.genui-card-fallbacks-list {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  list-style: disc;
 }
 </style>

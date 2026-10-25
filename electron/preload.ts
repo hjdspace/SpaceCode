@@ -595,6 +595,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('shell:openPath', path),
   },
 
+  // 卡片复制动作：文本经主进程写入系统剪贴板
+  clipboard: {
+    writeText: (text: string): Promise<void> =>
+      ipcRenderer.invoke('clipboard:writeText', text),
+  },
+
   // Notification API
   showNotification: (options: { title: string; message: string }) =>
     ipcRenderer.send('app:showNotification', options),

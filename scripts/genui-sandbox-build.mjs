@@ -1,14 +1,14 @@
 /**
  * GenUI 卡片沙箱的构建产物：独立入口 + 独立资源目录（`<repoRoot>/dist/genui-sandbox`）。
  *
- * 产物形状是固定的三件套：`index.html` + `sandbox.js`（经典脚本）+ `sandbox.css`。
+ * 产物形状是固定的四件：`index.html` + `sandbox.js`（经典脚本）+ `sandbox.css`（官方物料样式，
+ * 由 esbuild 从 JS 里的 CSS import 收集）+ `sandbox.theme.css`（沙箱自己的卡片外壳样式）。
  * 文件名不带 hash —— 消费方按 `no-cache` 下发，而沙箱 CSP 的 `script-src 'self'`
  * 只认自身源，不需要跨版本共存。
  *
- * 现在是 esbuild：票 01 的沙箱只有 DOM 与 TS，IIFE 输出正好符合"经典脚本"这一硬约束
- * （opaque origin 文档里 module script 按 CORS 发起，自定义协议不放行跨源请求）。
- * 票 02 引入 OpenTiny 物料与 Vue 后需要 SFC 编译，换 Vite 时保持同样的产物形状即可，
- * `electron/genui/sandboxProtocol.ts` 与 `sandboxDevServer.ts` 都不用改。
+ * 一直是 esbuild：沙箱入口只用 `h()` 组装官方组件，不需要 SFC 编译，而 IIFE 输出正好符合
+ * 「经典脚本」这一硬约束（opaque origin 文档里 module script 按 CORS 发起，自定义协议
+ * 不放行跨源请求）。`electron/genui/sandboxProtocol.ts` 与 `sandboxDevServer.ts` 因此都不用改。
  *
  * `repoRoot` 由调用方给出：Vite 会把配置文件打进临时文件再 import，届时
  * `import.meta.url` 不再指向仓库根，靠它反推会算错源目录。
@@ -19,7 +19,24 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const SANDBOX_ENTRY_FILE = 'sandbox.js'
-const STATIC_FILES = ['index.html', 'sandbox.css']
+/** 沙箱自己的外壳样式；`sandbox.css` 这个名字留给 esbuild 产出的物料样式。 */
+export const SANDBOX_THEME_FILE = 'sandbox.theme.css'
+const STATIC_FILES = ['index.html', SANDBOX_THEME_FILE]
+
+/**
+ * 物料把图片以 `import x from './x.jpg'` 引进来。沙箱 CSP 放行 `img-src 'self' data:`，
+ * 所以内联成 data URL 既不用多一组静态文件，也不会被 CSP 拦。
+ */
+const ASSET_LOADERS = {
+  '.jpg': 'dataurl',
+  '.jpeg': 'dataurl',
+  '.png': 'dataurl',
+  '.gif': 'dataurl',
+  '.svg': 'dataurl',
+  '.woff': 'dataurl',
+  '.woff2': 'dataurl',
+  '.ttf': 'dataurl',
+}
 
 function sandboxPaths(repoRoot) {
   const sandboxDir = join(repoRoot, 'sandbox')
@@ -40,6 +57,11 @@ function esbuildOptions(repoRoot, outDir) {
     format: 'iife',
     target: 'chrome120',
     sourcemap: false,
+    // 物料体积按官方 mini 名单过滤后仍有数 MB，不压缩首帧会明显拖住卡片
+    minify: true,
+    // Vue 与物料都按 NODE_ENV 选生产分支；沙箱里没有人需要 devtools 提示
+    define: { 'process.env.NODE_ENV': '"production"' },
+    loader: ASSET_LOADERS,
     alias: paths.alias,
     logLevel: 'warning',
   }

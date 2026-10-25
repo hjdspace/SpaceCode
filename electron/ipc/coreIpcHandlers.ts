@@ -6,7 +6,7 @@
  * This module consolidates all the "miscellaneous" IPC handlers that
  * were previously inline in main.ts.
  */
-import { ipcMain, app, shell, dialog, net } from 'electron'
+import { ipcMain, app, shell, dialog, net, clipboard } from 'electron'
 import { join, resolve, dirname } from 'path'
 import {
   readFileSync, readdirSync, statSync, existsSync, writeFileSync,
@@ -250,6 +250,12 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
   ipcMain.handle('shell:openPath', async (_event, targetPath: string) => {
     info('IPC', 'shell:openPath', { targetPath })
     await shell.openPath(targetPath)
+  })
+
+  // 卡片复制动作只允许写入字符串；非字符串一律丢弃，不落到系统剪贴板
+  ipcMain.handle('clipboard:writeText', async (_event, text: unknown) => {
+    if (typeof text !== 'string') return
+    clipboard.writeText(text)
   })
 
   ipcMain.handle('app:openInEditor', async (_event, editor: ExternalEditor, targetPath: string) => {

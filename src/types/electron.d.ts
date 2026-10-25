@@ -565,6 +565,10 @@ export interface ElectronAPI {
     openPath: (path: string) => Promise<void>
   }
 
+  clipboard: {
+    writeText: (text: string) => Promise<void>
+  }
+
   showNotification: (options: { title: string; message: string }) => void
 
   preview: {

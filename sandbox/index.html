@@ -13,7 +13,9 @@
       content="default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'"
     />
     <title>GenUI card sandbox</title>
+    <!-- 先官方物料样式，再沙箱自己的外壳样式：后者只覆盖卡片容器，不与物料争 -->
     <link rel="stylesheet" href="./sandbox.css" />
+    <link rel="stylesheet" href="./sandbox.theme.css" />
   </head>
   <body>
     <div id="card" class="card" data-state="waiting">

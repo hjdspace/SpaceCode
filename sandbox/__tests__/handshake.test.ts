@@ -5,7 +5,8 @@
  * 端口消息必须真的被消费。曾经漏掉的正是这一点 —— 端口上的 message 不派发
  * 到 window，只监听 window 会让主题与语言推送静默丢失。
  */
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
+import { h } from 'vue'
 import {
   GENUI_MSG_INIT,
   GENUI_MSG_READY,
@@ -13,6 +14,16 @@ import {
   GENUI_SANDBOX_PROTOCOL_VERSION,
   type GenuiTheme,
 } from '@/shared/genuiSandbox'
+
+// 这条测试钉的是握手，不是物料。官方渲染器的依赖链有 2000 多个模块，真导进来会让
+// 一个握手用例背上半分钟的构建时间；替身渲染同样走 mountGenuiCard 这条编排缝。
+vi.mock('../cardMaterials', () => ({
+  renderOfficialCard: (context: { schema: Record<string, unknown>; notifyFailure: () => void }) => {
+    // 让用例能用组件名点名叫到失败路径，其余走正常渲染
+    if (context.schema.componentName === 'FailCard') context.notifyFailure()
+    return h('div', { class: 'stub-card' }, String(context.schema.componentName ?? ''))
+  },
+}))
 
 type Envelope = { type: string; nonce?: string; protocolVersion?: number; theme?: GenuiTheme }
 

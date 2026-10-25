@@ -1,23 +1,33 @@
 /**
- * 卡片沙箱文档（票 01 的 fixture 渲染器）。
+ * 卡片沙箱文档。
  *
- * 这一版只证明"沙箱能安全地跑起来并和宿主说话"：接住宿主经 MessageChannel 注入的
- * 密钥/主题/语言/Schema，回 ready 与协议版本，并把承载链路的安全前提自检一遍。
- * 真实 GenUI 渲染器在票 02 接入，届时替换本文件的 render()。
+ * 两件事：接住宿主经 MessageChannel 注入的密钥/主题/语言/Schema 并回 ready（票 01 的承载
+ * 链路），以及把真实 Schema 交给官方 mini 物料渲染（票 02）。渲染本身在
+ * `src/lib/genui/cardRenderer.ts` 编排，物料胶水在 `sandbox/cardMaterials.ts`。
+ *
+ * `FixtureCard` 是票 01 留下的调试卡：它不在物料白名单里，真实技能输出永远不会用到，
+ * 走自检渲染分支，好让「断网 / 读不到父文档 / eval 可用」这几条承载前提随时可用肉眼复核。
  */
 import {
+  GENUI_MSG_ACTION,
+  GENUI_MSG_ERROR,
   GENUI_MSG_INIT,
   GENUI_MSG_READY,
-  GENUI_MSG_THEME,
+  GENUI_MSG_SIZE,
   GENUI_SANDBOX_PROTOCOL_VERSION,
-  hasGenuiNonce,
+  isGenuiThemeMessage,
   type GenuiInitMessage,
   type GenuiTheme,
 } from '@/shared/genuiSandbox'
+import { mountGenuiCard, type MountedCard } from '@/lib/genui/cardRenderer'
+import { GENUI_FIXTURE_COMPONENT_NAME } from '@/lib/genui/debugFixture'
+import { renderOfficialCard } from './cardMaterials'
 
 type Session = { nonce: string; port: MessagePort }
 
 let session: Session | null = null
+/** 已建立握手的卡片渲染实例；fixture 卡不走这条，所以可能为 null */
+let mounted: MountedCard | null = null
 
 const card = document.getElementById('card')
 
@@ -27,27 +37,24 @@ function isInitMessage(value: unknown): value is GenuiInitMessage {
   return message.type === GENUI_MSG_INIT && typeof message.nonce === 'string' && message.nonce.length > 0
 }
 
-function messageType(value: unknown): string | null {
-  if (typeof value !== 'object' || value === null) return null
-  const type = (value as { type?: unknown }).type
-  return typeof type === 'string' ? type : null
-}
-
-function replyReady(): void {
+/** 回信一律带密钥；通道与父窗口各回一份，宿主两条路都只认 nonce 匹配且来源正确的回信。 */
+function postToHost(type: string, extra: Record<string, unknown> = {}): void {
   if (!session) return
-  const message = {
-    type: GENUI_MSG_READY,
-    nonce: session.nonce,
-    protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION,
-  }
-  // 通道与父窗口各回一份：宿主两条路都只认 nonce 匹配且来源正确的回信
+  const message = { type, nonce: session.nonce, ...extra }
   session.port.postMessage(message)
   parent.postMessage(message, '*')
 }
 
+function replyReady(): void {
+  postToHost(GENUI_MSG_READY, { protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION })
+}
+
+function asTheme(theme: unknown): GenuiTheme {
+  return theme === 'dark' ? 'dark' : 'light'
+}
+
 function applyTheme(theme: unknown): void {
-  if (theme !== 'light' && theme !== 'dark') return
-  document.documentElement.dataset.theme = theme as GenuiTheme
+  document.documentElement.dataset.theme = asTheme(theme)
 }
 
 function el(tag: string, className: string, text?: string): HTMLElement {
@@ -153,20 +160,52 @@ function renderSelfChecks(): HTMLElement {
   return section
 }
 
-function render(init: GenuiInitMessage): void {
+function renderFixture(init: GenuiInitMessage): void {
   if (!card) return
   card.textContent = ''
   card.dataset.state = 'ready'
   card.appendChild(renderSchema(init.schema))
   card.appendChild(renderSelfChecks())
-  applyTheme(init.theme)
 }
 
-function adoptTheme(data: unknown): void {
+/**
+ * 真实卡片：渲染失败与内容高度都由这里上报给宿主，宿主只换这一张卡的占位、
+ * 只收放这一个 iframe —— 失败永远不外溢到消息其余部分或别的卡。
+ */
+function renderRealCard(init: GenuiInitMessage): void {
+  if (!card) return
+  card.textContent = ''
+  card.dataset.state = 'rendering'
+  mounted = mountGenuiCard(
+    card,
+    init.schema,
+    { theme: asTheme(init.theme), locale: init.locale },
+    {
+      onError: () => postToHost(GENUI_MSG_ERROR),
+      onResize: (height) => postToHost(GENUI_MSG_SIZE, { height }),
+      // 动作与回信走同一条已握手通道；宿主桥再按白名单、协议与限额过滤
+      onAction: (request) => postToHost(GENUI_MSG_ACTION, { action: request.action, payload: request.payload }),
+    },
+    { render: renderOfficialCard },
+  )
+  card.dataset.state = 'ready'
+}
+
+function render(init: GenuiInitMessage): void {
+  applyTheme(init.theme)
+  if (init.schema?.componentName === GENUI_FIXTURE_COMPONENT_NAME) {
+    renderFixture(init)
+    return
+  }
+  renderRealCard(init)
+}
+
+function adoptAppearance(data: unknown): void {
   if (!session) return
-  if (messageType(data) !== GENUI_MSG_THEME) return
-  if (!hasGenuiNonce(data, session.nonce)) return
-  applyTheme((data as { theme?: unknown }).theme)
+  // 主题与语言只经宿主注入进来，卡片不读父窗口 CSS
+  if (!isGenuiThemeMessage(data, session.nonce)) return
+  applyTheme(data.theme)
+  mounted?.applyAppearance({ theme: asTheme(data.theme), locale: data.locale })
 }
 
 window.addEventListener('message', (event) => {
@@ -180,12 +219,12 @@ window.addEventListener('message', (event) => {
     session = { nonce: data.nonce, port: event.ports[0] }
     // 握手之后的宿主消息走端口，不再经过 window：端口上的 message 不会派发到 window，
     // 只监听 window 会让主题与语言推送静默丢失。
-    session.port.onmessage = (portEvent) => adoptTheme(portEvent.data)
+    session.port.onmessage = (portEvent) => adoptAppearance(portEvent.data)
     render(data)
     replyReady()
     return
   }
 
   // 宿主偶尔也会经 window 推一份（重试路径不重建端口时），同一套判定复用
-  adoptTheme(data)
+  adoptAppearance(data)
 })

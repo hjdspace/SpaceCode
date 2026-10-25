@@ -1,4 +1,5 @@
 import type { Message } from '@/types'
+import { projectGenuiCards } from '@/lib/genui/cardProjection'
 
 /**
  * 把 Claude Code JSONL 格式的历史消息流转换为内部 Message[] 结构。
@@ -520,6 +521,32 @@ export function buildMessagesFromHistory(
         tc.taskFinalStatus = final.status
         tc.taskFinalAt = final.at
       }
+    }
+  }
+
+  // 卡片重投影（票 02）：JSONL 正文带着 ` ```schemaJson ` 原文，不投影就会在重载后
+  // 把界面画成一段 JSON，卡片也丢了。用与流式同一个纯函数，同一条正文因此拿到同样的
+  // 确定性 id —— 前端特有的卡片状态（提交标记等）不在 JSONL 里，由 hydrate 的元数据
+  // 合并负责，那份合并要按 id 优先保留已有记录（PRD §5）。
+  // 逐块去围栏按块内文本判定：跨块才闭合的围栏会既成卡又在块里留一段可读原文，
+  // 与流式期间的表现一致（都以整条正文为准成卡，块内残段按普通代码块显示）。
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || typeof msg.id !== 'string' || !msg.id) continue
+
+    const projection = projectGenuiCards(msg.content, msg.id, { final: true })
+    if (!projection.cards.length && !projection.fallbacks.length) continue
+
+    msg.content = projection.text
+    if (msg.timelineEvents?.length) {
+      for (const event of msg.timelineEvents) {
+        if (event.type !== 'text' || !event.content) continue
+        event.content = projectGenuiCards(event.content, msg.id, { final: true }).text
+      }
+    }
+    msg.metadata = {
+      ...msg.metadata,
+      ...(projection.cards.length ? { genUiCards: projection.cards } : {}),
+      ...(projection.fallbacks.length ? { genUiCardFallbacks: projection.fallbacks } : {}),
     }
   }
 

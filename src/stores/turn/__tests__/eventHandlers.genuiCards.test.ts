@@ -224,6 +224,36 @@ describe('消息收口', () => {
     ])
   })
 
+  it('两条降级说明都写进 metadata，第二条不会被第一条挡住', async () => {
+    const fake = fakeApi()
+    await beginTurn(fake)
+
+    const raw = [fence('{坏 JSON,}'), '', fence('{"componentName":"TinyHuichartsBar"}')].join('\n')
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: raw } })
+    flushStreaming()
+
+    const message = assistant(fake)
+    expect(message?.metadata?.genUiCardFallbacks?.map(f => f.reason)).toEqual([
+      'malformed-json',
+      'unsupported-component',
+    ])
+  })
+
+  it('降级从有到无时收回提示，不留一条已不成立的说明', async () => {
+    const fake = fakeApi()
+    await beginTurn(fake)
+
+    // 先只给到坏 JSON 的开栏与内容（未闭合 → 流式期间隐藏，也不记降级）
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: fence('{"componentName":"TinyHuichartsBar"}').slice(0, -3) } })
+    flushStreaming()
+    expect(assistant(fake)?.metadata?.genUiCardFallbacks).toBeUndefined()
+
+    // 补上闭栏：这次投影出的是降级，说明要出现
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: '```' } })
+    flushStreaming()
+    expect(assistant(fake)?.metadata?.genUiCardFallbacks).toHaveLength(1)
+  })
+
   it('超出限额的第 9 张卡降级为文本并记录原因', async () => {
     const fake = fakeApi()
     await beginTurn(fake)
@@ -302,6 +332,92 @@ describe('引擎只回 assistant 事件（非流式）', () => {
     expect(texts).toEqual(['调用前', '调用后'])
     expect(message?.content).toBe('调用前\n\n调用后')
     expect(message?.metadata?.genUiCards).toHaveLength(1)
+  })
+})
+
+describe('回合以报错收口', () => {
+  /** 不可重试的错误：走硬失败分支，这条消息确定不会再有文本来。 */
+  async function failTurn(fake: Fake, sessionId: string) {
+    const { errorHandler } = await import('@/services/errorHandler')
+    const classified = {
+      category: 'UNKNOWN',
+      title: '请求失败',
+      message: '请求失败',
+      technicalDetail: 'boom',
+      retryable: false,
+      originalError: new Error('boom'),
+      timestamp: Date.now(),
+    } as never
+    vi.spyOn(errorHandler, 'classifyError').mockReturnValue(classified)
+    vi.spyOn(errorHandler, 'handleError').mockReturnValue(classified)
+    void sessionId
+    fake._handlers.onError({ sessionId: SESSION, data: { message: 'boom' } })
+  }
+
+  it('未闭合的围栏在报错后回到时间线文本，不会被永久藏起来', async () => {
+    const fake = fakeApi()
+    await beginTurn(fake)
+
+    const raw = ['开头', '', '```schemaJson', '{"componentName": "TinyForm"'].join('\n')
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: raw } })
+    flushStreaming()
+    expect(textEventContent(assistant(fake))).toBe('开头')
+
+    await failTurn(fake, SESSION)
+
+    const message = assistant(fake)
+    expect(textEventContent(message)).toContain('```schemaJson')
+    expect(textEventContent(message)).toContain('{"componentName": "TinyForm"')
+    expect(message?.metadata?.genUiCards).toBeUndefined()
+  })
+})
+
+describe('跨 text 块的围栏（模型在 JSON 中间插了一次工具调用）', () => {
+  it('整条消息仍然成卡，块内留下可读的原始片段', async () => {
+    const fake = fakeApi()
+    await beginTurn(fake)
+
+    // 开栏与半个 schema 在第一个块，闭合在工具调用之后的第二个块
+    stream(fake, { type: 'content_block_start', content_block: { type: 'text' } })
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: '开头\n```schemaJson\n{"componentName": "TinyForm",\n' } })
+    stream(fake, { type: 'content_block_start', content_block: { type: 'tool_use', id: 'toolu_1', name: 'Read' } })
+    stream(fake, { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{"file_path":"a.ts"}' } })
+    stream(fake, { type: 'content_block_stop' })
+    stream(fake, { type: 'content_block_start', content_block: { type: 'text' } })
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: '"props": { "title": "B" }\n}\n```' } })
+    flushStreaming()
+
+    const message = assistant(fake)
+    // 整条正文拼起来是闭合的，所以卡片照常出现
+    expect(message?.metadata?.genUiCards).toHaveLength(1)
+    expect(message?.content).toBe('开头')
+    // 单块里闭合不了，块文本按普通代码块留着 —— 表现是「卡片 + 一段可读的降级原文」，
+    // 消息其余部分不受影响。这是投影只按整条正文判定的已知取舍，不是漏网。
+    expect(textEventContent(message)).toContain('```')
+  })
+
+  it('DEFECT: 围栏始终不闭合且中途换过块时，藏起来的那段只回到正文，时间线看不到', async () => {
+    const fake = fakeApi()
+    await beginTurn(fake)
+
+    stream(fake, { type: 'content_block_start', content_block: { type: 'text' } })
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: '开头\n```schemaJson\n{"componentName": "TinyForm",' } })
+    stream(fake, { type: 'content_block_start', content_block: { type: 'tool_use', id: 'toolu_1', name: 'Read' } })
+    stream(fake, { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{"file_path":"a.ts"}' } })
+    stream(fake, { type: 'content_block_stop' })
+    stream(fake, { type: 'content_block_start', content_block: { type: 'text' } })
+    stream(fake, { type: 'content_block_delta', delta: { type: 'text_delta', text: '后面还有一句' } })
+    flushStreaming()
+    fake._handlers.onResult({ sessionId: SESSION, data: {} })
+
+    const message = assistant(fake)
+    // 收口按整条正文判定：未闭合围栏回到 msg.content
+    expect(message?.content).toContain('```schemaJson')
+    // 但时间线只回补**当前**块（更早块的原文没留档），于是这段在界面上是看不见的。
+    // 这条钉的是「现状如此」，不是「应该如此」：修它要给每个 text 块留原文底账，
+    // 另开票决定（口径见 docs/prd/genui-cards.md §1「消息收口时仍未闭合则按普通代码块显示」）。
+    expect(textEventContent(message)).not.toContain('```schemaJson')
+    expect(message?.metadata?.genUiCards).toBeUndefined()
   })
 })
 

@@ -2,15 +2,16 @@
  * 助手正文 → 「可见正文 + 卡片记录」的投影（票 02 的核心边界）。
  *
  * 唯一识别 ` ```schemaJson ` 闭合围栏：其他语言标记、缩进代码块、行内反引号都不动。
- * 纯函数、可注入限额与白名单，因此流式更新、消息收口、历史回放与持久化都复用同一条判定，
- * 不依赖 store 与 DOM（口径见 `docs/prd/genui-cards.md` §1）。
+ * 纯函数、限额可注入，因此流式更新、消息收口、历史回放与持久化都复用同一条判定，
+ * 不依赖 store 与 DOM（口径见 `docs/prd/genui-cards.md` §1）。组件白名单只有一个来源：
+ * `@/shared/genuiMaterials`，宿主判定与沙箱注册共用它，不提供按次覆盖的入口。
  *
  * 两条不成卡的处理原则：
  * - 成不了卡就**不动正文**——围栏原样留下当代码块显示，内容不会被静默丢弃；
  * - 另外落一条 `fallbacks` 记录，由宿主渲染可见说明，用户知道这张卡为什么没出来。
  */
 import { GENUI_SANDBOX_PROTOCOL_VERSION } from '@/shared/genuiSandbox'
-import { GENUI_MATERIAL_WHITELIST } from '@/shared/genuiMaterials'
+import { isGenuiComponentAllowed } from '@/shared/genuiMaterials'
 import type { GenuiCardFallback, GenuiCardFallbackReason, GenuiCardRecord } from '@/types/genui'
 
 /** 单卡 schema 原文上限（PRD §1：超限按后面的卡降级为文本处理）。 */
@@ -28,7 +29,6 @@ const CLOSE_RE = /^(`{3,})[ \t]*$/
 export type GenuiProjectionOptions = {
   /** false = 流式期间：未闭合围栏只隐藏，不成卡也不记降级。默认 false。 */
   final?: boolean
-  whitelist?: readonly string[]
   protocolVersion?: number
   maxSchemaBytes?: number
   maxCardsPerMessage?: number
@@ -136,7 +136,7 @@ function assembleText(lines: string[], hidden: Set<number>): string {
 /** 校验一个闭合围栏的原文，返回卡片 schema 或降级原因。 */
 function evaluateSlot(
   slot: FenceSlot,
-  options: { whitelist: ReadonlySet<string>; protocolVersion: number; maxSchemaBytes: number },
+  options: { protocolVersion: number; maxSchemaBytes: number },
 ): { schema: Record<string, unknown> } | { reason: GenuiCardFallbackReason } {
   if (byteLength(slot.body) > options.maxSchemaBytes) {
     return { reason: 'oversized-schema' }
@@ -156,7 +156,7 @@ function evaluateSlot(
 
   const rootName = typeof schema.componentName === 'string' ? schema.componentName.trim() : ''
   if (!rootName) return { reason: 'missing-component-name' }
-  if (!options.whitelist.has(rootName)) return { reason: 'unsupported-component' }
+  if (!isGenuiComponentAllowed(rootName)) return { reason: 'unsupported-component' }
 
   // 技能输出的 schema 可以自带协议版本；与宿主不一致就按「无法渲染」降级，
   // 避免旧技能配新渲染器产出错位界面（PRD §1）。
@@ -173,13 +173,11 @@ export function projectGenuiCards(
   options: GenuiProjectionOptions = {},
 ): GenuiCardProjection {
   const final = options.final ?? false
-  const whitelist = options.whitelist ?? GENUI_MATERIAL_WHITELIST
   const protocolVersion = options.protocolVersion ?? GENUI_SANDBOX_PROTOCOL_VERSION
   const maxSchemaBytes = options.maxSchemaBytes ?? GENUI_MAX_CARD_SCHEMA_BYTES
   const maxCardsPerMessage = options.maxCardsPerMessage ?? GENUI_MAX_CARDS_PER_MESSAGE
 
   const lines = raw.split('\n')
-  const allowed = new Set(whitelist)
   const slots = scanFences(lines)
   const cards: GenuiCardRecord[] = []
   const fallbacks: GenuiCardFallback[] = []
@@ -194,7 +192,7 @@ export function projectGenuiCards(
       continue
     }
 
-    const verdict = evaluateSlot(slot, { whitelist: allowed, protocolVersion, maxSchemaBytes })
+    const verdict = evaluateSlot(slot, { protocolVersion, maxSchemaBytes })
     const overCount = 'schema' in verdict && cards.length >= maxCardsPerMessage
     const reason: GenuiCardFallbackReason | null =
       'reason' in verdict ? verdict.reason : overCount ? 'too-many-cards' : null

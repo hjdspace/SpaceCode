@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount, config } from '@vue/test-utils'
+import { mount, config, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { createI18n } from 'vue-i18n'
 import { readFileSync } from 'fs'
@@ -7,7 +7,14 @@ import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import zhCN from '@/i18n/locales/zh-CN'
 import enUS from '@/i18n/locales/en-US'
-import { GENUI_MSG_READY, GENUI_SANDBOX_DOC_PATH, GENUI_SANDBOX_PROTOCOL_VERSION } from '@/shared/genuiSandbox'
+import {
+  GENUI_MSG_ACTION,
+  GENUI_MSG_ERROR,
+  GENUI_MSG_READY,
+  GENUI_MSG_SIZE,
+  GENUI_SANDBOX_DOC_PATH,
+  GENUI_SANDBOX_PROTOCOL_VERSION,
+} from '@/shared/genuiSandbox'
 import GenuiCardFrame from '../GenuiCardFrame.vue'
 
 const i18n = createI18n({
@@ -114,6 +121,75 @@ describe('握手失败收口到该卡的错误占位', () => {
   })
 })
 
+describe('卡片高度跟随内容', () => {
+  /**
+   * 桥自己生成随机密钥，测试里要拿到同一个值才能伪装沙箱回信。
+   * 直接在挂载前把 randomUUID 钉成固定串，比拦截注入消息可靠 —— jsdom 里
+   * postMessage 投给 iframe 不会回到父窗口。形状必须是 UUID，桥的类型就长这样。
+   */
+  const NONCE = '11111111-2222-3333-4444-555555555555'
+
+  function mountHandedOver() {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue(NONCE)
+    const wrapper = mountFrame()
+    const frame = wrapper.find('iframe').element
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_READY, nonce: NONCE, protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION },
+        source: frame.contentWindow,
+      }),
+    )
+    return { wrapper, frame }
+  }
+
+  function report(overrides: Record<string, unknown>) {
+    const { wrapper, frame } = mountHandedOver()
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_SIZE, nonce: NONCE, ...overrides },
+        source: frame.contentWindow,
+      }),
+    )
+    return wrapper
+  }
+
+  it('沙箱报来内容高度后 iframe 收放到位，不留空白也不裁切', async () => {
+    const wrapper = report({ height: 512 })
+    await nextTick()
+
+    expect(wrapper.find('iframe').attributes('style')).toContain('height: 512px')
+    wrapper.unmount()
+  })
+
+  it('沙箱上报渲染失败时换成该卡的错误占位并可重试', async () => {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue(NONCE)
+    const wrapper = mountFrame()
+    const frame = wrapper.find('iframe').element
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_READY, nonce: NONCE, protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION },
+        source: frame.contentWindow,
+      }),
+    )
+    await nextTick()
+    expect(wrapper.attributes('data-state')).toBe('ready')
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_ERROR, nonce: NONCE },
+        source: frame.contentWindow,
+      }),
+    )
+    await nextTick()
+
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.text()).toContain('卡片内容渲染失败')
+    expect(wrapper.find('button').text()).toBe('重试')
+    wrapper.unmount()
+  })
+})
+
 describe('外壳跟随应用主题', () => {
   it('主题变化写进 data-theme，占位文案也跟着明暗', async () => {
     const wrapper = mountFrame()
@@ -123,3 +199,122 @@ describe('外壳跟随应用主题', () => {
     wrapper.unmount()
   })
 })
+
+describe('卡片动作与展开', () => {
+  const NONCE = '11111111-2222-3333-4444-555555555555'
+
+  async function mountReady(overrides: Record<string, unknown> = {}) {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue(NONCE)
+    const copyText = vi.fn(async () => {})
+    const openExternal = vi.fn(async () => {})
+    const wrapper = mountFrame({ actionPort: { copyText, openExternal }, ...overrides })
+    const frame = wrapper.find('iframe').element as HTMLIFrameElement
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_READY, nonce: NONCE, protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION },
+        source: frame.contentWindow,
+      }),
+    )
+    await nextTick()
+    return { wrapper, frame, copyText, openExternal }
+  }
+
+  function dispatchAction(frame: HTMLIFrameElement, data: Record<string, unknown>) {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_ACTION, nonce: NONCE, ...data },
+        source: frame.contentWindow,
+      }),
+    )
+  }
+
+  it('复制动作交给平台适配器，卡片保持可用', async () => {
+    const { wrapper, frame, copyText } = await mountReady()
+
+    dispatchAction(frame, { action: 'copy', payload: { text: '你好' } })
+    await flushPromises()
+
+    expect(copyText).toHaveBeenCalledWith('你好')
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('复制失败时显示可见错误，卡片本身不消失', async () => {
+    const { wrapper, frame, copyText } = await mountReady()
+    copyText.mockRejectedValueOnce(new Error('no clipboard'))
+
+    dispatchAction(frame, { action: 'copy', payload: { text: '你好' } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('复制失败')
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('外链只经平台适配器打开', async () => {
+    const { wrapper, frame, openExternal } = await mountReady()
+
+    dispatchAction(frame, { action: 'openLink', payload: { url: 'https://example.com/docs' } })
+    await flushPromises()
+
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/docs')
+    wrapper.unmount()
+  })
+
+  it('非法协议与未知动作都不会触达平台适配器', async () => {
+    const { wrapper, frame, copyText, openExternal } = await mountReady()
+
+    dispatchAction(frame, { action: 'openLink', payload: { url: 'javascript:alert(1)' } })
+    dispatchAction(frame, { action: 'shell', payload: { cmd: 'rm -rf /' } })
+    await flushPromises()
+
+    expect(openExternal).not.toHaveBeenCalled()
+    expect(copyText).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('失败')
+    wrapper.unmount()
+  })
+
+  it('动作迟迟没有回执时换成错误占位并可重试', async () => {
+    const { wrapper, frame, copyText } = await mountReady()
+    copyText.mockImplementationOnce(() => new Promise<void>(() => {}))
+
+    dispatchAction(frame, { action: 'copy', payload: { text: '慢' } })
+    await nextTick()
+    vi.advanceTimersByTime(5_000)
+    await flushPromises()
+
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.text()).toContain('卡片动作超时')
+    expect(wrapper.find('.genui-card-retry').text()).toBe('重试')
+    wrapper.unmount()
+  })
+
+  it('展开在弹窗内新起沙箱，原 iframe 原地不动', async () => {
+    const { wrapper, frame } = await mountReady()
+
+    const expandButton = wrapper.find('.genui-card-expand')
+    expect(expandButton.exists()).toBe(true)
+    expect(expandButton.element.tagName).toBe('BUTTON')
+
+    await expandButton.trigger('click')
+    const frames = wrapper.findAll('iframe')
+    expect(frames.length).toBe(2)
+    expect(frames[0].element).toBe(frame)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+    expect(frames[1].element.getAttribute('src')).toBe(SOURCE.docUrl)
+    expect(frames[1].element.getAttribute('sandbox')).toBe('allow-scripts')
+
+    await wrapper.find('.genui-card-expand-close').trigger('click')
+    expect(wrapper.findAll('iframe').length).toBe(1)
+    expect(wrapper.find('iframe').element).toBe(frame)
+    wrapper.unmount()
+  })
+
+  it('弹窗里的卡片不再显示展开控件', async () => {
+    const { wrapper } = await mountReady({ expandable: false })
+
+    expect(wrapper.find('.genui-card-expand').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+

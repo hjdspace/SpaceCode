@@ -12,7 +12,7 @@ import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { GENUI_SANDBOX_CSP, GENUI_SANDBOX_DEV_BASE_URL, GENUI_SANDBOX_SCHEME } from '@/shared/genuiSandbox'
-import { buildGenuiSandbox, SANDBOX_ENTRY_FILE } from '../scripts/genui-sandbox-build.mjs'
+import { buildGenuiSandbox, SANDBOX_ENTRY_FILE, SANDBOX_THEME_FILE } from '../scripts/genui-sandbox-build.mjs'
 
 const outDir = mkdtempSync(join(tmpdir(), 'genui-sandbox-out-'))
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -30,15 +30,19 @@ function read(name: string) {
 }
 
 describe('沙箱构建产物', () => {
-  it('独立资源目录里有入口文档、脚本与样式', () => {
+  it('独立资源目录里有入口文档、脚本与两份样式', () => {
     expect(existsSync(join(outDir, 'index.html'))).toBe(true)
     expect(existsSync(join(outDir, SANDBOX_ENTRY_FILE))).toBe(true)
+    // 官方物料样式由 esbuild 从 JS 里的 CSS import 收集，与手写的卡片外壳分开
     expect(existsSync(join(outDir, 'sandbox.css'))).toBe(true)
+    expect(existsSync(join(outDir, SANDBOX_THEME_FILE))).toBe(true)
   })
 
   it('入口文档用经典脚本引用自身产物，且不含内联脚本', () => {
     const html = read('index.html')
     expect(html).toContain(`src="./${SANDBOX_ENTRY_FILE}"`)
+    expect(html).toContain('href="./sandbox.css"')
+    expect(html).toContain(`href="./${SANDBOX_THEME_FILE}"`)
     expect(html).not.toMatch(/<script[^>]+type=["']module["']/)
     // 内联 script 在 script-src 'self' 'unsafe-eval' 下必然被拦，产物不该依赖它
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/)
@@ -49,6 +53,17 @@ describe('沙箱构建产物', () => {
     expect(js).not.toMatch(/^\s*import\s/m)
     expect(js).not.toMatch(/^\s*export\s/m)
     expect(js).toContain('genui:ready')
+  })
+
+  it('卡片渲染走官方 mini 物料：样式与桥消息都在产物里', () => {
+    const js = read(SANDBOX_ENTRY_FILE)
+    const css = read('sandbox.css')
+
+    // 票 02 的实质：产物里带真实物料与渲染器，而不是票 01 那套手搓 DOM
+    expect(css).toContain('.tiny-button')
+    expect(js).toContain('schema-render-container')
+    expect(js).toContain('genui:size')
+    expect(js).toContain('genui:error')
   })
 
   it('文档里的 CSP 与主进程下发的 CSP 逐字一致', () => {

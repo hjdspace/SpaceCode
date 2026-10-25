@@ -59,6 +59,13 @@ export default defineConfig({
       // 沙箱文档是独立入口，它与宿主桥之间的端口消息往返只能在这里钉住
       'sandbox/**/*.test.ts',
     ],
+    // OpenTiny GenUI 物料把样式以 `@opentiny/vue-theme/**.css` 直接 import 进 JS。
+    // 这些包默认走 Node 原生 ESM 加载（CSS 扩展名必炸），交给 Vite 处理才变成空模块。
+    server: {
+      deps: {
+        inline: [/@opentiny\//, /echarts/, /zrender/],
+      },
+    },
     coverage: {
       // Vitest 3+ removed `coverage.all`: files matching `include` are always
       // counted, so files never imported still report as 0% — that is the

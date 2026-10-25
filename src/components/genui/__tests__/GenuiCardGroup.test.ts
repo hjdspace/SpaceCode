@@ -7,7 +7,7 @@ import enUS from '@/i18n/locales/en-US'
 import GenuiCardGroup from '../GenuiCardGroup.vue'
 import GenuiCardFrame from '../GenuiCardFrame.vue'
 import { GENUI_SANDBOX_DOC_PATH, GENUI_SANDBOX_PROTOCOL_VERSION } from '@/shared/genuiSandbox'
-import type { GenuiCardRecord } from '@/types/genui'
+import type { GenuiCardFallback, GenuiCardRecord } from '@/types/genui'
 import type { Message } from '@/types'
 
 const i18n = createI18n({
@@ -90,6 +90,53 @@ describe('消息区的卡片分组', () => {
     const wrapper = mountGroup([message('m1', [card('m1', 0)])], { source: null })
     expect(wrapper.text()).toContain('当前宿主未接入卡片沙箱')
     expect(wrapper.find('iframe').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('降级为文本的卡片提示', () => {
+  function messageWith(
+    id: string,
+    cards: GenuiCardRecord[],
+    fallbacks: GenuiCardFallback[],
+  ): Message {
+    return {
+      id,
+      role: 'assistant',
+      content: '正文里留着原样围栏',
+      timestamp: 1,
+      metadata: { genUiCards: cards, genUiCardFallbacks: fallbacks },
+    }
+  }
+
+  it('只有降级记录时给出可见说明，且不开任何 iframe', () => {
+    const wrapper = mountGroup([
+      messageWith('m1', [], [{ id: 'm1:fallback:0', reason: 'unsupported-component', componentName: 'TinyHuichartsBar' }]),
+    ])
+
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.text()).toContain('这条回复里有卡片没渲染成界面')
+    expect(wrapper.text()).toContain('TinyHuichartsBar')
+    expect(wrapper.text()).toContain('根组件不在官方 mini 物料白名单内')
+    wrapper.unmount()
+  })
+
+  it('卡片与降级并存时各自呈现', () => {
+    const wrapper = mountGroup([
+      messageWith('m1', [card('m1', 0)], [{ id: 'm1:fallback:1', reason: 'malformed-json', componentName: '' }]),
+    ])
+
+    expect(wrapper.findAll('iframe')).toHaveLength(1)
+    expect(wrapper.text()).toContain('围栏内容不是合法 JSON')
+    // 组件名缺省时不留下一个孤立的分隔符
+    expect(wrapper.text()).not.toMatch(/·\s*围栏内容/)
+    wrapper.unmount()
+  })
+
+  it('没有降级记录时不占任何位置', () => {
+    const wrapper = mountGroup([message('m1', [card('m1', 0)])])
+
+    expect(wrapper.find('.genui-card-fallbacks').exists()).toBe(false)
     wrapper.unmount()
   })
 })

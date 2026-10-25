@@ -410,9 +410,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const CONTENT_PATCH_INTERVAL_MS = 50
 
   // 卡片记录只在 id 集合变化时才写 metadata：流式期间每个节流窗口都会重投影，
-  // 逐次替换对象会让消息无谓地失效重渲染。
-  const sameRecordIds = (next: { id: string }[], current: { id: string }[] | undefined): boolean =>
-    current?.length === next.length && next.every((record, index) => record.id === current[index]?.id)
+  // 逐次替换对象会让消息无谓地失效重渲染。缺字段与空数组视为同一份「没有」。
+  const sameRecordIds = (next: { id: string }[], current: { id: string }[] | undefined): boolean => {
+    if ((current?.length ?? 0) !== next.length) return false
+    return next.every((record, index) => record.id === current?.[index]?.id)
+  }
 
   /** 单个 text 块的可见正文：与整条消息同一套围栏判定，只是不产卡片记录。 */
   const visibleBlock = (ts: TurnState, rawBlock: string, final = false): string =>
@@ -431,16 +433,24 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const cards = projection.cards.length
       ? mergeGenuiCardRecords(message.metadata?.genUiCards, projection.cards)
       : message.metadata?.genUiCards
-    const fallbacks = projection.fallbacks.length ? projection.fallbacks : undefined
 
     if (cards?.length && !sameRecordIds(cards, message.metadata?.genUiCards)) {
       message.metadata = { ...message.metadata, genUiCards: cards }
     }
-    if (Boolean(fallbacks?.length) !== Boolean(message.metadata?.genUiCardFallbacks?.length)) {
-      message.metadata = { ...message.metadata, genUiCardFallbacks: fallbacks }
+    // 降级说明按整份替换：它没有需要保留的状态，而一条消息里可以先后出现多条降级
+    // （两张坏围栏、或第 9 张卡超限），只比「有没有」会让第二条永远不上屏。
+    if (!sameRecordIds(projection.fallbacks, message.metadata?.genUiCardFallbacks)) {
+      message.metadata = {
+        ...message.metadata,
+        genUiCardFallbacks: projection.fallbacks.length ? projection.fallbacks : undefined,
+      }
     }
 
-    // 时间线按 text 块各自去围栏：一张卡的围栏只可能落在一个块里
+    // 时间线按 text 块各自去围栏。跨块的 ` ```schemaJson `（模型在 JSON 中间插了一次工具调用）
+    // 在整条消息上闭合、在单块里闭合不了，因此那种围栏会既成卡又在块里留下残段 ——
+    // 表现是「卡片 + 一段降级文本」，消息其余部分不受影响（tests 里钉住了这个行为）。
+    // 反过来不成立：收口只回补**当前**块，更早的块在流式期间藏起的未闭合围栏不会再被重写
+    // （块的原文没留档），它只回到 msg.content。已知缺口，见 DEFECT 用例。
     const blockText = ts.currentTextContent
       ? projectGenuiCards(ts.currentTextContent, ts.assistantMessageId, { final }).text
       : ''
@@ -448,7 +458,14 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     return { content: projection.text, blockText }
   }
 
-  function flushContentPatch(sessionId: string, ts: TurnState): void {
+  /**
+   * 把累计文本落到消息与当前 text 事件上。
+   *
+   * `final` 表示这条消息**已经不会再有文本来**：result 收口、报错与中止都算。
+   * 只有收口时才该把「仍未闭合的围栏」放回正文当代码块显示 —— 流式期间它必须藏着，
+   * 否则用户会看见半张卡闪一下；而收口后还藏着就等于把内容吞掉。
+   */
+  function flushContentPatch(sessionId: string, ts: TurnState, final = false): void {
     const pending = pendingContentPatches.get(sessionId)
     if (pending) clearTimeout(pending.timer)
     pendingContentPatches.delete(sessionId)
@@ -456,7 +473,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const message = getAssistantMessage(sessionId, ts)
     if (!message) return
 
-    const { content, blockText } = syncCardProjection(ts, message, false)
+    const { content, blockText } = syncCardProjection(ts, message, final)
 
     const textEvent = ts.currentTextEventId
       ? message.timelineEvents?.find(event => event.id === ts.currentTextEventId)
@@ -1564,6 +1581,9 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       loadingSessions.value.set(sessionId, false)
       streamingContents.value.set(sessionId, '')
       autoRetry.removeRetryState(sessionId)
+      // 中止就是这条消息的终点：再收一次口，把流式期间藏起来的「仍未闭合围栏」放回正文，
+      // 否则用户停掉一个正在出卡的回合，那段 schema 就凭空消失了。
+      flushContentPatch(sessionId, ts, true)
       const s = sink.get(sessionId)
       if (s) {
         s.processStatus = 'idle'
@@ -1628,6 +1648,9 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     })
 
     const failedDurationMs = Date.now() - ts.sendStartTime
+    // 失败也是收口（自动重试那条路早在上面 return 了，还会来文本，所以不能在那儿收）：
+    // 气泡正文接下来会被错误文案顶掉，但时间线里的文本事件留着，未闭合围栏要在这里回到文本。
+    flushContentPatch(sessionId, ts, true)
 
     traceEvent({
       sessionId,

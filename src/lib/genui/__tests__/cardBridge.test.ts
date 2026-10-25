@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
+  GENUI_MSG_ACTION,
   GENUI_MSG_ERROR,
   GENUI_MSG_INIT,
   GENUI_MSG_READY,
@@ -14,7 +15,7 @@ import {
   GENUI_MSG_THEME,
   GENUI_SANDBOX_PROTOCOL_VERSION,
 } from '@/shared/genuiSandbox'
-import { createCardBridge, type CardBridgeState, type CardFrameLike, type HostMessageSource } from '../cardBridge'
+import { createCardBridge, GENUI_MAX_FRAME_HEIGHT, type CardBridgeState, type CardFrameLike, type HostMessageSource } from '../cardBridge'
 
 const NONCE = 'host-nonce'
 
@@ -326,8 +327,18 @@ describe('沙箱上报：渲染失败与高度', () => {
     const { port1 } = withReady({ onResize })
     port1.onmessage?.({ data: { type: GENUI_MSG_SIZE, nonce: NONCE, height: '420' } })
     port1.onmessage?.({ data: { type: GENUI_MSG_SIZE, nonce: NONCE } })
+    port1.onmessage?.({ data: { type: GENUI_MSG_SIZE, nonce: NONCE, height: 0 } })
+    port1.onmessage?.({ data: { type: GENUI_MSG_SIZE, nonce: NONCE, height: -50 } })
 
     expect(onResize).not.toHaveBeenCalled()
+  })
+
+  it('沙箱报来的离谱高度在桥口就被夹住', () => {
+    const onResize = vi.fn()
+    const { port1 } = withReady({ onResize })
+    port1.onmessage?.({ data: { type: GENUI_MSG_SIZE, nonce: NONCE, height: 9_000_000 } })
+
+    expect(onResize).toHaveBeenCalledWith(GENUI_MAX_FRAME_HEIGHT)
   })
 
   it('dispose 后停止接收上报', () => {
@@ -354,5 +365,106 @@ describe('dispose', () => {
     hostWindow.dispatch({ source: iframe.contentWindow, data: readyPayload() })
     vi.advanceTimersByTime(60_000)
     expect(states).toEqual([{ status: 'connecting' }])
+  })
+})
+
+describe('卡片动作路由', () => {
+  function withReady(overrides: Parameters<typeof createBridge>[0] = {}) {
+    const onAction = vi.fn()
+    const onIgnoredMessage = vi.fn()
+    const ctx = createBridge({ onAction, onIgnoredMessage, ...overrides })
+    ctx.bridge.start()
+    ctx.hostWindow.dispatch({ source: ctx.iframe.contentWindow, data: readyPayload() })
+    return { ...ctx, onAction, onIgnoredMessage }
+  }
+
+  function actionPayload(overrides: Record<string, unknown> = {}) {
+    return { type: GENUI_MSG_ACTION, nonce: NONCE, action: 'copy', payload: { text: 'hi' }, ...overrides }
+  }
+
+  it('白名单动作经已握手通道抵达宿主，卡片状态不变', () => {
+    const { iframe, hostWindow, port1, onAction, states } = withReady()
+    hostWindow.dispatch({ source: iframe.contentWindow, data: actionPayload() })
+
+    expect(onAction).toHaveBeenCalledWith({ action: 'copy', text: 'hi' })
+    expect(states[states.length - 1]).toEqual({ status: 'ready', protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION })
+
+    port1.onmessage?.({ data: actionPayload({ action: 'openLink', payload: { url: 'https://x.dev' } }) })
+    expect(onAction).toHaveBeenLastCalledWith({ action: 'openLink', url: 'https://x.dev' })
+  })
+
+  it('白名单之外的动作被丢弃并记录，不转发', () => {
+    const { iframe, hostWindow, onAction, onIgnoredMessage } = withReady()
+    hostWindow.dispatch({ source: iframe.contentWindow, data: actionPayload({ action: 'shell', payload: { cmd: 'rm -rf /' } }) })
+
+    expect(onAction).not.toHaveBeenCalled()
+    expect(onIgnoredMessage).toHaveBeenCalledWith({ type: 'action', reason: 'unknown-action' })
+  })
+
+  it('非法外链协议被丢弃并记录', () => {
+    const { iframe, hostWindow, onAction, onIgnoredMessage } = withReady()
+    hostWindow.dispatch({
+      source: iframe.contentWindow,
+      data: actionPayload({ action: 'openLink', payload: { url: 'javascript:alert(1)' } }),
+    })
+
+    expect(onAction).not.toHaveBeenCalled()
+    expect(onIgnoredMessage).toHaveBeenCalledWith({ type: 'action', reason: 'invalid-payload' })
+  })
+
+  it('超过桥消息上限的 payload 被丢弃并记录', () => {
+    const { iframe, hostWindow, onAction, onIgnoredMessage } = withReady({ maxMessageBytes: 128 })
+    hostWindow.dispatch({
+      source: iframe.contentWindow,
+      data: actionPayload({ action: 'submit', payload: { blob: 'x'.repeat(256) } }),
+    })
+
+    expect(onAction).not.toHaveBeenCalled()
+    expect(onIgnoredMessage).toHaveBeenCalledWith({ type: 'action', reason: 'oversized' })
+  })
+
+  it('nonce 或来源不匹配的动作一律丢弃，也不产生记录噪音', () => {
+    const { iframe, hostWindow, onAction, onIgnoredMessage } = withReady()
+    hostWindow.dispatch({ source: { not: 'this-frame' }, data: actionPayload() })
+    hostWindow.dispatch({ source: iframe.contentWindow, data: actionPayload({ nonce: 'guessed' }) })
+
+    expect(onAction).not.toHaveBeenCalled()
+    expect(onIgnoredMessage).not.toHaveBeenCalled()
+  })
+
+  it('握手完成前的动作不执行', () => {
+    const onAction = vi.fn()
+    const onIgnoredMessage = vi.fn()
+    const { bridge, iframe, hostWindow } = createBridge({ onAction, onIgnoredMessage })
+    bridge.start()
+    hostWindow.dispatch({ source: iframe.contentWindow, data: actionPayload() })
+
+    expect(onAction).not.toHaveBeenCalled()
+    expect(onIgnoredMessage).toHaveBeenCalledWith({ type: 'action', reason: 'not-ready' })
+  })
+
+  it('宿主回调抛错不会穿出事件监听，该消息记为失败', () => {
+    const onIgnoredMessage = vi.fn()
+    const { iframe, hostWindow } = withReady({
+      onAction: () => {
+        throw new Error('host handler boom')
+      },
+      onIgnoredMessage,
+    })
+
+    expect(() =>
+      hostWindow.dispatch({ source: iframe.contentWindow, data: actionPayload() }),
+    ).not.toThrow()
+    expect(onIgnoredMessage).toHaveBeenCalledWith({ type: 'action', reason: 'action-failed' })
+  })
+
+  it('错误态的卡片不再接受动作', () => {
+    const onAction = vi.fn()
+    const { bridge, iframe, hostWindow } = createBridge({ onAction })
+    bridge.start()
+    iframe.emit('error')
+    hostWindow.dispatch({ source: iframe.contentWindow, data: actionPayload() })
+
+    expect(onAction).not.toHaveBeenCalled()
   })
 })

@@ -58,6 +58,23 @@ export const GENUI_MSG_THEME = 'genui:theme'
 export const GENUI_MSG_READY = 'genui:ready'
 export const GENUI_MSG_ERROR = 'genui:error'
 export const GENUI_MSG_SIZE = 'genui:size'
+export const GENUI_MSG_ACTION = 'genui:action'
+
+/**
+ * 卡片能请求的宿主动作，固定四项（ADR 0015 第 4 条）。
+ * 白名单之外的消息在桥口就被丢弃，永远到不了任何 IPC。
+ */
+export const GENUI_CARD_ACTIONS = ['submit', 'copy', 'expand', 'openLink'] as const
+export type GenuiCardActionName = (typeof GENUI_CARD_ACTIONS)[number]
+
+/** 单条桥消息的体积上限。卡片是不可信代码，链路本身也要有配额。 */
+export const GENUI_MAX_BRIDGE_MESSAGE_BYTES = 1024 * 1024
+
+/** 卡片可请求复制/提交的文本上限（PRD §4）。 */
+export const GENUI_MAX_COPY_BYTES = 64 * 1024
+
+/** 宿主动作从发起到收口的最长等待；超时按这张卡失败处理，可重试。 */
+export const GENUI_ACTION_TIMEOUT_MS = 5_000
 
 /** 宿主 → 沙箱：经 MessageChannel 注入门卡密钥、主题、语言与卡片 Schema。 */
 export type GenuiInitMessage = {
@@ -90,11 +107,23 @@ export type GenuiErrorMessage = {
   nonce: string
 }
 
-/** 沙箱 → 宿主：卡片内容高度变化，宿主据此收放 iframe，避免出现空白或裁切。 */
+/** 沙箱 → 宿主：卡片内容变化，宿主据此收放 iframe，避免出现空白或裁切。 */
 export type GenuiSizeMessage = {
   type: typeof GENUI_MSG_SIZE
   nonce: string
   height: number
+}
+
+/**
+ * 沙箱 → 宿主：卡片请求一个宿主动作。
+ * payload 形状由动作决定（copy: `{ text }`、openLink: `{ url }`、submit: 任意对象），
+ * 宿主在路由前统一校验，不信任这里的任何字段。
+ */
+export type GenuiActionMessage = {
+  type: typeof GENUI_MSG_ACTION
+  nonce: string
+  action: GenuiCardActionName
+  payload?: unknown
 }
 
 /** 带信封字段的消息：nonce 是两侧共同的拒绝依据。 */
@@ -108,6 +137,14 @@ export function hasGenuiNonce(value: unknown, nonce: string): value is GenuiNonc
   if (typeof value !== 'object' || value === null) return false
   const envelope = value as { nonce?: unknown }
   return typeof envelope.nonce === 'string' && envelope.nonce === nonce
+}
+
+/**
+ * 宿主 → 沙箱的主题/语言推送判定：类型与密钥两道闸门一起过。
+ * 沙箱侧只认这一条，因此不把它和别的消息写成两处各自解读 `type`。
+ */
+export function isGenuiThemeMessage(value: unknown, nonce: string): value is GenuiThemeMessage {
+  return hasGenuiNonce(value, nonce) && value.type === GENUI_MSG_THEME
 }
 
 /** 拼出某条来源下的沙箱文档 URL。 */

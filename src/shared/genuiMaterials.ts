@@ -53,3 +53,19 @@ const WHITELIST_LOOKUP = new Set(GENUI_MATERIAL_WHITELIST)
 export function isGenuiComponentAllowed(componentName: unknown): componentName is string {
   return typeof componentName === 'string' && WHITELIST_LOOKUP.has(componentName)
 }
+
+/**
+ * 从物料表里只挑白名单内的组件，顺序按白名单。
+ *
+ * 官方 `miniMaterials.components` 带的是**全量**组件表（含 12 个图表）—— mini 收窄的是
+ * schema/prompt 面，不是注册面。沙箱注册前再过一遍这份名单，才真正做到「只认 mini 物料」；
+ * 宿主投影用的是同一个名单，不会出现「宿主放行、沙箱画不出来」。
+ */
+export function pickWhitelistedMaterials<T>(components: Record<string, T>): Record<string, T> {
+  const picked: Record<string, T> = {}
+  for (const name of GENUI_MATERIAL_WHITELIST) {
+    // 名单里的 HTML 标签名（a / p / div…）由渲染器内建，物料表里没有，跳过即可
+    if (Object.prototype.hasOwnProperty.call(components, name)) picked[name] = components[name]
+  }
+  return picked
+}

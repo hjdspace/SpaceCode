@@ -3,13 +3,15 @@
  *
  * 一条卡对应一个实例、一个密钥、一对端口。宿主只接受**同时**满足
  * 「来源是这张卡片的 frame」与「nonce 等于本卡密钥」的回信；其余消息忽略，
- * 不抛错也不转成通用 IPC。握手超时、iframe 加载失败、协议版本不匹配都收口成
- * 该卡的错误态，由宿主渲染错误占位并提供重试。
+ * 不抛错也不转成通用 IPC。握手超时、iframe 加载失败、协议版本不匹配、沙箱自己上报的
+ * 渲染失败都收口成该卡的错误态，由宿主渲染错误占位并提供重试；内容高度上报转给宿主收放 iframe。
  *
  * iframe / window / MessageChannel / 密钥全部可注入，这条安全边界因此能脱离
  * 真实 Electron 进程单测（见 ADR 0011）。
  */
 import {
+  GENUI_MAX_BRIDGE_MESSAGE_BYTES,
+  GENUI_MSG_ACTION,
   GENUI_MSG_ERROR,
   GENUI_MSG_INIT,
   GENUI_MSG_READY,
@@ -22,9 +24,16 @@ import {
   type GenuiSizeMessage,
   type GenuiTheme,
 } from '@/shared/genuiSandbox'
+import { parseCardAction, type CardAction, type CardActionRejection } from './cardActions'
 
 /** 握手时限：超过即认为这张卡起不来（PRD §3 默认 5 秒）。 */
 export const GENUI_HANDSHAKE_TIMEOUT_MS = 5_000
+
+/**
+ * 沙箱报来的内容高度上限。卡片是不可信代码，它想多高就多高，
+ * 所以这个数在桥口（信任边界）就被夹住，而不是等到宿主拿它去写布局。
+ */
+export const GENUI_MAX_FRAME_HEIGHT = 4_000
 
 /**
  * 卡片起不来的原因。`unsupported-origin` 由宿主自己判定（沙箱源还没接入），
@@ -35,7 +44,23 @@ export type CardBridgeFailure =
   | 'frame-load-failed'
   | 'version-mismatch'
   | 'render-failed'
+  | 'action-timeout'
   | 'unsupported-origin'
+
+/**
+ * 被丢弃的卡片消息及原因。只记录「已经通过 nonce 与来源校验」的消息 ——
+ * 别的 frame 或别的应用的消息不归这张卡管，记下来只会变成噪音。
+ */
+export type CardIgnoredReason =
+  | CardActionRejection
+  | 'too-large'
+  | 'not-ready'
+  | 'action-failed'
+
+export type CardIgnoredMessage = {
+  type: 'action' | 'message'
+  reason: CardIgnoredReason
+}
 
 export type CardBridgeState =
   | { status: 'connecting' }
@@ -77,7 +102,15 @@ export type CardBridgeOptions = {
   locale: string
   protocolVersion?: number
   handshakeTimeoutMs?: number
+  /** 单条桥消息上限；默认 1MB，卡片是不可信代码，链路本身也要有配额 */
+  maxMessageBytes?: number
   onStateChange: (state: CardBridgeState) => void
+  /** 沙箱内容高度变化；宿主据此收放 iframe，既不裁掉卡片也不留空白 */
+  onResize?: (height: number) => void
+  /** 已通过白名单、nonce、来源与限额校验的卡片动作 */
+  onAction?: (action: CardAction) => void
+  /** 被丢弃的消息：只记本卡的消息，供宿主排查而不影响渲染 */
+  onIgnoredMessage?: (ignored: CardIgnoredMessage) => void
 }
 
 export type CardBridge = {
@@ -86,11 +119,25 @@ export type CardBridge = {
   dispose: () => void
 }
 
-/** 握手回信必须同时是 ready 且带着本卡密钥。 */
-function isReadyWithNonce(value: unknown, nonce: string): value is GenuiReadyMessage {
-  if (typeof value !== 'object' || value === null) return false
-  if ((value as { type?: unknown }).type !== GENUI_MSG_READY) return false
-  return hasGenuiNonce(value, nonce)
+/** 回信的类型闸门：先确认是本卡密钥，再按 type 分发。 */
+function messageType(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null) return null
+  const type = (value as { type?: unknown }).type
+  return typeof type === 'string' ? type : null
+}
+
+/**
+ * 消息的 JSON 体积；不可序列化（循环引用、BigInt…）返回 null。
+ * 尺寸闸门在解析 payload 之前，免得一张卡先把宿主的事件循环塞满。
+ */
+function messageByteLength(value: unknown): number | null {
+  try {
+    const json = JSON.stringify(value)
+    if (json === undefined) return null
+    return new TextEncoder().encode(json).length
+  } catch {
+    return null
+  }
 }
 
 export function createCardBridge(options: CardBridgeOptions): CardBridge {
@@ -122,19 +169,80 @@ export function createCardBridge(options: CardBridgeOptions): CardBridge {
     }
   }
 
+  /** 动作消息：白名单、限额与 payload 校验全交给 parseCardAction，宿主回调抛错不外泄。 */
+  function handleAction(data: unknown): void {
+    if (status.status !== 'ready') {
+      options.onIgnoredMessage?.({ type: 'action', reason: 'not-ready' })
+      return
+    }
+    const parsed = parseCardAction(data, {
+      maxBytes: options.maxMessageBytes ?? GENUI_MAX_BRIDGE_MESSAGE_BYTES,
+    })
+    if (!parsed.ok) {
+      options.onIgnoredMessage?.({ type: 'action', reason: parsed.reason })
+      return
+    }
+    try {
+      options.onAction?.(parsed.action)
+    } catch {
+      options.onIgnoredMessage?.({ type: 'action', reason: 'action-failed' })
+    }
+  }
+
   function handleInbound(data: unknown, sourceMatches: boolean): void {
-    if (disposed || isSettled()) return
+    if (disposed) return
     // nonce 是第一个闸门：对不上就与"不是卡片协议"同等处理
-    if (!isReadyWithNonce(data, nonce)) return
+    if (!hasGenuiNonce(data, nonce)) return
     // 窗口通道还要证明来源就是这张卡；端口通道本身即来源证明
     if (!sourceMatches) return
 
-    clearTimer()
-    if (data.protocolVersion !== expectedVersion) {
-      settle({ status: 'error', failure: 'version-mismatch' })
+    const type = messageType(data)
+    if (type === GENUI_MSG_ACTION) {
+      handleAction(data)
       return
     }
-    settle({ status: 'ready', protocolVersion: data.protocolVersion })
+
+    // 非动作消息也过尺寸闸门；动作消息的限额由 parseCardAction 统一判（含 oversized）
+    const bytes = messageByteLength(data)
+    if (bytes === null || bytes > (options.maxMessageBytes ?? GENUI_MAX_BRIDGE_MESSAGE_BYTES)) {
+      options.onIgnoredMessage?.({
+        type: 'message',
+        reason: bytes === null ? 'unserializable' : 'too-large',
+      })
+      return
+    }
+
+    // hasGenuiNonce 已把消息收敛成带 string type 的信封；type 对不上任何一条就当不是卡片协议
+    switch (data.type) {
+      case GENUI_MSG_READY: {
+        // 握手收口后不再重复结算：重试由宿主换 iframe 与新建桥完成
+        if (isSettled()) return
+        clearTimer()
+        const { protocolVersion } = data as GenuiReadyMessage
+        if (protocolVersion !== expectedVersion) {
+          settle({ status: 'error', failure: 'version-mismatch' })
+          return
+        }
+        settle({ status: 'ready', protocolVersion })
+        return
+      }
+
+      case GENUI_MSG_ERROR:
+        // 沙箱里物料渲染抛错：只有这张卡翻错误占位，消息其余部分与其他卡不受影响
+        if (status.status === 'error') return
+        clearTimer()
+        settle({ status: 'error', failure: 'render-failed' })
+        return
+
+      case GENUI_MSG_SIZE: {
+        const { height } = data as GenuiSizeMessage
+        // 只接受真实存在的高度：0 高会把 iframe 收成一条线，负数与非数字直接丢掉
+        if (status.status !== 'error' && Number.isFinite(height) && height > 0) {
+          options.onResize?.(Math.min(height, GENUI_MAX_FRAME_HEIGHT))
+        }
+        return
+      }
+    }
   }
 
   const onWindowMessage = (event: MessageEvent): void => {

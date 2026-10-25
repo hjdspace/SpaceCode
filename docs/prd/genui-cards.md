@@ -180,6 +180,7 @@ SpaceCode 已有的 design 预览是**应用级**的：它把生成结果放在�
 ## Further Notes
 
 - 依赖基线：`@opentiny/genui-sdk-core`、`@opentiny/genui-sdk-vue`、`@opentiny/genui-sdk-materials-vue-opentiny-vue` 固定同一 1.4.x 版本；沙箱只打包官方 mini 物料白名单内的组件，不整包引入图表等重物料。
+  - 实测偏差（票 02）：官方 `miniMaterials` 的三个导出共用同一张 `components` 表，里面含 12 个 `TinyHuicharts*`，mini 收窄的是 schema/prompt 面而非注册面，因此打不打得进包不由名单决定 —— 沙箱产物约 4.9MB JS / 1.2MB CSS。「只认 mini 物料」改由两处行为保证：宿主投影按白名单判定根组件（未列入即降级为文本），沙箱注册前用同一份名单再过滤一遍组件表。真正的体积裁剪需要官方拆出可 tree-shake 的物料入口，另开票跟进。
 - 沙箱安全红线段落见 ADR 0015：主窗口永不引入 `unsafe-eval`；沙箱永不授予 `allow-same-origin`；卡片永不获得通用 IPC。
 - 技能分发口径见 ADR 0016：一份 SKILL.md、两个 Target；Pi 的技能目录是 `~/.pi/agent/skills`（单数 agent），`~/.pi/agents` 是子代理定义目录，不用于技能。
 - 已知残余风险：H5 的第二端口与主服务同 site，只有跨 origin、没有 OOPIF 进程隔离；恶意卡片中的死循环可能拖住同进程页面。桌面端由 OOPIF 隔离，并在导航层拦截自跳转外泄。
