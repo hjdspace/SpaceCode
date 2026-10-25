@@ -1878,9 +1878,10 @@ defineExpose({ getContent, setContent, focus: focusEditor })
     @include composer-chips;
   }
 
-  // 录音时编辑器为空也不显示占位符：下方正在显示实时转写。
-  .input-wrapper.is-voice-active & .inline-editor:empty::before {
-    content: '';
+  // 空草稿录音时整行让位：实时转写顶到第一行，否则会被空编辑器的 24px 行高压下来。
+  // 用 display 而非 min-height —— autoResize 写在内联 style 上的 height 压不过。
+  .input-wrapper.is-voice-active & .inline-editor:empty {
+    display: none;
   }
 
   // 实时转写是暂定内容：与正式草稿同一排版，但不进入编辑器 DOM。
