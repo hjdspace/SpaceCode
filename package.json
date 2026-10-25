@@ -19,8 +19,9 @@
     "predev": "npm run patch:dev-electron",
     "dev": "vite",
     "clean:electron": "node scripts/clean-dist-electron.cjs",
-    "build": "vue-tsc --noEmit && vite build && npm run build:genui-sandbox",
+    "build": "vue-tsc --noEmit && vite build && npm run build:genui-sandbox && npm run build:genui-skill",
     "build:genui-sandbox": "node scripts/genui-sandbox-build.mjs",
+    "build:genui-skill": "tsx scripts/genui-skill-build.mts",
     "check:performance": "node scripts/check-build-performance.cjs",
     "build:proxy": "node -e \"const esbuild=require('esbuild');esbuild.buildSync({entryPoints:['electron/proxy/index.ts'],bundle:true,outdir:'dist-electron/proxy',platform:'node',format:'cjs',external:['electron']})\"",
     "build:linux-pty": "node scripts/build-linux-pty.mjs",
@@ -253,6 +254,10 @@
       {
         "from": "resources/skills-lib",
         "to": "skills-lib"
+      },
+      {
+        "from": "resources/builtin-skills",
+        "to": "builtin-skills"
       },
       {
         "from": "resources/agents-lib",

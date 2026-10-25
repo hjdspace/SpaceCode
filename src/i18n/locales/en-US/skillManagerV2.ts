@@ -157,6 +157,7 @@ export default {
     agentOverride: 'Agent Override',
     manualCenter: 'Manual Center',
     marketplace: 'Marketplace',
+    bundled: 'Built-in',
   },
   filter: {
     allStatuses: 'All Statuses',

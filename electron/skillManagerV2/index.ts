@@ -5,12 +5,13 @@
  * Reference: AgentBro `src-tauri/src/skills/v2/commands.rs`
  */
 
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, app } from 'electron'
 import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { SkillManagerService } from './service'
+import { bundledSkillsRoot } from './bundledSkills'
 import { SCHEMA_MANAGER_CHANNELS } from './channels'
 import type {
   SkillManagerOverview,
@@ -49,16 +50,32 @@ import type {
 
 let service: SkillManagerService | null = null
 
-/** Lazy-initialize the service on first call. */
+/**
+ * Lazy-initialize the service on first call.
+ *
+ * 内置技能的资源根在这里解析：`app` 只在这一层出现，中心库与它的测试因此都不用 mock Electron。
+ */
 function getService(): SkillManagerService {
   if (!service) {
-    service = SkillManagerService.bootstrap()
+    service = SkillManagerService.bootstrap(
+      undefined,
+      undefined,
+      bundledSkillsRoot({ resourcesPath: process.resourcesPath, appPath: app.getAppPath() })
+    )
   }
   return service
 }
 
 /** Register all skill-manager IPC handlers. */
 export function registerSkillManagerV2IPCHandlers(): void {
+  // 内置技能要在「打开技能管理界面」之前就在位：全新安装直接开聊也要能生成卡片。
+  // bootstrap 自身是幂等的；技能库没就绪不该让应用起不来，后续 IPC 会再试一次。
+  try {
+    getService()
+  } catch (e) {
+    console.warn(`[SkillManager] startup bootstrap failed: ${(e as Error).message}`)
+  }
+
   // ── Overview & Settings ──────────────────────────────────────────
 
   ipcMain.handle(SCHEMA_MANAGER_CHANNELS.BOOTSTRAP, () => {

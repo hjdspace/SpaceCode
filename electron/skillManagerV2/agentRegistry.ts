@@ -32,7 +32,7 @@ export interface BuiltInAgent {
 export function pluginCachePathForAgent(agentId: string): string | null {
   const root = home()
   const paths: Record<string, string> = {
-    'claude-code': path.join(root, '.claude', 'plugins', 'cache'),
+    'claude-code': path.join(claudeConfigDir(), 'plugins', 'cache'),
     codex: path.join(root, '.codex', 'plugins', 'cache'),
     kimi: path.join(root, '.kimi-code', 'plugins', 'managed'),
     workbuddy: path.join(root, '.workbuddy', 'plugins'),
@@ -61,9 +61,9 @@ function computeBuiltInAgents(): BuiltInAgent[] {
   {
     id: 'claude-code',
     displayName: 'Claude Code',
-    skillsDir: path.join(home(), '.claude', 'skills'),
-    configPath: path.join(home(), '.claude', 'settings.json'),
-    mcpConfigPath: path.join(home(), '.claude', 'settings.json'),
+    skillsDir: path.join(claudeConfigDir(), 'skills'),
+    configPath: path.join(claudeConfigDir(), 'settings.json'),
+    mcpConfigPath: path.join(claudeConfigDir(), 'settings.json'),
     icon: 'claude',
   },
   {
@@ -335,6 +335,17 @@ function kimiCodeHome(): string {
     return override
   }
   return path.join(home(), '.kimi-code')
+}
+
+/**
+ * Claude Code 的配置目录：`$CLAUDE_CONFIG_DIR` 覆盖，否则 `~/.claude`。
+ * 引擎侧（`electron/engine/engines/PiSessionProcess.ts`）与设置文件读取都已经按这个口径找目录，
+ * 技能目录再硬编码 `~/.claude` 就会出现「Claude 换了配置目录，SpaceCode 还把技能装到旧地方」。
+ */
+function claudeConfigDir(): string {
+  const override = process.env.CLAUDE_CONFIG_DIR
+  if (override && override.trim()) return expandHomeDir(override.trim())
+  return path.join(home(), '.claude')
 }
 
 /**
