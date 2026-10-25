@@ -13,6 +13,7 @@ import ChatInput from '@/components/chat/ChatInput.vue'
 import { useAppStore } from '@/stores/app'
 import { api } from '@/services/electronAPI'
 import { VoiceCaptureError } from '@/lib/voice/voiceDictation'
+import { dispatchVoiceShortcut, voiceTargetRegistry } from '@/lib/voice/voiceTargetRegistry'
 import type {
   VoiceCaptureHandlers,
   VoiceCapturePort,
@@ -301,5 +302,22 @@ describe('ChatInput · 语音输入', () => {
     expect(hint.text()).toContain('Microphone access is blocked')
     expect(editorEl(wrapper).textContent).toBe('草稿')
     expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+  })
+
+  it('挂载即成为 Alt+V 候选，卸载后立刻退出候选', async () => {
+    const wrapper = mountInput()
+    await flushPromises()
+    expect(voiceTargetRegistry.size).toBe(1)
+
+    editorEl(wrapper).focus()
+    await flushPromises()
+
+    await dispatchVoiceShortcut(voiceTargetRegistry)
+    expect(api.voice.startSession).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.voice-cancel-btn').exists()).toBe(true)
+
+    wrapper.unmount()
+    expect(voiceTargetRegistry.size).toBe(0)
+    expect(voiceTargetRegistry.select()).toBeNull()
   })
 })

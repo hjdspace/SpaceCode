@@ -106,6 +106,7 @@ import { getCachedDesktopConfig } from '@/services/h5Bootstrap'
 import { h5ApiClient } from '@/services/h5ApiClient'
 import { h5WebSocketClient } from '@/services/h5WebSocketClient'
 import { useShortcuts } from '@/composables/useShortcuts'
+import { useVoiceShortcut } from '@/composables/useVoiceShortcut'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
@@ -273,6 +274,9 @@ const { register } = useShortcuts({
 })
 
 const mainContent = ref<HTMLElement | null>(null)
+
+// Alt+V：主进程唤到前台后在这里派发到最近聚焦的输入框。
+useVoiceShortcut()
 
 // ── Ctrl+P 快捷键：跨文件搜索（快速打开） ──
 function onGlobalKeydown(e: KeyboardEvent) {

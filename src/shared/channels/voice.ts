@@ -153,6 +153,11 @@ export interface VoiceSessionStatePayload {
   errorCode?: VoiceSessionErrorCode
 }
 
+/** Alt+V 全局热键触发的切换请求；渲染层自行决定落在哪个输入框。 */
+export interface VoiceShortcutPayload {
+  source: 'shortcut'
+}
+
 export const voiceNamespace = defineNamespace({
   channels: {
     getModelStatus: {
@@ -204,6 +209,10 @@ export const voiceNamespace = defineNamespace({
     onSessionState: {
       channel: 'session-state',
       args: [] as unknown as [payload: VoiceSessionStatePayload],
+    },
+    onShortcutToggle: {
+      channel: 'shortcut-toggle',
+      args: [] as unknown as [payload: VoiceShortcutPayload],
     },
   },
 })

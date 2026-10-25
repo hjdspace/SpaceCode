@@ -60,6 +60,7 @@ import { registerMobileIPCHandlers, getMobileServer, setMobileServer, getMobileU
 import { registerSettingsIPCHandlers, loadGuiSettings, reconcileProxyWithSettings } from './ipc/settingsIpc'
 import { registerTraceIPCHandlers } from './ipc/traceIpc'
 import { registerVoiceIPCHandlers } from './voice/voiceIpcHandlers'
+import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
 import { H5Server } from './h5/h5Server'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
@@ -236,6 +237,12 @@ app.whenReady().then(async () => {
 
   registerVoiceIPCHandlers()
   info('Startup', 'Voice Input IPC handlers registered')
+
+  if (registerVoiceShortcut(() => getMainWindow())) {
+    info('Startup', 'Voice Input shortcut registered (Alt+V)')
+  } else {
+    warn('Startup', 'Voice Input shortcut unavailable (Alt+V already taken)')
+  }
 
   // ── Core IPC (window, fs, shell, terminal, settings, trace, etc.) ──
   registerCoreIPCHandlers(terminalManager)
@@ -468,6 +475,7 @@ app.on('before-quit', async () => {
   await runQuitStep('stopArtifactsWatch', stopArtifactsWatch)
   await runQuitStep('destroyTray', destroyTray)
   await runQuitStep('destroyAutoUpdater', destroyAutoUpdater)
+  await runQuitStep('unregisterVoiceShortcut', () => unregisterVoiceShortcut())
   await runQuitStep('globalShortcut.unregisterAll', () => globalShortcut.unregisterAll())
   await runQuitStep('proxyManager.stop', () => proxyManager.stop())
   await runQuitStep('terminalManager.killAll', () => {

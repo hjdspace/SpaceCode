@@ -99,4 +99,6 @@ export default {
   voiceNoSpeech: '未识别到语音，草稿已恢复。',
   voiceInstalling: '正在准备语音识别模型… {percent}%',
   voiceInstallFailed: '模型安装失败：{message}',
+  voiceNoTargetTitle: '没有可用的输入框',
+  voiceNoTarget: '请先点击任意聊天输入框，再按 Alt+V 开始语音输入。',
 }

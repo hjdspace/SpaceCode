@@ -99,4 +99,6 @@ export default {
   voiceNoSpeech: 'No speech was detected. Your draft was restored.',
   voiceInstalling: 'Preparing the speech model… {percent}%',
   voiceInstallFailed: 'Model installation failed: {message}',
+  voiceNoTargetTitle: 'No input available',
+  voiceNoTarget: 'Click any chat input first, then press Alt+V to start voice input.',
 }

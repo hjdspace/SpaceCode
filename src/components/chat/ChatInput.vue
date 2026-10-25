@@ -66,6 +66,8 @@
           @keydown="handleEditorKeydown"
           @click="handleEditorClick"
           @paste="handleEditorPaste"
+          @focus="handleEditorFocus"
+          @blur="handleEditorBlur"
         ></div>
         <!-- 语音实时转写：纯文本追加在快照之后，不进入编辑器 DOM -->
         <div v-if="voiceLiveTranscript" class="voice-live-transcript" aria-live="polite">{{ voiceLiveTranscript }}</div>
@@ -339,6 +341,8 @@ import type { WorkspaceEntry } from '@/composables/useWorkspaceBrowser'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
 import { useVoiceInput } from '@/composables/useVoiceInput'
 import { captureCaret, restoreCaret } from '@/lib/voice/caretSnapshot'
+import { voiceTargetRegistry } from '@/lib/voice/voiceTargetRegistry'
+import type { VoiceInputTarget } from '@/lib/voice/voiceTargetRegistry'
 import { buildDictationAppend } from '@/lib/voice/mergeDictation'
 import type { VoiceComposerTarget, VoiceSnapshot } from '@/lib/voice/voiceDictation'
 import type { VoiceModelInstallInfo } from '@/shared/channels/voice'
@@ -590,6 +594,10 @@ const showVoiceInstallDialog = ref(false)
 const voiceInstallInfo = ref<VoiceModelInstallInfo | null>(null)
 let voiceClickBusy = false
 
+/** 本输入框在跨输入框目标注册表里的身份，挂载期间保持不变。 */
+const voiceTargetId = crypto.randomUUID()
+let unregisterVoiceTarget: (() => void) | null = null
+
 const voiceHintText = computed(() => {
   const current = voiceHint.value
   if (!current) return ''
@@ -626,13 +634,10 @@ const voiceHintText = computed(() => {
 /**
  * 第一次点击：模型已装则直接录音；未装则弹共用确认框，下载成功后自动开录。
  * 不在这里重试安装：下载中的重复点击只提示"正在安装"。
+ * 麦克风按钮与 Alt+V 共用这条启动路径。
  */
-async function handleVoiceClick() {
+async function beginVoiceInput() {
   if (!voiceSupported.value) return
-  if (voiceActive.value) {
-    await voice.stop()
-    return
-  }
   if (props.disabled || props.isSending || isOptimizing.value) return
   if (voiceClickBusy) return
 
@@ -659,6 +664,33 @@ async function handleVoiceClick() {
   } finally {
     voiceClickBusy = false
   }
+}
+
+async function handleVoiceClick() {
+  if (!voiceSupported.value) return
+  if (voiceActive.value) {
+    await voice.stop()
+    return
+  }
+  await beginVoiceInput()
+}
+
+/** Alt+V 目标：最近聚焦且仍可编辑的输入框由此开始/停止录音。 */
+const voiceRegistryTarget: VoiceInputTarget = {
+  id: voiceTargetId,
+  isEditable: () =>
+    voiceSupported.value && !props.disabled && !props.isSending && !isOptimizing.value,
+  isRecording: () => voiceActive.value,
+  start: beginVoiceInput,
+  stop: () => voice.stop(),
+}
+
+function handleEditorFocus() {
+  voiceTargetRegistry.focus(voiceTargetId)
+}
+
+function handleEditorBlur() {
+  voiceTargetRegistry.blur(voiceTargetId)
 }
 
 async function confirmVoiceInstall() {
@@ -1434,6 +1466,8 @@ function handleChipImagePreview(e: Event) {
 onMounted(() => {
   initializeModelSelector(props.modelValue)
 
+  unregisterVoiceTarget = voiceTargetRegistry.register(voiceRegistryTarget)
+
   window.addEventListener('session-created', focusEditor)
   window.addEventListener('chip-image-preview', handleChipImagePreview as EventListener)
   window.addEventListener('keydown', handleVoiceEscape, true)
@@ -1448,6 +1482,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  unregisterVoiceTarget?.()
+  unregisterVoiceTarget = null
   window.removeEventListener('session-created', focusEditor)
   window.removeEventListener('chip-image-preview', handleChipImagePreview as EventListener)
   window.removeEventListener('keydown', handleVoiceEscape, true)
