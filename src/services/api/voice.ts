@@ -1,15 +1,18 @@
 /**
  * Voice Input renderer API — generated from the shared voice channel map.
  */
-import { voiceNamespace } from '@/shared/channels/voice'
+import { VOICE_SAMPLE_RATE, voiceNamespace } from '@/shared/channels/voice'
 import type {
   VoiceCancelResult,
+  VoiceCancelSessionResult,
   VoiceEventApi,
   VoiceInstallResult,
   VoiceModelInstallInfo,
   VoiceModelStatus,
   VoiceRemoveResult,
   VoiceRendererApi,
+  VoiceStartSessionResult,
+  VoiceStopSessionResult,
 } from '@/shared/channels/voice'
 import { createEventApi, createRendererApi } from '@/shared/rendererApi'
 import type { AnyElectronAPI } from '@/shared/rendererApi'
@@ -55,6 +58,20 @@ const invokeApi = createRendererApi(
       errorCode: 'file-system',
       status: missingStatus(),
     }),
+    startSession: (): VoiceStartSessionResult => ({
+      ok: false,
+      sampleRate: VOICE_SAMPLE_RATE,
+      error: 'Voice API not available',
+      errorCode: 'engine-failed',
+    }),
+    stopSession: (): VoiceStopSessionResult => ({
+      success: false,
+      text: '',
+      error: 'Voice API not available',
+      errorCode: 'engine-failed',
+    }),
+    cancelSession: (): VoiceCancelSessionResult => ({ success: false }),
+    sendAudio: () => undefined,
   },
 )
 

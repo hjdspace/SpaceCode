@@ -104,6 +104,20 @@ export default defineConfig({
             }
           }
         }
+      },
+      {
+        // Streaming ASR worker — compiled to dist-electron/voice/asrWorker.js so
+        // SherpaWorkerEngine finds it next to the main bundle. The native addon
+        // and its platform package ship in node_modules and must stay external.
+        entry: 'electron/voice/asrWorker.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron/voice',
+            rolldownOptions: {
+              external: ['sherpa-onnx-node', /^sherpa-onnx-/]
+            }
+          }
+        }
       }
     ])
   ],

@@ -1,7 +1,8 @@
 /**
  * Voice Input Channel 定义 — voice 命名空间 IPC 的单一真相源。
  *
- * 01 只包含识别模型的管理面；录音会话调用面在后续票据里扩展。
+ * 模型管理面（01）与录音会话面（02）共用同一命名空间：preload bridge、
+ * renderer API 类型、handler 注册全部从这份定义派生。
  */
 import { defineNamespace } from '@/shared/channelMap'
 import type { DeriveRendererApi, DeriveEventApi } from '@/shared/channelMap'
@@ -89,6 +90,69 @@ export interface VoiceRemoveResult {
   status: VoiceModelStatus
 }
 
+// ── Recording session ──────────────────────────────────────────
+
+/** 渲染层必须按这个采样率送 PCM；主进程不接受其它采样率。 */
+export const VOICE_SAMPLE_RATE = 16_000
+
+export type VoiceSessionState = 'loading' | 'recording' | 'finalizing' | 'ended' | 'failed'
+
+export type VoiceSessionErrorCode =
+  | 'model-missing'
+  | 'model-corrupted'
+  | 'engine-failed'
+  | 'canceled'
+
+export interface VoiceStartSessionRequest {
+  sessionId: string
+}
+
+export interface VoiceStartSessionResult {
+  ok: boolean
+  /** 渲染层据此构造 AudioContext；恒为 VOICE_SAMPLE_RATE。 */
+  sampleRate: number
+  error?: string
+  errorCode?: VoiceSessionErrorCode
+}
+
+export interface VoiceAudioRequest {
+  sessionId: string
+  /** 100ms 的 16kHz 单声道 PCM16：1600 samples / 3200 bytes。 */
+  pcm: ArrayBuffer
+}
+
+export interface VoiceStopSessionRequest {
+  sessionId: string
+}
+
+export interface VoiceStopSessionResult {
+  success: boolean
+  /** 终稿；停止一个未知或已结束的会话时为空字符串。 */
+  text: string
+  error?: string
+  errorCode?: VoiceSessionErrorCode
+}
+
+export interface VoiceCancelSessionRequest {
+  sessionId: string
+}
+
+export interface VoiceCancelSessionResult {
+  success: boolean
+}
+
+export interface VoicePartialPayload {
+  sessionId: string
+  text: string
+}
+
+export interface VoiceSessionStatePayload {
+  sessionId: string
+  state: VoiceSessionState
+  error?: string
+  errorCode?: VoiceSessionErrorCode
+}
+
 export const voiceNamespace = defineNamespace({
   channels: {
     getModelStatus: {
@@ -111,11 +175,35 @@ export const voiceNamespace = defineNamespace({
       req: [] as unknown as [],
       res: null as unknown as VoiceRemoveResult,
     },
+    startSession: {
+      req: [] as unknown as [request: VoiceStartSessionRequest],
+      res: null as unknown as VoiceStartSessionResult,
+    },
+    sendAudio: {
+      kind: 'send',
+      req: [] as unknown as [request: VoiceAudioRequest],
+    },
+    stopSession: {
+      req: [] as unknown as [request: VoiceStopSessionRequest],
+      res: null as unknown as VoiceStopSessionResult,
+    },
+    cancelSession: {
+      req: [] as unknown as [request: VoiceCancelSessionRequest],
+      res: null as unknown as VoiceCancelSessionResult,
+    },
   },
   events: {
     onModelProgress: {
       channel: 'model-progress',
       args: [] as unknown as [progress: VoiceModelProgress],
+    },
+    onPartial: {
+      channel: 'partial',
+      args: [] as unknown as [payload: VoicePartialPayload],
+    },
+    onSessionState: {
+      channel: 'session-state',
+      args: [] as unknown as [payload: VoiceSessionStatePayload],
     },
   },
 })

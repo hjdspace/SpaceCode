@@ -258,7 +258,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ...createPreloadBridge(memoryChannels, ipcRenderer, 'memory:'),
   } satisfies import('@/shared/channels/memory').MemoryRendererApi,
 
-  // Voice Input API — 识别模型管理；录音会话面在后续票据扩展
+  // Voice Input API — 识别模型管理与录音会话，invoke/send channels 与事件订阅均表驱动注册
   voice: {
     ...createPreloadBridge(voiceNamespace.channels, ipcRenderer, 'voice:'),
     ...createEventBridge(voiceNamespace.events, ipcRenderer, 'voice:'),

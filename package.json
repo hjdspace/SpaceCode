@@ -51,7 +51,8 @@
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "sherpa-onnx-node": "2.0.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
@@ -132,6 +133,8 @@
       "dist/**/*",
       "dist-electron/**/*",
       "node_modules/node-pty/**/*",
+      "node_modules/sherpa-onnx-node/**/*",
+      "node_modules/sherpa-onnx-*/**/*",
       "!**/node_modules/**/*.map",
       "!**/node_modules/better-sqlite3/deps/**/*",
       "!**/node_modules/better-sqlite3/prebuilds/win32-arm64*",
@@ -157,7 +160,10 @@
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*",
-      "dist-electron/proxy/**/*"
+      "node_modules/sherpa-onnx-node/**/*",
+      "node_modules/sherpa-onnx-*/**/*",
+      "dist-electron/proxy/**/*",
+      "dist-electron/voice/**/*"
     ],
     "extraResources": [
       {
