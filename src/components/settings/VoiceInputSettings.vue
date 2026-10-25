@@ -144,46 +144,12 @@
       </div>
     </div>
 
-    <Teleport to="body">
-      <Transition name="dialog">
-        <div
-          v-if="showInstallConfirm"
-          class="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          @click.self="showInstallConfirm = false"
-          @keydown.escape="showInstallConfirm = false"
-        >
-          <div class="modal-content">
-            <h3 class="modal-title">{{ $t('voiceInput.installTitle') }}</h3>
-            <p class="modal-text">{{ $t('voiceInput.installIntro') }}</p>
-            <dl class="modal-rows">
-              <div class="modal-row">
-                <dt>{{ $t('voiceInput.archiveSize') }}</dt>
-                <dd>{{ formatSize(installInfo?.archiveBytes ?? 0) }}</dd>
-              </div>
-              <div class="modal-row">
-                <dt>{{ $t('voiceInput.installedSize') }}</dt>
-                <dd>{{ formatSize(installInfo?.installedBytes ?? 0) }}</dd>
-              </div>
-              <div class="modal-row">
-                <dt>{{ $t('voiceInput.downloadSource') }}</dt>
-                <dd class="source-value">{{ primarySourceLabel }}</dd>
-              </div>
-            </dl>
-            <p class="modal-hint">{{ $t('voiceInput.sourceFallbackHint') }}</p>
-            <div class="modal-actions">
-              <button class="s-btn s-btn-secondary" @click="showInstallConfirm = false">
-                {{ $t('common.cancel') }}
-              </button>
-              <button class="s-btn s-btn-primary" @click="startInstall">
-                {{ $t('voiceInput.confirmInstall') }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <VoiceModelInstallDialog
+      :visible="showInstallConfirm"
+      :info="installInfo"
+      @confirm="startInstall"
+      @cancel="showInstallConfirm = false"
+    />
 
     <ConfirmDialog
       :visible="showRemoveConfirm"
@@ -215,12 +181,12 @@ import { api } from '@/services/electronAPI'
 import { useSettingsStore } from '@/stores/settings'
 import { formatSize } from '@/utils/artifactFormat'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import VoiceModelInstallDialog from '@/components/common/VoiceModelInstallDialog.vue'
 import type {
   VoiceModelErrorCode,
   VoiceModelInstallInfo,
   VoiceModelPhase,
   VoiceModelProgress,
-  VoiceModelSourceKind,
   VoiceModelState,
   VoiceModelStatus,
 } from '@/shared/channels/voice'
@@ -330,12 +296,6 @@ const visibleError = computed(() => {
   const current = status.value
   if (!current || (!current.errorCode && !current.error)) return ''
   return errorText(current.errorCode, current.error)
-})
-
-const primarySourceLabel = computed(() => {
-  const source = installInfo.value?.sources[0]
-  if (!source) return notAvailable.value
-  return `${sourceKindLabel(source.kind)} · ${hostOf(source.url)}`
 })
 
 let unsubscribe: (() => void) | null = null
@@ -524,23 +484,6 @@ async function persistCustomUrl(): Promise<boolean> {
 
 function isValidUrl(value: string): boolean {
   return !value || /^https?:\/\/\S+$/i.test(value)
-}
-
-function sourceKindLabel(kind: VoiceModelSourceKind): string {
-  const key: Record<VoiceModelSourceKind, string> = {
-    github: 'voiceInput.sourceGithub',
-    mirror: 'voiceInput.sourceMirror',
-    custom: 'voiceInput.sourceCustom',
-  }
-  return t(key[kind])
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
-  }
 }
 
 function formatInstalledAt(value: string | null): string {
@@ -781,92 +724,6 @@ function errorMessage(err: unknown): string {
   color: var(--error);
 }
 
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-  backdrop-filter: blur(4px);
-}
-
-.modal-content {
-  background: var(--bg-elevated);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  max-width: 460px;
-  width: 90%;
-  box-shadow: var(--shadow-xl);
-}
-
-.modal-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 12px;
-}
-
-.modal-text {
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-  margin: 0 0 16px;
-  line-height: 1.6;
-}
-
-.modal-rows {
-  margin: 0;
-  padding: 12px 14px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.modal-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-
-  dt {
-    font-size: 12.5px;
-    color: var(--text-muted);
-  }
-
-  dd {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-    font-variant-numeric: tabular-nums;
-  }
-}
-
-.source-value {
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.modal-hint {
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 20px;
-}
-
 .spinning {
   animation: spin 0.9s linear infinite;
 }
@@ -885,16 +742,6 @@ function errorMessage(err: unknown): string {
   50% {
     opacity: 0.35;
   }
-}
-
-.dialog-enter-active,
-.dialog-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.dialog-enter-from,
-.dialog-leave-to {
-  opacity: 0;
 }
 
 @media (max-width: 640px) {

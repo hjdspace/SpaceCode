@@ -48,7 +48,7 @@
       @remove="removePendingMsg"
     />
 
-    <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing }">
+    <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing, 'is-voice-active': voiceActive }">
       <!-- 悬浮任务/改动状态栏 -->
       <ComposerStatusBar v-if="!compact" :session-id="sessionId" />
 
@@ -60,13 +60,15 @@
         <div
           ref="editorRef"
           class="inline-editor"
-          :contenteditable="!isOptimizing"
+          :contenteditable="isEditorEditable"
           :data-placeholder="placeholder"
           @input="handleEditorInput"
           @keydown="handleEditorKeydown"
           @click="handleEditorClick"
           @paste="handleEditorPaste"
         ></div>
+        <!-- 语音实时转写：纯文本追加在快照之后，不进入编辑器 DOM -->
+        <div v-if="voiceLiveTranscript" class="voice-live-transcript" aria-live="polite">{{ voiceLiveTranscript }}</div>
         <!-- 提示词优化 shimmer 扫光层 -->
         <div v-if="isOptimizing" class="optimize-shimmer" aria-hidden="true"></div>
         <!-- Stash 提示浮层 -->
@@ -97,6 +99,19 @@
             <span>{{ thinkingHint.text }}</span>
           </div>
         </Transition>
+      </div>
+
+      <!-- 语音输入提示：权限指引 / 无语音 / 安装进度与失败 -->
+      <div
+        v-if="voiceHintText"
+        class="voice-hint"
+        :class="{ 'is-error': voiceHint?.kind === 'error' }"
+        role="status"
+        aria-live="polite"
+      >
+        <AlertTriangle v-if="voiceHint?.kind === 'error'" :size="14" class="voice-hint-icon" />
+        <Mic v-else :size="14" class="voice-hint-icon" />
+        <span class="voice-hint-text">{{ voiceHintText }}</span>
       </div>
 
       <!-- 底部工具栏：+ 号、模型选择、发送按钮 -->
@@ -150,6 +165,34 @@
               <Brain :size="14" />
             </button>
           </div>
+
+          <!-- 语音输入：录音中变为停止，并提供取消 -->
+          <template v-if="voiceSupported">
+            <button
+              type="button"
+              class="toolbar-btn voice-btn"
+              :class="{ 'is-recording': voiceActive }"
+              :title="voiceActive ? t('chatInput.voiceStop') : t('chatInput.voiceStart')"
+              :aria-label="voiceActive ? t('chatInput.voiceStop') : t('chatInput.voiceStart')"
+              :aria-pressed="voiceActive"
+              @mousedown.prevent
+              @click.stop.prevent="handleVoiceClick"
+            >
+              <CircleStop v-if="voiceActive" :size="16" />
+              <Mic v-else :size="16" />
+            </button>
+            <button
+              v-if="voiceActive"
+              type="button"
+              class="toolbar-btn voice-cancel-btn"
+              :title="t('chatInput.voiceCancel')"
+              :aria-label="t('chatInput.voiceCancel')"
+              @mousedown.prevent
+              @click.stop.prevent="cancelVoice"
+            >
+              <X :size="14" />
+            </button>
+          </template>
 
           <!-- 提示词优化进行中提示 -->
           <Transition name="optimize-hint">
@@ -219,6 +262,14 @@
       @close="closeAttachmentMenu"
     />
     
+    <!-- 语音识别模型首次安装确认（与设置页共用同一弹窗） -->
+    <VoiceModelInstallDialog
+      :visible="showVoiceInstallDialog"
+      :info="voiceInstallInfo"
+      @confirm="confirmVoiceInstall"
+      @cancel="showVoiceInstallDialog = false"
+    />
+
     <!-- 拖拽遮罩 -->
     <Transition name="fade">
       <div v-if="isDragging" class="drag-overlay">
@@ -249,7 +300,8 @@ import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick
 import {
   ArrowUp, Plus, Square, X,
   Loader2, Zap, FolderOpen, Brain,
-  Sparkles, Image, Archive, LayoutGrid, AlertTriangle
+  Sparkles, Image, Archive, LayoutGrid, AlertTriangle,
+  Mic, CircleStop
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import ChatContextToolbar from './ChatContextToolbar.vue'
@@ -269,6 +321,7 @@ import ComposerStatusBar from './ComposerStatusBar.vue'
 import ModelPickerMenu from './ModelPickerMenu.vue'
 import PendingQueueBar from './PendingQueueBar.vue'
 import QuoteAttachmentsBar from './QuoteAttachmentsBar.vue'
+import VoiceModelInstallDialog from '@/components/common/VoiceModelInstallDialog.vue'
 
 // ── Composables ──────────────────────────────────────────────────
 import { useModelSelector } from '@/composables/useModelSelector'
@@ -284,6 +337,11 @@ import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
 import type { WorkspaceEntry } from '@/composables/useWorkspaceBrowser'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
+import { useVoiceInput } from '@/composables/useVoiceInput'
+import { captureCaret, restoreCaret } from '@/lib/voice/caretSnapshot'
+import { buildDictationAppend } from '@/lib/voice/mergeDictation'
+import type { VoiceComposerTarget, VoiceSnapshot } from '@/lib/voice/voiceDictation'
+import type { VoiceModelInstallInfo } from '@/shared/channels/voice'
 import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
@@ -465,6 +523,160 @@ const { isOptimizing, optimizePrompt: runOptimizePrompt } = promptOptimizer
 
 // ── Quote attachments (selection bar "add to conversation") ─────
 const { attachedQuotes, addQuoteAttachment, removeQuoteAttachment, clearQuotes } = useQuoteAttachments()
+
+// ── Voice input ─────────────────────────────────────────────────
+const voiceLocked = ref(false)
+
+/** 录音开始时冻结的编辑器：快照 + 写入/恢复都留在这里，状态机不认识 DOM。 */
+const voiceTarget: VoiceComposerTarget = {
+  captureSnapshot(): VoiceSnapshot {
+    const editorEl = editorRef.value
+    return {
+      html: editorEl?.innerHTML ?? '',
+      text: getEditorPlainText(),
+      focused: !!editorEl && document.activeElement === editorEl,
+      caret: editorEl ? captureCaret(editorEl) : null,
+    }
+  },
+  freeze() {
+    voiceLocked.value = true
+    editorRef.value?.blur()
+  },
+  commit(snapshot, finalText) {
+    const editorEl = editorRef.value
+    if (!editorEl) return
+    editorEl.innerHTML = snapshot.html
+    const append = buildDictationAppend(snapshot.text, finalText)
+    if (append) editorEl.appendChild(document.createTextNode(append))
+    voiceLocked.value = false
+    inputText.value = getEditorPlainText()
+    autoResize()
+    nextTick(() => {
+      setCursorToEnd()
+      focusEditor()
+    })
+  },
+  restore(snapshot) {
+    const editorEl = editorRef.value
+    if (!editorEl) return
+    editorEl.innerHTML = snapshot.html
+    voiceLocked.value = false
+    inputText.value = getEditorPlainText()
+    autoResize()
+    nextTick(() => {
+      if (snapshot.caret) restoreCaret(editorEl, snapshot.caret)
+      if (snapshot.focused) focusEditor()
+    })
+  },
+}
+
+const voice = useVoiceInput({
+  target: () => voiceTarget,
+  canStart: () => !props.disabled && !props.isSending && !isOptimizing.value,
+})
+const {
+  supported: voiceSupported,
+  isActive: voiceActive,
+  liveTranscript: voiceLiveTranscript,
+  hint: voiceHint,
+} = voice
+
+/** 录音期间与发送/优化共用同一个可编辑判定。 */
+const isEditorEditable = computed(
+  () => !isOptimizing.value && !voiceLocked.value && (!props.disabled || !!props.isSending),
+)
+
+const showVoiceInstallDialog = ref(false)
+const voiceInstallInfo = ref<VoiceModelInstallInfo | null>(null)
+let voiceClickBusy = false
+
+const voiceHintText = computed(() => {
+  const current = voiceHint.value
+  if (!current) return ''
+  switch (current.code) {
+    case 'permission-denied':
+      return t('chatInput.voicePermissionDenied')
+    case 'device-unavailable':
+      return t('chatInput.voiceDeviceUnavailable')
+    case 'unsupported':
+      return t('chatInput.voiceUnsupported')
+    case 'sample-rate-mismatch':
+      return t('chatInput.voiceSampleRate')
+    case 'model-missing':
+      return t('chatInput.voiceModelMissing')
+    case 'model-corrupted':
+      return t('chatInput.voiceModelCorrupted')
+    case 'model-busy':
+      return t('chatInput.voiceModelBusy')
+    case 'engine-failed':
+      return t('chatInput.voiceEngineFailed', { message: current.detail ?? '' })
+    case 'capture-failed':
+      return t('chatInput.voiceCaptureFailed', { message: current.detail ?? '' })
+    case 'no-speech':
+      return t('chatInput.voiceNoSpeech')
+    case 'installing':
+      return t('chatInput.voiceInstalling', { percent: Math.round(current.progress ?? 0) })
+    case 'install-failed':
+      return t('chatInput.voiceInstallFailed', { message: current.detail ?? '' })
+    default:
+      return ''
+  }
+})
+
+/**
+ * 第一次点击：模型已装则直接录音；未装则弹共用确认框，下载成功后自动开录。
+ * 不在这里重试安装：下载中的重复点击只提示"正在安装"。
+ */
+async function handleVoiceClick() {
+  if (!voiceSupported.value) return
+  if (voiceActive.value) {
+    await voice.stop()
+    return
+  }
+  if (props.disabled || props.isSending || isOptimizing.value) return
+  if (voiceClickBusy) return
+
+  voiceClickBusy = true
+  try {
+    const readiness = await voice.prepare()
+    if (readiness === 'ready') {
+      await voice.start()
+      return
+    }
+    if (readiness === 'busy') {
+      voice.setHint({ kind: 'info', code: 'model-busy' }, 4000)
+      return
+    }
+    if (readiness !== 'needs-install') return
+
+    try {
+      voiceInstallInfo.value = await voice.getInstallInfo()
+    } catch (error) {
+      console.error('[ChatInput] Failed to read voice install info:', error)
+      return
+    }
+    showVoiceInstallDialog.value = true
+  } finally {
+    voiceClickBusy = false
+  }
+}
+
+async function confirmVoiceInstall() {
+  showVoiceInstallDialog.value = false
+  if (await voice.install()) await voice.start()
+}
+
+function cancelVoice() {
+  void voice.cancel()
+}
+
+/** 录音期间按 Escape 完整撤销：捕获阶段先于编辑器快捷键生效。 */
+function handleVoiceEscape(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !voiceActive.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  void voice.cancel()
+}
 
 // ── Per-session draft persistence ───────────────────────────────
 const draftPersistence = useDraftPersistence({
@@ -762,6 +974,12 @@ function checkContextTrigger() {
 }
 
 function handleEditorKeydown(event: KeyboardEvent) {
+  // 录音期间编辑器只读：不响应任何编辑或提交快捷键；Escape 由全局捕获监听取消。
+  if (voiceActive.value) {
+    event.preventDefault()
+    return
+  }
+
   if (commandPalette.showMenu.value) {
     switch (event.key) {
       case 'ArrowDown':
@@ -1013,7 +1231,7 @@ function openSkillsManager() {
 // ── Prompt optimization ──────────────────────────────────────────
 async function handleOptimizePrompt() {
   const prompt = getEditorPlainText().trim()
-  if (!prompt || isOptimizing.value) return
+  if (!prompt || isOptimizing.value || voiceActive.value) return
 
   const result = await runOptimizePrompt(prompt, {
     workingDirectory: props.workingDirectory,
@@ -1047,7 +1265,8 @@ function readCommandChips(): CommandChipData[] {
 }
 
 function handleSend(steerMode = false) {
-  if (isOptimizing.value) return
+  // 录音中草稿只读：此时提交会把尚未收口的转写留在编辑器里。
+  if (isOptimizing.value || voiceActive.value) return
 
   const decision = resolveComposerSubmission({
     content: getEditorPlainText().trim(),
@@ -1217,6 +1436,7 @@ onMounted(() => {
 
   window.addEventListener('session-created', focusEditor)
   window.addEventListener('chip-image-preview', handleChipImagePreview as EventListener)
+  window.addEventListener('keydown', handleVoiceEscape, true)
 
   // 挂载即恢复本会话草稿（例如从设置页返回时组件被重新挂载）
   editorSessionId.value = props.sessionId ?? sessionStore.currentSessionId
@@ -1230,6 +1450,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('session-created', focusEditor)
   window.removeEventListener('chip-image-preview', handleChipImagePreview as EventListener)
+  window.removeEventListener('keydown', handleVoiceEscape, true)
   if (thinkingHintTimer) clearTimeout(thinkingHintTimer)
 })
 
@@ -1238,6 +1459,8 @@ onUnmounted(() => {
 // that may already point elsewhere). onBeforeUnmount runs while the DOM is
 // still intact, so editorRef.value and its innerHTML are still available.
 onBeforeUnmount(() => {
+  // 卸载前先撤销录音：状态机会同步恢复快照，随后保存的草稿才是录音前的样子。
+  voice.dispose()
   saveDraftForSession(editorSessionId.value)
 })
 
@@ -1281,19 +1504,19 @@ watch(() => sessionStore.pendingInputText, (newText) => {
 // single-pane mode, so this watcher is the only save/restore point.
 watch(() => props.sessionId ?? sessionStore.currentSessionId, (newSid) => {
   if ((newSid ?? null) === (editorSessionId.value ?? null)) return
+  // 会话变了：录音必须立刻作废，快照恢复后再保存旧会话草稿。
+  if (voiceActive.value) void voice.cancel()
   saveDraftForSession(editorSessionId.value)
   editorSessionId.value = newSid ?? null
   focusEditor()
   nextTick(() => loadDraftForSession(editorSessionId.value))
 })
 
-// Watch disabled/isSending to toggle contenteditable
-watch([() => props.disabled, () => props.isSending], ([disabled, sending]) => {
-  const editorEl = editorRef.value
-  if (editorEl) {
-    editorEl.contentEditable = (!disabled || sending) ? 'true' : 'false'
-  }
-}, { immediate: true })
+// 录音期间输入框被禁用/进入发送或优化状态：取消录音，避免只读状态里残留转写。
+watch([() => props.disabled, () => props.isSending, isOptimizing], ([disabled, sending, optimizing]) => {
+  if (!voiceActive.value) return
+  if (disabled || sending || optimizing) void voice.cancel()
+})
 
 // Watch for files added from file tree context menu
 watch(pendingFile, (file) => {
@@ -1486,6 +1709,40 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   background: var(--error);
 }
 
+// 语音输入提示：权限指引可能较长，作为输入区内的横条而不是浮层
+.voice-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+
+  &.is-error {
+    background: var(--error-glow);
+    border: 1px solid var(--error);
+    color: var(--text-primary);
+
+    .voice-hint-icon {
+      color: var(--error);
+    }
+  }
+}
+
+.voice-hint-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.voice-hint-text {
+  white-space: pre-wrap;
+}
+
 // 提示词优化进行中文字提示
 .optimize-hint {
   display: inline-flex;
@@ -1581,6 +1838,22 @@ defineExpose({ getContent, setContent, focus: focusEditor })
     }
 
     @include composer-chips;
+  }
+
+  // 录音时编辑器为空也不显示占位符：下方正在显示实时转写。
+  .input-wrapper.is-voice-active & .inline-editor:empty::before {
+    content: '';
+  }
+
+  // 实时转写是暂定内容：与正式草稿同一排版，但不进入编辑器 DOM。
+  .voice-live-transcript {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--text-secondary);
+    font-size: var(--text-base-plus);
+    line-height: var(--leading-relaxed);
+    user-select: none;
+    pointer-events: none;
   }
 }
 
@@ -1693,6 +1966,55 @@ defineExpose({ getContent, setContent, focus: focusEditor })
       color: var(--accent-primary);
       background: rgba(var(--accent-primary-rgb), 0.1);
     }
+  }
+}
+
+// 语音输入：录音中按钮变为停止，红底表示正在采音
+.voice-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  @include flex-center;
+  color: var(--text-secondary);
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  &.is-recording {
+    color: #fff;
+    background: var(--error);
+    animation: voice-pulse 1.6s ease-in-out infinite;
+
+    &:hover {
+      background: var(--error);
+      color: #fff;
+      opacity: 0.9;
+    }
+  }
+}
+
+.voice-cancel-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  @include flex-center;
+  color: var(--text-muted);
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+}
+
+@keyframes voice-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--error-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--error-glow);
   }
 }
 
