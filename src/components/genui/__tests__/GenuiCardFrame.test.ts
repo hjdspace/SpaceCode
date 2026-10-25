@@ -16,6 +16,7 @@ import {
   GENUI_SANDBOX_PROTOCOL_VERSION,
 } from '@/shared/genuiSandbox'
 import GenuiCardFrame from '../GenuiCardFrame.vue'
+import type { GenuiCardSubmissionResult } from '@/lib/genui/cardSubmission'
 
 const i18n = createI18n({
   legacy: false,
@@ -314,6 +315,102 @@ describe('卡片动作与展开', () => {
     const { wrapper } = await mountReady({ expandable: false })
 
     expect(wrapper.find('.genui-card-expand').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('卡片提交回环', () => {
+  const NONCE = '11111111-2222-3333-4444-555555555555'
+
+  async function mountReady(overrides: Record<string, unknown> = {}) {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue(NONCE)
+    // 返回类型钉成端口的联合：否则 mock 只认成功形状，失败/忽略的用例过不了类型检查
+    const submitCard = vi.fn(
+      async (): Promise<GenuiCardSubmissionResult> => ({ status: 'submitted', summary: '已提交' }),
+    )
+    const wrapper = mountFrame({ submitCard, ...overrides })
+    const frame = wrapper.find('iframe').element as HTMLIFrameElement
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_READY, nonce: NONCE, protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION },
+        source: frame.contentWindow,
+      }),
+    )
+    await nextTick()
+    return { wrapper, frame, submitCard }
+  }
+
+  function dispatchAction(frame: HTMLIFrameElement, data: Record<string, unknown>) {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: GENUI_MSG_ACTION, nonce: NONCE, ...data },
+        source: frame.contentWindow,
+      }),
+    )
+  }
+
+  it('submit 把 payload 交给宿主提交端口，卡片保持可用', async () => {
+    const { wrapper, frame, submitCard } = await mountReady()
+
+    dispatchAction(frame, { action: 'submit', payload: { name: '张三' } })
+    await flushPromises()
+
+    expect(submitCard).toHaveBeenCalledWith({ name: '张三' })
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('失败')
+    wrapper.unmount()
+  })
+
+  it('提交失败时卡片保持可编辑并显示可重试错误', async () => {
+    const { wrapper, frame, submitCard } = await mountReady()
+    submitCard.mockResolvedValueOnce({ status: 'failed', reason: 'oversized' })
+
+    dispatchAction(frame, { action: 'submit', payload: { blob: 'x' } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('超过 64KB')
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('端口拒绝时显示发送失败，不把整张卡换成错误占位', async () => {
+    const { wrapper, frame, submitCard } = await mountReady()
+    submitCard.mockRejectedValueOnce(new Error('engine unavailable'))
+
+    dispatchAction(frame, { action: 'submit', payload: { name: '张三' } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('提交发送失败')
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('桥在 64KB 闸门处拒绝的 submit 直接给出可见错误，不触达提交端口', async () => {
+    const { wrapper, frame, submitCard } = await mountReady()
+
+    dispatchAction(frame, { action: 'submit', payload: { blob: 'x'.repeat(64 * 1024) } })
+    await flushPromises()
+
+    expect(submitCard).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('超过 64KB')
+    wrapper.unmount()
+  })
+
+  it('已提交的卡片只读：遮罩可见、iframe 不可交互、再次提交被忽略', async () => {
+    const submittedCard = {
+      ...CARD,
+      submitted: { summary: '已提交卡片「报名表」，共 1 个字段', submittedAt: 1 },
+    }
+    const { wrapper, frame, submitCard } = await mountReady({ card: submittedCard })
+
+    expect(wrapper.attributes('data-submitted')).toBe('true')
+    expect(wrapper.find('.genui-card-submitted').text()).toContain('已提交')
+    expect(wrapper.find('iframe').attributes('inert')).toBeDefined()
+
+    dispatchAction(frame, { action: 'submit', payload: { name: '李四' } })
+    await flushPromises()
+
+    expect(submitCard).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

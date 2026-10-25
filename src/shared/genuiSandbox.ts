@@ -73,6 +73,12 @@ export const GENUI_MAX_BRIDGE_MESSAGE_BYTES = 1024 * 1024
 /** 卡片可请求复制/提交的文本上限（PRD §4）。 */
 export const GENUI_MAX_COPY_BYTES = 64 * 1024
 
+/**
+ * `submit` payload 上限（PRD §4）。与复制同额，但独立命名：
+ * 提交的内容要进模型上下文与持久化，调整它不该被剪贴板的口径绑住。
+ */
+export const GENUI_MAX_SUBMIT_BYTES = 64 * 1024
+
 /** 宿主动作从发起到收口的最长等待；超时按这张卡失败处理，可重试。 */
 export const GENUI_ACTION_TIMEOUT_MS = 5_000
 

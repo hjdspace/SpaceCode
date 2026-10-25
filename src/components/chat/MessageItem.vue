@@ -180,6 +180,7 @@ import ReasoningCard from './ReasoningCard.vue'
 import ToolCallList from './ToolCallList.vue'
 import MessageMetadata from './MessageMetadata.vue'
 import { renderContentWithAttachments } from '@/utils/mention-chips'
+import { resolveUserMessageDisplay } from '@/lib/genui/cardSubmission'
 import { detectWorkbenchTargets, type WorkbenchTarget } from '@/utils/workbench-targets'
 import { useAppStore } from '@/stores/app'
 
@@ -283,8 +284,12 @@ function handleCopyClick() {
   })
 }
 
+/**
+ * 提交卡片的那条用户消息正文里带着完整围栏 JSON（引擎据此拿到 payload），
+ * 气泡只显示 metadata 里的摘要；metadata 缺失时退回原文，内容不会被折叠吞掉（票 04）。
+ */
 const renderedUserContent = computed(() =>
-  renderContentWithAttachments(props.message.content || '', props.message.imageAttachments)
+  renderContentWithAttachments(resolveUserMessageDisplay(props.message), props.message.imageAttachments)
 )
 
 function formatTime(timestamp: number): string {

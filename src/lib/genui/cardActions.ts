@@ -9,6 +9,7 @@ import {
   GENUI_CARD_ACTIONS,
   GENUI_MAX_BRIDGE_MESSAGE_BYTES,
   GENUI_MAX_COPY_BYTES,
+  GENUI_MAX_SUBMIT_BYTES,
   type GenuiCardActionName,
 } from '@/shared/genuiSandbox'
 
@@ -32,6 +33,7 @@ export type CardActionParseResult =
 export type CardActionParseOptions = {
   maxBytes?: number
   maxCopyBytes?: number
+  maxSubmitBytes?: number
 }
 
 const encoder = new TextEncoder()
@@ -112,7 +114,15 @@ export function parseCardAction(
     return { ok: true, action: { action: 'openLink', url: payload.url } }
   }
 
-  // submit：本条票只保留白名单与校验骨架，真正的提交回环见票 04
-  if (!isRecord(payload)) return reject('invalid-payload')
-  return { ok: true, action: { action: 'submit', payload } }
+  // submit：payload 要进模型上下文与会话存储，所以在桥口就按单条提交限额夹住；
+  // 更深的语义（摘要、落库、只读）由 lib/genui/cardSubmission 负责。
+  if (name === 'submit') {
+    if (!isRecord(payload)) return reject('invalid-payload')
+    const payloadBytes = messageByteLength(payload)
+    if (payloadBytes === null) return reject('unserializable')
+    if (payloadBytes > (options.maxSubmitBytes ?? GENUI_MAX_SUBMIT_BYTES)) return reject('oversized')
+    return { ok: true, action: { action: 'submit', payload } }
+  }
+
+  return reject('unknown-action')
 }

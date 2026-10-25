@@ -1,4 +1,4 @@
-import type { GenuiCardFallback, GenuiCardRecord } from './genui'
+import type { GenuiCardFallback, GenuiCardRecord, GenuiCardSubmissionMeta } from './genui'
 
 export enum ErrorCategory {
   RATE_LIMIT = 'rate_limit',
@@ -216,6 +216,11 @@ export interface MessageMetadata {
    * 让用户知道内容没有被静默丢弃（畸形 JSON / 非白名单组件 / 超限）。
    */
   genUiCardFallbacks?: GenuiCardFallback[]
+  /**
+   * 卡片提交产生的用户消息：正文里留着摘要 + 完整围栏 JSON（引擎据此拿到 payload），
+   * 气泡只渲染摘要。metadata 缺失时气泡退回原文，内容不会被折叠吞掉（票 04）。
+   */
+  genUiSubmission?: GenuiCardSubmissionMeta
 }
 
 export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended' | 'exited'

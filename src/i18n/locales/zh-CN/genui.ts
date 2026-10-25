@@ -15,6 +15,31 @@ export default {
     expandClose: '关闭',
     copyFailed: '复制失败，请稍后重试',
     linkFailed: '链接无法打开',
+    oversized: '内容超过 64KB，未被执行',
+  },
+  /**
+   * 卡片提交回环（票 04）。摘要按数量生成，不含任何字段值：
+   * 完整 payload 以围栏 JSON 写在同一条消息正文里，折叠展示由 metadata 决定。
+   */
+  submission: {
+    summaryFields: '已提交卡片「{name}」，共 {count} 个字段',
+    summaryItems: '已提交卡片「{name}」，共 {count} 个条目',
+    failed: {
+      'invalid-payload': '提交内容不是一个对象，未被发送',
+      unserializable: '提交内容无法序列化，未被发送',
+      oversized: '提交内容超过 64KB，未被发送',
+      'send-failed': '提交发送失败，卡片仍可编辑，请重试',
+      'session-unavailable': '会话不可用，提交未发送，请重试',
+      timeout: '提交未在时限内送达，卡片仍可编辑，请重试',
+    },
+  },
+  /**
+   * 卡片超出会话预算后的可见占位（票 05）。卡片不会静默消失：
+   * 「过期」只丢内容、「不可用」连 id 都对不上，两种都要说清发生了什么。
+   */
+  lifecycle: {
+    expired: '卡片内容已过期，提交结果仍保留',
+    unavailable: '卡片内容已不可用',
   },
   /**
    * 围栏没能投影成卡片时，原文仍按代码块留在正文里，这里只补一句为什么。

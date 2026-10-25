@@ -5,7 +5,11 @@
  * 用例只断言「给一条消息，得到哪个动作或被哪条规则拒绝」，不碰 DOM 与平台 API。
  */
 import { describe, it, expect } from 'vitest'
-import { GENUI_MAX_BRIDGE_MESSAGE_BYTES, GENUI_MAX_COPY_BYTES } from '@/shared/genuiSandbox'
+import {
+  GENUI_MAX_BRIDGE_MESSAGE_BYTES,
+  GENUI_MAX_COPY_BYTES,
+  GENUI_MAX_SUBMIT_BYTES,
+} from '@/shared/genuiSandbox'
 import { isSafeExternalUrl, parseCardAction } from '../cardActions'
 
 function action(overrides: Record<string, unknown> = {}) {
@@ -96,6 +100,21 @@ describe('拒绝路径', () => {
         reason: 'invalid-payload',
       })
     }
+  })
+
+  it('submit payload 超过 64KB 按超限拒绝', () => {
+    const payload = { blob: 'x'.repeat(GENUI_MAX_SUBMIT_BYTES) }
+    expect(parseCardAction(action({ action: 'submit', payload }))).toEqual({
+      ok: false,
+      reason: 'oversized',
+    })
+  })
+
+  it('submit payload 恰好等于 64KB 时仍被放行', () => {
+    // 限额算的是 payload 序列化后的整体，`{"blob":""}` 这层壳也要占位；补齐后正好压在限额上
+    const shell = JSON.stringify({ blob: '' }).length
+    const payload = { blob: 'x'.repeat(GENUI_MAX_SUBMIT_BYTES - shell) }
+    expect(parseCardAction(action({ action: 'submit', payload }))).toMatchObject({ ok: true })
   })
 })
 

@@ -15,6 +15,30 @@ export default {
     expandClose: 'Close',
     copyFailed: 'Copy failed. Please try again.',
     linkFailed: 'The link could not be opened',
+    oversized: 'The content is larger than 64KB, so it was not run',
+  },
+  /**
+   * 卡片提交回环（票 04）。摘要只报数量，不含字段值：完整 payload 以围栏 JSON
+   * 写在同一条消息正文里，折叠展示由 metadata 决定。
+   */
+  submission: {
+    summaryFields: 'Submitted card "{name}" with {count} fields',
+    summaryItems: 'Submitted card "{name}" with {count} items',
+    failed: {
+      'invalid-payload': 'The submitted content is not an object, so it was not sent',
+      unserializable: 'The submitted content cannot be serialized, so it was not sent',
+      oversized: 'The submitted content is larger than 64KB, so it was not sent',
+      'send-failed': 'Submitting failed. The card is still editable — please retry.',
+      'session-unavailable': 'No session is available, so the submission was not sent. Please retry.',
+      timeout: 'The submission was not delivered in time. The card is still editable — please retry.',
+    },
+  },
+  /**
+   * 卡片超出会话预算后的可见占位（票 05）。卡片不会静默消失。
+   */
+  lifecycle: {
+    expired: 'Card content expired. The submitted result is kept.',
+    unavailable: 'Card content is no longer available',
   },
   /**
    * 围栏没投影成卡片时，原文仍按代码块留在正文里，这里只补一句为什么。

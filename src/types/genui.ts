@@ -7,6 +7,31 @@ import type { SandboxSource } from '@/lib/genui/sandboxUrl'
 
 export type { GenuiTheme, SandboxSource }
 
+/** 卡片提交后的只读标记：摘要与时刻随 metadata 一起持久化（票 04/05）。 */
+export type GenuiCardSubmittedMark = {
+  summary: string
+  submittedAt: number
+}
+
+/**
+ * 提交时随用户消息落库的 metadata 形状。turn store 的发送选项与提交 host 共用这一份，
+ * 避免两处各写一份而漂移成「存得下但读不出来」。
+ */
+export type GenuiSubmissionUserMessageMetadata = {
+  genUiSubmission: GenuiCardSubmissionMeta
+}
+
+/**
+ * 挂在提交用户消息 metadata 上的提交详情（票 04）。
+ * 正文里留着摘要 + 完整围栏 JSON，气泡据此只渲染摘要；payload 因此仍在模型上下文中。
+ */
+export type GenuiCardSubmissionMeta = {
+  cardId: string
+  summary: string
+  payload: Record<string, unknown>
+  collapsed: true
+}
+
 /**
  * 挂在 assistant 消息 metadata 上的卡片记录。
  * id 由「消息 id + 围栏序号」决定，重投影时用于去重（票 02/05 接入）。
@@ -15,6 +40,8 @@ export type GenuiCardRecord = {
   id: string
   schema: Record<string, unknown>
   protocolVersion: number
+  /** 已提交：卡片转为只读，重复提交被忽略 */
+  submitted?: GenuiCardSubmittedMark
 }
 
 /** 卡片没能成卡的原因。每条都对应正文里保留下来的原样围栏。 */
