@@ -80,6 +80,30 @@ describe('useVoiceShortcut', () => {
     expect(notifyNoTarget).not.toHaveBeenCalled()
   })
 
+  it('stops only once when Alt+V is pressed again while the stop is pending', async () => {
+    const { registry, press } = setup()
+    const target = fakeTarget('main', { recording: true })
+    let resolveStop!: () => void
+    vi.mocked(target.stop).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveStop = resolve
+        }),
+    )
+    registry.register(target)
+    registry.focus('main')
+
+    press()
+    press()
+    press()
+
+    await vi.waitFor(() => expect(target.stop).toHaveBeenCalledTimes(1))
+
+    resolveStop()
+    await vi.waitFor(() => expect(target.stop).toHaveBeenCalledTimes(1))
+    expect(target.start).not.toHaveBeenCalled()
+  })
+
   it('shows the no-target hint once and starts nothing when no input is available', async () => {
     const { press, notifyNoTarget } = setup()
 

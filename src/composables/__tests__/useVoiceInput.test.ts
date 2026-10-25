@@ -247,6 +247,45 @@ describe('useVoiceInput', () => {
     expect(target.restore).toHaveBeenCalledWith(SNAPSHOT)
   })
 
+  it('clears the stale failure hint when a retry actually starts recording', async () => {
+    const behaviour: { startError?: VoiceCaptureError } = {
+      startError: new VoiceCaptureError('device-unavailable'),
+    }
+    const capture = createFakeCapture(behaviour)
+    const { voice } = setup({ capture })
+
+    await voice.start()
+    expect(voice.state.value).toBe('failed')
+    expect(voice.hint.value).toMatchObject({ kind: 'error', code: 'device-unavailable' })
+
+    // 插回麦克风后从同一个按钮重试：旧的失败提示不能留在录音态上。
+    delete behaviour.startError
+    await voice.start()
+
+    expect(voice.state.value).toBe('recording')
+    expect(voice.hint.value).toBeNull()
+  })
+
+  it('maps a session failure pushed from the main process to an engine error hint', async () => {
+    const { voice, session, target } = setup()
+    await voice.start()
+
+    session.emitState({
+      sessionId: 's1',
+      state: 'failed',
+      errorCode: 'engine-failed',
+      error: 'worker exited',
+    })
+
+    expect(voice.state.value).toBe('failed')
+    expect(voice.hint.value).toMatchObject({
+      kind: 'error',
+      code: 'engine-failed',
+      detail: 'worker exited',
+    })
+    expect(target.restore).toHaveBeenCalledWith(SNAPSHOT)
+  })
+
   it('ends with a no-speech hint when the final transcript is blank', async () => {
     const session = createFakeSession()
     session.stopSession.mockResolvedValue({ success: true, text: '   ' })

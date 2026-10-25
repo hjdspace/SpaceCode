@@ -400,6 +400,122 @@ describe('VoiceDictation', () => {
     expect(ctx.target.restored).toHaveLength(1)
   })
 
+  it('收口中主进程会话失败：丢弃将到的终稿并恢复快照', async () => {
+    const ctx = setup()
+    await startRecording(ctx)
+
+    let resolveStop!: (result: VoiceStopSessionResult) => void
+    ctx.session.stopSession = () =>
+      new Promise<VoiceStopSessionResult>((resolve) => {
+        resolveStop = resolve
+      })
+
+    const stopping = ctx.dictation.stop()
+    expect(ctx.dictation.state).toBe('finalizing')
+
+    ctx.session.emitState({
+      sessionId: SESSION_ID,
+      state: 'failed',
+      errorCode: 'engine-failed',
+      error: 'worker crashed',
+    })
+    expect(ctx.dictation.state).toBe('failed')
+    expect(ctx.outcomes[0]).toMatchObject({ kind: 'failed', code: 'engine-failed' })
+    expect(ctx.target.restored).toHaveLength(1)
+    expect(ctx.dictation.liveTranscript).toBe('')
+
+    // 收口请求在失败之后才落地：终稿必须被丢弃，不写回编辑器。
+    resolveStop({ success: true, text: '不该提交' })
+    await stopping
+
+    expect(ctx.target.committed).toHaveLength(0)
+    expect(ctx.dictation.state).toBe('failed')
+  })
+
+  it('失败后重复收口不会再产生第二份结果', async () => {
+    const ctx = setup()
+    ctx.capture.startError = new VoiceCaptureError('permission-denied')
+
+    await ctx.dictation.start()
+    await ctx.dictation.stop()
+    await ctx.dictation.cancel()
+
+    expect(ctx.outcomes).toHaveLength(1)
+    expect(ctx.session.canceled).toEqual([SESSION_ID])
+    expect(ctx.target.restored).toHaveLength(1)
+  })
+
+  it('失败后可以重新开始录音，无需重启应用', async () => {
+    const ctx = setup()
+    ctx.capture.startError = new VoiceCaptureError('device-unavailable')
+
+    await ctx.dictation.start()
+    expect(ctx.dictation.state).toBe('failed')
+
+    ctx.capture.startError = null
+    ctx.session.stopResult = { success: true, text: '第二段' }
+    await startRecording(ctx)
+
+    expect(ctx.session.started).toEqual([SESSION_ID, SESSION_ID])
+    expect(ctx.target.frozen).toHaveLength(2)
+
+    await ctx.dictation.stop()
+    expect(ctx.target.committed).toEqual([
+      { snapshot: expect.objectContaining({ text: 'draft' }), finalText: '第二段' },
+    ])
+    expect(ctx.dictation.state).toBe('idle')
+  })
+
+  it('失败后重新开始时，上一次未落地的收口不会吞掉新的停止', async () => {
+    const capture = new FakeCapture()
+    const session = new FakeSession()
+    const target = new FakeTarget()
+    let sequence = 0
+    const dictation = new VoiceDictation({
+      capture,
+      session,
+      target: () => target,
+      createSessionId: () => `sid-${++sequence}`,
+    })
+
+    await dictation.start()
+    expect(dictation.state).toBe('recording')
+
+    let resolveFirstStop!: (result: VoiceStopSessionResult) => void
+    session.stopSession = () =>
+      new Promise<VoiceStopSessionResult>((resolve) => {
+        resolveFirstStop = resolve
+      })
+    const firstStop = dictation.stop()
+
+    // worker 在收口中失败：会话转为失败态，旧收口请求仍在路上。
+    session.emitState({
+      sessionId: 'sid-1',
+      state: 'failed',
+      errorCode: 'engine-failed',
+      error: 'worker crashed',
+    })
+    expect(dictation.state).toBe('failed')
+
+    // 立刻重试并停止：必须走新的收口，而不是复用旧会话的 promise。
+    session.stopSession = async (sessionId: string) => {
+      session.stopped.push(sessionId)
+      return { success: true, text: '新终稿' }
+    }
+    await dictation.start()
+    expect(dictation.state).toBe('recording')
+    await dictation.stop()
+
+    expect(session.stopped).toEqual(['sid-2'])
+    expect(target.committed).toEqual([
+      { snapshot: expect.objectContaining({ text: 'draft' }), finalText: '新终稿' },
+    ])
+
+    resolveFirstStop({ success: true, text: '旧终稿' })
+    await firstStop
+    expect(target.committed).toHaveLength(1)
+  })
+
   it('未知会话的新音频在停止后不再发送', async () => {
     const ctx = setup()
     await startRecording(ctx)

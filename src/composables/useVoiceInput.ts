@@ -140,6 +140,8 @@ export function useVoiceInput(options: UseVoiceInputOptions) {
     onStateChange: (next) => {
       state.value = next
       if (next === 'idle' || next === 'failed') liveTranscript.value = ''
+      // 重试开始后旧的失败提示必须收口，否则会盖在正在进行的录音上。
+      if (next === 'preparing') clearHint()
     },
     onLiveTranscript: (text) => {
       liveTranscript.value = text

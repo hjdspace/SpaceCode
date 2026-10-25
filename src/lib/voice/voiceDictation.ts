@@ -200,7 +200,8 @@ export class VoiceDictation {
   }
 
   stop(): Promise<void> {
-    if (this.stopPromise) return this.stopPromise
+    // 同一个收口过程只跑一次；失败后重开的新会话不能被旧的请求吞掉。
+    if (this.stopPromise && this.stateValue === 'finalizing') return this.stopPromise
     const promise = this.stopInternal().finally(() => {
       if (this.stopPromise === promise) this.stopPromise = null
     })

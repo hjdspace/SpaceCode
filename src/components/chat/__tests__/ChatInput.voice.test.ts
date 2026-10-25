@@ -22,6 +22,8 @@ import type {
   VoiceModelInstallInfo,
   VoiceModelStatus,
   VoicePartialPayload,
+  VoiceSessionStatePayload,
+  VoiceStopSessionResult,
 } from '@/shared/channels/voice'
 import enUS from '@/i18n/locales/en-US'
 
@@ -70,6 +72,8 @@ const INSTALL_INFO: VoiceModelInstallInfo = {
 }
 
 let partialHandler: ((payload: VoicePartialPayload) => void) | null = null
+let sessionStateHandler: ((payload: VoiceSessionStatePayload) => void) | null = null
+let captureHandlers: VoiceCaptureHandlers | null = null
 
 function mountInput(props: Record<string, unknown> = {}) {
   return mount(ChatInput, {
@@ -116,7 +120,12 @@ beforeEach(() => {
   ;(window as unknown as { electronAPI?: unknown }).electronAPI = {}
 
   partialHandler = null
-  captureMock.start.mockReset().mockResolvedValue({ sampleRate: 16_000 })
+  sessionStateHandler = null
+  captureHandlers = null
+  captureMock.start.mockReset().mockImplementation(async (handlers) => {
+    captureHandlers = handlers
+    return { sampleRate: 16_000 }
+  })
   captureMock.stop.mockReset()
 
   vi.spyOn(api.voice, 'getModelStatus').mockResolvedValue(status('installed'))
@@ -131,7 +140,10 @@ beforeEach(() => {
     partialHandler = handler
     return () => {}
   })
-  vi.spyOn(api.voice, 'onSessionState').mockReturnValue(() => {})
+  vi.spyOn(api.voice, 'onSessionState').mockImplementation((handler) => {
+    sessionStateHandler = handler
+    return () => {}
+  })
 })
 
 afterEach(() => {
@@ -244,10 +256,14 @@ describe('ChatInput · 语音输入', () => {
     expect(api.voice.cancelSession).toHaveBeenCalledWith({ sessionId: sid })
   })
 
-  it('切换会话立即取消录音', async () => {
+  it('切换会话立即取消录音、丢弃实时转写并释放会话', async () => {
     const wrapper = mountInput()
     await flushPromises()
+    wrapper.vm.setContent('草稿')
+    await flushPromises()
     await startRecording(wrapper)
+    emitPartial('不该留下')
+    await nextTick()
     const sid = sessionIdOfStart()
 
     await wrapper.setProps({ sessionId: 'session-other' })
@@ -255,6 +271,9 @@ describe('ChatInput · 语音输入', () => {
 
     expect(api.voice.cancelSession).toHaveBeenCalledWith({ sessionId: sid })
     expect(wrapper.find('.voice-cancel-btn').exists()).toBe(false)
+    expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+    expect(editorEl(wrapper).textContent).not.toContain('不该留下')
+    expect(wrapper.find('.voice-live-transcript').exists()).toBe(false)
   })
 
   it('禁用状态下点击麦克风不会开始录音', async () => {
@@ -302,6 +321,163 @@ describe('ChatInput · 语音输入', () => {
     expect(hint.text()).toContain('Microphone access is blocked')
     expect(editorEl(wrapper).textContent).toBe('草稿')
     expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+  })
+
+  it('麦克风权限被拒后再次点击可正常录音，无需重启', async () => {
+    captureMock.start.mockRejectedValueOnce(new VoiceCaptureError('permission-denied', 'denied'))
+    const wrapper = mountInput()
+    await flushPromises()
+    await startRecording(wrapper)
+
+    expect(wrapper.find('.voice-hint').text()).toContain('Microphone access is blocked')
+
+    await startRecording(wrapper)
+
+    expect(api.voice.startSession).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.voice-cancel-btn').exists()).toBe(true)
+    // 重试成功后旧的失败提示不应继续挂着。
+    expect(wrapper.find('.voice-hint').exists()).toBe(false)
+  })
+
+  it('录音中麦克风失效：展示设备错误、恢复草稿并允许再次录音', async () => {
+    const wrapper = mountInput()
+    await flushPromises()
+    wrapper.vm.setContent('草稿')
+    await flushPromises()
+    await startRecording(wrapper)
+
+    captureHandlers?.onError(new VoiceCaptureError('device-unavailable', 'unplugged'))
+    await flushPromises()
+
+    const hint = wrapper.find('.voice-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('No microphone is available')
+    expect(editorEl(wrapper).textContent).toBe('草稿')
+    expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+    expect(captureMock.stop).toHaveBeenCalled()
+    expect(wrapper.find('.voice-live-transcript').exists()).toBe(false)
+
+    await startRecording(wrapper)
+    expect(api.voice.startSession).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.voice-cancel-btn').exists()).toBe(true)
+  })
+
+  it('推理 worker 失败时提示重试、释放麦克风且可再次录音', async () => {
+    const wrapper = mountInput()
+    await flushPromises()
+    await startRecording(wrapper)
+    const sid = sessionIdOfStart()
+
+    sessionStateHandler?.({
+      sessionId: sid,
+      state: 'failed',
+      errorCode: 'engine-failed',
+      error: 'worker exited',
+    })
+    await flushPromises()
+
+    const hint = wrapper.find('.voice-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('worker exited')
+    expect(captureMock.stop).toHaveBeenCalled()
+    expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+
+    await startRecording(wrapper)
+    expect(api.voice.startSession).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.voice-cancel-btn').exists()).toBe(true)
+  })
+
+  it('模型损坏时拒绝开始并从同一按钮给出重新安装入口', async () => {
+    vi.mocked(api.voice.getModelStatus).mockResolvedValue(status('corrupted'))
+    const wrapper = mountInput()
+    await flushPromises()
+
+    await wrapper.find('.voice-btn').trigger('click')
+    await flushPromises()
+
+    expect(api.voice.startSession).not.toHaveBeenCalled()
+    expect(wrapper.find('.vmd-title').exists()).toBe(true)
+    expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+  })
+
+  it('首次安装下载失败时展示原因，并可从同一入口重试', async () => {
+    vi.mocked(api.voice.getModelStatus).mockResolvedValue(status('missing'))
+    vi.mocked(api.voice.installModel).mockResolvedValueOnce({
+      success: false,
+      errorCode: 'network',
+      error: 'All download sources failed: ECONNRESET',
+      status: status('missing'),
+    })
+    const wrapper = mountInput()
+    await flushPromises()
+
+    await wrapper.find('.voice-btn').trigger('click')
+    await flushPromises()
+    await wrapper.find('.vmd-btn-primary').trigger('click')
+    await flushPromises()
+
+    const hint = wrapper.find('.voice-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('ECONNRESET')
+    expect(api.voice.startSession).not.toHaveBeenCalled()
+    expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+
+    // 同一个麦克风按钮重新打开确认框，确认后重试安装。
+    await wrapper.find('.voice-btn').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.vmd-title').exists()).toBe(true)
+
+    await wrapper.find('.vmd-btn-primary').trigger('click')
+    await flushPromises()
+    expect(api.voice.installModel).toHaveBeenCalledTimes(2)
+    expect(api.voice.startSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('收口中重复点击停止只提交一次终稿', async () => {
+    const wrapper = mountInput()
+    await flushPromises()
+    wrapper.vm.setContent('草稿')
+    await flushPromises()
+    await startRecording(wrapper)
+
+    let resolveStop!: (result: VoiceStopSessionResult) => void
+    vi.mocked(api.voice.stopSession).mockImplementation(
+      () =>
+        new Promise<VoiceStopSessionResult>((resolve) => {
+          resolveStop = resolve
+        }),
+    )
+
+    const button = wrapper.find('.voice-btn')
+    await button.trigger('click')
+    await button.trigger('click')
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(api.voice.stopSession).toHaveBeenCalledTimes(1)
+
+    resolveStop({ success: true, text: '终稿' })
+    await flushPromises()
+
+    expect(editorEl(wrapper).textContent).toBe('草稿\n终稿')
+    expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+    expect(captureMock.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('录音中关闭输入框（定时任务弹窗卸载）立即取消会话并释放麦克风', async () => {
+    const wrapper = mountInput()
+    await flushPromises()
+    wrapper.vm.setContent('弹窗草稿')
+    await flushPromises()
+    await startRecording(wrapper)
+    const sid = sessionIdOfStart()
+
+    wrapper.unmount()
+    await flushPromises()
+
+    // 快照恢复发生在 cancel 里、DOM 拆除之前，卸载后只剩会话与设备侧可见。
+    expect(api.voice.cancelSession).toHaveBeenCalledWith({ sessionId: sid })
+    expect(captureMock.stop).toHaveBeenCalled()
   })
 
   it('挂载即成为 Alt+V 候选，卸载后立刻退出候选', async () => {
