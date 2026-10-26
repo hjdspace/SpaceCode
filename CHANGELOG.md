@@ -8,6 +8,7 @@
 - **preview:** 产物预览改由 `spacecode-preview://artifact` 专用源承载，脚本正常执行，流式更新经 MessageChannel 注入
 - **voice:** 语音输入新增实时电平波形动画
 - **chat:** sendMessage 支持指定模型，会话标题生成设置重构
+- **chat:** 新增上传附件卡片，输入框与消息中均可展示附件
 - **tools:** 补齐 WebFetch / WebSearch 权限与 i18n 文案，未知工具名回退为可读标签
 
 ### Bug Fixes
