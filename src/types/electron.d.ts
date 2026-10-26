@@ -573,6 +573,7 @@ export interface ElectronAPI {
 
   preview: {
     getUrl: (filePath: string, workspaceRoot?: string) => Promise<string | null>
+    getFrameUrl: (filePath: string, workspaceRoot?: string) => Promise<string | null>
   }
 
   design: {
