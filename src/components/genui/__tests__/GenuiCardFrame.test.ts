@@ -37,6 +37,9 @@ const CARD = {
 function mountFrame(props: Record<string, unknown> = {}) {
   return mount(GenuiCardFrame, {
     props: { card: CARD, source: SOURCE, theme: 'dark' as const, locale: 'zh-CN', ...props },
+    // 必须挂进文档：脱离 document 的 iframe 在 jsdom 里 contentWindow 是 null，
+    // 桥的 postInit 会直接跳过，测试就永远走不到「文档已就位、卡片不回话」这一段。
+    attachTo: document.body,
   })
 }
 
@@ -47,6 +50,24 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
 })
+
+/**
+ * 让这张卡走满「起不来」的完整路径：文档就位（load）→ 交出 Schema → 5 秒不回 ready。
+ *
+ * 宿主会先静默重挂一次 iframe（冷启动的 5MB 物料文档不该让用户手点重试），所以要跑两轮
+ * 才落到错误占位。返回后 wrapper 上的 iframe 已经换成第二次挂载的那一个。
+ */
+async function exhaustHandshakeAttempts(wrapper: ReturnType<typeof mountFrame>) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const frame = wrapper.find('iframe')
+    // 上一轮已经把预算用尽：卡片已经换成错误占位，没有 frame 可以再喂了
+    if (!frame.exists()) return
+    frame.element.dispatchEvent(new Event('load'))
+    await flushPromises()
+    vi.advanceTimersByTime(5_000)
+    await flushPromises()
+  }
+}
 
 describe('卡片 iframe 的授权面', () => {
   it('只授予 allow-scripts，文档来自独立源的固定入口', () => {
@@ -71,16 +92,46 @@ describe('卡片 iframe 的授权面', () => {
 })
 
 describe('握手失败收口到该卡的错误占位', () => {
-  it('超时后换成占位并提供重试', async () => {
+  it('宿主先自己重挂一次，第二次仍起不来才换成占位并提供重试', async () => {
     const wrapper = mountFrame()
-    vi.advanceTimersByTime(5_000)
-    await nextTick()
 
+    // 第一次超时：静默重建，画面仍然是卡片而不是错误
+    const firstFrame = wrapper.find('iframe').element
+    firstFrame.dispatchEvent(new Event('load'))
+    await flushPromises()
+    vi.advanceTimersByTime(5_000)
+    await flushPromises()
+
+    expect(wrapper.attributes('data-state')).not.toBe('error')
+    expect(wrapper.text()).not.toContain('卡片未能与宿主完成握手')
+    // 换 key 重建：这已经是一个新的 iframe 元素
+    expect(wrapper.find('iframe').element).not.toBe(firstFrame)
+
+    await exhaustHandshakeAttempts(wrapper)
     expect(wrapper.find('iframe').exists()).toBe(false)
     expect(wrapper.text()).toContain('卡片未能与宿主完成握手')
     expect(wrapper.find('button').text()).toBe('重试')
     wrapper.unmount()
   })
+
+  it('冷启动的文档加载预算不吃掉交手机会', async () => {
+    const wrapper = mountFrame()
+    // 文档加载花了远超握手时限（5s）的时间：这期间不该被判失败
+    vi.advanceTimersByTime(14_000)
+    await flushPromises()
+    expect(wrapper.attributes('data-state')).toBe('connecting')
+    expect(wrapper.text()).not.toContain('卡片未能与宿主完成握手')
+
+    // 文档就位后仍拿得到完整的交手预算
+    const frame = wrapper.find('iframe').element
+    frame.dispatchEvent(new Event('load'))
+    await flushPromises()
+    vi.advanceTimersByTime(4_999)
+    await flushPromises()
+    expect(wrapper.attributes('data-state')).toBe('connecting')
+    wrapper.unmount()
+  })
+
   it('伪造的回信不会把卡片骗成 ready', async () => {
     const wrapper = mountFrame()
     const frame = wrapper.find('iframe').element
@@ -90,8 +141,7 @@ describe('握手失败收口到该卡的错误占位', () => {
         source: frame.contentWindow,
       }),
     )
-    vi.advanceTimersByTime(5_000)
-    await nextTick()
+    await exhaustHandshakeAttempts(wrapper)
 
     expect(wrapper.text()).toContain('卡片未能与宿主完成握手')
     wrapper.unmount()
@@ -99,15 +149,13 @@ describe('握手失败收口到该卡的错误占位', () => {
 
   it('重试重建 iframe 重新握手，失败仍然只影响这一张卡', async () => {
     const wrapper = mountFrame()
-    vi.advanceTimersByTime(5_000)
-    await nextTick()
+    await exhaustHandshakeAttempts(wrapper)
     await wrapper.find('button').trigger('click')
 
     expect(wrapper.find('iframe').exists()).toBe(true)
     expect(wrapper.attributes('data-state')).toBe('connecting')
 
-    vi.advanceTimersByTime(5_000)
-    await nextTick()
+    await exhaustHandshakeAttempts(wrapper)
     expect(wrapper.attributes('data-state')).toBe('error')
     wrapper.unmount()
   })
@@ -137,9 +185,11 @@ describe('第二个源不可达时给出可诊断的部署错误', () => {
     vi.stubGlobal('fetch', fetchStub)
     try {
       const wrapper = mountFrame({ source: H5_SOURCE })
-      vi.advanceTimersByTime(5_000)
+      await exhaustHandshakeAttempts(wrapper)
       await flushPromises()
 
+      // 静默重挂那一次不做可达性探测：源还没被判死，先给它一次自重机会
+      expect(fetchStub).toHaveBeenCalledTimes(1)
       expect(fetchStub).toHaveBeenCalledWith(
         `http://192.168.1.20:8081${GENUI_SANDBOX_DOC_PATH}`,
         expect.objectContaining({ mode: 'no-cors', credentials: 'omit' }),
@@ -158,7 +208,7 @@ describe('第二个源不可达时给出可诊断的部署错误', () => {
     vi.stubGlobal('fetch', fetchStub)
     try {
       const wrapper = mountFrame({ source: H5_SOURCE })
-      vi.advanceTimersByTime(5_000)
+      await exhaustHandshakeAttempts(wrapper)
       await flushPromises()
 
       expect(fetchStub).toHaveBeenCalled()
@@ -174,7 +224,7 @@ describe('第二个源不可达时给出可诊断的部署错误', () => {
     vi.stubGlobal('fetch', fetchStub)
     try {
       const wrapper = mountFrame()
-      vi.advanceTimersByTime(5_000)
+      await exhaustHandshakeAttempts(wrapper)
       await flushPromises()
 
       expect(fetchStub).not.toHaveBeenCalled()
@@ -194,7 +244,7 @@ describe('第二个源不可达时给出可诊断的部署错误', () => {
     vi.stubGlobal('fetch', fetchStub)
     try {
       const wrapper = mountFrame({ source: H5_SOURCE })
-      vi.advanceTimersByTime(5_000)
+      await exhaustHandshakeAttempts(wrapper)
       await flushPromises()
       expect(wrapper.text()).toContain('卡片沙箱源无法访问')
 
@@ -202,7 +252,7 @@ describe('第二个源不可达时给出可诊断的部署错误', () => {
       rejectProbe = false
       await wrapper.find('button').trigger('click')
       await flushPromises()
-      vi.advanceTimersByTime(5_000)
+      await exhaustHandshakeAttempts(wrapper)
       await flushPromises()
 
       expect(wrapper.text()).toContain('卡片未能与宿主完成握手')

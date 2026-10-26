@@ -3,7 +3,7 @@
  * 内置技能资源根与 seed 名单（票 07 第 4、5 条的落地前提）。
  *
  * `bundledSkillsRoot()` 是纯解析：给什么路径参数就答什么，不 import Electron、也不按 cwd 猜仓库根。
- * 这里钉住三条：打包形态优先、开发期从应用路径回推、两者都缺时不静默换目录。
+ * 这里钉住四条：打包形态优先、开发期两种 appPath 布局都能回推、两者都缺时不静默换目录。
  */
 import { describe, it, expect } from 'vitest'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
@@ -39,9 +39,15 @@ describe('bundledSkillsRoot', () => {
     }
   })
 
-  it('开发期从应用路径回推仓库的 resources 目录', () => {
+  it('开发期从 dist-electron 回推仓库的 resources 目录', () => {
     const devAppPath = join(repoRoot, 'dist-electron')
     expect(bundledSkillsRoot({ appPath: devAppPath })).toBe(
+      join(repoRoot, 'resources', BUNDLED_SKILLS_RESOURCE_DIR)
+    )
+  })
+
+  it('开发期 appPath 是仓库根时也能找到（vite dev 的实际形态）', () => {
+    expect(bundledSkillsRoot({ appPath: repoRoot })).toBe(
       join(repoRoot, 'resources', BUNDLED_SKILLS_RESOURCE_DIR)
     )
   })

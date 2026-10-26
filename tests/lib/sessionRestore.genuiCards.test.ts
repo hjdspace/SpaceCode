@@ -30,7 +30,11 @@ describe('回放时的卡片重投影', () => {
       {
         id: 'msg_1:card:0',
         protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION,
-        schema: { componentName: 'TinyForm', props: { title: '构建参数' } },
+        // 根节点是 TinyForm：宿主会先包一层 div 容器再交给沙箱渲染
+        schema: {
+          componentName: 'div',
+          children: [{ componentName: 'TinyForm', props: { title: '构建参数' } }],
+        },
       },
     ])
   })

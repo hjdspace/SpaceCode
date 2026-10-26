@@ -54,7 +54,7 @@
           v-if="canRetry"
           type="button"
           class="genui-card-retry"
-          @click="retry"
+          @click="retry()"
         >{{ t('genui.retry') }}</button>
       </div>
 
@@ -110,7 +110,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { createCardBridge, type CardBridge, type CardBridgeState } from '@/lib/genui/cardBridge'
+import { createCardBridge, type CardBridge, type CardBridgeFailure, type CardBridgeState } from '@/lib/genui/cardBridge'
 import { probeSandboxReachability } from '@/lib/genui/sandboxProbe'
 import { resolveCardActionPort, type CardActionPort } from '@/lib/genui/cardActionAdapters'
 import type { CardAction } from '@/lib/genui/cardActions'
@@ -163,6 +163,18 @@ let bridge: CardBridge | null = null
 let observer: IntersectionObserver | null = null
 /** 每一次挂载一个序号：探测回来时只对得上"当前这次"挂载。 */
 let diagnosisSeq = 0
+/**
+ * 首张卡自动重挂的次数。
+ *
+ * 沙箱文档是 5MB 级的物料 bundle，冷启动要取字节 + 解析 + 执行，而首张卡恰好赶在流式收口、
+ * 主进程最忙的时候（打包态还多一层自定义协议读盘）。这段开销无法从计时器上消掉，所以把用户
+ * 本来就在做的那一下「重试」搬到宿主里自动补一次：桥已经尽力区分了加载与握手两段预算，
+ * 仍然没起来才换成错误占位。只补一次，避免坏源上的无限重建。
+ */
+const AUTO_RETRY_BUDGET = 1
+const autoRetriesLeft = ref(AUTO_RETRY_BUDGET)
+/** attach 时 frame 还没挂上（同 tick 的 v-if 抖动）时的补挂次数上限 */
+let attachAttempts = 0
 
 const docUrl = computed(() => props.source?.docUrl ?? '')
 const frameStyle = computed(() => (frameHeight.value ? { height: `${frameHeight.value}px` } : {}))
@@ -304,10 +316,35 @@ async function diagnose(next: CardBridgeState): Promise<void> {
   state.value = { status: 'error', failure: 'sandbox-unreachable' }
 }
 
+/**
+ * 这一张卡起不来，值不值得宿主自己重挂一次再试。
+ *
+ * 只收「沙箱没跑起来」这一类：加载超时与文档加载失败。版本不匹配、协议不支持、
+ * 沙箱源没人应答都是重挂一百次也一样的确定结论，直接换成错误占位；
+ * `render-failed` 是卡片拿到了 Schema 自己画崩了，重建只会再崩一次，同理不重试。
+ */
+function consumeAutoRetry(failure: CardBridgeFailure): boolean {
+  if (autoRetriesLeft.value <= 0) return false
+  if (failure !== 'handshake-timeout' && failure !== 'frame-load-failed') return false
+  autoRetriesLeft.value -= 1
+  void retry({ silent: true })
+  return true
+}
+
 function attach(): void {
   detach()
   const frame = frameRef.value
-  if (!frame || !props.source || placeholderText.value) return
+  if (!frame) {
+    // frame 还没挂上就静默返回，等于这张卡永远停在 connecting：既没有计时器也没有错误，
+    // 用户看到的是沙箱外壳那句 "waiting for host handshake…"。补挂到上限再放弃。
+    if (props.source && !placeholderText.value && attachAttempts < 3) {
+      attachAttempts += 1
+      void nextTick(attach)
+    }
+    return
+  }
+  attachAttempts = 0
+  if (!props.source || placeholderText.value) return
   bridge = createCardBridge({
     iframe: frame,
     // 只有渲染形状可用的卡才会走到这里（showFrame 已经把占位挡在外面）
@@ -316,6 +353,10 @@ function attach(): void {
     locale: props.locale,
     protocolVersion: props.card.protocolVersion,
     onStateChange: (next) => {
+      // 起不来先自己重试一次，别把用户已经会点的「重试」留给他们点
+      if (next.status === 'error' && consumeAutoRetry(next.failure)) return
+      // 握手成功说明这份沙箱是起得来的，下一次挂载（滚出再滚回）重新拿满那一次额度
+      if (next.status === 'ready') autoRetriesLeft.value = AUTO_RETRY_BUDGET
       state.value = next
       void diagnose(next)
     },
@@ -337,14 +378,15 @@ function attach(): void {
   bridge.start()
 }
 
-async function retry(): Promise<void> {
+async function retry(options: { silent?: boolean } = {}): Promise<void> {
   if (!props.source) return
   detach()
-  state.value = { status: 'connecting' }
-  frameHeight.value = 0
+  // 静默重挂不清 frameHeight：占位高度沿用上一次测量，画面不会先塌再弹
+  if (!options.silent) frameHeight.value = 0
   actionErrorKey.value = null
   // 换 key 重建 iframe：重试等价于重新加载卡片文档，而不是在旧 frame 上补发消息
   frameToken.value += 1
+  state.value = { status: 'connecting' }
   await nextTick()
   attach()
 }
@@ -356,6 +398,8 @@ watch(isOffscreen, (offscreen) => {
     detach()
     return
   }
+  // 滚回来本身就是一次全新挂载，那一次免费重挂不该在这次之前就用掉
+  autoRetriesLeft.value = AUTO_RETRY_BUDGET
   frameToken.value += 1
   if (props.source) state.value = { status: 'connecting' }
   void nextTick(attach)

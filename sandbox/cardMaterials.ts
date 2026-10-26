@@ -38,8 +38,11 @@ export function renderOfficialCard(context: CardRenderContext) {
           ),
         }, {
           // 渲染器把内部失败算在插槽的 isError 上，不抛异常；不接住就变成一张空白卡
-          footer: (slotProps: { isError: boolean }) => {
+          footer: (slotProps: { isError: boolean; isFinished: boolean }) => {
             if (slotProps.isError) context.notifyFailure()
+            // isFinished 是"这一版内容画完了"的唯一可靠信号：物料是异步出内容的，
+            // mount 之后立刻量到的高度是空壳高度，等 ResizeObserver 补可能永远等不到。
+            else if (slotProps.isFinished) context.notifyRendered()
             return null
           },
         }),

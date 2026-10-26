@@ -159,6 +159,34 @@ function assembleText(lines: string[], hidden: Set<number>): string {
   return out.join('\n')
 }
 
+/**
+ * 根节点上属于「页面」而非「组件」的字段：渲染器只认根节点这一层。
+ * 判定用「除 componentName/props/children/condition 之外全部上提」，不靠这张表枚举，
+ * 官方以后新增页面级字段时不至于又漏一个 —— 这张表只是说明性的。
+ */
+const ROOT_NODE_FIELDS = new Set(['componentName', 'props', 'children', 'condition'])
+
+/**
+ * 把非 div 根节点包进一层容器。
+ *
+ * GenuiRenderer 把根节点当「Page」处理：不论 `componentName` 写什么，画出来都是一个 `div`，
+ * props 被当成 DOM 属性漏在标签上。所以根节点写 `TinyCard` 的卡没有卡底，写 `TinyForm` 的卡
+ * 连表单项都出不来（实测：`<div header="部署参数" schema="[object Object]">`）。
+ * 技能契约已经改成「根是容器、组件放children」，这里兜住模型手滑与历史会话里的旧 schema。
+ */
+export function normalizeGenuiCardRoot(schema: Record<string, unknown>): Record<string, unknown> {
+  const rootName = typeof schema.componentName === 'string' ? schema.componentName.trim() : ''
+  if (!rootName || rootName === 'div') return schema
+
+  const node: Record<string, unknown> = { componentName: rootName }
+  const wrapper: Record<string, unknown> = { componentName: 'div', children: [node] }
+  for (const [key, value] of Object.entries(schema)) {
+    if (ROOT_NODE_FIELDS.has(key)) node[key] = value
+    else wrapper[key] = value
+  }
+  return wrapper
+}
+
 /** 校验一个闭合围栏的原文，返回卡片 schema 或降级原因。 */
 function evaluateSlot(
   slot: FenceSlot,
@@ -190,7 +218,8 @@ function evaluateSlot(
     return { reason: 'protocol-version' }
   }
 
-  return { schema }
+  // 归一放在全部校验之后：白名单判的是模型真正写出来的那个根组件名，不能被 wrapper 改掉
+  return { schema: normalizeGenuiCardRoot(schema) }
 }
 
 export function projectGenuiCards(

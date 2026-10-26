@@ -133,7 +133,11 @@ describe('流式期间的卡片投影', () => {
       {
         id: `${message!.id}:card:0`,
         protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION,
-        schema: { componentName: 'TinyForm', props: { title: 'A' } },
+        // 根节点是 TinyForm：宿主会先包一层 div 容器再交给沙箱渲染
+        schema: {
+          componentName: 'div',
+          children: [{ componentName: 'TinyForm', props: { title: 'A' } }],
+        },
       },
     ])
   })
@@ -288,7 +292,11 @@ describe('引擎只回 assistant 事件（非流式）', () => {
       {
         id: `${message!.id}:card:0`,
         protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION,
-        schema: { componentName: 'TinyForm', props: { title: 'A' } },
+        // 根节点是 TinyForm：宿主会先包一层 div 容器再交给沙箱渲染
+        schema: {
+          componentName: 'div',
+          children: [{ componentName: 'TinyForm', props: { title: 'A' } }],
+        },
       },
     ])
   })
