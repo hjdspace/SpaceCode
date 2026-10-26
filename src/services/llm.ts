@@ -129,13 +129,15 @@ function classifyAnthropicError(response: { ok: boolean; status?: number; data?:
 
 export async function sendMessage(
   messages: Array<{ role: string; content: string }>,
-  options?: { maxTokens?: number; system?: string; timeoutMs?: number; maxRetries?: number },
+  options?: { maxTokens?: number; system?: string; timeoutMs?: number; maxRetries?: number; model?: string },
 ): Promise<string> {
   if (!currentConfig?.apiKey) {
     throw new Error('LLM not configured')
   }
 
-  const { provider, apiKey, baseUrl, model } = currentConfig
+  const { provider, apiKey, baseUrl } = currentConfig
+  // options.model 只覆盖本次请求: currentConfig 是模块级共享的, 改它会影响其它直连调用方
+  const model = options?.model || currentConfig.model
   console.log('[LLM] sendMessage called:', { provider, baseUrl, model, hasApiKey: !!apiKey })
 
   const timeoutMs = options?.timeoutMs || DEFAULT_API_TIMEOUT_MS
