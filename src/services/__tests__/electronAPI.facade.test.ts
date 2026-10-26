@@ -326,6 +326,19 @@ describe('api 嵌套命名空间（electronAPI.claudeCode.*）兜底', () => {
     const fresh = await importFresh()
     await expect(fresh.api.preview.getUrl('/f')).resolves.toBe('http://127.0.0.1:1')
   })
+
+  it('preview.getFrameUrl 缺失时返回 null，在场时直通', async () => {
+    const { api } = await importFresh()
+    await expect(api.preview.getFrameUrl('/f')).resolves.toBeNull()
+
+    installElectronAPI({
+      preview: { getFrameUrl: vi.fn().mockResolvedValue('spacecode-preview://artifact/t/index.html') },
+    })
+    const fresh = await importFresh()
+    await expect(fresh.api.preview.getFrameUrl('/f')).resolves.toBe(
+      'spacecode-preview://artifact/t/index.html',
+    )
+  })
 })
 
 describe('api getter', () => {
