@@ -21,6 +21,12 @@ const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 
+/**
+ * 主窗口的持久化 session。自定义协议处理器必须挂在这个 session 上 ——
+ * 顶层 `protocol` 只覆盖默认 session。
+ */
+export const MAIN_WINDOW_PARTITION = 'persist:claude-code-desktop'
+
 const startTime = Date.now()
 
 // ── Vite dev-server polling ─────────────────────────────────────
@@ -170,7 +176,7 @@ export function createWindow(
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      partition: 'persist:claude-code-desktop',
+      partition: MAIN_WINDOW_PARTITION,
       devTools: isDev || debugMode,
       spellcheck: false,
       webviewTag: true
