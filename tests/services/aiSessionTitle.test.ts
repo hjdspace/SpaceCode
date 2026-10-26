@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     baseUrl: undefined as string | undefined,
     model: 'claude-sonnet-4-5',
   },
+  haikuModel: 'claude-haiku-4-5' as string | undefined,
 }))
 
 vi.mock('@/services/llm', () => ({
@@ -17,7 +18,7 @@ vi.mock('@/services/llm', () => ({
 }))
 
 vi.mock('@/stores/settings', () => ({
-  useSettingsStore: () => ({ config: mocks.config }),
+  useSettingsStore: () => ({ config: mocks.config, getHaikuModel: () => mocks.haikuModel }),
 }))
 
 import {
@@ -104,8 +105,28 @@ describe('AI session title generation', () => {
   beforeEach(() => {
     mocks.config.apiKey = 'sk-test'
     mocks.config.provider = 'anthropic'
+    mocks.haikuModel = 'claude-haiku-4-5'
     mocks.initLLMService.mockClear()
     mocks.sendMessage.mockReset()
+  })
+
+  it('titles with the fast (haiku) slot instead of the session model', async () => {
+    mocks.sendMessage.mockResolvedValueOnce('GUI 目录重构')
+
+    await generateSessionTitle('帮我重构 GUI 目录结构', true)
+
+    // 只覆盖本次请求；initLLMService 写的是模块级共享配置，动它会连带降级提交信息、划词 AI
+    expect(mocks.sendMessage.mock.calls[0][1]).toMatchObject({ model: 'claude-haiku-4-5' })
+    expect(mocks.initLLMService).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-4-5' }))
+  })
+
+  it('falls back to the session model when the fast slot is empty', async () => {
+    mocks.haikuModel = undefined
+    mocks.sendMessage.mockResolvedValueOnce('GUI 目录重构')
+
+    await generateSessionTitle('帮我重构 GUI 目录结构', true)
+
+    expect(mocks.sendMessage.mock.calls[0][1]).toMatchObject({ model: 'claude-sonnet-4-5' })
   })
 
   it('returns an AI title for a substantive first message', async () => {
