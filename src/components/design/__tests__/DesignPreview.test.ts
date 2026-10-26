@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import DesignPreview from '../DesignPreview.vue'
 import { PREVIEW_BRIDGE_READY_TIMEOUT_MS } from '@/lib/artifacts/previewBridge'
+import { PREVIEW_HOST_ORIGIN_PARAM, PREVIEW_NONCE_PARAM } from '@/shared/previewOrigin'
 import { api } from '@/services/electronAPI'
 
 // DesignPreview 只用 api 做通知/外链跳转，与本轮资源加载无关
@@ -12,8 +13,8 @@ vi.mock('@/services/electronAPI', () => ({
   },
 }))
 
-const URL_A = 'http://127.0.0.1:54321/3f9a01c2/index.html'
-const URL_B = 'http://127.0.0.1:54321/3f9a01c2/pages/other.html'
+const URL_A = 'spacecode-preview://artifact/3f9a01c2/index.html'
+const URL_B = 'spacecode-preview://artifact/3f9a01c2/pages/other.html'
 const HTML = '<html><body><h1>already generated</h1></body></html>'
 
 function mountPreview(props: Record<string, unknown> = {}) {
@@ -31,6 +32,19 @@ function mountPreview(props: Record<string, unknown> = {}) {
 
 function frame(wrapper: ReturnType<typeof mountPreview>): HTMLIFrameElement {
   return wrapper.find('iframe.preview-iframe').element as HTMLIFrameElement
+}
+
+function srcUrl(el: HTMLIFrameElement): URL | null {
+  const src = el.getAttribute('src')
+  return src ? new URL(src) : null
+}
+
+function revisionOf(el: HTMLIFrameElement): string | null {
+  return srcUrl(el)?.searchParams.get('rev') ?? null
+}
+
+function urlNonce(el: HTMLIFrameElement): string | null {
+  return srcUrl(el)?.searchParams.get(PREVIEW_NONCE_PARAM) ?? null
 }
 
 /** jsdom 的 iframe 内容窗口不确定，安全用例自己钉一个可比较的对象。 */
@@ -62,19 +76,34 @@ describe('DesignPreview — 多文件设计的资源加载', () => {
   it('拿到预览 URL 时用 iframe.src 加载，页面内相对 CSS/JS 才能命中产物目录', () => {
     const wrapper = mountPreview({ previewUrl: URL_A })
     const el = frame(wrapper)
+    const url = srcUrl(el)!
 
-    expect(el.getAttribute('src')).toBe(`${URL_A}?rev=0`)
+    expect(url.protocol).toBe('spacecode-preview:')
+    expect(url.host).toBe('artifact')
+    expect(url.pathname).toBe('/3f9a01c2/index.html')
+    expect(url.searchParams.get('rev')).toBe('0.0')
+    // 桥由主进程注入，nonce 与宿主 origin 通过 URL 交给它
+    expect(url.searchParams.get(PREVIEW_NONCE_PARAM)).toBeTruthy()
+    expect(url.searchParams.get(PREVIEW_HOST_ORIGIN_PARAM)).toBe(window.location.origin)
     // srcdoc 文档的相对 URL 相对宿主页面解析，必须不再走这条路
     expect(el.getAttribute('srcdoc')).toBeNull()
   })
 
-  it('sandbox 收紧到实际所需：保留 scripts / popups，不放同源与下载', () => {
+  it('预览 URL 路径 sandbox 保留跨源 same-origin，仍不放下载', () => {
     const wrapper = mountPreview({ previewUrl: URL_A })
+    const sandbox = frame(wrapper).getAttribute('sandbox') || ''
+
+    expect(sandbox).toBe('allow-scripts allow-same-origin allow-popups')
+    expect(sandbox).not.toContain('allow-downloads')
+    expect(sandbox).not.toContain('allow-top-navigation')
+  })
+
+  it('srcdoc 回退路径不给 same-origin（会与宿主同源）', () => {
+    const wrapper = mountPreview({ previewUrl: null })
     const sandbox = frame(wrapper).getAttribute('sandbox') || ''
 
     expect(sandbox).toBe('allow-scripts allow-popups')
     expect(sandbox).not.toContain('allow-same-origin')
-    expect(sandbox).not.toContain('allow-downloads')
   })
 
   it('reloadToken 递增后重新导航，CSS/JS 改动会被重新取回', async () => {
@@ -82,7 +111,7 @@ describe('DesignPreview — 多文件设计的资源加载', () => {
 
     await wrapper.setProps({ reloadToken: 3 })
 
-    expect(frame(wrapper).getAttribute('src')).toBe(`${URL_A}?rev=3`)
+    expect(revisionOf(frame(wrapper))).toBe('3.0')
   })
 
   it('切换活动文件时导航到新 URL', async () => {
@@ -90,10 +119,12 @@ describe('DesignPreview — 多文件设计的资源加载', () => {
 
     await wrapper.setProps({ previewUrl: URL_B })
 
-    expect(frame(wrapper).getAttribute('src')).toBe(`${URL_B}?rev=2`)
+    const url = srcUrl(frame(wrapper))!
+    expect(url.pathname).toBe('/3f9a01c2/pages/other.html')
+    expect(url.searchParams.get('rev')).toBe('2.0')
   })
 
-  it('无预览 URL（H5 模式 / 服务器未就绪）时回退 srcdoc，且挂载即渲染已有 HTML', () => {
+  it('无预览 URL（H5 模式 / 协议未就绪）时回退 srcdoc，且挂载即渲染已有 HTML', () => {
     const wrapper = mountPreview({ previewUrl: null })
     const srcdoc = frame(wrapper).getAttribute('srcdoc') || ''
 
@@ -101,7 +132,7 @@ describe('DesignPreview — 多文件设计的资源加载', () => {
     expect(srcdoc).toContain('od-transport-bridge')
   })
 
-  it('桥未就绪时先缓存最新内容，超时确认不可用后退回整文档重载', async () => {
+  it('srcdoc 路径桥未就绪时先缓存最新内容，超时确认不可用后退回整文档重载', async () => {
     vi.useFakeTimers()
     try {
       const wrapper = mountPreview({ previewUrl: null })
@@ -117,6 +148,22 @@ describe('DesignPreview — 多文件设计的资源加载', () => {
 
       await wrapper.setProps({ html: '<html><body>third version</body></html>' })
       expect(el.getAttribute('srcdoc')).toContain('third version')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('预览 URL 路径桥超时后换 rev 重新导航，至少保证内容继续更新', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mountPreview({ previewUrl: URL_A })
+      const el = frame(wrapper)
+
+      expect(revisionOf(el)).toBe('0.0')
+      vi.advanceTimersByTime(PREVIEW_BRIDGE_READY_TIMEOUT_MS)
+
+      expect(revisionOf(el)).toBe('0.1')
+      expect(el.getAttribute('srcdoc')).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -181,7 +228,7 @@ describe('DesignPreview — 桥的来源与密钥闸门', () => {
     expect(api.shell.openExternal).toHaveBeenCalledWith('https://example.com/a')
   })
 
-  it('ready 带来端口后，HTML 更新走端口而不是整文档重载', async () => {
+  it('srcdoc 路径 ready 带来端口后，HTML 更新走端口而不是整文档重载', async () => {
     const wrapper = mountPreview({ previewUrl: null })
     const el = frame(wrapper)
     const win = stubFrameWindow(el)
@@ -201,23 +248,66 @@ describe('DesignPreview — 桥的来源与密钥闸门', () => {
     })
   })
 
-  it('切到预览服务器路径后，迟到的桥消息不再被处理', async () => {
+  it('预览 URL 路径 ready 带来端口后，HTML 更新同样走端口而不是整页重载', async () => {
+    const wrapper = mountPreview({ previewUrl: URL_A })
+    const el = frame(wrapper)
+    const win = stubFrameWindow(el)
+    const nonce = urlNonce(el)!
+    const port = { postMessage: vi.fn(), close: vi.fn() } as unknown as MessagePort
+
+    window.dispatchEvent(messageEvent({ type: 'od:sandbox:ready', nonce }, win, [port]))
+
+    const before = el.getAttribute('src')
+    await wrapper.setProps({ html: '<html><body>streamed</body></html>' })
+
+    expect(el.getAttribute('src')).toBe(before)
+    expect(port.postMessage).toHaveBeenCalledWith({
+      type: 'od:srcdoc-transport-activate',
+      nonce,
+      html: expect.stringContaining('streamed'),
+    })
+  })
+
+  it('切 tab 时首份内容不重复注入：服务端文档已经是 props.html', async () => {
+    const wrapper = mountPreview({ previewUrl: URL_A })
+    const el = frame(wrapper)
+    const win = stubFrameWindow(el)
+
+    await wrapper.setProps({ previewUrl: URL_B })
+    const nonce = urlNonce(el)!
+    const port = { postMessage: vi.fn(), close: vi.fn() } as unknown as MessagePort
+    window.dispatchEvent(messageEvent({ type: 'od:sandbox:ready', nonce }, win, [port]))
+
+    expect(port.postMessage).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ html: '<html><body>edited</body></html>' })
+    expect(port.postMessage).toHaveBeenCalledWith({
+      type: 'od:srcdoc-transport-activate',
+      nonce,
+      html: expect.stringContaining('edited'),
+    })
+  })
+
+  it('预览 URL 路径的桥消息（主进程注入）按同一套白名单处理', async () => {
     const wrapper = mountPreview({ previewUrl: null })
     const el = frame(wrapper)
     const win = stubFrameWindow(el)
-    const nonce = nonceOf(el)
 
     await wrapper.setProps({ previewUrl: URL_A })
+    const nonce = urlNonce(el)!
     window.dispatchEvent(messageEvent({ type: 'od:sandbox:open', nonce, url: 'https://example.com' }, win))
 
-    expect(api.shell.openExternal).not.toHaveBeenCalled()
+    expect(api.shell.openExternal).toHaveBeenCalledWith('https://example.com')
   })
 
   it('每个预览实例的桥密钥都不同', () => {
     const first = mountPreview({ previewUrl: null })
     const second = mountPreview({ previewUrl: null })
+    const urlFirst = mountPreview({ previewUrl: URL_A })
+    const urlSecond = mountPreview({ previewUrl: URL_A })
 
     expect(nonceOf(frame(first))).not.toBe(nonceOf(frame(second)))
+    expect(urlNonce(frame(urlFirst))).not.toBe(urlNonce(frame(urlSecond)))
   })
 })
 
@@ -233,7 +323,7 @@ describe('DesignPreview — 卸载重挂后首屏即渲染', () => {
 
     const again = mountPreview({ previewUrl: URL_A, reloadToken: 1 })
 
-    expect(frame(again).getAttribute('src')).toBe(`${URL_A}?rev=1`)
+    expect(revisionOf(frame(again))).toBe('1.0')
     expect(frame(again).getAttribute('srcdoc')).toBeNull()
   })
 
