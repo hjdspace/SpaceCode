@@ -421,6 +421,21 @@ describe('env / ui relay / shell / editor', () => {
     expect(probe.electron.shellOpenPath).toHaveBeenCalledWith('/folder')
   })
 
+  it('shell:openExternal 只放行 http/https，file 与自定义 scheme 不进系统 Shell', async () => {
+    probe.electron.shellOpenExternal.mockClear()
+
+    await H('shell:openExternal')(ev(), 'file:///C:/Windows/System32/calc.exe')
+    await H('shell:openExternal')(ev(), 'ms-settings:')
+    await H('shell:openExternal')(ev(), 'javascript:alert(1)')
+    await H('shell:openExternal')(ev(), 'not a url')
+
+    expect(probe.electron.shellOpenExternal).not.toHaveBeenCalled()
+
+    await H('shell:openExternal')(ev(), 'http://127.0.0.1:8080/x')
+    expect(probe.electron.shellOpenExternal).toHaveBeenCalledTimes(1)
+    expect(probe.electron.shellOpenExternal).toHaveBeenCalledWith('http://127.0.0.1:8080/x')
+  })
+
   it('clipboard:writeText 只写入字符串，非字符串不落到 Electron 剪贴板', async () => {
     probe.electron.clipboardWriteText.mockClear()
     await H('clipboard:writeText')(ev(), '卡片文本')

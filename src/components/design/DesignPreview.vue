@@ -17,12 +17,19 @@
 
     <div class="preview-viewport">
       <!-- 沙箱 Web 预览 iframe -->
+      <!--
+        allow-scripts：预览本身就是网页，脚本是产品能力。
+        allow-popups：外链新窗口；桥脚本被宿主 CSP 拦掉时，anchor target=_blank
+        仍要能打开，去掉它会让既有外链彻底失效。弹窗已无法冒充预览帧 —— 宿主只
+        接受来自本 iframe.contentWindow 且带本实例 nonce 的回传。
+        不授予 allow-downloads：产物导出条在宿主的 DesignFileWorkspace 里，不依赖
+        iframe 内下载；留下它只会让不可信页面往磁盘落文件。
+      -->
       <iframe
         v-show="!showSource"
         ref="iframeRef"
         class="preview-iframe"
-        sandbox="allow-scripts allow-popups allow-downloads"
-        @load="onIframeLoaded"
+        sandbox="allow-scripts allow-popups"
       ></iframe>
 
       <!-- 源码阅读视图 -->
@@ -36,6 +43,12 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { buildSrcdoc } from '@/lib/artifacts/srcdoc';
+import {
+  PREVIEW_BRIDGE_READY_TIMEOUT_MS,
+  PREVIEW_MSG_TRANSPORT,
+  createPreviewNonce,
+  parsePreviewOutbound,
+} from '@/lib/artifacts/previewBridge';
 import { api } from '@/services/electronAPI';
 import { Monitor, RotateCw, Code2 } from 'lucide-vue-next';
 
@@ -51,7 +64,15 @@ const props = defineProps<{
 
 const iframeRef = ref<HTMLIFrameElement>();
 const showSource = ref(false);
-let iframeReady = false;
+/** 本实例的桥密钥；随每次 srcdoc 构建写进 frame 侧脚本，重挂载即换新 */
+const bridgeNonce = createPreviewNonce();
+/** frame 转移过来的端口；有端口才说明当前文档里的桥真的跑起来了 */
+let transportPort: MessagePort | null = null;
+/** 还没有通道时暂存的最新内容：ready 后一次补发，避免丢失流式 tick */
+let pendingHtml: string | null = null;
+/** 超时确认桥起不来（宿主 CSP 会拦内联桥脚本），退回整文档重载 */
+let bridgeUnavailable = false;
+let readyTimer: ReturnType<typeof setTimeout> | null = null;
 
 // 文件变更监听已移至 DesignFileWorkspace.vue（始终挂载），
 // DesignPreview 仅负责 iframe 渲染与沙箱消息桥接。
@@ -63,31 +84,98 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('message', handleIframeMessage);
+  resetBridge();
 });
 
-// 处理 iframe 内 Bridges 回传的安全行为/微交互消息
+/**
+ * frame → 宿主：先证来源（必须是本预览的 contentWindow），再验本实例密钥，
+ * 最后按动作白名单分发。弹窗、同窗口其他 iframe（如 GenUI 卡片）与导航后的
+ * 外来文档都在第一道闸门被丢掉；未知类型不会落到任何通用 IPC。
+ */
 function handleIframeMessage(event: MessageEvent) {
-  const msg = event.data;
-  if (!msg || !msg.type) return;
+  // 预览服务器路径加载的是产物本身，里面没有我们的桥；此时任何回传都不该被处理
+  // （也挡住切换模式后旧 srcdoc 文档迟到的 ready 接管端口）
+  if (props.previewUrl) return;
 
-  switch (msg.type) {
-    case 'od:sandbox:ready':
-      iframeReady = true;
+  const iframe = iframeRef.value;
+  if (!iframe || event.source !== iframe.contentWindow) return;
+
+  const action = parsePreviewOutbound(event.data, bridgeNonce);
+  if (!action) return;
+
+  switch (action.type) {
+    case 'ready':
+      acceptTransport(event.ports[0]);
       break;
-    case 'od:sandbox:alert':
-      api.showNotification({ title: '来自设计的提示', message: msg.message });
+    case 'alert':
+      api.showNotification({ title: '来自设计的提示', message: action.message });
       break;
-    case 'od:sandbox:confirm':
-      console.log('Sandbox confirm blocked:', msg.message);
+    case 'confirm':
+      console.log('Sandbox confirm blocked:', action.message);
       break;
-    case 'od:sandbox:open':
-      // 拦截外跳，调用 Electron 用系统默认浏览器打开
-      api.shell.openExternal(msg.url);
+    case 'open':
+      // 外链只放行 http/https（parsePreviewOutbound 已过滤），用系统浏览器打开
+      api.shell.openExternal(action.url);
       break;
-    case 'od:sandbox:error':
-      console.error('Sandbox Script Error:', msg.message, 'at', msg.filename, ':', msg.lineno);
+    case 'error':
+      console.error('Sandbox Script Error:', action.message, 'at', action.filename, ':', action.lineno);
       break;
   }
+}
+
+/** ready 带来新端口：接管它，并把等待期间的最新内容补发过去。 */
+function acceptTransport(port: MessagePort | undefined) {
+  if (!port) return;
+  clearReadyTimer();
+  bridgeUnavailable = false;
+  transportPort?.close();
+  transportPort = port;
+
+  const latest = pendingHtml;
+  pendingHtml = null;
+  if (latest !== null) postTransport(latest);
+}
+
+/**
+ * 通过端口注入整份文档。`document.write` 会让 frame 文档整体重建，frame 侧桥
+ * 随之重跑并重新握手，所以这里立刻交出旧端口，等下一次 ready 再接管新的。
+ */
+function postTransport(html: string) {
+  if (!transportPort) return;
+  transportPort.postMessage({ type: PREVIEW_MSG_TRANSPORT, nonce: bridgeNonce, html });
+  // 不能 close：刚投递的消息还在队列里，关闭端口会把它一起丢掉
+  transportPort = null;
+  armReadyTimer();
+}
+
+function armReadyTimer() {
+  clearReadyTimer();
+  if (bridgeUnavailable) return;
+  readyTimer = setTimeout(() => {
+    readyTimer = null;
+    if (transportPort) return;
+    // 超时仍没有 ready：桥脚本没跑起来（当前宿主 CSP 就会拦掉它）。
+    // 退回整文档重载，宁可闪一下也不能让预览停在旧内容。
+    bridgeUnavailable = true;
+    const latest = pendingHtml;
+    pendingHtml = null;
+    if (latest !== null && iframeRef.value) iframeRef.value.srcdoc = latest;
+  }, PREVIEW_BRIDGE_READY_TIMEOUT_MS);
+}
+
+function clearReadyTimer() {
+  if (readyTimer) {
+    clearTimeout(readyTimer);
+    readyTimer = null;
+  }
+}
+
+function resetBridge() {
+  clearReadyTimer();
+  transportPort?.close();
+  transportPort = null;
+  pendingHtml = null;
+  bridgeUnavailable = false;
 }
 
 /** 回退路径：无预览服务器时把 HTML 灌进 srcdoc，并尽量无闪烁地更新 */
@@ -95,22 +183,29 @@ function updateIframeContent(rawHtml: string) {
   const iframe = iframeRef.value;
   if (!iframe) return;
 
-  const srcdocText = buildSrcdoc(rawHtml);
+  const srcdocText = buildSrcdoc(rawHtml, {
+    nonce: bridgeNonce,
+    hostOrigin: window.location.origin,
+  });
 
-  if (!iframe.srcdoc || !iframeReady) {
+  if (!iframe.srcdoc) {
     // 首次加载
     iframe.srcdoc = srcdocText;
-  } else {
-    // 后续流式渲染传输：通过 postMessage 发给 iframe 内部的 Transport Activation Bridge，
-    // 使用 document.write 动态更新，完全避开页面重载闪烁
-    iframe.contentWindow?.postMessage(
-      {
-        type: 'od:srcdoc-transport-activate',
-        html: srcdocText,
-      },
-      '*'
-    );
+    armReadyTimer();
+    return;
   }
+  if (transportPort) {
+    // 后续流式渲染：走 frame 转移过来的端口，document.write 局部替换，不重载不闪屏
+    pendingHtml = null;
+    postTransport(srcdocText);
+    return;
+  }
+  if (bridgeUnavailable) {
+    iframe.srcdoc = srcdocText;
+    return;
+  }
+  // 桥还没开口（首次 ready 前 / 上一次注入后的重新握手）：缓存最新一版，ready 后补发
+  pendingHtml = srcdocText;
 }
 
 /**
@@ -127,7 +222,7 @@ function renderPreview() {
     return;
   }
 
-  iframeReady = false;
+  resetBridge();
   iframe.removeAttribute('srcdoc');
   // 同一 URL 重复赋值不会重新导航，先清空属性才强制重载
   iframe.removeAttribute('src');
@@ -138,10 +233,6 @@ watch(
   [() => props.previewUrl, () => props.reloadToken, () => props.html],
   renderPreview
 );
-
-function onIframeLoaded() {
-  iframeReady = true;
-}
 
 function handleManualRefresh() {
   renderPreview();

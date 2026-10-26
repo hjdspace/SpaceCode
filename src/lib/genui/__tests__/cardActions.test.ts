@@ -10,7 +10,7 @@ import {
   GENUI_MAX_COPY_BYTES,
   GENUI_MAX_SUBMIT_BYTES,
 } from '@/shared/genuiSandbox'
-import { isSafeExternalUrl, parseCardAction } from '../cardActions'
+import { parseCardAction } from '../cardActions'
 
 function action(overrides: Record<string, unknown> = {}) {
   return { type: 'genui:action', nonce: 'n', action: 'copy', payload: { text: 'hi' }, ...overrides }
@@ -119,27 +119,6 @@ describe('拒绝路径', () => {
 })
 
 describe('外链协议闸门', () => {
-  it('放行绝对 http / https', () => {
-    expect(isSafeExternalUrl('https://example.com')).toBe(true)
-    expect(isSafeExternalUrl('http://127.0.0.1:8080/x')).toBe(true)
-  })
-
-  it('拒绝 javascript / file / data / 相对地址与其他协议', () => {
-    for (const url of [
-      'javascript:alert(1)',
-      'file:///C:/Windows/system32',
-      'data:text/html,<script>alert(1)</script>',
-      '/relative/path',
-      '//example.com',
-      'ftp://example.com',
-      'mailto:a@b.c',
-      '',
-      42,
-    ]) {
-      expect(isSafeExternalUrl(url)).toBe(false)
-    }
-  })
-
   it('openLink 的非法协议归到 invalid-payload', () => {
     expect(parseCardAction(action({ action: 'openLink', payload: { url: 'javascript:alert(1)' } }))).toEqual({
       ok: false,

@@ -107,7 +107,8 @@ npm run test           # 收尾全量（CI 也跑一次 test:coverage）
 - **H5 端只有跨 origin，没有进程隔离**：第二端口与主服务同 site，恶意卡片的死循环会拖住同一渲染进程。桌面端由 OOPIF 隔离，H5 明确不做（PRD Out of Scope）。
 - **沙箱源允许 `unsafe-eval`**：卡片协议用 `new Function` 求值 `JSExpression`，这是官方物料的运行前提。该授权只落在 opaque origin 的沙箱源，永不进主文档。
 - **H5 第二端口无鉴权**：它服务的就是构建产物本身，公开可读。不要往 `dist/genui-sandbox/` 放任何私有内容。
-- **DesignPreview 桥的安全债**：产物预览的 `srcdoc` 传输桥没有密钥与来源校验，iframe 还带 `allow-popups allow-downloads`。本票只记录不修，由 GitHub Issue [#62](https://github.com/hjdspace/SpaceCode/issues/62) 独立跟踪。
+- **DesignPreview 桥的安全债已由 [#62](https://github.com/hjdspace/SpaceCode/issues/62) 收口**：回传带每实例 nonce 并校验 `event.source`，动作走白名单，外链仅放行 `http:` / `https:`（主进程 `shell:openExternal` 同口径兜底）；`sandbox` 去掉 `allow-downloads`，`allow-popups` 的理由与移除路径见 [ADR 0017](adr/0017-design-preview-bridge-hardening.md)。
+  **仍有一项与本票无关的既有问题**：srcdoc 继承宿主 CSP（`script-src 'self'`），注入桥与产物脚本都不执行；`frame-src` 也未放行预览服务器源。预览页脚本目前是静态的，需单独跟踪，不要据此认为桥加固引入了回归。
 - **打包 CSP 的 `frame-src` 含本机开发源**、**主窗口无 `setWindowOpenHandler`**：见 §5 末尾两条，均有缓解因素。
 
 ## 7. 本轮执行记录
@@ -132,8 +133,8 @@ npm run test           # 收尾全量（CI 也跑一次 test:coverage）
   直连通过不算通过。
 - 引擎：E1–E3（需要真实模型会话）。E4 由 `tests/genui-skill-artifact.test.ts` 自动钉住。
 
-### 7.3 审计产出（不在本票修，已单独跟踪）
+### 7.3 审计产出（后续跟踪）
 
-- DesignPreview 的 `srcdoc` 传输桥缺来源与密钥校验 → GitHub Issue #62。
+- DesignPreview 的 `srcdoc` 传输桥缺来源与密钥校验 → GitHub Issue #62，已修复（ADR 0017）。
 - 打包 CSP 的 `frame-src` 含本机开发源、主窗口无 `setWindowOpenHandler` → §5 末尾两条，
   有缓解因素，接受并写进发布说明。
