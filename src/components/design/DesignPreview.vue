@@ -19,9 +19,13 @@
       <!-- 沙箱 Web 预览 iframe -->
       <!--
         allow-scripts：预览本身就是网页，脚本是产品能力。
-        allow-popups：外链新窗口；桥脚本被宿主 CSP 拦掉时，anchor target=_blank
-        仍要能打开，去掉它会让既有外链彻底失效。弹窗已无法冒充预览帧 —— 宿主只
-        接受来自本 iframe.contentWindow 且带本实例 nonce 的回传。
+        allow-popups：外链新窗口；产物里 anchor target=_blank 仍要能打开，去掉它会让
+        既有外链彻底失效。弹窗已无法冒充预览帧 —— 宿主只接受来自本 iframe.contentWindow
+        且带本实例 nonce 的回传。
+        allow-same-origin：只在预览 URL（spacecode-preview://）路径给。它是跨源专用源，
+        拿不到宿主 DOM / 存储；module script、字体与同源 fetch 都需要保住这个 origin。
+        协议响应头还会下发同一组 CSP sandbox，脚本即使删掉本属性也摘不掉顶层导航禁令。
+        srcdoc 回退路径绝不给：那会与宿主同源。
         不授予 allow-downloads：产物导出条在宿主的 DesignFileWorkspace 里，不依赖
         iframe 内下载；留下它只会让不可信页面往磁盘落文件。
       -->
@@ -29,7 +33,7 @@
         v-show="!showSource"
         ref="iframeRef"
         class="preview-iframe"
-        sandbox="allow-scripts allow-popups"
+        :sandbox="iframeSandbox"
       ></iframe>
 
       <!-- 源码阅读视图 -->
@@ -41,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { buildSrcdoc } from '@/lib/artifacts/srcdoc';
 import {
   PREVIEW_BRIDGE_READY_TIMEOUT_MS,
@@ -49,6 +53,7 @@ import {
   createPreviewNonce,
   parsePreviewOutbound,
 } from '@/lib/artifacts/previewBridge';
+import { PREVIEW_HOST_ORIGIN_PARAM, PREVIEW_NONCE_PARAM } from '@/shared/previewOrigin';
 import { api } from '@/services/electronAPI';
 import { Monitor, RotateCw, Code2 } from 'lucide-vue-next';
 
@@ -56,7 +61,7 @@ const props = defineProps<{
   html: string;
   title: string;
   sessionId: string;
-  /** 已登记预览工作区的 HTML 文件 URL（Electron 主进程 preview 服务器）；为空时回退 srcdoc */
+  /** 预览专用源 URL（spacecode-preview://…）；为空时回退 srcdoc */
   previewUrl?: string | null;
   /** 递增即强制重新导航：CSS/JS 变更后 HTML 内容没变，只有换 rev 才会重取兄弟资源 */
   reloadToken?: number;
@@ -64,15 +69,30 @@ const props = defineProps<{
 
 const iframeRef = ref<HTMLIFrameElement>();
 const showSource = ref(false);
-/** 本实例的桥密钥；随每次 srcdoc 构建写进 frame 侧脚本，重挂载即换新 */
+/** 本实例的桥密钥；随每次文档构建写进 frame 侧脚本，重挂载即换新 */
 const bridgeNonce = createPreviewNonce();
 /** frame 转移过来的端口；有端口才说明当前文档里的桥真的跑起来了 */
 let transportPort: MessagePort | null = null;
 /** 还没有通道时暂存的最新内容：ready 后一次补发，避免丢失流式 tick */
 let pendingHtml: string | null = null;
-/** 超时确认桥起不来（宿主 CSP 会拦内联桥脚本），退回整文档重载 */
+/** 超时确认桥起不来（协议未注册 / 注入失败），退回重新导航 */
 let bridgeUnavailable = false;
 let readyTimer: ReturnType<typeof setTimeout> | null = null;
+/** 预览 URL 的强制重载计数：桥不可用时拼进 rev，保证同一 URL 真的重新取 */
+const servedReload = ref(0);
+/**
+ * 发起当前导航时 props.html 的内容。切 tab 会让 previewUrl 与 html 同批更新，
+ * 服务端文档已经是这份内容；ready 后不能再补发一次 document.write，否则首屏白渲染。
+ */
+let servedNavHtml: string | null = null;
+
+/**
+ * 专用源是跨源 origin，allow-same-origin 不会让它碰到宿主；srcdoc 会与宿主同源，
+ * 必须继续排除。协议响应头的 CSP sandbox 是这两条路径共同的第二道锁。
+ */
+const iframeSandbox = computed(() =>
+  props.previewUrl ? 'allow-scripts allow-same-origin allow-popups' : 'allow-scripts allow-popups'
+);
 
 // 文件变更监听已移至 DesignFileWorkspace.vue（始终挂载），
 // DesignPreview 仅负责 iframe 渲染与沙箱消息桥接。
@@ -84,19 +104,19 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('message', handleIframeMessage);
-  resetBridge();
+  closeTransport();
+  bridgeUnavailable = false;
 });
 
 /**
  * frame → 宿主：先证来源（必须是本预览的 contentWindow），再验本实例密钥，
  * 最后按动作白名单分发。弹窗、同窗口其他 iframe（如 GenUI 卡片）与导航后的
  * 外来文档都在第一道闸门被丢掉；未知类型不会落到任何通用 IPC。
+ *
+ * 预览 URL 路径的桥由主进程注入（协议处理器读 URL 上的 nonce / host），
+ * 与 srcdoc 路径共用同一套消息格式。
  */
 function handleIframeMessage(event: MessageEvent) {
-  // 预览服务器路径加载的是产物本身，里面没有我们的桥；此时任何回传都不该被处理
-  // （也挡住切换模式后旧 srcdoc 文档迟到的 ready 接管端口）
-  if (props.previewUrl) return;
-
   const iframe = iframeRef.value;
   if (!iframe || event.source !== iframe.contentWindow) return;
 
@@ -154,11 +174,14 @@ function armReadyTimer() {
   readyTimer = setTimeout(() => {
     readyTimer = null;
     if (transportPort) return;
-    // 超时仍没有 ready：桥脚本没跑起来（当前宿主 CSP 就会拦掉它）。
-    // 退回整文档重载，宁可闪一下也不能让预览停在旧内容。
+    // 超时仍没有 ready：桥脚本没跑起来。宁可重载，也不能让预览停在旧内容。
     bridgeUnavailable = true;
     const latest = pendingHtml;
     pendingHtml = null;
+    if (props.previewUrl) {
+      reloadServedPreview();
+      return;
+    }
     if (latest !== null && iframeRef.value) iframeRef.value.srcdoc = latest;
   }, PREVIEW_BRIDGE_READY_TIMEOUT_MS);
 }
@@ -170,23 +193,91 @@ function clearReadyTimer() {
   }
 }
 
-function resetBridge() {
+/** 关掉当前 frame 的通道；不影响 bridgeUnavailable（降级重载需要保留它）。 */
+function closeTransport() {
   clearReadyTimer();
   transportPort?.close();
   transportPort = null;
   pendingHtml = null;
-  bridgeUnavailable = false;
 }
 
-/** 回退路径：无预览服务器时把 HTML 灌进 srcdoc，并尽量无闪烁地更新 */
+function bridgeOptions() {
+  return { nonce: bridgeNonce, hostOrigin: window.location.origin };
+}
+
+function bridgedDocument(rawHtml: string): string {
+  return buildSrcdoc(rawHtml, bridgeOptions());
+}
+
+/**
+ * 预览 URL 额外带上本实例的桥参数：主进程据此给文档注入与宿主一致的 nonce。
+ * rev 同时包含父层 reloadToken 与本地降级计数，换任一值都会强制重新导航。
+ */
+function previewFrameUrl(): string | null {
+  if (!props.previewUrl) return null;
+  const url = new URL(props.previewUrl);
+  url.searchParams.set('rev', `${props.reloadToken ?? 0}.${servedReload.value}`);
+  url.searchParams.set(PREVIEW_NONCE_PARAM, bridgeNonce);
+  url.searchParams.set(PREVIEW_HOST_ORIGIN_PARAM, window.location.origin);
+  return url.toString();
+}
+
+/** 首次加载 / 父层要求重新导航（CSS/JS 变更、手动刷新）。 */
+function navigateServedPreview() {
+  const iframe = iframeRef.value;
+  const url = previewFrameUrl();
+  if (!iframe || !url) return;
+
+  closeTransport();
+  bridgeUnavailable = false;
+  servedNavHtml = props.html;
+  iframe.removeAttribute('srcdoc');
+  // 同一 URL 重复赋值不会重新导航，先清空属性才强制重载
+  iframe.removeAttribute('src');
+  iframe.setAttribute('src', url);
+  armReadyTimer();
+}
+
+/** 桥确认不可用后的降级：换 rev 重新导航，至少保证内容继续更新。 */
+function reloadServedPreview() {
+  servedReload.value++;
+  const iframe = iframeRef.value;
+  const url = previewFrameUrl();
+  if (!iframe || !url) return;
+
+  closeTransport();
+  servedNavHtml = props.html;
+  iframe.removeAttribute('srcdoc');
+  iframe.removeAttribute('src');
+  iframe.setAttribute('src', url);
+}
+
+/**
+ * 预览 URL 路径的内容更新：优先走 frame 转移过来的端口（document.write，
+ * 文档 URL 不变，相对资源仍命中产物目录）；桥未开口时只留最新一版。
+ */
+function updateServedContent(rawHtml: string) {
+  if (!rawHtml) return;
+  // 导航时服务端文档已经是这份内容，不再补发（切 tab 时两个 prop 同批更新）
+  if (!transportPort && !bridgeUnavailable && rawHtml === servedNavHtml) return;
+  const nextDocument = bridgedDocument(rawHtml);
+  if (transportPort) {
+    postTransport(nextDocument);
+    return;
+  }
+  if (bridgeUnavailable) {
+    reloadServedPreview();
+    return;
+  }
+  pendingHtml = nextDocument;
+}
+
+/** 回退路径：无预览专用源时把 HTML 灌进 srcdoc，并尽量无闪烁地更新 */
 function updateIframeContent(rawHtml: string) {
   const iframe = iframeRef.value;
   if (!iframe) return;
 
-  const srcdocText = buildSrcdoc(rawHtml, {
-    nonce: bridgeNonce,
-    hostOrigin: window.location.origin,
-  });
+  const srcdocText = bridgedDocument(rawHtml);
 
   if (!iframe.srcdoc) {
     // 首次加载
@@ -211,27 +302,35 @@ function updateIframeContent(rawHtml: string) {
 /**
  * srcdoc 文档里相对 URL 相对宿主页面解析，多文件设计的 ./style.css 命不中产物目录；
  * 宿主 index.html 的 CSP 还会继承进 srcdoc 文档，`base-uri 'self'` 直接拦掉补 <base> 的路子。
- * 所以预览走本地预览服务器登记的真实 URL：相对资源天然同源命中同一工作区。
+ * 所以桌面端走 `spacecode-preview://` 专用源：相对资源天然同源命中同一工作区，
+ * 文档也有自己的策略，不再继承宿主 `script-src 'self'`。
  */
 function renderPreview() {
   const iframe = iframeRef.value;
   if (!iframe) return;
 
-  if (!props.previewUrl) {
-    if (props.html) updateIframeContent(props.html);
+  if (props.previewUrl) {
+    navigateServedPreview();
     return;
   }
 
-  resetBridge();
-  iframe.removeAttribute('srcdoc');
-  // 同一 URL 重复赋值不会重新导航，先清空属性才强制重载
+  closeTransport();
+  bridgeUnavailable = false;
   iframe.removeAttribute('src');
-  iframe.setAttribute('src', `${props.previewUrl}?rev=${props.reloadToken ?? 0}`);
+  if (props.html) updateIframeContent(props.html);
 }
 
 watch(
-  [() => props.previewUrl, () => props.reloadToken, () => props.html],
+  [() => props.previewUrl, () => props.reloadToken],
   renderPreview
+);
+
+watch(
+  () => props.html,
+  (html) => {
+    if (props.previewUrl) updateServedContent(html);
+    else updateIframeContent(html);
+  }
 );
 
 function handleManualRefresh() {
