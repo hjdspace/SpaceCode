@@ -83,22 +83,27 @@ export function normalizeGeneratedTitle(value: string | null | undefined): strin
 export async function generateSessionTitle(userMessage: string, isZh: boolean): Promise<string | null> {
   if (isLowSignalInput(userMessage)) return null
 
-  const cfg = useSettingsStore().config
+  const settings = useSettingsStore()
+  const cfg = settings.config
   // claudeai / console 是 OAuth 登录，config.apiKey 为空、无法直连 API —— 静默保留截取名
   if (!cfg.apiKey) return null
   await initLLMService({ provider: cfg.provider, apiKey: cfg.apiKey, baseUrl: cfg.baseUrl, model: cfg.model })
+
+  // config.model 走的是会话主模型，给它起标题太贵；改用设置里的 haiku（快速）模型，未配置时回退主模型。
+  const titleModel = settings.getHaikuModel() || cfg.model
 
   const prompt = buildSessionTitlePrompt(userMessage, isZh)
   try {
     const raw = await sendMessage([{ role: 'user', content: prompt.user }], {
       system: prompt.system,
+      model: titleModel,
       maxTokens: TITLE_MAX_TOKENS,
       timeoutMs: TITLE_TIMEOUT_MS,
       maxRetries: TITLE_MAX_RETRIES,
     })
     const title = normalizeGeneratedTitle(raw)
     if (!title) {
-      console.warn(`[aiSessionTitle] 模型未产出可用标题 (model=${cfg.model}, rawLength=${raw.length})`)
+      console.warn(`[aiSessionTitle] 模型未产出可用标题 (model=${titleModel}, rawLength=${raw.length})`)
     }
     return title
   } catch (err) {
