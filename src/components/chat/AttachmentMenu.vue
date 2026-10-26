@@ -5,6 +5,10 @@
         <Image :size="16" />
         <span>添加图片</span>
       </button>
+      <button class="attachment-item" @click="$emit('uploadAttachment')">
+        <Paperclip :size="16" />
+        <span>{{ t('chatInput.uploadAttachment') }}</span>
+      </button>
       <!-- 工作区文件 - 点击展开二级目录树 -->
       <div
         class="attachment-item submenu-trigger"
@@ -111,7 +115,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue'
-import { Image, FolderTree, Cpu, ChevronRight, Check, FolderOpen } from 'lucide-vue-next'
+import { Image, FolderTree, Cpu, ChevronRight, Check, FolderOpen, Paperclip } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { vClickOutside } from '@/components/common/vClickOutside'
 import WorkspaceFilePicker from './WorkspaceFilePicker.vue'
@@ -130,6 +134,7 @@ const props = defineProps<{
 
 defineEmits<{
   attachImage: []
+  uploadAttachment: []
   addWorkspaceEntry: [entry: WorkspaceEntry]
   selectAgent: [agentType: string]
   openProjectFolder: []

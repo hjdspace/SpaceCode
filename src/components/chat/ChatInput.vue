@@ -55,6 +55,17 @@
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <QuoteAttachmentsBar :quotes="attachedQuotes" @remove="removeQuoteAttachment" />
 
+      <!-- 上传的文件附件：卡片位于输入框内、正文上方 -->
+      <div v-if="uploadedAttachments.length" class="composer-file-attachments">
+        <FileAttachmentCard
+          v-for="file in uploadedAttachments"
+          :key="file.path"
+          :file="file"
+          removable
+          @remove="removeAttachment(file.path)"
+        />
+      </div>
+
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
         <div
@@ -261,6 +272,7 @@
       :show-open-project-action="!!showOpenProjectAction"
       :root-dir="workspaceRootDir"
       @attach-image="handleAttachImage"
+      @upload-attachment="handleUploadAttachment"
       @add-workspace-entry="handleWorkspaceEntry"
       @select-agent="selectAgentAndCloseMenu"
       @open-project-folder="handleOpenProjectFolder"
@@ -313,6 +325,7 @@ import ChatContextToolbar from './ChatContextToolbar.vue'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import ContextMenu from './ContextMenu.vue'
 import AttachmentMenu from './AttachmentMenu.vue'
+import FileAttachmentCard from './FileAttachmentCard.vue'
 import { useAppStore, type InputInjectPayload } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
@@ -505,9 +518,19 @@ const fileAttachments = useFileAttachments({
 const {
   attachedFiles, showAttachmentMenu,
   addFile: addFileAttachment,
+  addUploadedFilesFromDialog,
+  removeFile: removeAttachment,
   clearFiles, handleAddClick, closeAttachmentMenu,
   handleBrowseFiles: handleBrowseFilesBase,
 } = fileAttachments
+
+/** 输入框卡片区只展示上传的文件；工作区文件仍以内联 chip 呈现 */
+const uploadedAttachments = computed(() => attachedFiles.value.filter(f => f.source === 'upload'))
+
+async function handleUploadAttachment() {
+  closeAttachmentMenu()
+  await addUploadedFilesFromDialog()
+}
 
 // 工作区文件选择器的根目录
 const workspaceRootDir = computed(() => props.workingDirectory || appStore.projectRoot || '')
@@ -1848,6 +1871,13 @@ defineExpose({ getContent, setContent, focus: focusEditor })
 }
 
 // 文本输入区域
+.composer-file-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .textarea-wrapper {
   position: relative;
   flex: 1;

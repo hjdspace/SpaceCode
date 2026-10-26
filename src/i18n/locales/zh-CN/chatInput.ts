@@ -4,6 +4,8 @@ export default {
   addContext: '添加上下文',
   browseFiles: '浏览文件...',
   addAttachment: '添加附件',
+  uploadAttachment: '上传附件',
+  removeAttachment: '移除附件',
   refreshModels: '刷新模型列表',
   workspaceFiles: '工作区文件',
   searchWorkspaceFiles: '搜索当前项目文件',

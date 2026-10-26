@@ -21,6 +21,7 @@ import {
   hasMeaningfulContent,
   extractDisplayName,
   buildRelativePath,
+  mergeComposerFiles,
 } from '@/composables/useContentEditor'
 import type { ImageAttachment } from '@/composables/types'
 
@@ -654,6 +655,32 @@ describe('hasContent / collectMentions / collectAllAttachments', () => {
       files: [{ name: 'a.ts', path: 'a.ts', isFolder: false }],
       images: imgs,
     })
+  })
+
+  it('collectAllAttachments 并入上传卡片附件，忽略残留的工作区附件', () => {
+    const h = mountEditor()
+    h.editor.appendChild(makeMentionChip({ path: 'a.ts', text: 'a.ts' }))
+    const uploaded = { name: 'ask.md', path: '/ask.md', isFolder: false, source: 'upload' as const }
+    const staleWorkspace = { name: 'legacy.ts', path: '/legacy.ts', isFolder: false }
+
+    expect(h.collectAllAttachments([uploaded, staleWorkspace], []).files).toEqual([
+      { name: 'a.ts', path: 'a.ts', isFolder: false },
+      uploaded,
+    ])
+  })
+})
+
+describe('mergeComposerFiles — 纯函数', () => {
+  const upload = { name: 'ask.md', path: '/ask.md', isFolder: false, source: 'upload' as const }
+
+  it('同路径的 chip 与上传卡片只保留一份（chip 优先）', () => {
+    const mention = { name: 'ask.md', path: '/ask.md', isFolder: false }
+    expect(mergeComposerFiles([mention], [upload])).toEqual([mention])
+  })
+
+  it('工作区来源的附件不并进结果', () => {
+    const workspace = { name: 'w.ts', path: '/w.ts', isFolder: false, source: 'workspace' as const }
+    expect(mergeComposerFiles([], [workspace])).toEqual([])
   })
 })
 

@@ -40,6 +40,40 @@ export function useFileAttachments(options?: {
     return true
   }
 
+  /**
+   * 上传的附件不再写进编辑器（不插内联 chip），由输入框上方的卡片区承载。
+   * name 取 basename，卡片只展示文件名。
+   */
+  function addUploadedFile(path: string): boolean {
+    if (isDuplicateAttachment(attachedFiles.value, path)) return false
+    attachedFiles.value.push({
+      name: buildRelativePath(undefined, path),
+      path,
+      isFolder: false,
+      source: 'upload',
+    })
+    return true
+  }
+
+  async function addUploadedFilesFromDialog(): Promise<number> {
+    try {
+      const result = await api.selectFiles()
+      if (result.canceled) return 0
+      let added = 0
+      for (const filePath of result.filePaths) {
+        if (addUploadedFile(filePath)) added++
+      }
+      return added
+    } catch (error) {
+      console.error('Failed to select upload attachments:', error)
+      return 0
+    }
+  }
+
+  function removeFile(path: string) {
+    attachedFiles.value = attachedFiles.value.filter(f => f.path !== path)
+  }
+
   function clearFiles() {
     attachedFiles.value = []
   }
@@ -71,6 +105,9 @@ export function useFileAttachments(options?: {
     attachedFiles,
     showAttachmentMenu,
     addFile,
+    addUploadedFile,
+    addUploadedFilesFromDialog,
+    removeFile,
     clearFiles,
     handleAddClick,
     closeAttachmentMenu,

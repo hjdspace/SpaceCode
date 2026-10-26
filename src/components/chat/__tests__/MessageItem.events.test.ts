@@ -71,4 +71,49 @@ describe('MessageItem events 模式', () => {
     expect(w.find('.block-text').exists()).toBe(false)
     expect(w.find('.message-content').exists()).toBe(true)
   })
+
+  it('用户消息的上传附件渲染为卡片，工作区附件不重复成卡片', () => {
+    const msg: Message = {
+      id: 'm1',
+      role: 'user',
+      content: '看这个文件',
+      timestamp: Date.now(),
+      attachments: [
+        { name: 'ask-matt.md', path: '/docs/ask-matt.md', isFolder: false, source: 'upload' },
+        { name: 'a.ts', path: '/src/a.ts', isFolder: false },
+      ],
+    }
+    const w = mount(MessageItem, {
+      props: { message: msg },
+      global: {
+        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallList', 'MessageMetadata'],
+      },
+    })
+
+    const cards = w.findAll('.file-attachment-card')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].text()).toContain('ask-matt.md')
+    expect(cards[0].text()).toContain('MD')
+  })
+
+  it('只有附件没有正文时仍渲染卡片、不渲染空气泡', () => {
+    const msg: Message = {
+      id: 'm1',
+      role: 'user',
+      content: '',
+      timestamp: Date.now(),
+      attachments: [
+        { name: 'notes.md', path: '/notes.md', isFolder: false, source: 'upload' },
+      ],
+    }
+    const w = mount(MessageItem, {
+      props: { message: msg },
+      global: {
+        stubs: ['MarkdownRenderer', 'ReasoningCard', 'ToolCallList', 'MessageMetadata'],
+      },
+    })
+
+    expect(w.findAll('.file-attachment-card')).toHaveLength(1)
+    expect(w.find('.message-content').exists()).toBe(false)
+  })
 })
