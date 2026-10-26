@@ -28,7 +28,11 @@ describe('闭合围栏识别', () => {
       {
         id: `${M}:card:0`,
         protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION,
-        schema: { componentName: 'TinyForm', props: { title: 'A' } },
+        // 根节点是 TinyForm：渲染器会把它画成一个 div，所以宿主先包一层容器再交给沙箱
+        schema: {
+          componentName: 'div',
+          children: [{ componentName: 'TinyForm', props: { title: 'A' } }],
+        },
       },
     ])
   })
@@ -67,7 +71,71 @@ describe('闭合围栏识别', () => {
     const body = '{\n  "componentName": "TinyCard",\n\n  "props": { "title": "带空行" }\n}'
     const out = projectGenuiCards(fence(body), M, { final: true })
 
-    expect(out.cards[0].schema).toEqual({ componentName: 'TinyCard', props: { title: '带空行' } })
+    expect(out.cards[0]?.schema).toEqual({
+      componentName: 'div',
+      children: [{ componentName: 'TinyCard', props: { title: '带空行' } }],
+    })
+  })
+})
+
+/**
+ * 渲染器把根节点一律当「Page」处理：不管 componentName 写什么，画出来都是一个 div，
+ * props 漏成 DOM 属性。所以根节点写 TinyCard / TinyForm 的卡会丢掉整层外壳 ——
+ * 宿主必须替它包一层，把组件身份挪到 children 里。
+ */
+describe('非 div 根节点归一', () => {
+  it('div 根节点原样透传，不多包一层', () => {
+    const schema = { componentName: 'div', children: [{ componentName: 'p', children: 'hi' }] }
+    const out = projectGenuiCards(fence(JSON.stringify(schema)), M, { final: true })
+
+    expect(out.cards[0].schema).toEqual(schema)
+  })
+
+  it('页面级字段上提到新容器，state 绑定不会因为多包一层而失效', () => {
+    const schema = {
+      componentName: 'TinyForm',
+      state: { env: 'prod' },
+      methods: { onGo: { type: 'JSFunction', value: 'function(){}' } },
+      css: '.x{padding:8px}',
+      props: { labelWidth: '80px' },
+      children: [{ componentName: 'TinyInput' }],
+    }
+    const out = projectGenuiCards(fence(JSON.stringify(schema)), M, { final: true })
+
+    expect(out.cards[0]?.schema).toEqual({
+      componentName: 'div',
+      state: schema.state,
+      methods: schema.methods,
+      css: schema.css,
+      children: [
+        {
+          componentName: 'TinyForm',
+          props: schema.props,
+          children: schema.children,
+        },
+      ],
+    })
+  })
+
+  it('白名单判的是模型真正写出来的根组件名，不是包好之后的 div', () => {
+    const rejected = projectGenuiCards(fence(JSON.stringify({ componentName: 'Page' })), M, { final: true })
+    expect(rejected.cards).toHaveLength(0)
+    expect(rejected.fallbacks[0]?.reason).toBe('unsupported-component')
+
+    // 归一之后的形状对宿主与沙箱都是可渲染的
+    const accepted = projectGenuiCards(fence(JSON.stringify({ componentName: 'TinyCard' })), M, { final: true })
+    expect(accepted.cards[0]).toMatchObject({ schema: { componentName: 'div' } })
+  })
+
+  it('协议版本仍然按原始 schema 判定，归一不会把它带到 wrapper 上', () => {
+    const out = projectGenuiCards(
+      fence(JSON.stringify({ componentName: 'TinyCard', protocolVersion: 99 })),
+      M,
+      { final: true },
+    )
+
+    expect(out.cards).toHaveLength(0)
+    expect(out.fallbacks[0]?.reason).toBe('protocol-version')
   })
 })
 
