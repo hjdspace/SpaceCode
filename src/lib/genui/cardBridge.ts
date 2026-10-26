@@ -27,8 +27,21 @@ import {
 import { parseCardAction, type CardAction, type CardActionRejection } from './cardActions'
 import { createUuid } from '@/utils/uuid'
 
-/** 握手时限：超过即认为这张卡起不来（PRD §3 默认 5 秒）。 */
+/**
+ * 握手时限：Schema 已经投进沙箱、它却迟迟不回 ready（PRD §3 默认 5 秒）。
+ * 这一段只量「卡片拿到了内容却不开口」，不含下面那段冷启动预算。
+ */
 export const GENUI_HANDSHAKE_TIMEOUT_MS = 5_000
+
+/**
+ * 沙箱文档的加载预算：从挂上 iframe 到 `load` 事件为止。
+ *
+ * 这份文档是 5MB 级的物料 bundle，打包态还要经主进程的自定义协议处理器读盘 —— 而首张卡
+ * 恰好赶在流式收口、主进程最忙的时候加载。把它算进 `GENUI_HANDSHAKE_TIMEOUT_MS` 就等于
+ * 要求浏览器在 5 秒内完成取字节 + 解析 + 执行，冷启动必然被判握手失败，重试（此时已缓存）
+ * 反而一次就过。所以加载单独计时，握手计时从 Schema 真正投递出去那刻才开始。
+ */
+export const GENUI_FRAME_BOOT_TIMEOUT_MS = 15_000
 
 /**
  * 沙箱报来的内容高度上限。卡片是不可信代码，它想多高就多高，
@@ -106,6 +119,8 @@ export type CardBridgeOptions = {
   locale: string
   protocolVersion?: number
   handshakeTimeoutMs?: number
+  /** 沙箱文档的加载预算；默认 `GENUI_FRAME_BOOT_TIMEOUT_MS`，测试压小它 */
+  bootTimeoutMs?: number
   /** 单条桥消息上限；默认 1MB，卡片是不可信代码，链路本身也要有配额 */
   maxMessageBytes?: number
   onStateChange: (state: CardBridgeState) => void
@@ -144,16 +159,45 @@ function messageByteLength(value: unknown): number | null {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Schema 在 store 里通常是 Vue 的响应式代理。postMessage 走结构化克隆，
+ * Proxy 一律抛 DataCloneError，握手就会永远停在 connecting 直到超时。
+ * Schema 按协议本来就是 JSON，做一次 JSON 往返还原成普通对象；
+ * 序列化不了时返回 null，由这张卡落到 render-failed，而不是让异常穿出 mounted hook。
+ */
+function toTransferableSchema(
+  schema: Record<string, unknown>,
+): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(JSON.stringify(schema))
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export function createCardBridge(options: CardBridgeOptions): CardBridge {
   const hostWindow: HostMessageSource = options.hostWindow ?? window
   const channel = (options.createChannel ?? (() => new MessageChannel()))()
   const nonce = options.nonce ?? createUuid()
   const expectedVersion = options.protocolVersion ?? GENUI_SANDBOX_PROTOCOL_VERSION
   const timeoutMs = options.handshakeTimeoutMs ?? GENUI_HANDSHAKE_TIMEOUT_MS
+  const bootMs = options.bootTimeoutMs ?? GENUI_FRAME_BOOT_TIMEOUT_MS
+  // 结构化克隆不接受 Proxy：先把响应式 Schema 归一成纯 JSON 对象，否则投递当场就抛
+  const transferableSchema = toTransferableSchema(options.schema)
 
   let status: CardBridgeState = { status: 'connecting' }
-  let timer: ReturnType<typeof setTimeout> | null = null
+  /** 沙箱文档加载计时；Schema 投出去就换成交手计时，两段共用同一个收口 */
+  let bootTimer: ReturnType<typeof setTimeout> | null = null
+  /** 交手指计时：只在 `postInit` 成功后武装，量的是卡片拿到内容后开不开口 */
+  let handshakeTimer: ReturnType<typeof setTimeout> | null = null
   let initPosted = false
+  /** 沙箱文档是否已经就位 —— 没就位之前一次都不投，见 `postInit` */
+  let frameLoaded = false
   let disposed = false
 
   function settle(next: CardBridgeState): void {
@@ -167,10 +211,21 @@ export function createCardBridge(options: CardBridgeOptions): CardBridge {
   }
 
   function clearTimer(): void {
-    if (timer) {
-      clearTimeout(timer)
-      timer = null
+    if (bootTimer) {
+      clearTimeout(bootTimer)
+      bootTimer = null
     }
+    if (handshakeTimer) {
+      clearTimeout(handshakeTimer)
+      handshakeTimer = null
+    }
+  }
+
+  /** 两段超时都收口成 `handshake-timeout`：对用户而言都是「这张卡没起来」，处理方式也相同。 */
+  function settleAsNotStarted(): void {
+    if (isSettled()) return
+    clearTimer()
+    settle({ status: 'error', failure: 'handshake-timeout' })
   }
 
   /** 动作消息：白名单、限额与 payload 校验全交给 parseCardAction，宿主回调抛错不外泄。 */
@@ -259,8 +314,20 @@ export function createCardBridge(options: CardBridgeOptions): CardBridge {
     settle({ status: 'error', failure: 'frame-load-failed' })
   }
 
+  /**
+   * 注入只由 frame 的 load 事件驱动。iframe 一插进 DOM，`contentWindow` 就指向那个还没被
+   * 换掉的初始空文档 —— 往它 postMessage 不报错，消息却随那个文档一起丢掉，而端口已经转移走、
+   * 补发不了，这张卡只能等到握手超时。load 才是沙箱文档就位、它的监听器已注册的时刻。
+   */
+  const onFrameLoad = (): void => {
+    frameLoaded = true
+    postInit()
+  }
+
   function postInit(): void {
-    if (disposed || initPosted || !options.iframe.contentWindow) return
+    const target = options.iframe.contentWindow
+    if (disposed || initPosted || !frameLoaded || !transferableSchema || !target) return
+
     initPosted = true
     const init: GenuiInitMessage = {
       type: GENUI_MSG_INIT,
@@ -268,10 +335,23 @@ export function createCardBridge(options: CardBridgeOptions): CardBridge {
       protocolVersion: expectedVersion,
       theme: options.theme,
       locale: options.locale,
-      schema: options.schema,
+      schema: transferableSchema,
     }
+
+    // 预算先武装，再投递：`postMessage` 一旦抛错（frame 已被换掉、克隆被拒），
+    // 写在它后面的那一行就轮不到执行，这张卡会静默停在 connecting 而不是按时收口。
+    if (bootTimer) {
+      clearTimeout(bootTimer)
+      bootTimer = null
+    }
+    handshakeTimer = setTimeout(settleAsNotStarted, timeoutMs)
+
     // opaque origin 的文档没法用 targetOrigin 精确匹配，只能 '*'；闸门是 nonce
-    options.iframe.contentWindow.postMessage(init, '*', [channel.port2])
+    try {
+      target.postMessage(init, '*', [channel.port2])
+    } catch {
+      settleAsNotStarted()
+    }
   }
 
   const onPortMessage = (event: MessageEvent): void => {
@@ -281,17 +361,18 @@ export function createCardBridge(options: CardBridgeOptions): CardBridge {
   return {
     start(): void {
       if (disposed) return
+      settle({ status: 'connecting' })
+      // Schema 归一成不成与 frame 加载到哪一步无关，当场收口，不必等 5 秒握手超时
+      if (!transferableSchema) {
+        settle({ status: 'error', failure: 'render-failed' })
+        return
+      }
       options.iframe.addEventListener('error', onFrameError)
-      // 文档没就位之前 postMessage 会落进一个还没注册监听的 window，消息直接丢掉
-      options.iframe.addEventListener('load', postInit)
+      options.iframe.addEventListener('load', onFrameLoad)
       hostWindow.addEventListener('message', onWindowMessage)
       channel.port1.onmessage = onPortMessage
-      settle({ status: 'connecting' })
-
-      postInit()
-      timer = setTimeout(() => {
-        if (!isSettled()) settle({ status: 'error', failure: 'handshake-timeout' })
-      }, timeoutMs)
+      // 只管到 `load`：文档没就位就什么都投不出去。交棒给 postInit 里的握手计时器
+      bootTimer = setTimeout(settleAsNotStarted, bootMs)
     },
 
     pushAppearance(appearance: { theme: GenuiTheme; locale: string }): void {
@@ -304,7 +385,7 @@ export function createCardBridge(options: CardBridgeOptions): CardBridge {
       disposed = true
       clearTimer()
       options.iframe.removeEventListener('error', onFrameError)
-      options.iframe.removeEventListener('load', postInit)
+      options.iframe.removeEventListener('load', onFrameLoad)
       hostWindow.removeEventListener('message', onWindowMessage)
       channel.port1.onmessage = null
       channel.port1.close()
