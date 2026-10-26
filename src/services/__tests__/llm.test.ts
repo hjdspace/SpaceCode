@@ -60,7 +60,7 @@ function configureAnthropic(overrides: Partial<LLMConfig> = {}) {
   llm.updateConfig({ provider: 'anthropic', apiKey: 'sk-test', ...overrides })
 }
 
-function send(options: { maxTokens?: number; system?: string; timeoutMs?: number; maxRetries?: number } = {}) {
+function send(options: { maxTokens?: number; system?: string; timeoutMs?: number; maxRetries?: number; model?: string } = {}) {
   return llm.sendMessage([{ role: 'user', content: 'hi' }], { maxRetries: 0, ...options })
 }
 
@@ -268,6 +268,17 @@ describe('sendMessage — anthropic 分支', () => {
     expect(body.max_tokens).toBe(55)
     expect(body.system).toBe('你是提交信息助手')
     expect(init.timeoutMs).toBe(1234)
+  })
+
+  it('options.model 单次覆盖请求模型，且不改动后续调用的共享配置', async () => {
+    configureAnthropic({ model: 'claude-sonnet-4-5' })
+    mocks.httpFetch.mockResolvedValue(okResponse({ content: [{ text: 'ok' }] }))
+
+    await send({ model: 'claude-haiku-4-5' })
+    expect(JSON.parse(lastCall()[1].body).model).toBe('claude-haiku-4-5')
+
+    await send()
+    expect(JSON.parse(lastCall()[1].body).model).toBe('claude-sonnet-4-5')
   })
 
   it('401 且响应含 invalid 时提示 API Key 无效', async () => {
