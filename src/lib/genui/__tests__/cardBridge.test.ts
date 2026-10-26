@@ -6,6 +6,7 @@
  * 于是这条安全边界能脱离真实 Electron 进程钉住（见 ADR 0011：修缝而不是抄实现）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { reactive } from 'vue'
 import {
   GENUI_MSG_ACTION,
   GENUI_MSG_ERROR,
@@ -108,10 +109,14 @@ afterEach(() => {
 })
 
 describe('注入方向', () => {
-  it('start 经 MessageChannel 把 nonce、协议版本、主题、语言与 Schema 交给沙箱', () => {
+  it('start 只挂监听，等 frame 的 load 才把 nonce、协议版本、主题、语言与 Schema 交给沙箱', () => {
     const { bridge, iframe, port2 } = createBridge()
     bridge.start()
+    // iframe 一插进 DOM，contentWindow 指的是还没被换掉的初始空文档：现在投等于投进黑洞，
+    // 而端口已经转移走、补发不了，这张卡只能等到握手超时。
+    expect(iframe.posted).toHaveLength(0)
 
+    iframe.emit('load')
     expect(iframe.posted).toHaveLength(1)
     const [init] = iframe.posted
     expect(init?.message).toEqual({
@@ -125,6 +130,30 @@ describe('注入方向', () => {
     // opaque origin 无法用 targetOrigin 精确匹配，只能 '*'；密钥本身才是闸门
     expect(init?.targetOrigin).toBe('*')
     expect(init?.transfer).toEqual([port2])
+  })
+
+  it('响应式 Schema 在投递前被归一成可结构化克隆的普通对象', () => {
+    const schema = reactive({
+      componentName: 'TinyForm',
+      children: [{ componentName: 'TinyInput' }],
+    })
+    const { bridge, iframe } = createBridge({
+      schema: schema as unknown as Record<string, unknown>,
+    })
+    bridge.start()
+    iframe.emit('load')
+
+    const [init] = iframe.posted
+    expect(init).toBeDefined()
+    // Proxy 直接进 postMessage 会抛 DataCloneError；这里用同一套结构化克隆验证
+    expect(() => structuredClone(init!.message)).not.toThrow()
+    const message = init!.message as { schema: Record<string, unknown> }
+    expect(message.schema).not.toBe(schema)
+    expect(message.schema.children).not.toBe(schema.children)
+    expect(message.schema).toEqual({
+      componentName: 'TinyForm',
+      children: [{ componentName: 'TinyInput' }],
+    })
   })
 
   it('start 之前不投递任何消息', () => {
@@ -141,7 +170,7 @@ describe('注入方向', () => {
     expect(iframe.posted).toHaveLength(1)
   })
 
-  it('文档已经就位时（load 先于 start）也能握手', () => {
+  it('load 之后才回 ready 的完整握手路径', () => {
     const { bridge, iframe, hostWindow, states } = createBridge()
     bridge.start()
     iframe.emit('load')
@@ -204,12 +233,52 @@ describe('握手回信', () => {
 })
 
 describe('失败收口', () => {
-  it('超时未握手落到 handshake-timeout 错误态', () => {
-    const { bridge, states } = createBridge()
+  it('Schema 无法序列化时落到 render-failed，不让异常穿出 mounted hook', () => {
+    const circular: Record<string, unknown> = { componentName: 'TinyForm' }
+    circular.self = circular
+    const { bridge, states } = createBridge({ schema: circular })
+
+    expect(() => bridge.start()).not.toThrow()
+    expect(states[states.length - 1]).toEqual({ status: 'error', failure: 'render-failed' })
+  })
+
+  it('文档 load 后不回 ready 才落到 handshake-timeout 错误态', () => {
+    const { bridge, iframe, states } = createBridge()
     bridge.start()
+    iframe.emit('load')
     vi.advanceTimersByTime(5_000)
 
     expect(states[states.length - 1]).toEqual({ status: 'error', failure: 'handshake-timeout' })
+  })
+
+  it('沙箱文档没加载完不算卡片慢：握手预算从 Schema 真正投递出去才开始计时', () => {
+    const { bridge, states } = createBridge()
+    bridge.start()
+    // 一次都不 emit('load')：5 秒过去只是文档还没就位
+    vi.advanceTimersByTime(5_000)
+    expect(states[states.length - 1]?.status).toBe('connecting')
+
+    // 文档终于就位，此时才给它 5 秒的交手机会
+    bridge.dispose()
+  })
+
+  it('文档加载超预算才收口成握手失败，且用的是可注入的加载预算', () => {
+    const { bridge, states } = createBridge({ bootTimeoutMs: 2_000 })
+    bridge.start()
+    vi.advanceTimersByTime(1_999)
+    expect(states[states.length - 1]?.status).toBe('connecting')
+    vi.advanceTimersByTime(1)
+    expect(states[states.length - 1]).toEqual({ status: 'error', failure: 'handshake-timeout' })
+  })
+
+  it('加载耗时不吃掉握手预算：慢加载之后卡片仍有完整 5 秒', () => {
+    const { bridge, iframe, hostWindow, states } = createBridge()
+    bridge.start()
+    vi.advanceTimersByTime(14_000)
+    iframe.emit('load')
+    hostWindow.dispatch({ source: iframe.contentWindow, data: readyPayload() })
+
+    expect(states[states.length - 1]).toEqual({ status: 'ready', protocolVersion: GENUI_SANDBOX_PROTOCOL_VERSION })
   })
 
   it('握手成功后撤掉超时，卡片不会因为读得慢而翻成错误', () => {
@@ -241,9 +310,10 @@ describe('失败收口', () => {
     expect(states[states.length - 1]).toEqual({ status: 'error', failure: 'frame-load-failed' })
   })
 
-  it('超时时限可注入，默认 5 秒', () => {
-    const { bridge, states } = createBridge({ handshakeTimeoutMs: 1_000 })
+  it('交手时限可注入，默认 5 秒', () => {
+    const { bridge, iframe, states } = createBridge({ handshakeTimeoutMs: 1_000 })
     bridge.start()
+    iframe.emit('load')
     vi.advanceTimersByTime(999)
     expect(states[states.length - 1]?.status).toBe('connecting')
     vi.advanceTimersByTime(1)
