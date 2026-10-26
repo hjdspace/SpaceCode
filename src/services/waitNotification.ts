@@ -45,8 +45,9 @@ function truncate(text: string): string {
 function toolLabel(request: PermissionRequest): string {
   if (request.displayName) return request.displayName
   const key = `permission.card.toolNames.${request.toolName}`
-  const translated = i18n.global.t(key)
-  return translated === key ? request.toolName : String(translated)
+  // te 先探路：未知工具名直接回退原始名，避免 vue-i18n 刷 missing key 告警
+  if (!i18n.global.te(key)) return request.toolName
+  return String(i18n.global.t(key))
 }
 
 function firstQuestion(request: PermissionRequest): string {
