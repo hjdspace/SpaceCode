@@ -32,6 +32,8 @@ export default {
       Write: '写入文件',
       Read: '读取文件',
       Bash: '执行命令',
+      WebFetch: '抓取网页',
+      WebSearch: '搜索网页',
       Skill: '技能调用',
       AskUserQuestion: '询问用户',
       ExitPlanMode: '退出计划模式',
