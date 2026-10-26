@@ -43,6 +43,8 @@ export class VoiceCaptureError extends Error {
 export interface VoiceCaptureHandlers {
   onChunk(samples: Int16Array): void
   onError(error: VoiceCaptureError): void
+  /** 逐帧 RMS（0..1），只用于录音电平动画，不参与识别。 */
+  onLevel?(level: number): void
 }
 
 export interface VoiceCapturePort {
@@ -95,6 +97,7 @@ export interface VoiceDictationOptions {
   canStart?: () => boolean
   onStateChange?: (state: VoiceInputState) => void
   onLiveTranscript?: (text: string) => void
+  onLevel?: (level: number) => void
   onOutcome?: (outcome: VoiceOutcome) => void
 }
 
@@ -176,6 +179,7 @@ export class VoiceDictation {
       const { sampleRate } = await this.capture.start({
         onChunk: this.handleChunk,
         onError: this.handleCaptureError,
+        onLevel: this.options.onLevel,
       })
       // 等权限期间被取消/卸载：把已经打开的麦克风关掉。
       if (this.sessionId !== sessionId) {

@@ -126,6 +126,7 @@ export function createBrowserVoiceCapture(): VoiceCapturePort {
     handlersRef = handlers
     node.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       const frames = new Float32Array(event.data)
+      if (handlers.onLevel) handlers.onLevel(frameRms(frames))
       for (const chunk of chunker.push(frames)) handlers.onChunk(chunk)
     }
     source = context.createMediaStreamSource(media)
@@ -135,6 +136,14 @@ export function createBrowserVoiceCapture(): VoiceCapturePort {
   }
 
   return { start, stop: () => cleanup() }
+}
+
+/** 单帧 RMS（0..1），只喂给录音电平动画；识别仍走 PCM16 分块。 */
+function frameRms(frames: Float32Array): number {
+  if (frames.length === 0) return 0
+  let sum = 0
+  for (let i = 0; i < frames.length; i++) sum += frames[i] * frames[i]
+  return Math.sqrt(sum / frames.length)
 }
 
 function mapGetUserMediaError(error: unknown): VoiceCaptureError {

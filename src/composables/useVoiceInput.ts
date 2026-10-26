@@ -105,6 +105,33 @@ export function useVoiceInput(options: UseVoiceInputOptions) {
   const hint = ref<VoiceInputHint | null>(null)
   const installing = ref(false)
 
+  /** 录音电平（0..1），只驱动波形动画。 */
+  const level = ref(0)
+  let levelValue = 0
+  let levelSampledAt = 0
+
+  const LEVEL_FLOOR = 0.005
+  const LEVEL_CEILING = 0.12
+  const LEVEL_SAMPLE_MS = 50
+
+  function handleLevel(rms: number) {
+    const now = Date.now()
+    if (now - levelSampledAt < LEVEL_SAMPLE_MS) return
+    levelSampledAt = now
+    // 人声 RMS 通常落在 0.01~0.12，按此区间归一化后再开方，低音量也能看出起伏。
+    const normalized =
+      Math.min(1, Math.max(0, (rms - LEVEL_FLOOR) / (LEVEL_CEILING - LEVEL_FLOOR))) ** 0.65
+    // 起音快、回落慢：说到一半停顿时波形缓慢收平，而不是瞬间归零。
+    levelValue += (normalized - levelValue) * (normalized > levelValue ? 0.6 : 0.22)
+    level.value = levelValue
+  }
+
+  function resetLevel() {
+    levelValue = 0
+    levelSampledAt = 0
+    level.value = 0
+  }
+
   let disposed = false
   let hintTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -139,13 +166,17 @@ export function useVoiceInput(options: UseVoiceInputOptions) {
     silence: options.silence,
     onStateChange: (next) => {
       state.value = next
-      if (next === 'idle' || next === 'failed') liveTranscript.value = ''
+      if (next === 'idle' || next === 'failed') {
+        liveTranscript.value = ''
+        resetLevel()
+      }
       // 重试开始后旧的失败提示必须收口，否则会盖在正在进行的录音上。
       if (next === 'preparing') clearHint()
     },
     onLiveTranscript: (text) => {
       liveTranscript.value = text
     },
+    onLevel: handleLevel,
     onOutcome: (outcome) => {
       if (disposed) return
       if (outcome.kind === 'failed') {
@@ -251,6 +282,7 @@ export function useVoiceInput(options: UseVoiceInputOptions) {
     state,
     isActive,
     liveTranscript,
+    level,
     hint,
     installing,
     setHint,
