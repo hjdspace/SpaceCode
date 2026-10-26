@@ -15,19 +15,31 @@
  */
 import { createUuid } from '@/utils/uuid'
 import { isSafeExternalUrl } from '@/utils/safeUrl'
+import {
+  PREVIEW_MAX_HTML_CHARS,
+  PREVIEW_MSG_ALERT,
+  PREVIEW_MSG_CONFIRM,
+  PREVIEW_MSG_ERROR,
+  PREVIEW_MSG_OPEN,
+  PREVIEW_MSG_READY,
+  PREVIEW_MSG_TRANSPORT,
+  PREVIEW_SANDBOX_SHIM_ID,
+  PREVIEW_TRANSPORT_BRIDGE_ID,
+} from '@/shared/previewDocument'
 
-export const PREVIEW_MSG_READY = 'od:sandbox:ready'
-export const PREVIEW_MSG_ALERT = 'od:sandbox:alert'
-export const PREVIEW_MSG_CONFIRM = 'od:sandbox:confirm'
-export const PREVIEW_MSG_OPEN = 'od:sandbox:open'
-export const PREVIEW_MSG_ERROR = 'od:sandbox:error'
-export const PREVIEW_MSG_TRANSPORT = 'od:srcdoc-transport-activate'
+// 协议常量与主进程共用一份，渲染端既有调用点仍从这里取
+export {
+  PREVIEW_MAX_HTML_CHARS,
+  PREVIEW_MSG_ALERT,
+  PREVIEW_MSG_CONFIRM,
+  PREVIEW_MSG_ERROR,
+  PREVIEW_MSG_OPEN,
+  PREVIEW_MSG_READY,
+  PREVIEW_MSG_TRANSPORT,
+  PREVIEW_SANDBOX_SHIM_ID,
+  PREVIEW_TRANSPORT_BRIDGE_ID,
+}
 
-export const PREVIEW_SANDBOX_SHIM_ID = 'od-sandbox-shim'
-export const PREVIEW_TRANSPORT_BRIDGE_ID = 'od-transport-bridge'
-
-/** 单次注入的文档上限；预览是整页 HTML，比卡片消息大一个量级。 */
-export const PREVIEW_MAX_HTML_CHARS = 5_000_000
 /** 通知/错误文本上限：只用于展示与日志，超限直接丢弃。 */
 export const PREVIEW_MAX_TEXT_CHARS = 8_192
 

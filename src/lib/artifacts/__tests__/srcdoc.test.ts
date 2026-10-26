@@ -150,3 +150,16 @@ describe('每次构建换新密钥', () => {
     expect(scriptOf(first, PREVIEW_SANDBOX_SHIM_ID)).toContain('nonce-a')
   })
 })
+
+describe('产物自带的 CSP meta', () => {
+  it('构建时被移除，策略只由承载方决定', () => {
+    const withMeta =
+      '<html><head><meta http-equiv="Content-Security-Policy" content="script-src \'none\'"></head>' +
+      '<body>x</body></html>'
+
+    const doc = buildSrcdoc(withMeta, { nonce: NONCE, hostOrigin: HOST_ORIGIN })
+
+    expect(doc).not.toMatch(/http-equiv="Content-Security-Policy"/i)
+    expect(doc).toContain('x')
+  })
+})

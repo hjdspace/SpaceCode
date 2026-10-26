@@ -209,22 +209,47 @@ describe('PreviewServer 文件读取边界', () => {
     expect(server.toPreviewUrl(driveRootFile, parse(dir).root)).toBeNull()
   })
 
+  it('预览 iframe 的专用源 URL 与 HTTP URL 共用同一份登记', async () => {
+    const workspace = join(dir, 'ws-frame')
+    mkdirSync(workspace)
+    writeFileSync(join(workspace, 'index.html'), '<h1>frame</h1>')
+
+    const frameUrl = server.toFrameUrl(join(workspace, 'index.html'), workspace)
+    const httpUrl = server.toPreviewUrl(join(workspace, 'index.html'), workspace)
+
+    expect(frameUrl).toMatch(/^spacecode-preview:\/\/artifact\/[0-9a-f]{32}\/index\.html$/)
+    expect(new URL(frameUrl!).pathname).toBe(new URL(httpUrl!).pathname)
+  })
+
+  it('白名单之外的扩展名不服务（脚本执行后登记根里的未知类型也不能照发）', async () => {
+    const workspace = join(dir, 'ws-unsupported')
+    mkdirSync(workspace)
+    writeFileSync(join(workspace, 'index.html'), '<h1>doc</h1>')
+    writeFileSync(join(workspace, 'payload.bin'), 'binary-sentinel')
+
+    const token = pathnameOf(server.toPreviewUrl(join(workspace, 'index.html'))!).split('/')[1]
+    const res = await get(`/${token}/payload.bin`)
+
+    expect(res.status).toBe(404)
+    expect(res.body).not.toContain('binary-sentinel')
+  })
+
   it('服务器未启动时不签发 URL', async () => {
     expect(new PreviewServer().toPreviewUrl(join(dir, 'ws-a', 'index.html'))).toBeNull()
   })
 })
 
-describe('preview:getUrl IPC 入口', () => {
+describe('preview:getUrl / preview:getFrameUrl IPC 入口', () => {
   type GetUrlHandler = (event: unknown, filePath: string, workspaceRoot?: string) => Promise<string | null>
 
   let handler: GetUrlHandler
+  let frameHandler: GetUrlHandler
 
   beforeAll(() => {
     registerPreviewServerIPCHandlers()
-    const call = vi
-      .mocked(ipcMain.handle)
-      .mock.calls.find(([channel]) => channel === 'preview:getUrl')
-    handler = call?.[1] as GetUrlHandler
+    const calls = vi.mocked(ipcMain.handle).mock.calls
+    handler = calls.find(([channel]) => channel === 'preview:getUrl')?.[1] as GetUrlHandler
+    frameHandler = calls.find(([channel]) => channel === 'preview:getFrameUrl')?.[1] as GetUrlHandler
   })
 
   afterAll(() => {
@@ -264,5 +289,22 @@ describe('preview:getUrl IPC 入口', () => {
 
     expect(up.status).toBe(403)
     expect(up.body).not.toContain('color:blue')
+  })
+
+  it('frame URL 不依赖 HTTP 端口，直接返回专用源并登记工作区', async () => {
+    const project = join(dir, 'ws-ipc-frame')
+    mkdirSync(project)
+    writeFileSync(join(project, 'index.html'), '<h1>frame doc</h1>')
+
+    const url = await frameHandler({}, join(project, 'index.html'), project)
+
+    expect(url).toMatch(/^spacecode-preview:\/\/artifact\/[0-9a-f]{32}\/index\.html$/)
+    expect(previewServer.toFrameUrl(join(project, 'index.html'), project)).toBe(url)
+  })
+
+  it('frame URL 同样拒绝空白路径', async () => {
+    expect(await frameHandler({}, '')).toBeNull()
+    expect(await frameHandler({}, '   ')).toBeNull()
+    expect(await frameHandler({}, 42 as unknown as string)).toBeNull()
   })
 })

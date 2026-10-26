@@ -9,7 +9,7 @@ import { useDesignStore } from '@/stores/design'
 
 const { exportArtifactSpy, urlFor } = vi.hoisted(() => {
   const urlFor = (filePath: string): string =>
-    `http://127.0.0.1:9999/TOKEN/${filePath.split(/[\\/]/).pop()}`
+    `spacecode-preview://artifact/TOKEN/${filePath.split(/[\\/]/).pop()}`
   return {
     exportArtifactSpy: vi.fn(
       async (): Promise<{ ok: true; path: string } | { ok: false; error: string }> => ({
@@ -28,7 +28,7 @@ vi.mock('@/services/electronAPI', () => ({
       exportArtifact: exportArtifactSpy,
     },
     readFile: vi.fn(async (filePath: string) => `<html><body>${filePath}</body></html>`),
-    preview: { getUrl: vi.fn(async (filePath: string) => urlFor(filePath)) },
+    preview: { getFrameUrl: vi.fn(async (filePath: string) => urlFor(filePath)) },
   },
 }))
 

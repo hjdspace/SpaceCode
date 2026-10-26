@@ -4,11 +4,11 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useDesignStore } from '@/stores/design'
 
 // ── Hoisted spies: accessible both in mock factory and test body ──
-const { onFileChangedSpy, readFileSpy, getUrlSpy, urlFor, fileChangedCallback, appStoreProbe } = vi.hoisted(() => {
+const { onFileChangedSpy, readFileSpy, getFrameUrlSpy, urlFor, fileChangedCallback, appStoreProbe } = vi.hoisted(() => {
   let cb: ((event: { sessionId: string; filepath: string }) => void) | null = null
   // 模拟票 06 的 preview:getUrl：返回带 token 的、已登记工作区的预览 URL
   const urlFor = (filePath: string): string | null =>
-    `http://127.0.0.1:9999/TOKEN/${filePath.split(/[\\/]/).pop()}`
+    `spacecode-preview://artifact/TOKEN/${filePath.split(/[\\/]/).pop()}`
   return {
     onFileChangedSpy: vi.fn((callback: (event: { sessionId: string; filepath: string }) => void) => {
       cb = callback
@@ -18,7 +18,7 @@ const { onFileChangedSpy, readFileSpy, getUrlSpy, urlFor, fileChangedCallback, a
     // stores/__tests__/app.panelTabs.test.ts 钉住
     appStoreProbe: { openDesignPreview: vi.fn() },
     readFileSpy: vi.fn().mockResolvedValue('<html><body>mock</body></html>'),
-    getUrlSpy: vi.fn(async (filePath: string, _workspaceRoot?: string): Promise<string | null> =>
+    getFrameUrlSpy: vi.fn(async (filePath: string, _workspaceRoot?: string): Promise<string | null> =>
       urlFor(filePath),
     ),
     urlFor,
@@ -38,7 +38,7 @@ vi.mock('@/services/electronAPI', () => ({
       exportArtifact: vi.fn(),
     },
     readFile: readFileSpy,
-    preview: { getUrl: getUrlSpy },
+    preview: { getFrameUrl: getFrameUrlSpy },
   },
 }))
 
@@ -82,7 +82,7 @@ describe('DesignFileWorkspace — onFileChanged regression', () => {
     vi.clearAllMocks()
     // Reset spy defaults (clearAllMocks 只清调用记录，不清 mockResolvedValue)
     readFileSpy.mockResolvedValue('<html><body>mock</body></html>')
-    getUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
+    getFrameUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
   })
 
   it('挂载时注册 onFileChanged 监听器', () => {
@@ -177,7 +177,7 @@ describe('DesignFileWorkspace — 新产物弹开右侧面板的请求', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     readFileSpy.mockResolvedValue('<html><body>mock</body></html>')
-    getUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
+    getFrameUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
   })
 
   it('新 HTML 产物：请求弹开右侧面板', async () => {
@@ -234,7 +234,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     readFileSpy.mockResolvedValue('<html><body>mock</body></html>')
-    getUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
+    getFrameUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
   })
 
   it('活动 HTML tab 以工作区根登记预览 URL 并交给预览组件', async () => {
@@ -246,9 +246,9 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
 
     await vi.waitFor(() => {
-      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+      expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
     })
-    expect(getUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
+    expect(getFrameUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
   })
 
   it('CSS 变更后活动 HTML 预览自动重载：reloadToken 递增且 URL 不变', async () => {
@@ -259,7 +259,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     const wrapper = mount(DesignFileWorkspace)
     fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
     await vi.waitFor(() => {
-      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+      expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
     })
     const before = Number(previewProps(wrapper)?.reloadToken)
 
@@ -268,7 +268,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
       expect(Number(previewProps(wrapper)?.reloadToken)).toBe(before + 1)
     })
 
-    expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
   })
 
   it('JS 变更后同样重载，并且不重复读取 HTML 内容', async () => {
@@ -279,7 +279,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     const wrapper = mount(DesignFileWorkspace)
     fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
     await vi.waitFor(() => {
-      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+      expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
     })
     readFileSpy.mockClear()
 
@@ -291,7 +291,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     expect(readFileSpy).not.toHaveBeenCalled()
   })
 
-  it('HTML 自身变更既刷新内容也触发重新导航（src 需要换 rev 才会重载）', async () => {
+  it('HTML 自身变更只刷新内容，不再递增 reloadToken（内容走桥注入而非整页导航）', async () => {
     const store = useDesignStore()
     store.activeSessionId = 'sess-1'
     store.designWorkspace = '/workspace'
@@ -299,7 +299,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     const wrapper = mount(DesignFileWorkspace)
     fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
     await vi.waitFor(() => {
-      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+      expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
     })
 
     readFileSpy.mockResolvedValue('<html><body>v2</body></html>')
@@ -308,7 +308,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
       expect(store.previewHtml).toBe('<html><body>v2</body></html>')
     })
 
-    expect(Number(previewProps(wrapper)?.reloadToken)).toBe(1)
+    expect(Number(previewProps(wrapper)?.reloadToken)).toBe(0)
   })
 
   it('激活的是 CSS tab 时，其他资源变更不触发预览重载', async () => {
@@ -328,7 +328,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/app.js' })
     await new Promise(r => setTimeout(r, 30))
 
-    expect(getUrlSpy).not.toHaveBeenCalled()
+    expect(getFrameUrlSpy).not.toHaveBeenCalled()
     expect(previewProps(wrapper)).toBeNull()
   })
 
@@ -341,7 +341,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     mount(DesignFileWorkspace)
 
     await vi.waitFor(() => {
-      expect(getUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
+      expect(getFrameUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
     })
   })
 
@@ -366,18 +366,18 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     })
     store.addTab({ name: 'second.html', path: '/workspace/second.html', updatedAt: 0 })
     await vi.waitFor(() => {
-      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/second.html')
+      expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/second.html')
     })
 
     releaseStale!('<html><body>stale</body></html>')
     await new Promise(r => setTimeout(r, 30))
 
     expect(store.previewHtml).toBe('<html><body>/workspace/second.html</body></html>')
-    expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/second.html')
+    expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/second.html')
   })
 
   it('非 Electron 环境拿不到预览 URL 时回退到原有 srcdoc 管线', async () => {
-    getUrlSpy.mockResolvedValue(null)
+    getFrameUrlSpy.mockResolvedValue(null)
     const store = useDesignStore()
     store.activeSessionId = 'sess-1'
     store.designWorkspace = '/workspace'
@@ -405,7 +405,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     const wrapper = mount(DesignFileWorkspace)
     fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
     await vi.waitFor(() => {
-      expect(previewProps(wrapper)?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+      expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
     })
 
     const [previewBtn, sourceBtn] = wrapper.findAll('.ws-toolbar button')
@@ -414,7 +414,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
 
     await previewBtn.trigger('click')
     const props = previewProps(wrapper)
-    expect(props?.previewUrl).toBe('http://127.0.0.1:9999/TOKEN/index.html')
+    expect(props?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
     expect(props?.html).toBe('<html><body>mock</body></html>')
   })
 })

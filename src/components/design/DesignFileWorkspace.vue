@@ -54,7 +54,7 @@ const { openTabs, activeTabPath, previewHtml, previewTitle, artifactFiles, activ
 const { addTab, removeTab, setActiveTab } = designStore
 const viewMode = ref<'preview' | 'source'>('preview')
 const sourceCode = ref('')
-/** 活动 HTML 在本地预览服务器上的登记 URL；null 表示不可用（H5 模式等），预览回退 srcdoc */
+/** 活动 HTML 在预览专用源上的 URL；null 表示不可用（H5 模式等），预览回退 srcdoc */
 const previewResourceUrl = ref<string | null>(null)
 /** 递增即强制重新导航，用于 HTML 之外的 CSS/JS 变更后重取兄弟资源 */
 const previewReloadToken = ref(0)
@@ -88,7 +88,7 @@ watch(activeTabPath, async (p) => {
   const isHtml = isHtmlFile(p)
   const [content, url] = await Promise.all([
     api.readFile(p),
-    isHtml ? api.preview.getUrl(p, designWorkspace.value || undefined) : Promise.resolve(null),
+    isHtml ? api.preview.getFrameUrl(p, designWorkspace.value || undefined) : Promise.resolve(null),
   ])
   // 连续切 tab 时慢的那次读取会晚到，不能用它覆盖已经切过去的文件
   if (activeTabPath.value !== p) return
@@ -134,14 +134,14 @@ onMounted(() => {
  // 新文件：addTab 会设置 activeTabPath，触发上方 watch 读取内容
         designStore.addTab({ name: filename, path: filepath, updatedAt: Date.now() })
       } else if (activeTabPath.value === filepath) {
-        // 已打开且当前激活的文件被修改：直接刷新预览内容
+        // 已打开且当前激活的文件被修改：直接刷新预览内容。
+        // 不递增 reloadToken —— 内容更新由 DesignPreview 走 MessageChannel 注入；
+        // 递增会强制整页导航，把"无闪烁"变成每次都重载。
         const content = await api.readFile(filepath)
         if (content !== null) {
           previewHtml.value = content
           previewTitle.value = filename
           sourceCode.value = content
-          // 内容可能逐字相同（如仅格式化），换 rev 才保证预览真的重新导航
-          previewReloadToken.value++
         }
       }
     } else if (activeTabPath.value && isHtmlFile(activeTabPath.value)) {

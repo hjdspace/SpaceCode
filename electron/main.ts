@@ -10,7 +10,7 @@
  * All window creation, tray, menu, and IPC handler logic lives in
  * dedicated modules under electron/windows/ and electron/ipc/.
  */
-import { app, globalShortcut, BrowserWindow, ipcMain } from 'electron'
+import { app, globalShortcut, BrowserWindow, ipcMain, session } from 'electron'
 import { resolve } from 'path'
 import { existsSync, readFileSync } from 'fs'
 import { config } from 'dotenv'
@@ -48,6 +48,8 @@ import { PetWindowController } from './pet/petWindowManager'
 import { registerPetIpcHandlers } from './pet/petIpcHandlers'
 import { setupLinuxPlatform } from './infra/platformSetup'
 import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
+import { registerPreviewProtocol, registerPreviewScheme } from './infra/previewProtocol'
+import { previewGrants } from './infra/previewGrants'
 import { installProcessErrorGuards, markQuitting, hideDockIcon } from './infra/appLifecycle'
 import { registerGenuiSandboxProtocol, registerGenuiSandboxScheme } from './genui/sandboxProtocol'
 import { resolveSandboxResourceRoot } from './genui/sandboxRoot'
@@ -58,7 +60,7 @@ import {
 } from './genui/sandboxStaticServer'
 
 // ── Split modules ───────────────────────────────────────────────
-import { createWindow, createSplashScreen, closeSplashScreen, getMainWindow } from './windows/mainWindow'
+import { createWindow, createSplashScreen, closeSplashScreen, getMainWindow, MAIN_WINDOW_PARTITION } from './windows/mainWindow'
 import { createTray, destroyTray } from './windows/tray'
 import { registerCoreIPCHandlers } from './ipc/coreIpcHandlers'
 import { registerH5AccessIPCHandlers, getH5Server, setH5Server, getH5AuthService } from './ipc/h5IpcHandlers'
@@ -166,6 +168,9 @@ app.commandLine.appendSwitch('no-sandbox')
 
 // GenUI 卡片沙箱：scheme 必须在 app ready 之前注册，处理器在 ready 之后挂
 registerGenuiSandboxScheme()
+
+// 设计预览专用源：注册时机同上；处理器要挂到主窗口实际使用的 session
+registerPreviewScheme()
 
 /** 沙箱静态产物目录：相对 app path 的独立资源目录，口径见 `genui/sandboxRoot.ts`。 */
 const genuiSandboxRoot = resolveSandboxResourceRoot(app.getAppPath())
@@ -368,6 +373,12 @@ app.whenReady().then(async () => {
   // ── Preview Server ────────────────────────────────────────────
   registerPreviewServerIPCHandlers()
   info('Startup', 'Preview Server IPC handlers registered')
+
+  // 设计预览 iframe 走专用源；主窗口不是默认 session，必须按 partition 注册
+  registerPreviewProtocol({
+    grants: previewGrants,
+    hosts: [session.fromPartition(MAIN_WINDOW_PARTITION).protocol],
+  })
 
   // ── GenUI 卡片沙箱承载 ────────────────────────────────────────
   registerGenuiSandboxProtocol({ resourceRoot: genuiSandboxRoot })
