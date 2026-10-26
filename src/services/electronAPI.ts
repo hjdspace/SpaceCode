@@ -805,11 +805,17 @@ export const api = {
     }
   },
 
-  // Preview Server API — 获取本地 HTTP 预览 URL（替代 file:// 协议）
+  // Preview API — HTTP 预览 URL 给 webview；frame URL 给设计预览 iframe 的专用源
   preview: {
     getUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> => {
       if (electronAPI?.preview?.getUrl) {
         return electronAPI.preview.getUrl(filePath, workspaceRoot)
+      }
+      return Promise.resolve(null)
+    },
+    getFrameUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> => {
+      if (electronAPI?.preview?.getFrameUrl) {
+        return electronAPI.preview.getFrameUrl(filePath, workspaceRoot)
       }
       return Promise.resolve(null)
     },
