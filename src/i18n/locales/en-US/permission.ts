@@ -32,6 +32,8 @@ export default {
       Write: 'Write File',
       Read: 'Read File',
       Bash: 'Run Command',
+      WebFetch: 'Fetch Web Page',
+      WebSearch: 'Web Search',
       Skill: 'Skill',
       AskUserQuestion: 'Ask User',
       ExitPlanMode: 'Exit Plan Mode',
