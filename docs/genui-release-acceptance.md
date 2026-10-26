@@ -50,7 +50,7 @@ npm run test           # 收尾全量（CI 也跑一次 test:coverage）
 | D6 | 超限与配额 | 一条消息要 9 张卡；单卡 schema >64KB；submit 里塞 >64KB；会话卡片总量 >512KB | 第 9 张不渲染并留降级说明；超大 schema 不成卡（正文保留）；超大 submit 在卡片下方给"内容过大"；最旧的卡片转可见过期占位，会话仍能打开 |
 | D7 | 提交后重载 | 提交一张卡 → 完全退出应用 → 重开 | 卡片仍在原位且只读，摘要带读得出来；正文里没有裸 `schemaJson` 围栏 |
 | D8 | 普通文本回归 | 问一个明显不需要卡片的问题 | 纯文本回复，没有卡片外壳；同会话里工具调用与推理块照常 |
-| D9 | design 模式回归 | 切 design 模式生成一个 HTML 产物并持续改 | 预览流式更新、无白屏闪烁（本票没动这条链路；其安全债见 Issue #62） |
+| D9 | design 模式回归 | 切 design 模式生成一个含 inline / external / module 脚本与相对 CSS 的 HTML 产物并持续改；再放一个 `body.dataset.ran='1'` 的产物打开预览 | 脚本正常执行（Console 无 CSP 违规、`body` 有 `data-ran`）；相对资源命中；持续改时走 MessageChannel 流式更新、无整页白屏闪烁；`od:sandbox:ready` 可达；#62 的来源/白名单回归通过（弹窗不能触发 `openExternal`）。承载口径见 [#63](https://github.com/hjdspace/SpaceCode/issues/63) / [ADR 0018](adr/0018-design-preview-dedicated-origin.md) |
 | D10 | 旧会话升级 | 保留 v0.8.12 的会话数据升级安装（或备份 `%APPDATA%/SpaceCode` 后覆盖安装） | 无卡片的旧会话逐字不变；早期开发版留下的、没有 `protocolVersion` 字段的卡片记录降级为"协议版本不一致"说明，不开 iframe |
 
 ## 3. H5
@@ -108,7 +108,8 @@ npm run test           # 收尾全量（CI 也跑一次 test:coverage）
 - **沙箱源允许 `unsafe-eval`**：卡片协议用 `new Function` 求值 `JSExpression`，这是官方物料的运行前提。该授权只落在 opaque origin 的沙箱源，永不进主文档。
 - **H5 第二端口无鉴权**：它服务的就是构建产物本身，公开可读。不要往 `dist/genui-sandbox/` 放任何私有内容。
 - **DesignPreview 桥的安全债已由 [#62](https://github.com/hjdspace/SpaceCode/issues/62) 收口**：回传带每实例 nonce 并校验 `event.source`，动作走白名单，外链仅放行 `http:` / `https:`（主进程 `shell:openExternal` 同口径兜底）；`sandbox` 去掉 `allow-downloads`，`allow-popups` 的理由与移除路径见 [ADR 0017](adr/0017-design-preview-bridge-hardening.md)。
-  **仍有一项与本票无关的既有问题**：srcdoc 继承宿主 CSP（`script-src 'self'`），注入桥与产物脚本都不执行；`frame-src` 也未放行预览服务器源。预览页脚本目前是静态的，需单独跟踪，不要据此认为桥加固引入了回归。
+  **预览页脚本不执行的问题已由 [#63](https://github.com/hjdspace/SpaceCode/issues/63) / [ADR 0018](adr/0018-design-preview-dedicated-origin.md) 收口**：桌面预览 iframe 改走 `spacecode-preview://artifact` 专用源，inline / external / module 脚本、相对资源与同源 fetch 正常执行；流式更新经 MessageChannel 注入。宿主 `script-src` 仍保持 `'self'`，`frame-src` 只增加这一个精确源。H5 设计预览仍是静态 srcdoc，另行跟踪。
+- **预览登记根可能覆盖整个工作区**：用户在 design 模式选过项目目录时，产物脚本只受 MIME 白名单限制，能读取同一工作区内的白名单类型文件。不要在一个含敏感文件的目录里预览不可信产物；逐文件登记是后续收口方向。
 - **打包 CSP 的 `frame-src` 含本机开发源**、**主窗口无 `setWindowOpenHandler`**：见 §5 末尾两条，均有缓解因素。
 
 ## 7. 本轮执行记录
