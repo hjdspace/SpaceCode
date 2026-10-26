@@ -18,6 +18,7 @@ import { getMainWindow } from '../windows/mainWindow'
 import { TerminalManager } from '../infra/terminalManager'
 import { channelNames } from '@/shared/channelMap'
 import { terminalNamespace } from '@/shared/channels/terminal'
+import { isSafeExternalUrl } from '@/utils/safeUrl'
 import { EDITOR_LAUNCHERS, openPathInEditor, type ExternalEditor } from './editorLauncher'
 import {
   listDebugFiles, readDebugFile,
@@ -242,7 +243,15 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
 
   // ── Shell ──────────────────────────────────────────────────────
 
-  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  // 外链只放行 http/https：Windows 上 file: 会交给 ShellExecute，等于执行本地程序。
+  // 渲染端的沙箱桥已按同一口径过滤，这里是任何渲染端 bug / XSS 的最后一道兜底。
+  ipcMain.handle('shell:openExternal', async (_event, url: unknown) => {
+    if (!isSafeExternalUrl(url)) {
+      warn('IPC', 'Blocked shell:openExternal | reason=unsafe-scheme', {
+        url: typeof url === 'string' ? url.slice(0, 200) : url,
+      })
+      return
+    }
     info('IPC', 'shell:openExternal', { url })
     await shell.openExternal(url)
   })
