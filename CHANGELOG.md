@@ -1,3 +1,38 @@
+## [0.8.13](https://github.com/hjdspace/SpaceCode/compare/v0.8.12...v0.8.13) (2026-10-26)
+
+### Features
+
+- **genui:** 生成式 UI 卡片全链路交付：卡片生命周期、持久化与配额，提交回环与只读收口，H5 端沙箱承载与第二端口
+- **genui:** 卡片技能由构建期生成并单源分发给 Claude 与 Pi，打包部署与安全收口（票 09）
+- **genui:** 卡片渲染跟随应用明暗主题，根节点统一为 div，新增渲染完成回报与初始化超时处理
+- **preview:** 产物预览改由 `spacecode-preview://artifact` 专用源承载，脚本正常执行，流式更新经 MessageChannel 注入
+- **voice:** 语音输入新增实时电平波形动画
+- **chat:** sendMessage 支持指定模型，会话标题生成设置重构
+- **tools:** 补齐 WebFetch / WebSearch 权限与 i18n 文案，未知工具名回退为可读标签
+
+### Bug Fixes
+
+- **security:** 主窗口 CSP 收紧，`script-src` 保持 `'self'`，`frame-src` 仅放行预览专用源
+- **security:** `shell:openExternal` 增加 URL 协议白名单
+- **preview:** 预览桥回传带每实例密钥并校验来源，iframe sandbox 移除 `allow-downloads`
+- **genui:** 卡片桥初始化超时逻辑改进，避免桥接未就绪时长期卡住
+- **skills:** bundledSkills 在开发态下的候选路径处理修正
+
+### Refactor
+
+- 预览桥协议常量、srcdoc 生成与 iframe 承载重构，预览 URL 统一走 spacecode 协议
+- 主窗口 partition 抽取为常量，PreviewServer 与预览登记服务重构
+- 卡片 schema 根组件与主题变量整理，重试与按钮点击逻辑收敛
+
+### Tests
+
+- 补齐 srcdoc、预览协议、预览桥、卡片帧与 CSP 相关用例，并重构既有 GenUI 测试
+
+### Docs
+
+- 新增产物预览专用源与预览桥加固 ADR（0017 / 0018）
+- 更新 H5 安全说明与 release-notes v0.8.13
+
 ## [0.8.12](https://github.com/hjdspace/SpaceCode/compare/v0.8.11...v0.8.12) (2026-10-25)
 
 ### Features
