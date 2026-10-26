@@ -82,10 +82,12 @@ frame 侧还保留一个窗口兜底通道，但强制 `event.source === window.
   能进系统 Shell。
 - 预览文档自身仍可请求白名单内的动作（alert / open http(s)）—— 这是能力，不是漏洞；
   它拿不到通用 IPC、拿不到宿主 DOM 与存储。
-- 预览桥的 no-flicker 路径在当前 CSP 下仍是空转：`srcdoc` 继承 `script-src 'self'`，
-  注入桥与产物脚本都不执行；预览服务器 URL 也被 `frame-src` 拒掉。**这是与 #62 无关的
-  既有问题，需单独处理**（放行预览服务器源 / 重新设计 srcdoc 承载），修好之前不要用
-  「桥测试全绿」推断流式渲染可用。
+- 预览桥的 no-flicker 路径在本 ADR 落地时仍是空转：`srcdoc` 继承 `script-src 'self'`，
+  注入桥与产物脚本都不执行；预览服务器 URL 也被 `frame-src` 拒掉。**该问题已由
+  [ADR 0018](0018-design-preview-dedicated-origin.md) 收口**：预览改走
+  `spacecode-preview://artifact` 专用源，桥由主进程注入，宿主 `script-src` 不变。
+  修好之前不要用「桥测试全绿」推断流式渲染可用；现在可以用
+  `docs/genui-release-acceptance.md` D9 的桌面用例端到端验证。
 - `allow-popups` 保留期的钓鱼面：不可信页面可以打开任意外部窗口（继承沙箱，无 preload）。
   等桥可执行后按上面第 4 条删掉。
 
