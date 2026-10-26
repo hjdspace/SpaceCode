@@ -39,6 +39,9 @@ export const BUNDLED_SKILLS: readonly BundledSkillSpec[] = [
  * 仓库的 `resources/builtin-skills`。判据是「目录在不在」而不是 `app.isPackaged`：
  * 开发期 `process.resourcesPath` 指向 Electron 自己的 dist，那里没有这份资源，自然落到开发分支。
  *
+ * 开发期的 `app.getAppPath()` 有两种形态：vite dev 下是仓库根，测试/旧启动方式下可能是
+ * `dist-electron`。两种都要能回推到同一份 `resources/builtin-skills`，否则 seed 会静默跳过。
+ *
  * 两个入参由调用方给出（`process.resourcesPath` 与 `app.getAppPath()`）而不是在本模块 import
  * `electron`：中心库这条依赖链上没有 Electron，加上就会把主进程测试全数拖进 mock；
  * 而「按 cwd 猜仓库根」会让跑在仓库里的测试顺带 seed 到真技能，hermetic 就没了。
@@ -49,13 +52,19 @@ export function bundledSkillsRoot(options: { resourcesPath?: string; appPath?: s
     : ''
   if (packaged && fs.existsSync(packaged)) return packaged
 
-  const dev = options.appPath
-    ? path.resolve(options.appPath, '..', 'resources', BUNDLED_SKILLS_RESOURCE_DIR)
-    : ''
-  if (dev && fs.existsSync(dev)) return dev
+  const devCandidates = options.appPath
+    ? [
+        // vite dev：appPath 就是仓库根
+        path.join(options.appPath, 'resources', BUNDLED_SKILLS_RESOURCE_DIR),
+        // 测试/旧启动方式：appPath 是 <repo>/dist-electron
+        path.resolve(options.appPath, '..', 'resources', BUNDLED_SKILLS_RESOURCE_DIR),
+      ]
+    : []
+  const dev = devCandidates.find((candidate) => fs.existsSync(candidate))
+  if (dev) return dev
 
   // 都不存在时返回更符合当前形态的那个，让上层按缺失跳过（不猜、不静默换目录）
-  return packaged || dev
+  return packaged || devCandidates[0] || ''
 }
 
 /** 每个内置技能记一条：seed 过的内置版本 + 已经铺过的 Agent。 */
