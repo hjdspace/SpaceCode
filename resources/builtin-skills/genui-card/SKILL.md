@@ -27,9 +27,11 @@ description: 生成 SpaceCode 聊天里可交互的卡片（Card Schema）。当
 1. **只输出 ```schemaJson 围栏代码块**，一块一张卡。围栏的语言标记固定是 `schemaJson`，不要写成 `json`；围栏里是严格 JSON。
 2. **围栏之外不写解释性散文**：不要说「下面是你的表单」、不要复述卡片内容、不要在围栏后补充说明。
    需要解释的话写在卡片里。普通文本回答（不成卡的回答）不受这条约束。
-3. **根节点的 `componentName` 必须是下面白名单里的组件。** SpaceCode 不接受 `Page` 作为根节点
-   （官方 JSON Schema 的字段描述与示例里那个「通常为 Page」的根节点在 SpaceCode 里会退化成代码块）；
-   表单用 `TinyForm`，带标题的展示块用 `TinyCard`，纯布局用 `div`，纯文本用 `p` 或 `Text`。
+3. **根节点写 `div`。** 渲染器把根节点当「页面容器」处理：不管 `componentName` 写什么，画出来都是一个
+   `div`，`props` 会被漏成 DOM 属性 —— 所以根节点写 `TinyCard` 的卡没有卡底，写 `TinyForm` 的卡
+   连表单项都出不来。要卡片外壳或表单，就把 `TinyCard` / `TinyForm` 放进根节点的 `children`。
+   `Page` 同样不能当根节点：SpaceCode 不接受 `Page` 作为根节点
+   （官方 JSON Schema 的字段描述与示例里那个「通常为 Page」的根节点在 SpaceCode 里会退化成代码块）。
 4. 白名单（与 SpaceCode 渲染端同源）：`a`, `h1`, `h2`, `h3`, `h4`, `h5`, `h6`, `p`, `ol`, `ul`, `li`, `div`, `img`, `input`, `video`, `label`, `Text`, `TinyIcon`, `TinyForm`, `TinyFormItem`, `TinyButton`, `TinyInput`, `TinyRadio`, `TinyRadioGroup`, `TinySelect`, `TinySwitch`, `TinyNumeric`, `TinyCheckbox`, `TinyCheckboxButton`, `TinyCheckboxGroup`, `TinyDatePicker`, `TinyGrid`, `TinyCard`
 5. 卡片可请求的宿主动作只有四个，用 `this.callAction(name, params)` 调用：
    - `this.callAction('submit', { …表单值 })` —— 参数对象作为提交结果回到对话（进入模型上下文并随会话持久化）；卡片随之转为只读
@@ -46,38 +48,115 @@ description: 生成 SpaceCode 聊天里可交互的卡片（Card Schema）。当
    必须双向绑定到 `state`：`modelValue` 用 `{ "type": "JSExpression", "model": true, "value": "this.state.xxx" }`，
    `submit` 时把这些值作为参数对象交回。
 10. 下面官方物料说明里的**整例**是为通用 GenUI 写的：它们的根节点是 `Page`，还带 `Img` 这类
-    不在白名单内的组件与远程图片地址。只借用其中的字段与事件写法，最外层换成白名单组件，
+    不在白名单内的组件与远程图片地址。只借用其中的字段与事件写法，最外层换成 `div`，
     远程地址一律去掉。
+11. 样式写在根节点的 `css` 字段里（一段 CSS 文本，会被作用域化后注入本卡），再用各节点的
+    `props.className` 挂上去。`css` 与 `className` 是同级字段，不要塞进 `props`。
+
+## 主题变量
+
+`css` 里能且只能引用这些变量 —— 沙箱按宿主当前主题切换它们的值，硬编码色值在另一套主题下就会看不见：
+
+- `${name}` —— ${purpose}
+- `${name}` —— ${purpose}
+- `${name}` —— ${purpose}
+- `${name}` —— ${purpose}
+- `${name}` —— ${purpose}
+- `${name}` —— ${purpose}
+- `${name}` —— ${purpose}
+- `${name}` —— ${purpose}
+
+字号与间距建议以 4px 为步长（4 / 8 / 12 / 16 / 24），一屏最多两档字号差；卡片整体已经由宿主给了
+内边距与圆角，`css` 只管卡片内部的排布。
 
 ## 最小卡片示例
 
 ```schemaJson
 {
-  "componentName": "TinyCard",
+  "componentName": "div",
   "state": { "env": "prod" },
   "methods": {},
   "children": [
-    { "componentName": "h4", "children": "部署参数" },
     {
-      "componentName": "TinySelect",
-      "props": {
-        "placeholder": "请选择环境",
-        "modelValue": { "type": "JSExpression", "model": true, "value": "this.state.env" },
-        "options": [
-          { "value": "prod", "label": "生产" },
-          { "value": "stg", "label": "预发" }
-        ]
-      }
-    },
-    {
-      "componentName": "TinyButton",
-      "props": {
-        "text": "提交",
-        "onClick": {
-          "type": "JSFunction",
-          "value": "function() { this.callAction('submit', { env: this.state.env }); }"
+      "componentName": "TinyCard",
+      "children": [
+        { "componentName": "h4", "children": "部署参数" },
+        {
+          "componentName": "TinySelect",
+          "props": {
+            "placeholder": "请选择环境",
+            "modelValue": { "type": "JSExpression", "model": true, "value": "this.state.env" },
+            "options": [
+              { "value": "prod", "label": "生产" },
+              { "value": "stg", "label": "预发" }
+            ]
+          }
+        },
+        {
+          "componentName": "TinyButton",
+          "props": {
+            "type": "primary",
+            "onClick": {
+              "type": "JSFunction",
+              "value": "function() { this.callAction('submit', { env: this.state.env }); }"
+            }
+          },
+          "children": "提交"
         }
-      }
+      ]
+    }
+  ]
+}
+```
+
+## 排版示例（展示型卡片照这个做）
+
+信息密度高的回答不要退化成 `p` + `ul`：用 `css` 做出层级 —— 关键数字放大、次要信息转弱、
+并列项排成栅格。下面这张卡没有用任何白名单之外的组件。
+
+```schemaJson
+{
+  "componentName": "div",
+  "css": ".hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px}.sub{color:var(--card-muted);font-size:12px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.cell{padding:10px 12px;border:1px solid var(--card-border);border-radius:10px;background:var(--card-surface-inset)}.num{font-size:22px;font-weight:650;line-height:1.2;color:var(--card-accent)}.cap{font-size:11px;color:var(--card-muted);letter-spacing:.04em}.note{margin:0;font-size:12px;color:var(--card-muted)}",
+  "children": [
+    {
+      "componentName": "TinyCard",
+      "children": [
+        {
+          "componentName": "div",
+          "props": { "className": "hd" },
+          "children": [
+            { "componentName": "h3", "children": "西安天气" },
+            { "componentName": "span", "props": { "className": "sub" }, "children": "2026-10-26 · 阴" }
+          ]
+        },
+        {
+          "componentName": "div",
+          "props": { "className": "grid" },
+          "children": [
+            { "componentName": "div", "props": { "className": "cell" }, "children": [
+              { "componentName": "div", "props": { "className": "num" }, "children": "14°C" },
+              { "componentName": "div", "props": { "className": "cap" }, "children": "当前 · 体感 9°C" }
+            ]},
+            { "componentName": "div", "props": { "className": "cell" }, "children": [
+              { "componentName": "div", "props": { "className": "num" }, "children": "52%" },
+              { "componentName": "div", "props": { "className": "cap" }, "children": "湿度" }
+            ]},
+            { "componentName": "div", "props": { "className": "cell" }, "children": [
+              { "componentName": "div", "props": { "className": "num" }, "children": "17" },
+              { "componentName": "div", "props": { "className": "cap" }, "children": "km/h 西南偏西" }
+            ]}
+          ]
+        },
+        { "componentName": "p", "props": { "className": "note" }, "children": "午间偶有零星小雨，傍晚转烟霾。" },
+        {
+          "componentName": "TinyButton",
+          "props": {
+            "onClick": { "type": "JSFunction", "value": "function() { this.callAction('copy', '西安 阴 14°C，湿度 52%'); }" }
+          },
+          "children": "复制摘要"
+        }
+      ]
     }
   ]
 }
@@ -256,16 +335,19 @@ description: 生成 SpaceCode 聊天里可交互的卡片（Card Schema）。当
 - 单个组件节点可以用 `condition` 控制显示
 - 图片和链接地址不可杜撰，只使用上下文里真实给出的地址
 - 组件与属性只能取自下方「可用组件」与「卡片的 JSON Schema」，禁止臆造组件 API
-- 禁止设置任何组件的 `background`、`color`、`background-color` 等颜色 CSS 样式；卡片跟随 SpaceCode 明暗主题
+- 排版与视觉用根节点的 `css` 字段配合各节点的 `props.className` 实现：把 class 写进 `css` 里定义间距、字号层级、栅格、圆角，再挂到节点上。只堆 `p` 与 `li` 的卡片等于没做卡片
+- 颜色一律取上面「主题变量」列出的 `var(--card-*)`，禁止硬编码十六进制色值与 `rgb()` 字面量：卡片要同时成立在明暗两套主题下
+- 禁止用 `css` 或行内样式改动宿主已经定好的东西：不要给 `.tiny-card` 与表单控件重新定义背景与边框
 - 禁止使用弹窗组件，逻辑里禁止 `alert`、`confirm`、`prompt`
 - 注意对话的连续性，不要重复渲染上下文里已经出现过的内容
 
 
 ## 重申
 
-上面是官方物料手册，篇幅长、例子多；真正决定这张卡能不能渲染出来的是这四条：
+上面是官方物料手册，篇幅长、例子多；真正决定这张卡能不能渲染、好不好看的是这五条：
 
 1. 只输出 ```schemaJson 围栏，围栏之外不写解释性散文。
-2. 根 `componentName` 取自白名单（`TinyForm` / `TinyCard` / `div` / `p` …），**不要用 `Page`**。
+2. 根 `componentName` 写 `div`，把 `TinyCard` / `TinyForm` 放进它的 `children`，**不要用 `Page`**。
 3. 动作只有 `submit` / `copy` / `expand` / `openLink`；要把结果交回对话就用 `submit`。
-4. 沙箱没有网络、没有文件与命令权限：不要写远程资源地址，不要试图改动代码。
+4. 卡片的样子靠根节点的 `css` 配 `props.className` 做，颜色只用 `var(--card-*)`：只堆纯文本不算做了卡片。
+5. 沙箱没有网络、没有文件与命令权限：不要写远程资源地址，不要试图改动代码。
