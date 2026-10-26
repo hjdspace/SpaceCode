@@ -56,6 +56,14 @@ export type CardRenderContext = {
   notifyFailure: () => void
   /** 注入实现把渲染器 action 转成动作请求的出口 */
   requestAction: (action: GenuiCardActionName, payload?: unknown) => void
+  /**
+   * 物料画完了一版内容，请宿主重新量高。
+   *
+   * 官方渲染器是异步出内容的：`app.mount()` 之后立刻量到的是空壳高度，而真正撑开高度的
+   * 那次变化可能落在同一个渲染帧里、ResizeObserver 不会再回调。所以由渲染完成的信号
+   * 直接催一次测量，而不是把高度正确性全押在观察器上。
+   */
+  notifyRendered: () => void
 }
 
 export type CardRendererDeps = {
@@ -89,6 +97,10 @@ export function mountGenuiCard(
         notifyFailure: () => { renderFailed.value = true },
         requestAction: (action, payload) => {
           hooks.onAction?.(payload === undefined ? { action } : { action, payload })
+        },
+        // 渲染器报"画完了"就再量一次：量高不只需要观察容器，还需要在内容真正落地那一刻量
+        notifyRendered: () => {
+          void nextTick(reportHeight)
         },
       }
 
