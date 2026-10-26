@@ -130,7 +130,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const { t } = useI18n()
+const { t, te } = useI18n()
 const turnStore = useTurnStore()
 
 const status = ref<'pending' | 'processing' | 'completed' | 'denied'>('pending')
@@ -148,8 +148,9 @@ const toolIcon = computed(() => toolIconMap[props.toolName] || Shield)
 
 const toolDisplayName = computed(() => {
   const key = `permission.card.toolNames.${props.toolName}`
-  const translated = t(key)
-  return translated === key ? props.toolName : translated
+  // te 先探路：未知工具名直接回退原始名，避免 vue-i18n 刷 missing key 告警
+  if (!te(key)) return props.toolName
+  return t(key)
 })
 
 const isDangerous = computed(() => ['Bash'].includes(props.toolName))
