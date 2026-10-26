@@ -12,6 +12,7 @@ import {
   GENUI_MAX_SUBMIT_BYTES,
   type GenuiCardActionName,
 } from '@/shared/genuiSandbox'
+import { isSafeExternalUrl } from '@/utils/safeUrl'
 
 export type CardAction =
   | { action: 'submit'; payload: Record<string, unknown> }
@@ -62,18 +63,6 @@ function messageByteLength(value: unknown): number | null {
   } catch {
     return null
   }
-}
-
-/** 只放行绝对 `http:` / `https:`；相对地址、`javascript:`、`file:`、`data:` 等一律拒绝。 */
-export function isSafeExternalUrl(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0) return false
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    return false
-  }
-  return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname !== ''
 }
 
 function reject(reason: CardActionRejection): CardActionParseResult {
