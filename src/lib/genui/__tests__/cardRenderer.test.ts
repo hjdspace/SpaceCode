@@ -196,6 +196,40 @@ describe('高度上报', () => {
 
     expect(onResize).not.toHaveBeenCalled()
   })
+
+  it('渲染实现报"画完了"就重新量高，不依赖观察器再回调一次', async () => {
+    const container = document.createElement('div')
+    let height = 28
+    Object.defineProperty(container, 'scrollHeight', { configurable: true, get: () => height })
+    document.body.appendChild(container)
+
+    const { factory } = fakeObserver()
+    const onResize = vi.fn()
+    const seenContexts: CardRenderContext[] = []
+    mountGenuiCard(
+      container,
+      { componentName: 'TinyCard' },
+      { theme: 'light', locale: 'zh-CN' },
+      { onError: () => {}, onResize },
+      {
+        render: (c) => {
+          seenContexts.push(c)
+          return h('div')
+        },
+        observerFactory: factory,
+      },
+    )
+    await nextTick()
+    // 首帧只量到空壳高度：物料还没出内容，这正是卡片被收成一条线的来路
+    expect(onResize).toHaveBeenLastCalledWith(28)
+
+    // 内容落地后观察器不再回调（同帧变化浏览器可能不发），只靠渲染完成的信号补一次测量
+    height = 283
+    seenContexts[seenContexts.length - 1]?.notifyRendered()
+    await nextTick()
+
+    expect(onResize).toHaveBeenLastCalledWith(283)
+  })
 })
 
 describe('卸载', () => {
