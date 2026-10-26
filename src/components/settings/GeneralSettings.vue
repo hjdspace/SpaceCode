@@ -235,7 +235,9 @@ import EngineSourceSettings from './EngineSourceSettings.vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { useAppStore } from '@/stores/app'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { useOnboardingStore } from '@/stores/onboarding'
+import { normalizeAbsolutePath } from '@/utils/normalizePath'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 import { useSettingsStore } from '@/stores/settings'
 import type { EngineType } from '@/stores/settings'
@@ -255,6 +257,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const sessionStore = useChatSessionStore()
 const settingsStore = useSettingsStore()
 const onboarding = useOnboardingStore()
 const { t } = useI18n()
@@ -451,19 +454,27 @@ async function browseProjectRoot() {
   try {
     const result = await api.selectFolder()
     if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
-      config.value.projectRoot = result.filePaths[0]
-      appStore.setProjectRoot(result.filePaths[0])
-      recordRecentProjectRoot(result.filePaths[0])
+      applyProjectRoot(result.filePaths[0])
     }
   } catch (error) {
     console.error('Failed to browse folder:', error)
     const path = prompt('Enter project root path:', config.value.projectRoot || appStore.projectRoot || '')
-    if (path) {
-      config.value.projectRoot = path
-      appStore.setProjectRoot(path)
-      recordRecentProjectRoot(path)
-    }
+    if (path) applyProjectRoot(path)
   }
+}
+
+/**
+ * 与引导的工作区步骤、useOpenProjectWorkflow 保持同一组写入点：只写 app/settings
+ * 的话，chatSession 里的「当前项目」和已有空会话的目录快照仍是旧值，
+ * 主聊天页与「+」工作区文件列表就不会跟着新目录走。
+ */
+function applyProjectRoot(path: string) {
+  const normalized = normalizeAbsolutePath(path)
+  config.value.projectRoot = normalized
+  appStore.setProjectRoot(normalized)
+  sessionStore.addProject(normalized)
+  sessionStore.switchProject(normalized)
+  recordRecentProjectRoot(normalized)
 }
 </script>
 

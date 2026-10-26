@@ -4,6 +4,7 @@ import { terminalNamespace } from '@/shared/channels/terminal'
 import { updateNamespace } from '@/shared/channels/update'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { memoryChannels } from '@/shared/channels/memory'
+import { voiceNamespace } from '@/shared/channels/voice'
 import type { EffortLevel } from '@/shared/effort'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
@@ -256,6 +257,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   memory: {
     ...createPreloadBridge(memoryChannels, ipcRenderer, 'memory:'),
   } satisfies import('@/shared/channels/memory').MemoryRendererApi,
+
+  // Voice Input API — 识别模型管理与录音会话，invoke/send channels 与事件订阅均表驱动注册
+  voice: {
+    ...createPreloadBridge(voiceNamespace.channels, ipcRenderer, 'voice:'),
+    ...createEventBridge(voiceNamespace.events, ipcRenderer, 'voice:'),
+  } satisfies import('@/shared/channels/voice').VoiceRendererApi
+    & import('@/shared/channels/voice').VoiceEventApi,
 
   // ClaudeCode Engine API — invoke channels 与事件订阅均表驱动注册
   claudeCode: {
@@ -535,7 +543,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('h5:getStatus'),
     getSettings: (): Promise<import('./h5/h5Types').H5AccessSettings> =>
       ipcRenderer.invoke('h5:getSettings'),
-    updateSettings: (input: Partial<Pick<import('./h5/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
+    updateSettings: (input: Partial<Pick<import('./h5/h5Types').H5AccessSettings, 'publicBaseUrl' | 'fixedPort' | 'sandboxPort'>>) =>
       ipcRenderer.invoke('h5:updateSettings', input),
     setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
       ipcRenderer.invoke('h5:setMirrorSession', sessionId, projectPath),
@@ -585,6 +593,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('shell:openExternal', url),
     openPath: (path: string): Promise<void> =>
       ipcRenderer.invoke('shell:openPath', path),
+  },
+
+  // 卡片复制动作：文本经主进程写入系统剪贴板
+  clipboard: {
+    writeText: (text: string): Promise<void> =>
+      ipcRenderer.invoke('clipboard:writeText', text),
   },
 
   // Notification API

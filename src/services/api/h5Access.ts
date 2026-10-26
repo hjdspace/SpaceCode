@@ -12,11 +12,11 @@ export const h5Access = {
   regenerateToken: (): Promise<{ status: H5ServerStatus; token: string }> =>
     electronAPI?.h5Access?.regenerateToken() || Promise.reject('H5 Access API not available'),
   getStatus: (): Promise<H5ServerStatus> =>
-    electronAPI?.h5Access?.getStatus() || Promise.resolve({ running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }),
+    electronAPI?.h5Access?.getStatus() || Promise.resolve({ running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0, sandboxPort: 0, sandboxRunning: false }),
   getSettings: (): Promise<H5AccessSettings> =>
-    electronAPI?.h5Access?.getSettings() || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null }),
-  updateSettings: (input: Partial<Pick<H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) =>
-    electronAPI?.h5Access?.updateSettings(input) || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null }),
+    electronAPI?.h5Access?.getSettings() || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null, sandboxPort: null }),
+  updateSettings: (input: Partial<Pick<H5AccessSettings, 'publicBaseUrl' | 'fixedPort' | 'sandboxPort'>>) =>
+    electronAPI?.h5Access?.updateSettings(input) || Promise.resolve({ enabled: false, token: null, tokenPreview: null, publicBaseUrl: null, fixedPort: null, sandboxPort: null }),
   setMirrorSession: (sessionId: string | null, projectPath: string | null) =>
     electronAPI?.h5Access?.setMirrorSession(sessionId, projectPath) || Promise.resolve(),
   checkBuild: (): Promise<{ built: boolean; path: string }> =>

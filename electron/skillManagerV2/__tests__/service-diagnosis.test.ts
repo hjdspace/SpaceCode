@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -365,6 +366,126 @@ describe('SkillManagerService — Diagnosis Engine', () => {
       expect(skill!['currentHash']).toBeDefined()
       expect(skill!['centerPath']).toBeDefined()
     })
+  })
+})
+
+// ── Pi Target Diagnosis Tests ──────────────────────────────────────
+
+/**
+ * 票 08 第 5 条：Pi Target 的断链、过期 copy、内容漂移与未管理技能，
+ * 走与其它 Agent 完全相同的诊断与修复路径。
+ */
+describe('SkillManagerService — Pi Target 的诊断', () => {
+  function piSkillsDir(): string {
+    return path.join(tmpDir, 'home', '.pi', 'agent', 'skills')
+  }
+
+  function piTargetFor(skillId: string) {
+    return service.getSkillDetail(skillId)?.targets.find((t) => t.agentId === 'pi')
+  }
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir()
+    setHomeOverride(path.join(tmpDir, 'home'))
+    delete process.env.PI_CODING_AGENT_DIR
+    centerPath = path.join(tmpDir, 'skills')
+    dbPath = path.join(tmpDir, 'skill-manager', 'test.db')
+    fs.mkdirSync(path.join(tmpDir, 'home'), { recursive: true })
+
+    service = SkillManagerService.bootstrap(dbPath, centerPath)
+  })
+
+  afterEach(() => {
+    delete process.env.PI_CODING_AGENT_DIR
+    setHomeOverride(null)
+    service.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('把 Pi 登记为 Agent，技能目录在 ~/.pi/agent/skills', () => {
+    const pi = service.listAgents().find((a) => a.id === 'pi')
+
+    expect(pi?.skillsDir).toBe(piSkillsDir())
+  })
+
+  it('发现 Pi Target 的断链并给出一致的自动修复', () => {
+    createSkillDir(centerPath, 'pi-link-skill', 'Pi Link')
+    service.refresh()
+    const preview = service.previewDistribute(['pi-link-skill'], ['pi'], 'link')
+    service.executeDistribute(preview)
+    // Windows 上可能已退 copy；诊断断链只看 DB 记录的 actual_mode
+    service.getDb().conn.prepare(
+      "UPDATE skill_targets SET actual_mode = 'link' WHERE skill_id = ? AND agent_id = 'pi'"
+    ).run('pi-link-skill')
+    const targetId = piTargetFor('pi-link-skill')!.id
+
+    fs.rmSync(path.join(centerPath, 'pi-link-skill'), { recursive: true, force: true })
+
+    const issues = service.runDiagnosis()
+    const broken = issues.find((i) => i.issueType === 'broken_link' && i.entityId === targetId)
+    expect(broken).toBeDefined()
+    expect(broken!.fixKind).toBe('auto')
+
+    service.executeSafeFixes()
+    expect(piTargetFor('pi-link-skill')).toBeUndefined()
+  })
+
+  it('发现 Pi 侧过期 copy（DB 有记录、文件已丢）并自动清理', () => {
+    createSkillDir(centerPath, 'pi-stale-skill', 'Pi Stale')
+    service.refresh()
+    service.executeDistribute(service.previewDistribute(['pi-stale-skill'], ['pi'], 'copy'))
+    const targetId = piTargetFor('pi-stale-skill')!.id
+
+    fs.rmSync(path.join(piSkillsDir(), 'pi-stale-skill'), { recursive: true, force: true })
+
+    const issues = service.runDiagnosis()
+    const stale = issues.find((i) => i.issueType === 'stale_target' && i.entityId === targetId)
+    expect(stale).toBeDefined()
+    expect(stale!.fixKind).toBe('auto')
+
+    service.executeSafeFixes()
+    expect(piTargetFor('pi-stale-skill')).toBeUndefined()
+  })
+
+  it('发现 Pi 侧 copy 内容漂移，并保持 confirm 级不动手', () => {
+    createSkillDir(centerPath, 'pi-diverge-skill', 'Pi Diverge')
+    service.refresh()
+    service.executeDistribute(service.previewDistribute(['pi-diverge-skill'], ['pi'], 'copy'))
+    const targetId = piTargetFor('pi-diverge-skill')!.id
+
+    fs.writeFileSync(
+      path.join(centerPath, 'pi-diverge-skill', 'SKILL.md'),
+      '---\nname: Pi Diverge\ndescription: Center changed\n---\n# Diverge'
+    )
+    fs.writeFileSync(
+      path.join(piSkillsDir(), 'pi-diverge-skill', 'SKILL.md'),
+      '---\nname: Pi Diverge\ndescription: Pi changed\n---\n# Diverge'
+    )
+    service.refresh()
+
+    const issues = service.runDiagnosis()
+    const diverged = issues.find((i) => i.issueType === 'copy_diverged' && i.entityId === targetId)
+    expect(diverged).toBeDefined()
+    expect(diverged!.fixKind).toBe('confirm')
+
+    const result = service.executeSafeFixes()
+    expect(result.details.some((d) => d.includes('pi-diverge-skill'))).toBe(false)
+  })
+
+  it('扫描 Pi 目录下的未管理技能，并产出与其它 Agent 一致的诊断项', () => {
+    createSkillDir(centerPath, 'managed-in-pi', 'Managed In Pi')
+    service.refresh()
+    createSkillDir(piSkillsDir(), 'rogue-pi-skill', 'Rogue Pi Skill')
+
+    const scan = service.scanAgentInventory('pi')
+    expect(scan.unmanaged.some((item) => item.inferredSkillId === 'Rogue-Pi-Skill')).toBe(true)
+
+    const issues = service.runDiagnosis()
+    const unmanaged = issues.find(
+      (i) => i.issueType === 'agent_unmanaged_skill' && i.entityId === 'pi'
+    )
+    expect(unmanaged).toBeDefined()
+    expect(unmanaged!.detail).toContain('rogue-pi-skill')
   })
 })
 

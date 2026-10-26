@@ -68,6 +68,9 @@
               v-else-if="activeTab === 'tools'"
               @change="onSettingsChange"
             />
+            <VoiceInputSettings
+              v-else-if="activeTab === 'voice-input'"
+            />
             <AppearanceSettings
               v-else-if="activeTab === 'appearance'"
               @change="onSettingsChange"
@@ -117,7 +120,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent, type AsyncComponentLoader } from 'vue'
 import {
   ArrowLeft,
-  Settings, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat, BookOpenText
+  Settings, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat, BookOpenText, Mic
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -139,6 +142,7 @@ const ProfileCards = asyncSetting(() => import('./ProfileCards.vue'))
 
 const AppearanceSettings = asyncSetting(() => import('./AppearanceSettings.vue'))
 const ToolsSettings = asyncSetting(() => import('./ToolsSettings.vue'))
+const VoiceInputSettings = asyncSetting(() => import('./VoiceInputSettings.vue'))
 const ShortcutsSettings = asyncSetting(() => import('./ShortcutsSettings.vue'))
 const TokenUsageSettings = asyncSetting(() => import('./TokenUsageSettings.vue'))
 const HookSettings = asyncSetting(() => import('./HookSettings.vue'))
@@ -159,6 +163,7 @@ const settingMenuItems = computed(() => [
   { id: 'general', label: t('settings.general'), icon: Settings },
   { id: 'model', label: t('settings.modelSettings'), icon: Bot },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
+  { id: 'voice-input', label: t('settings.voiceInput'), icon: Mic },
   { id: 'computer-use', label: t('settings.computerUse'), icon: Monitor },
   { id: 'browser-use', label: t('settings.browserUse'), icon: Globe },
   { id: 'h5-access', label: t('settings.h5Access'), icon: Smartphone },

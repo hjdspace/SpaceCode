@@ -21,7 +21,7 @@ import { normalizeAbsolutePath } from '@/utils/normalizePath'
 import type { UseAutoRetryReturn } from '@/composables/useAutoRetry'
 import { extractErrorCode } from '@/composables/useAutoRetry'
 import { errorHandler as defaultErrorHandler } from '@/services/errorHandler'
-import { ErrorCategory, type ToolCall } from '@/types'
+import { ErrorCategory, type Message, type ToolCall } from '@/types'
 import {
   recordAgentToolCall,
   isAgentLaunchResult,
@@ -29,6 +29,8 @@ import {
 import { playTaskCompleteSound } from '@/utils/notificationSound'
 import { api } from '@/services/electronAPI'
 import { i18n } from '@/i18n'
+import { mergeGenuiCardRecords, projectGenuiCards } from '@/lib/genui/cardProjection'
+import { applyGenuiCardBudget } from '@/lib/genui/cardLifecycle'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -408,7 +410,67 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   const pendingContentPatches = new Map<string, { timer: ReturnType<typeof setTimeout>; turn: TurnState }>()
   const CONTENT_PATCH_INTERVAL_MS = 50
 
-  function flushContentPatch(sessionId: string, ts: TurnState): void {
+  // 卡片记录只在 id 集合变化时才写 metadata：流式期间每个节流窗口都会重投影，
+  // 逐次替换对象会让消息无谓地失效重渲染。缺字段与空数组视为同一份「没有」。
+  const sameRecordIds = (next: { id: string }[], current: { id: string }[] | undefined): boolean => {
+    if ((current?.length ?? 0) !== next.length) return false
+    return next.every((record, index) => record.id === current?.[index]?.id)
+  }
+
+  /** 单个 text 块的可见正文：与整条消息同一套围栏判定，只是不产卡片记录。 */
+  const visibleBlock = (ts: TurnState, rawBlock: string, final = false): string =>
+    projectGenuiCards(rawBlock, ts.assistantMessageId, { final }).text
+
+  /**
+   * 助手正文里的 ` ```schemaJson ` 围栏投影成卡片：可见正文去掉已成卡的围栏，
+   * 卡片记录与降级说明写进消息 metadata（口径见 docs/prd/genui-cards.md §1/§2）。
+   *
+   * 只喂**原始累计文本**：拿投影后的正文再投影会让剩余围栏的序号漂移，卡片 id 因此不稳。
+   * metadata 仅在 id 集合变化时改写，普通文本回复完全不碰 metadata，也不多出空数组。
+   * 返回值是给消息与当前 text 事件用的可见正文。
+   */
+  function syncCardProjection(sessionId: string, ts: TurnState, message: Message, final: boolean): { content: string; blockText: string } {
+    const projection = projectGenuiCards(ts.accumulatedContent, ts.assistantMessageId, { final })
+    const cards = projection.cards.length
+      ? mergeGenuiCardRecords(message.metadata?.genUiCards, projection.cards)
+      : message.metadata?.genUiCards
+
+    if (cards?.length && !sameRecordIds(cards, message.metadata?.genUiCards)) {
+      message.metadata = { ...message.metadata, genUiCards: cards }
+      // 会话卡片配额当场生效：新卡片把预算顶穿时，最旧那张立刻退成可见占位。
+      // 内存里看到的因此就是即将落盘的那份，不留「界面还有、存下来已过期」的分裂状态。
+      const session = sink.get(sessionId)
+      if (session) applyGenuiCardBudget(session)
+    }
+    // 降级说明按整份替换：它没有需要保留的状态，而一条消息里可以先后出现多条降级
+    // （两张坏围栏、或第 9 张卡超限），只比「有没有」会让第二条永远不上屏。
+    if (!sameRecordIds(projection.fallbacks, message.metadata?.genUiCardFallbacks)) {
+      message.metadata = {
+        ...message.metadata,
+        genUiCardFallbacks: projection.fallbacks.length ? projection.fallbacks : undefined,
+      }
+    }
+
+    // 时间线按 text 块各自去围栏。跨块的 ` ```schemaJson `（模型在 JSON 中间插了一次工具调用）
+    // 在整条消息上闭合、在单块里闭合不了，因此那种围栏会既成卡又在块里留下残段 ——
+    // 表现是「卡片 + 一段降级文本」，消息其余部分不受影响（tests 里钉住了这个行为）。
+    // 反过来不成立：收口只回补**当前**块，更早的块在流式期间藏起的未闭合围栏不会再被重写
+    // （块的原文没留档），它只回到 msg.content。已知缺口，见 DEFECT 用例。
+    const blockText = ts.currentTextContent
+      ? projectGenuiCards(ts.currentTextContent, ts.assistantMessageId, { final }).text
+      : ''
+
+    return { content: projection.text, blockText }
+  }
+
+  /**
+   * 把累计文本落到消息与当前 text 事件上。
+   *
+   * `final` 表示这条消息**已经不会再有文本来**：result 收口、报错与中止都算。
+   * 只有收口时才该把「仍未闭合的围栏」放回正文当代码块显示 —— 流式期间它必须藏着，
+   * 否则用户会看见半张卡闪一下；而收口后还藏着就等于把内容吞掉。
+   */
+  function flushContentPatch(sessionId: string, ts: TurnState, final = false): void {
     const pending = pendingContentPatches.get(sessionId)
     if (pending) clearTimeout(pending.timer)
     pendingContentPatches.delete(sessionId)
@@ -416,14 +478,16 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const message = getAssistantMessage(sessionId, ts)
     if (!message) return
 
+    const { content, blockText } = syncCardProjection(sessionId, ts, message, final)
+
     const textEvent = ts.currentTextEventId
       ? message.timelineEvents?.find(event => event.id === ts.currentTextEventId)
       : undefined
     // 时间线 text 事件只承载当前块的内容：accumulatedContent 是整轮全文
     // （跨工具调用的所有 text 块拼接），写入会把工具调用前的文本在
     // 工具后的 text 事件里重复渲染一遍。
-    if (textEvent && textEvent.content !== ts.currentTextContent) {
-      textEvent.content = ts.currentTextContent
+    if (textEvent && textEvent.content !== blockText) {
+      textEvent.content = blockText
     }
     const reasoningEvent = ts.currentReasoningEventId
       ? message.timelineEvents?.find(event => event.id === ts.currentReasoningEventId)
@@ -433,7 +497,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     }
 
     const updates: Partial<typeof message> = {}
-    if (message.content !== ts.accumulatedContent) updates.content = ts.accumulatedContent
+    if (message.content !== content) updates.content = content
     if (message.reasoning && message.reasoning.content !== ts.accumulatedReasoning) {
       updates.reasoning = { ...message.reasoning, content: ts.accumulatedReasoning }
     }
@@ -820,13 +884,14 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               ts.accumulatedContent += block.text
               streamingContents.value.set(sessionId, ts.accumulatedContent)
               const msg = getAssistantMessage(sessionId, ts)
-              const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-              const blockEventContent = `${textEvent?.content || ''}${block.text}`
-              ts.currentTextContent = blockEventContent
+              // 上一个 text 事件已在上面收口，ensure 拿到的是新事件：本块从 block.text 起算，
+              // 累计只用于整条消息的投影，不能跨块继承。
+              ts.currentTextContent = block.text
               updateTimelineEvent(sessionId, ts, textEventId, {
-                content: blockEventContent,
+                content: visibleBlock(ts, block.text),
                 status: 'running'
               })
+              if (msg) syncCardProjection(sessionId, ts, msg, false)
             } else if (block.type === 'thinking') {
               if (ts.streamingHandledThinking) continue
               const thinkingText = block.thinking || block.text || ''
@@ -871,7 +936,11 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           }
 
           if (ts.accumulatedContent) {
-            sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
+            const message = getAssistantMessage(sessionId, ts)
+            const view = message
+              ? syncCardProjection(sessionId, ts, message, false)
+              : { content: ts.accumulatedContent, blockText: '' }
+            sink.patchMessage(sessionId, ts.assistantMessageId, { content: view.content })
           }
         } else {
           const textContent = content
@@ -883,16 +952,19 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
             const deltaText = textContent.slice(ts.accumulatedContent.length)
             ts.accumulatedContent = textContent
             streamingContents.value.set(sessionId, ts.accumulatedContent)
+            const previousEventId = ts.currentTextEventId
             const textEventId = ensureTextTimelineEvent(sessionId, ts)
             const msg = getAssistantMessage(sessionId, ts)
-            const textEvent = msg?.timelineEvents?.find(event => event.id === textEventId)
-            const patchEventContent = `${textEvent?.content || ''}${deltaText}`
-            ts.currentTextContent = patchEventContent
+            // ensure 可能另起一个新事件（上一块已收口）：那种情况下本块原始文本只有增量
+            ts.currentTextContent = textEventId === previousEventId
+              ? `${ts.currentTextContent}${deltaText}`
+              : deltaText
+            const view = msg ? syncCardProjection(sessionId, ts, msg, false) : null
             updateTimelineEvent(sessionId, ts, textEventId, {
-              content: patchEventContent,
+              content: view ? view.blockText : deltaText,
               status: 'running'
             })
-            sink.patchMessage(sessionId, ts.assistantMessageId, { content: ts.accumulatedContent })
+            sink.patchMessage(sessionId, ts.assistantMessageId, { content: view ? view.content : textContent })
           }
 
           const reasoningContent = content
@@ -1238,15 +1310,27 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       const msg = s.messages.find(m => m.id === ts.assistantMessageId)
       if (msg) {
         const finalText = typeof result.result === 'string' ? result.result : ''
-        if (finalText && finalText.length > msg.content.length) {
+        // 比较对象必须是**原始**累计文本：msg.content 是投影后的可见正文（去掉了成卡围栏），
+        // 拿它比长度会误判成「还缺一段文本」，把同一段文字重复追加进时间线事件。
+        if (finalText && finalText.length > ts.accumulatedContent.length) {
           const textEventId = ensureTextTimelineEvent(sessionId, ts)
-          const deltaText = finalText.slice(msg.content.length)
-          msg.content = finalText
+          const deltaText = finalText.slice(ts.accumulatedContent.length)
+          ts.accumulatedContent = finalText
+          ts.currentTextContent += deltaText
           const textEvent = msg.timelineEvents?.find(event => event.id === textEventId)
           updateTimelineEvent(sessionId, ts, textEventId, {
             content: `${textEvent?.content || ''}${deltaText}`,
             status: 'completed'
           })
+        }
+        // 收口投影：流式期间隐藏的「仍未闭合围栏」这时必须回到正文里当普通代码块显示。
+        const settled = syncCardProjection(sessionId, ts, msg, true)
+        if (msg.content !== settled.content) msg.content = settled.content
+        const settledTextEvent = ts.currentTextEventId
+          ? msg.timelineEvents?.find(event => event.id === ts.currentTextEventId)
+          : undefined
+        if (settledTextEvent && settledTextEvent.content !== settled.blockText) {
+          settledTextEvent.content = settled.blockText
         }
         completeCurrentTextEvent(sessionId, ts)
         if (msg.reasoning && !msg.reasoning.endTime) {
@@ -1260,9 +1344,15 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         const suspiciousToolStop = result.stop_reason === 'tool_use'
         const resultUsage = result.usage
         const previousApiCallUsage = msg.metadata?.apiCallUsage
+        const previousGenUiCards = msg.metadata?.genUiCards
+        const previousGenUiFallbacks = msg.metadata?.genUiCardFallbacks
         msg.metadata = {
           model: ts.model || getModel(),
           duration: Date.now() - msg.timestamp,
+          // 卡片记录投影在流式期间就已写在 metadata 上，这里整块替换 metadata，
+          // 必须把它们带过来 —— 否则一收口卡片就消失。
+          ...(previousGenUiCards?.length ? { genUiCards: previousGenUiCards } : {}),
+          ...(previousGenUiFallbacks?.length ? { genUiCardFallbacks: previousGenUiFallbacks } : {}),
           ...(resultUsage && {
             inputTokens: resultUsage.input_tokens,
             outputTokens: resultUsage.output_tokens,
@@ -1338,7 +1428,15 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           },
         })
 
-        if (ts.isAutonomous && !msg.content && !msg.toolCalls?.length && !msg.reasoning) {
+        // 「本轮什么都没产出」的自主回合消息要删掉，但成卡的消息正文天生是空的
+        // （围栏被投影走了），只有卡片记录本身算产出，不能一起删。
+        if (
+          ts.isAutonomous &&
+          !msg.content &&
+          !msg.metadata?.genUiCards?.length &&
+          !msg.toolCalls?.length &&
+          !msg.reasoning
+        ) {
           const idx = s.messages.findIndex(m => m.id === ts.assistantMessageId)
           if (idx >= 0) s.messages.splice(idx, 1)
         }
@@ -1488,6 +1586,9 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       loadingSessions.value.set(sessionId, false)
       streamingContents.value.set(sessionId, '')
       autoRetry.removeRetryState(sessionId)
+      // 中止就是这条消息的终点：再收一次口，把流式期间藏起来的「仍未闭合围栏」放回正文，
+      // 否则用户停掉一个正在出卡的回合，那段 schema 就凭空消失了。
+      flushContentPatch(sessionId, ts, true)
       const s = sink.get(sessionId)
       if (s) {
         s.processStatus = 'idle'
@@ -1552,6 +1653,9 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     })
 
     const failedDurationMs = Date.now() - ts.sendStartTime
+    // 失败也是收口（自动重试那条路早在上面 return 了，还会来文本，所以不能在那儿收）：
+    // 气泡正文接下来会被错误文案顶掉，但时间线里的文本事件留着，未闭合围栏要在这里回到文本。
+    flushContentPatch(sessionId, ts, true)
 
     traceEvent({
       sessionId,

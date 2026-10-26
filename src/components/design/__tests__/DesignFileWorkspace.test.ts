@@ -4,7 +4,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useDesignStore } from '@/stores/design'
 
 // ── Hoisted spies: accessible both in mock factory and test body ──
-const { onFileChangedSpy, readFileSpy, getUrlSpy, urlFor, fileChangedCallback } = vi.hoisted(() => {
+const { onFileChangedSpy, readFileSpy, getUrlSpy, urlFor, fileChangedCallback, appStoreProbe } = vi.hoisted(() => {
   let cb: ((event: { sessionId: string; filepath: string }) => void) | null = null
   // 模拟票 06 的 preview:getUrl：返回带 token 的、已登记工作区的预览 URL
   const urlFor = (filePath: string): string | null =>
@@ -14,6 +14,9 @@ const { onFileChangedSpy, readFileSpy, getUrlSpy, urlFor, fileChangedCallback } 
       cb = callback
       return () => { cb = null }
     }),
+    // app store 只承担「弹开右侧面板」这一个动作；真实显隐语义在
+    // stores/__tests__/app.panelTabs.test.ts 钉住
+    appStoreProbe: { openDesignPreview: vi.fn() },
     readFileSpy: vi.fn().mockResolvedValue('<html><body>mock</body></html>'),
     getUrlSpy: vi.fn(async (filePath: string, _workspaceRoot?: string): Promise<string | null> =>
       urlFor(filePath),
@@ -41,6 +44,10 @@ vi.mock('@/services/electronAPI', () => ({
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (key: string) => key }),
+}))
+
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => appStoreProbe,
 }))
 
 // Stub child components to avoid mounting their dependencies
@@ -162,6 +169,63 @@ describe('DesignFileWorkspace — onFileChanged regression', () => {
 
     wrapper.unmount()
     expect(fileChangedCallback.current).toBeNull()
+  })
+})
+
+describe('DesignFileWorkspace — 新产物弹开右侧面板的请求', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    readFileSpy.mockResolvedValue('<html><body>mock</body></html>')
+    getUrlSpy.mockImplementation(async (filePath: string) => urlFor(filePath))
+  })
+
+  it('新 HTML 产物：请求弹开右侧面板', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+
+    mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await vi.waitFor(() => {
+      expect(store.artifactFiles).toHaveLength(1)
+    })
+
+    expect(appStoreProbe.openDesignPreview).toHaveBeenCalledOnce()
+  })
+
+  it('新 CSS 产物不请求弹开：css/js 只是 HTML 的配套资源', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+
+    mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/style.css' })
+    await vi.waitFor(() => {
+      expect(store.artifactFiles).toHaveLength(1)
+    })
+
+    expect(appStoreProbe.openDesignPreview).not.toHaveBeenCalled()
+  })
+
+  it('同一产物的后续改写不再请求；另一份新 HTML 仍请求（不因用户收起过而抑制）', async () => {
+    const store = useDesignStore()
+    store.activeSessionId = 'sess-1'
+
+    mount(DesignFileWorkspace)
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await vi.waitFor(() => {
+      expect(store.artifactFiles).toHaveLength(1)
+    })
+    appStoreProbe.openDesignPreview.mockClear()
+
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/index.html' })
+    await new Promise(r => setTimeout(r, 50))
+    expect(appStoreProbe.openDesignPreview).not.toHaveBeenCalled()
+
+    fileChangedCallback.trigger({ sessionId: 'sess-1', filepath: '/workspace/page-two.html' })
+    await vi.waitFor(() => {
+      expect(appStoreProbe.openDesignPreview).toHaveBeenCalledOnce()
+    })
+    expect(store.artifactFiles).toHaveLength(2)
   })
 })
 

@@ -15,6 +15,10 @@ export default {
   portPlaceholder: '随机',
   publicBaseUrl: '公网访问地址',
   publicBaseUrlHint: '覆盖局域网 IP 地址（可选）',
+  sandboxPort: '卡片沙箱端口',
+  sandboxPortHint: '留空则用主端口 +1；改动后需重新开启 H5 才生效',
+  sandboxPortStatus: '沙箱端口',
+  sandboxPortUnreachable: '未监听',
   buildRequired: '需要先构建前端',
   buildRequiredDesc: 'H5 客户端尚未构建。请运行以下命令：',
 }

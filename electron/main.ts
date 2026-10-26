@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from 'fs'
 import { config } from 'dotenv'
 import { TerminalManager } from './infra/terminalManager'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import { GENUI_SANDBOX_DEV_PORT } from '@/shared/genuiSandbox'
 import { channelNames, eventChannels } from '@/shared/channelMap'
 import { registerGitIPCHandlers } from './git/gitService'
 import { registerMemoryIPCHandlers } from './memory/memoryService'
@@ -48,6 +49,13 @@ import { registerPetIpcHandlers } from './pet/petIpcHandlers'
 import { setupLinuxPlatform } from './infra/platformSetup'
 import { registerPreviewServerIPCHandlers, cleanupPreviewServer } from './infra/previewServer'
 import { installProcessErrorGuards, markQuitting, hideDockIcon } from './infra/appLifecycle'
+import { registerGenuiSandboxProtocol, registerGenuiSandboxScheme } from './genui/sandboxProtocol'
+import { resolveSandboxResourceRoot } from './genui/sandboxRoot'
+import {
+  shouldStartDesktopSandboxHost,
+  startSandboxStaticServer,
+  type SandboxStaticServer,
+} from './genui/sandboxStaticServer'
 
 // ── Split modules ───────────────────────────────────────────────
 import { createWindow, createSplashScreen, closeSplashScreen, getMainWindow } from './windows/mainWindow'
@@ -59,6 +67,8 @@ import { registerRtkIPCHandlers } from './ipc/rtkIpcHandlers'
 import { registerMobileIPCHandlers, getMobileServer, setMobileServer, getMobileUnsubscribe, setMobileUnsubscribe } from './ipc/mobileIpcHandlers'
 import { registerSettingsIPCHandlers, loadGuiSettings, reconcileProxyWithSettings } from './ipc/settingsIpc'
 import { registerTraceIPCHandlers } from './ipc/traceIpc'
+import { registerVoiceIPCHandlers } from './voice/voiceIpcHandlers'
+import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
 import { H5Server } from './h5/h5Server'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
@@ -154,10 +164,17 @@ if (process.platform === 'win32') {
 
 app.commandLine.appendSwitch('no-sandbox')
 
+// GenUI 卡片沙箱：scheme 必须在 app ready 之前注册，处理器在 ready 之后挂
+registerGenuiSandboxScheme()
+
+/** 沙箱静态产物目录：相对 app path 的独立资源目录，口径见 `genui/sandboxRoot.ts`。 */
+const genuiSandboxRoot = resolveSandboxResourceRoot(app.getAppPath())
+
 // ============================================================
 // Shared state (lifecycle-scoped)
 // ============================================================
 let petWindowManager: PetWindowController | null = null
+let genuiSandboxDevServer: SandboxStaticServer | null = null
 const terminalManager = new TerminalManager()
 
 // ============================================================
@@ -232,6 +249,15 @@ app.whenReady().then(async () => {
 
   registerRtkIPCHandlers()
   info('Startup', 'RTK IPC handlers registered')
+
+  registerVoiceIPCHandlers()
+  info('Startup', 'Voice Input IPC handlers registered')
+
+  if (registerVoiceShortcut(() => getMainWindow())) {
+    info('Startup', 'Voice Input shortcut registered (Alt+V)')
+  } else {
+    warn('Startup', 'Voice Input shortcut unavailable (Alt+V already taken)')
+  }
 
   // ── Core IPC (window, fs, shell, terminal, settings, trace, etc.) ──
   registerCoreIPCHandlers(terminalManager)
@@ -342,6 +368,28 @@ app.whenReady().then(async () => {
   // ── Preview Server ────────────────────────────────────────────
   registerPreviewServerIPCHandlers()
   info('Startup', 'Preview Server IPC handlers registered')
+
+  // ── GenUI 卡片沙箱承载 ────────────────────────────────────────
+  registerGenuiSandboxProtocol({ resourceRoot: genuiSandboxRoot })
+  info('Startup', 'GenUI sandbox protocol registered')
+
+  if (shouldStartDesktopSandboxHost({ isPackaged: app.isPackaged, nodeEnv: process.env.NODE_ENV })) {
+    // 开发环境换主机名与端口服务同一份产物，确保跨 site 拿到 OOPIF 进程隔离。
+    // 端口被占（第二个实例等）只让卡片退化成错误占位，不拖垮应用启动。
+    // 打包态永远进不来这条分支：那份沙箱由 spacecode-genui:// 协议提供，不多开本机端口。
+    try {
+      genuiSandboxDevServer = await startSandboxStaticServer({
+        resourceRoot: genuiSandboxRoot,
+        // URL 里用 localhost 这个主机名（换主机名才换 site），绑回环即可
+        bindHost: '127.0.0.1',
+        port: GENUI_SANDBOX_DEV_PORT,
+        label: 'dev',
+      })
+      info('Startup', `GenUI sandbox dev host ready on localhost:${genuiSandboxDevServer.port}`)
+    } catch (err) {
+      warn('Startup', 'GenUI sandbox dev host unavailable; cards will show an error placeholder:', err)
+    }
+  }
 
   // ── Auto Updater ──────────────────────────────────────────────
   registerAutoUpdaterIPC()
@@ -458,12 +506,18 @@ app.on('before-quit', async () => {
   await runQuitStep('hideDockIcon', hideDockIcon)
   await runQuitStep('installUpdateOnQuit', installUpdateOnQuit)
   await runQuitStep('cleanupPreviewServer', cleanupPreviewServer)
+  await runQuitStep('stopGenuiSandboxDevServer', async () => {
+    if (!genuiSandboxDevServer) return
+    await genuiSandboxDevServer.stop()
+    genuiSandboxDevServer = null
+  })
   await runQuitStep('cleanupOfficeCli', cleanupOfficeCli)
   await runQuitStep('cleanupCuaDriverMcp', cleanupCuaDriverMcp)
   await runQuitStep('cleanupBrowserUseMcp', cleanupBrowserUseMcp)
   await runQuitStep('stopArtifactsWatch', stopArtifactsWatch)
   await runQuitStep('destroyTray', destroyTray)
   await runQuitStep('destroyAutoUpdater', destroyAutoUpdater)
+  await runQuitStep('unregisterVoiceShortcut', () => unregisterVoiceShortcut())
   await runQuitStep('globalShortcut.unregisterAll', () => globalShortcut.unregisterAll())
   await runQuitStep('proxyManager.stop', () => proxyManager.stop())
   await runQuitStep('terminalManager.killAll', () => {

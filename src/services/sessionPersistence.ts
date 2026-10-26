@@ -1,5 +1,6 @@
 import type { Session } from '@/types'
 import { normalizeAbsolutePath } from '@/utils/normalizePath'
+import { applyGenuiCardBudget, sanitizeGenuiSession } from '@/lib/genui/cardLifecycle'
 
 // ============================================================
 // Constants
@@ -360,9 +361,18 @@ export function prepareSessionsForStorage(
         }))
       }
 
+      // 卡片驱逐会改写记录本身，落盘用副本：store 里那份事实不受写入动作牵连。
+      const cards = msg.metadata?.genUiCards
+      if (cards?.length) {
+        next.metadata = { ...next.metadata, genUiCards: cards.map(card => ({ ...card })) }
+      }
+
       return next
     }),
   }))
+
+  // 卡片配额在写出去之前收口：超预算的会话仍然保存成功，只是最旧的卡退成可见占位。
+  for (const preparedSession of prepared) applyGenuiCardBudget(preparedSession)
 
   if (aggressive) {
     // 不在这里删会话：索引必须完整保留，超配额由 saveSessionsToStorage
@@ -408,7 +418,8 @@ export function loadSessionsFromStorage(): Session[] {
         ? decompressData(saved)
         : saved
       const sessions = JSON.parse(data)
-      return (sessions || []).map((s: any) => ({
+      if (!Array.isArray(sessions)) return []
+      const loaded = (sessions || []).map((s: any) => ({
         ...s,
         processStatus: s.processStatus || 'none',
         isTabOpen: s.isTabOpen ?? false,
@@ -424,7 +435,23 @@ export function loadSessionsFromStorage(): Session[] {
         ...(typeof s.workingDirectory === 'string' && s.workingDirectory
           ? { workingDirectory: normalizeAbsolutePath(s.workingDirectory) }
           : {}),
-      }))
+      })) as Session[]
+      // 卡片 metadata 是前端特有字段，坏形状不能让会话打不开：读侧兜底收敛成可用记录。
+      // 丢了多少要留一行 —— 否则「卡片怎么不见了」只能靠猜。
+      for (const session of loaded) {
+        const dropped = sanitizeGenuiSession(session)
+        const total = dropped.droppedCards + dropped.droppedFallbacks + dropped.droppedSubmissions
+        if (total > 0) {
+          console.warn(`[ChatStore] session ${session.id} dropped ${total} malformed genui metadata entries`)
+        }
+        // 预算在读取这一侧也收一次口：升级前存下的超量卡片若只在写出时驱逐，就会有一轮
+        // 「界面上还画得出来、下一次保存才被丢」——正是票 05 第 7 条要避免的分裂状态。
+        const { evicted } = applyGenuiCardBudget(session)
+        if (evicted.length > 0) {
+          console.warn(`[ChatStore] session ${session.id} evicted ${evicted.length} card payloads over the session card budget`)
+        }
+      }
+      return loaded
     }
   } catch (e) {
     console.error('[ChatStore] Failed to load sessions from storage:', e)

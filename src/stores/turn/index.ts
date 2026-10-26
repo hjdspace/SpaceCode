@@ -20,6 +20,7 @@ import {
   isSidechainMessage,
 } from '@/services/teamTranscriptService'
 import { useAutoRetry } from '@/composables/useAutoRetry'
+import type { GenuiSubmissionUserMessageMetadata } from '@/types/genui'
 import type { PendingMessage, TurnState } from './types'
 import { createTimelineAssembler } from './timelineAssembler'
 import { createTurnStateMachine } from './turnStateMachine'
@@ -429,6 +430,17 @@ export function useTurnStore(injectedApi?: any) {
       isAutonomous?: boolean
       /** 不在消息列表中追加用户消息（内容仍会发送给引擎，用于 goal steering 注入）。 */
       hideUserMessage?: boolean
+      /**
+       * 随用户消息一起落库的 metadata（卡片提交：摘要 / payload / 折叠标记，票 04）。
+       * 引擎收到的仍是完整正文，这里只影响前端那条气泡如何展示。
+       */
+      userMessageMetadata?: GenuiSubmissionUserMessageMetadata
+      /**
+       * 引擎派发结果回调：IPC 兑现即成功，reject 时带上错误。
+       * 与 sendMessage 的 Promise 不同 —— 那条要等整轮回复收口，而卡片只该等「话送出去了」
+       * 这一步就解除在飞状态并把摘要与只读标记落库。
+       */
+      onDispatched?: (error?: unknown) => void
     }
 
     async function sendMessage(content: string, userMessageContent?: string, attachments?: MessageAttachments, options?: SendMessageOptions): Promise<void> {
@@ -441,7 +453,10 @@ export function useTurnStore(injectedApi?: any) {
       userAbortedSessions.delete(targetSessionId)
       autoRetry.removeRetryState(targetSessionId)
       const session = sink.get(targetSessionId)
-      if (!session) return
+      if (!session) {
+        options?.onDispatched?.(new Error(`session ${targetSessionId} not found`))
+        return
+      }
 
       loadingSessions.value.set(targetSessionId, true)
       if (session.processStatus !== 'active') {
@@ -470,7 +485,8 @@ export function useTurnStore(injectedApi?: any) {
             role: 'user',
             content: userMessageContent ?? content,
             attachments: attachments?.files,
-            imageAttachments: attachments?.images
+            imageAttachments: attachments?.images,
+            ...(options?.userMessageMetadata ? { metadata: options.userMessageMetadata } : {})
           })
 
       if (attachments?.images?.length) {
@@ -488,6 +504,8 @@ export function useTurnStore(injectedApi?: any) {
           sessionId: targetSessionId,
           phase: 'init',
         })
+        // 这条消息永远到不了引擎：先告知调用方（卡片据此保持可编辑），再走 500ms 的错误气泡。
+        options?.onDispatched?.(new Error(classified.message))
         setTimeout(() => {
           sink.appendMessage(targetSessionId, {
             role: 'assistant',
@@ -507,6 +525,8 @@ export function useTurnStore(injectedApi?: any) {
         loadingSessions.value.set(targetSessionId, false)
         const s = sink.get(targetSessionId)
         if (s) s.processStatus = 'idle'
+        // 会话起不来，这条正文永远进不了引擎：让提交侧立刻收到失败并恢复可编辑
+        options?.onDispatched?.(error)
         throw error
       }
 
@@ -517,6 +537,7 @@ export function useTurnStore(injectedApi?: any) {
         if (!inFlight.settled) {
           sessionStore.logger.warn('ChatStore', `sendMessage: a turn is already in flight for this session, skipping new turn setup | sessionId=${targetSessionId.slice(0, 8)}`)
           pendingSendMessages.delete(targetSessionId)
+          options?.onDispatched?.(new Error('a turn is already in flight for this session'))
           return
         }
         // settled 的是停在退避里的僵尸（见 releaseParkedTurn）。用户消息此刻已经
@@ -542,13 +563,22 @@ export function useTurnStore(injectedApi?: any) {
         ;(claudeCode.sendMessage as any)(targetSessionId, content, plainImages, {
           clientMessageId: userMessage.id,
           displayContent: userMessageContent ?? content,
-        }).catch((error: any) => {
-          sessionStore.logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
-          const cur = turnStates.get(targetSessionId)
-          if (cur === ts) handleError(targetSessionId, ts, error)
-        })
+        }).then(
+          // 派发成功：话已经进引擎。提交中的卡片到此可以落只读状态，不必等整轮回复收口。
+          () => options?.onDispatched?.(),
+          (error: any) => {
+            // 先通知调用方（卡片据此保持可编辑并给出可重试错误），再走常规错误气泡
+            options?.onDispatched?.(error)
+            sessionStore.logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] IPC sendMessage rejected`, { error: String(error) })
+            const cur = turnStates.get(targetSessionId)
+            if (cur === ts) handleError(targetSessionId, ts, error)
+          },
+        )
       }).catch((error) => {
         sessionStore.logger.error('ChatStore', `[${targetSessionId.slice(0, 8)}] sendMessage outer catch`, { error: String(error) })
+        // 回合在派发之后被 abort/超时等路径结算掉，onDispatched 从未有机会开口：
+        // 补一次失败，提交中的卡片才不会一直等在飞状态里。
+        options?.onDispatched?.(error)
         loadingSessions.value.set(targetSessionId, false)
         streamingContents.value.set(targetSessionId, '')
         pendingSendMessages.delete(targetSessionId)

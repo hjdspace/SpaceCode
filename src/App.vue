@@ -106,6 +106,7 @@ import { getCachedDesktopConfig } from '@/services/h5Bootstrap'
 import { h5ApiClient } from '@/services/h5ApiClient'
 import { h5WebSocketClient } from '@/services/h5WebSocketClient'
 import { useShortcuts } from '@/composables/useShortcuts'
+import { useVoiceShortcut } from '@/composables/useVoiceShortcut'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useResizablePanel } from '@/composables/useResizablePanel'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
@@ -273,6 +274,9 @@ const { register } = useShortcuts({
 })
 
 const mainContent = ref<HTMLElement | null>(null)
+
+// Alt+V：主进程唤到前台后在这里派发到最近聚焦的输入框。
+useVoiceShortcut()
 
 // ── Ctrl+P 快捷键：跨文件搜索（快速打开） ──
 function onGlobalKeydown(e: KeyboardEvent) {
@@ -458,6 +462,32 @@ async function initH5MirrorSession() {
 
 onMounted(() => {
   void loadSkillsManager()
+
+  // 生成式 UI 卡片的调试入口：只渲染内置 fixture，不接受外部 Schema（票 01 承载链路验收用）。
+  // 只在开发模式注册，并走动态 import：Vite 构建把 import.meta.env.DEV 定成 false，
+  // 这一整块连同 debugFixture 那个 chunk 都不会进生产产物（票 09 第 2 条）。
+  if (import.meta.env.DEV) {
+    void import('@/lib/genui/debugFixture').then(({ createGenuiDebugApi }) => {
+      window.__SPACECODE_GENUI_DEBUG__ = createGenuiDebugApi({
+        appendFixtureMessage: (card) => {
+          if (!sessionStore.currentSessionId) return false
+          sessionStore.addMessage({
+            role: 'assistant',
+            content: t('genui.fixtureDebugNote'),
+            metadata: { genUiCards: [card] },
+          })
+          return true
+        },
+        fixtureLabels: () => ({
+          title: t('genui.fixture.title'),
+          rows: [
+            { label: t('genui.fixture.rows.carrier'), value: t('genui.fixture.rows.carrierValue') },
+            { label: t('genui.fixture.rows.usage'), value: t('genui.fixture.rows.usageValue') },
+          ],
+        }),
+      })
+    })
+  }
 
   // 空闲时预热右侧面板 chunk（xterm / @git-diff-view / 各 viewer），
   // 使首次打开面板（如点击 subagent 卡片）无需现场加载整棵模块树。

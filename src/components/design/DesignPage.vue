@@ -43,9 +43,10 @@ const isLoading = computed(() =>
   activeSessionId.value ? turnStore.getIsLoading(activeSessionId.value) : false
 )
 
-// 进入设计模式时自动在右侧 InfoPanel 打开设计预览工作区
+// 进入设计模式时只登记设计预览标签，右侧面板保持当前显隐；
+// 等 DesignFileWorkspace 侦测到新的 HTML 产物时再自动弹开
 onMounted(() => {
-  appStore.openDesignPreview()
+  appStore.mountDesignPreviewTab()
 })
 
 // 离开设计模式时关闭设计预览 tab

@@ -37,6 +37,7 @@ const probe = vi.hoisted(() => {
       shellTrashItem: vi.fn(async () => {}),
       showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: ['/picked'] })),
       netFetch: vi.fn(async () => ({ ok: true, status: 200, text: async () => 'body' })),
+      clipboardWriteText: vi.fn((text: string) => text),
     },
     fs: {
       readFileSync: vi.fn<(...args: any[]) => any>(() => 'file-content'),
@@ -103,6 +104,7 @@ vi.mock('electron', () => ({
   },
   dialog: { showOpenDialog: probe.electron.showOpenDialog },
   net: { fetch: probe.electron.netFetch },
+  clipboard: { writeText: probe.electron.clipboardWriteText },
 }))
 
 vi.mock('fs', () => ({
@@ -417,6 +419,15 @@ describe('env / ui relay / shell / editor', () => {
     await H('shell:openPath')(ev(), '/folder')
     expect(probe.electron.shellOpenExternal).toHaveBeenCalledWith('https://x.dev')
     expect(probe.electron.shellOpenPath).toHaveBeenCalledWith('/folder')
+  })
+
+  it('clipboard:writeText 只写入字符串，非字符串不落到 Electron 剪贴板', async () => {
+    probe.electron.clipboardWriteText.mockClear()
+    await H('clipboard:writeText')(ev(), '卡片文本')
+    expect(probe.electron.clipboardWriteText).toHaveBeenCalledWith('卡片文本')
+
+    await H('clipboard:writeText')(ev(), 42)
+    expect(probe.electron.clipboardWriteText).toHaveBeenCalledTimes(1)
   })
 
   it('app:openInEditor：未知编辑器拒绝；已知编辑器透传结果', async () => {

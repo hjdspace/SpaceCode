@@ -181,4 +181,31 @@ describe('SkillDetailSlider', () => {
     expect((storeMocks.store.deleteTarget as ReturnType<typeof vi.fn>)).toHaveBeenNthCalledWith(1, 'target-claude')
     expect((storeMocks.store.deleteTarget as ReturnType<typeof vi.fn>)).toHaveBeenNthCalledWith(2, 'target-codex')
   })
+
+  // 票 07 第 8 条：内置来源在技能管理界面里认得出来
+  it('把内置来源标成「内置」并给出资源标记', async () => {
+    const wrapper = mountSlider()
+    ;(storeMocks.store as { selectedSkillDetail: SkillDetail | null }).selectedSkillDetail = {
+      ...detail,
+      source: {
+        skillId: 'ask-matt',
+        sourceType: 'bundled',
+        sourceUri: 'builtin-skills/ask-matt',
+        sourceRef: 'a'.repeat(64),
+        importedFromAgent: null,
+        importedFromPath: null,
+        installedVia: 'spacecode',
+        createdAt: '2026-10-26',
+        updatedAt: '2026-10-26',
+      },
+    }
+    await flushPromises()
+
+    expect(wrapper.get('.sds-tags').text()).toContain('内置')
+
+    await wrapper.get('.sds-tabs button:nth-child(4)').trigger('click')
+    const sourcePanel = wrapper.get('.sds-source-grid').text()
+    expect(sourcePanel).toContain('内置')
+    expect(sourcePanel).toContain('builtin-skills/ask-matt')
+  })
 })

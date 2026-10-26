@@ -14,6 +14,7 @@ import { getWindowIconPath, loadIconImage } from './iconUtils'
 import { setMainWindow } from '../engine/claudeCodeIPC'
 import { TerminalManager } from '../infra/terminalManager'
 import { getPool } from '../engine/claudeCodeIPC'
+import { attachGenuiFrameGuard } from '../genui/sandboxFrameGuard'
 
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged
 
@@ -315,6 +316,13 @@ export function createWindow(
       return
     }
     console.log('[Navigation] External navigation intercepted:', navigationUrl)
+  })
+
+  // 卡片沙箱的 frame 闸门：文档落地后该 frame 不再允许任何导航（自跳转外泄的堵法）。
+  const detachGenuiFrameGuard = attachGenuiFrameGuard(mainWindow.webContents)
+
+  mainWindow.on('closed', () => {
+    detachGenuiFrameGuard()
   })
 
   createMenu()

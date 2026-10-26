@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS: H5AccessSettings = {
   tokenPreview: null,
   publicBaseUrl: null,
   fixedPort: null,
+  sandboxPort: null,
 }
 
 function iface(address: string, family: 'IPv4' | 'IPv6' = 'IPv4', internal = false): NetworkInterfaceInfo {
@@ -111,6 +112,17 @@ describe('H5AuthService', () => {
         enabled: true,
         token: 'h5_persisted-token-0123456789abc',
       })
+    })
+
+    it('normalises a settings file written before the sandbox port existed', () => {
+      // 票 06 之前落盘的 JSON 没有 sandboxPort；undefined 漏出去会让第二端口永远起不来
+      writeFileSync(
+        settingsFile(),
+        JSON.stringify({ ...DEFAULT_SETTINGS, sandboxPort: undefined }),
+        'utf-8',
+      )
+
+      expect(new H5AuthService().getSettings()).toEqual(DEFAULT_SETTINGS)
     })
 
     it('caches settings after the first read', () => {

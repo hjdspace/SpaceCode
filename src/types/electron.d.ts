@@ -26,6 +26,7 @@ import type {
 import type { GitRendererApi } from '@/shared/channels/git'
 import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
 import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
+import type { VoiceRendererApi, VoiceEventApi } from '@/shared/channels/voice'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
@@ -358,12 +359,12 @@ export interface ElectronMobileAPI {
 }
 
 export interface ElectronH5AccessAPI {
-  enable: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }; token: string }>
+  enable: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number; sandboxPort: number; sandboxRunning: boolean }; token: string }>
   disable: () => Promise<void>
-  regenerateToken: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }; token: string }>
-  getStatus: () => Promise<{ running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number }>
-  getSettings: () => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null }>
-  updateSettings: (input: Partial<Pick<{ publicBaseUrl: string | null; fixedPort: number | null }, 'publicBaseUrl' | 'fixedPort'>>) => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null }>
+  regenerateToken: () => Promise<{ status: { running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number; sandboxPort: number; sandboxRunning: boolean }; token: string }>
+  getStatus: () => Promise<{ running: boolean; port: number; ip: string; publicUrl: string | null; connectedClients: number; sandboxPort: number; sandboxRunning: boolean }>
+  getSettings: () => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null; sandboxPort: number | null }>
+  updateSettings: (input: Partial<Pick<{ publicBaseUrl: string | null; fixedPort: number | null; sandboxPort: number | null }, 'publicBaseUrl' | 'fixedPort' | 'sandboxPort'>>) => Promise<{ enabled: boolean; token: string | null; tokenPreview: string | null; publicBaseUrl: string | null; fixedPort: number | null; sandboxPort: number | null }>
   setMirrorSession: (sessionId: string | null, projectPath: string | null) => Promise<void>
   checkBuild: () => Promise<{ built: boolean; path: string }>
 }
@@ -406,6 +407,8 @@ export interface ElectronRtkAPI {
 }
 
 export interface ElectronUpdateAPI extends UpdateRendererApi, UpdateEventApi {}
+
+export interface ElectronVoiceAPI extends VoiceRendererApi, VoiceEventApi {}
 
 export interface ElectronImWechatAPI {
   startQrLogin: () => Promise<{ qrcodeUrl: string; qrcodeId: string }>
@@ -544,6 +547,7 @@ export interface ElectronAPI {
   h5Access: ElectronH5AccessAPI
   rtk: ElectronRtkAPI
   update: ElectronUpdateAPI
+  voice: ElectronVoiceAPI
   cron: ElectronCronAPI
 
   changelog: {
@@ -559,6 +563,10 @@ export interface ElectronAPI {
   shell: {
     openExternal: (url: string) => Promise<void>
     openPath: (path: string) => Promise<void>
+  }
+
+  clipboard: {
+    writeText: (text: string) => Promise<void>
   }
 
   showNotification: (options: { title: string; message: string }) => void

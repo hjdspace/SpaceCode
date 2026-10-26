@@ -42,6 +42,7 @@ export const SOURCE_LABEL_KEYS: Record<SourceType, string> = {
   agent_override: 'skillManagerV2.source.agentOverride',
   manual_center: 'skillManagerV2.source.manualCenter',
   marketplace: 'skillManagerV2.source.marketplace',
+  bundled: 'skillManagerV2.source.bundled',
 }
 
 // ── Agent icon initials ────────────────────────────────────────────
@@ -139,6 +140,7 @@ export const STATUS_FILTER_OPTIONS: Array<{ value: string; labelKey: string }> =
 // ── Source filter options ──────────────────────────────────────────
 
 export const SOURCE_FILTER_OPTIONS: Array<{ value: string; labelKey: string }> = [
+  { value: 'bundled', labelKey: 'skillManagerV2.source.bundled' },
   { value: 'local_folder', labelKey: 'skillManagerV2.source.localFolder' },
   { value: 'archive', labelKey: 'skillManagerV2.source.archive' },
   { value: 'github', labelKey: 'skillManagerV2.source.github' },

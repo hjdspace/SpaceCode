@@ -27,6 +27,7 @@
     "src/**/*.tsx",
     "src/**/*.vue",
     "electron/**/*.ts",
+    "sandbox/**/*.ts",
     "tests/**/*.ts"
   ],
   "exclude": [

@@ -157,6 +157,7 @@ export default {
     agentOverride: 'Agent 覆盖',
     manualCenter: '手动添加',
     marketplace: '市场',
+    bundled: '内置',
   },
   filter: {
     allStatuses: '全部状态',

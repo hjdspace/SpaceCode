@@ -32,7 +32,7 @@ export interface BuiltInAgent {
 export function pluginCachePathForAgent(agentId: string): string | null {
   const root = home()
   const paths: Record<string, string> = {
-    'claude-code': path.join(root, '.claude', 'plugins', 'cache'),
+    'claude-code': path.join(claudeConfigDir(), 'plugins', 'cache'),
     codex: path.join(root, '.codex', 'plugins', 'cache'),
     kimi: path.join(root, '.kimi-code', 'plugins', 'managed'),
     workbuddy: path.join(root, '.workbuddy', 'plugins'),
@@ -61,10 +61,18 @@ function computeBuiltInAgents(): BuiltInAgent[] {
   {
     id: 'claude-code',
     displayName: 'Claude Code',
-    skillsDir: path.join(home(), '.claude', 'skills'),
-    configPath: path.join(home(), '.claude', 'settings.json'),
-    mcpConfigPath: path.join(home(), '.claude', 'settings.json'),
+    skillsDir: path.join(claudeConfigDir(), 'skills'),
+    configPath: path.join(claudeConfigDir(), 'settings.json'),
+    mcpConfigPath: path.join(claudeConfigDir(), 'settings.json'),
     icon: 'claude',
+  },
+  {
+    id: 'pi',
+    displayName: 'Pi',
+    skillsDir: path.join(piAgentDir(), 'skills'),
+    configPath: path.join(piAgentDir(), 'settings.json'),
+    mcpConfigPath: path.join(piAgentDir(), 'mcp.json'),
+    icon: 'pi',
   },
   {
     id: 'codex',
@@ -338,16 +346,43 @@ function kimiCodeHome(): string {
 }
 
 /**
+ * Claude Code 的配置目录：`$CLAUDE_CONFIG_DIR` 覆盖，否则 `~/.claude`。
+ * 引擎侧（`electron/engine/engines/PiSessionProcess.ts`）与设置文件读取都已经按这个口径找目录，
+ * 技能目录再硬编码 `~/.claude` 就会出现「Claude 换了配置目录，SpaceCode 还把技能装到旧地方」。
+ */
+function claudeConfigDir(): string {
+  return envPath('CLAUDE_CONFIG_DIR', path.join(home(), '.claude'))
+}
+
+/**
+ * Pi 的全局 agent 目录：`$PI_CODING_AGENT_DIR` 覆盖，否则 `~/.pi/agent`。
+ * 单数 `agent` 是 pi 自己的配置根（`getAgentDir()`），`~/.pi/agents` 是子代理定义目录，
+ * 不是技能目录。口径见 ADR 0016。
+ */
+function piAgentDir(): string {
+  return envPath('PI_CODING_AGENT_DIR', path.join(home(), '.pi', 'agent'))
+}
+
+/** 目录类环境变量：未设置或空白取默认值，`~` 前缀按 home 展开。 */
+function envPath(envName: string, fallback: string): string {
+  const override = process.env[envName]
+  if (override && override.trim()) return expandHomeDir(override.trim())
+  return fallback
+}
+
+/**
  * Agents that also load the shared `~/.agents/skills` directory.
  * That directory is scanned separately as the `agents` pseudo-agent.
- * Reference: AgentBro `agent_meta::inherits_shared_agents_skills`.
+ * Reference: AgentBro `agent_meta::inherits_shared_agents_skills`;
+ * Pi also reads it (package-manager `userAgentsSkillsDir`).
  */
 export function inheritsSharedAgentsSkills(agentId: string): boolean {
-  return agentId === 'codex' || agentId === 'kimi' || agentId === 'openclaw' || agentId === 'zcode'
+  return agentId === 'codex' || agentId === 'kimi' || agentId === 'openclaw' || agentId === 'zcode' || agentId === 'pi'
 }
 
 /** Expand a leading `~` in a config value against the real home dir. */
 function expandHomeDir(value: string): string {
+  if (value === '~') return home()
   if (value.startsWith('~/') || value.startsWith('~\\')) {
     return path.join(home(), value.slice(2))
   }

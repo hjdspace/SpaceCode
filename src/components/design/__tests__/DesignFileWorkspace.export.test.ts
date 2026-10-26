@@ -40,6 +40,11 @@ vi.mock('vue-i18n', () => ({
   }),
 }))
 
+// 组件在「新产物」时会请求弹开右侧面板；本文件只测导出条，给它一个空壳
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({ openDesignPreview: vi.fn() }),
+}))
+
 vi.mock('../DesignPreview.vue', () => ({
   default: { name: 'DesignPreviewStub', template: '<div />' },
 }))

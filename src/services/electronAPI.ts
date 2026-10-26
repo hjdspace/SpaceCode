@@ -436,6 +436,7 @@ import { skills } from './api/skills'
 import { terminal } from './api/terminal'
 import { trace } from './api/trace'
 import { update } from './api/update'
+import { voice } from './api/voice'
 
 export const api = {
   // ── 扁平方法（无子命名空间） ──
@@ -837,6 +838,7 @@ export const api = {
   terminal,
   trace,
   update,
+  voice,
   app: appApi,
 
   // ── 直接访问器（getter） ──

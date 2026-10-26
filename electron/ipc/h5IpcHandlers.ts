@@ -66,23 +66,26 @@ export function registerH5AccessIPCHandlers(): void {
       return { status, token }
     }
     return {
-      status: { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 },
+      status: { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0, sandboxPort: 0, sandboxRunning: false },
       token,
     }
   })
 
   ipcMain.handle('h5:getStatus', (): H5ServerStatus => {
     if (h5Server) return h5Server.getStatus()
-    return { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0 }
+    return { running: false, port: 0, ip: '', publicUrl: null, connectedClients: 0, sandboxPort: 0, sandboxRunning: false }
   })
 
   ipcMain.handle('h5:getSettings', (): H5AccessSettings => {
     return h5AuthService.getSettings()
   })
 
-  ipcMain.handle('h5:updateSettings', async (_, input: Partial<Pick<H5AccessSettings, 'publicBaseUrl' | 'fixedPort'>>) => {
-    return h5AuthService.updateSettings(input)
-  })
+  ipcMain.handle(
+    'h5:updateSettings',
+    async (_, input: Partial<Pick<H5AccessSettings, 'publicBaseUrl' | 'fixedPort' | 'sandboxPort'>>) => {
+      return h5AuthService.updateSettings(input)
+    },
+  )
 
   ipcMain.handle('h5:setMirrorSession', (_, sessionId: string | null, projectPath: string | null) => {
     if (projectPath) lastKnownProjectPath = projectPath

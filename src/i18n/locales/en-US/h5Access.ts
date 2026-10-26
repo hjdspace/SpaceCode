@@ -15,6 +15,10 @@ export default {
   portPlaceholder: 'Random',
   publicBaseUrl: 'Public Base URL',
   publicBaseUrlHint: 'Override LAN IP address (optional)',
+  sandboxPort: 'Card sandbox port',
+  sandboxPortHint: 'Leave empty for main port + 1. Re-enable H5 to apply.',
+  sandboxPortStatus: 'Sandbox port',
+  sandboxPortUnreachable: 'Not listening',
   buildRequired: 'Frontend build required',
   buildRequiredDesc: 'H5 client is not built yet. Run the following command:',
 }

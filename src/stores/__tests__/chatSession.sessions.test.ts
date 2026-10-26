@@ -393,6 +393,51 @@ describe('chatSession projects', () => {
     expect(store.projects).not.toContain('/drop')
     expect(store.currentProjectRoot).toBe('')
   })
+
+  it('moves the current empty session onto the new project so the chat pane follows', async () => {
+    const store = await loadStore()
+    store.createSession('Empty draft', 'D:\\old\\dir')
+
+    store.switchProject('D:/new/dir')
+
+    // 主聊天页与「+」工作区选择器读的是会话快照，快照不跟着指针走就会出现
+    // 「引导里设了新工作目录，聊天页还是旧目录」。
+    expect(store.workingDirectory).toBe('D:\\new\\dir')
+    expect(store.sessions[0].workingDirectory).toBe('D:\\new\\dir')
+  })
+
+  it('leaves a session that already has messages on its own directory', async () => {
+    const store = await loadStore()
+    const session = store.createSession('Busy', 'D:\\old\\dir')
+    session.messages.push({ id: 'm1', role: 'user', content: 'hi', timestamp: Date.now() })
+
+    store.switchProject('D:/new/dir')
+
+    // 换目录等于把会话挪到引擎 --resume 找不到的项目目录，历史必丢。
+    expect(store.workingDirectory).toBe('D:\\old\\dir')
+    expect(store.currentProjectRoot).toBe('D:\\new\\dir')
+  })
+
+  it('leaves a session restored from engine history on its own directory', async () => {
+    const store = await loadStore()
+    const session = store.createSession('Recovered', 'D:\\old\\dir')
+    // 从 JSONL 恢复的条目本地 messages 恒为空，但历史已经落在旧项目目录下。
+    session.engineSessionId = 'engine-1'
+
+    store.switchProject('D:/new/dir')
+
+    expect(store.workingDirectory).toBe('D:\\old\\dir')
+  })
+
+  it('keeps every session untouched when the project is cleared', async () => {
+    const store = await loadStore()
+    const session = store.createSession('Empty draft', 'D:\\old\\dir')
+
+    store.switchProject('')
+
+    expect(store.currentProjectRoot).toBe('')
+    expect(session.workingDirectory).toBe('D:\\old\\dir')
+  })
 })
 
 describe('chatSession startup state', () => {

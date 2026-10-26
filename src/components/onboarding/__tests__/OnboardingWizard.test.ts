@@ -7,6 +7,8 @@ import OnboardingWizard from '../OnboardingWizard.vue'
 import SearchableSelect from '@/components/settings/SearchableSelect.vue'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useSettingsStore } from '@/stores/settings'
+import { useAppStore } from '@/stores/app'
+import { useChatSessionStore } from '@/stores/chatSession'
 import { i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
@@ -166,6 +168,29 @@ describe('外观步骤', () => {
     expect(document.documentElement.getAttribute('data-density')).toBe('comfortable')
 
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}').appearance.density).toBe('comfortable')
+  })
+})
+
+describe('工作区步骤', () => {
+  it('设目录同时改掉聊天页读取的会话目录，而不只写 app/settings', async () => {
+    const { wrapper, settings, onboarding } = await mountWizard()
+    onboarding.beginSteps()
+    onboarding.jumpTo(4)
+    await nextTick()
+
+    const input = wrapper.find('.path-input')
+    await input.setValue('D:/work/space')
+    await input.trigger('change')
+    await tick()
+
+    const appStore = useAppStore()
+    const sessionStore = useChatSessionStore()
+    expect(appStore.projectRoot).toBe('D:\\work\\space')
+    expect(settings.projectRoot).toBe('D:\\work\\space')
+    expect(sessionStore.projects).toContain('D:\\work\\space')
+    // 主聊天页那行目录与「+」工作区文件列表读的是这个；此前引导不写它，
+    // 症状是「输入框下方是新目录，聊天页和文件列表还是旧目录」。
+    expect(sessionStore.workingDirectory).toBe('D:\\work\\space')
   })
 })
 

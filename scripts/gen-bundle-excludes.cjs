@@ -32,10 +32,13 @@ const PKG = path.join(ROOT, 'package.json')
  *
  * 判定依据（详见 docs/desktop-bundle-optimization.md）：
  * - node-pty / better-sqlite3：原生模块，vite-plugin-electron external，运行时从 node_modules 加载
+ * - sherpa-onnx-node：语音识别 worker external 依赖，平台包（sherpa-onnx-<platform>-<arch>）
+ *   携带 .node 与 DLL，必须随包进 asar 并 unpack
  */
 const EXPECTED_DEPS = new Set([
   'node-pty',
   'better-sqlite3',
+  'sherpa-onnx-node',
 ])
 
 /**
@@ -86,12 +89,17 @@ const REQUIRED_FILE_PATTERNS = [
   'dist/**/*',
   'dist-electron/**/*',
   'node_modules/node-pty/**/*',
+  'node_modules/sherpa-onnx-node/**/*',
+  'node_modules/sherpa-onnx-*/**/*',
 ]
 
 /** build.asarUnpack 必须包含的规则（子进程要读真实文件，asar 路径读不到） */
 const REQUIRED_UNPACK_PATTERNS = [
   'node_modules/node-pty/**/*',
+  'node_modules/sherpa-onnx-node/**/*',
+  'node_modules/sherpa-onnx-*/**/*',
   'dist-electron/proxy/**/*',
+  'dist-electron/voice/**/*',
 ]
 
 /**

@@ -13,7 +13,7 @@
  * Nothing here re-implements path sanitising, routing or payload building; that
  * is the product's job under test (ADR-0011).
  */
-import { request as httpRequest } from 'http'
+import { createServer, request as httpRequest } from 'http'
 import type { IncomingHttpHeaders } from 'http'
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -125,6 +125,109 @@ export function jsonOf(response: RawResponse): unknown {
 }
 
 // ──────────────────────────────────────────────────
+// CSP readers (the assertions every CSP test shares)
+// ──────────────────────────────────────────────────
+
+/** 去掉逐响应注入的一次性 nonce，剩下的必须与共用口径逐字一致。 */
+export function withoutCspNonce(csp: string | undefined): string {
+  return (csp ?? '').replace(/ 'nonce-[^']+'/g, '')
+}
+
+/** 文档里那条 CSP meta 的内容。 */
+export function cspMetaOf(html: string): string {
+  return html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/)?.[1] ?? ''
+}
+
+/** 把一条策略拆成 `指令名 → 来源串`；末尾的空段（`;` 收尾）丢掉。 */
+export function cspDirectives(csp: string): Record<string, string> {
+  return Object.fromEntries(
+    csp
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [name, ...sources] = part.split(/\s+/)
+        return [name, sources.join(' ')]
+      }),
+  )
+}
+
+// ──────────────────────────────────────────────────
+// port helpers (these tests bind real listeners)
+// ──────────────────────────────────────────────────
+
+/**
+ * Vitest 并行跑测试文件，每个 H5 用例又各自主动监听两个端口：探测到的空端口随时可能被
+ * 别的文件拿走，"主端口 +1"也可能正好落在别人还没关掉的监听上。挑端口与起服务的这套
+ * helper 因此都在这里，重试逻辑只写一遍。
+ */
+export function freePort(): Promise<number> {
+  const probe = createServer()
+  return new Promise((resolve, reject) => {
+    probe.once('error', reject)
+    probe.listen(0, '0.0.0.0', () => {
+      const address = probe.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+export function isPortFree(port: number): Promise<boolean> {
+  const probe = createServer()
+  return new Promise((resolve) => {
+    probe.once('error', () => resolve(false))
+    probe.listen(port, '0.0.0.0', () => {
+      probe.close(() => resolve(true))
+    })
+  })
+}
+
+/** 找一个"自己和 +1 都空着"的主端口。 */
+export async function freeMainPort(): Promise<number> {
+  for (let i = 0; i < 10; i += 1) {
+    const port = await freePort()
+    if (await isPortFree(port + 1)) return port
+  }
+  throw new Error('No free main/sandbox port pair available')
+}
+
+/** 占住一个端口，模拟"第二个源已经被别的服务占了"。 */
+export function holdPort(port: number): Promise<() => Promise<void>> {
+  const blocker = createServer()
+  blocker.on('request', (_req, res) => res.end('occupier'))
+  return new Promise((resolve, reject) => {
+    // 与 H5 同口径绑 0.0.0.0：Windows 上只绑 127.0.0.1 时，再绑 0.0.0.0 会成功而不是撞车
+    blocker.once('error', reject)
+    blocker.listen(port, '0.0.0.0', () => {
+      blocker.removeListener('error', reject)
+      resolve(
+        () =>
+          new Promise<void>((closed) => {
+            blocker.close(() => closed())
+          }),
+      )
+    })
+  })
+}
+
+/** 起服务这类操作整轮重试：每轮重新挑端口，被并行文件抢走就再来一次。 */
+export async function attempt<T>(make: () => Promise<T | null | undefined>, times = 6): Promise<T> {
+  let lastFailure = 'operation never succeeded'
+  for (let i = 0; i < times; i += 1) {
+    try {
+      const value = await make()
+      if (value) return value
+      lastFailure = 'precondition never held'
+    } catch (err) {
+      lastFailure = String(err)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(`端口始终被并行的测试文件占着 (${lastFailure})`)
+}
+
+// ──────────────────────────────────────────────────
 // runtime knobs the stubs read
 // ──────────────────────────────────────────────────
 
@@ -177,6 +280,7 @@ export function defaultSettings(): H5AccessSettings {
     tokenPreview: 'h5_test...cdef',
     publicBaseUrl: null,
     fixedPort: null,
+    sandboxPort: null,
   }
 }
 

@@ -16,7 +16,6 @@ import { Db, SCHEMA_VERSION } from './db'
 import {
   defaultCenterPath,
   defaultSqlitePath,
-  home,
   hashDir,
   hashDirContents,
   isIgnoredEntry,
@@ -28,12 +27,20 @@ import {
   copyDirRecursive,
   expandTilde,
   inferSkillId,
+  inspectPath,
   isSymlink,
   pathExists,
   createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
 import { SkillInstaller } from './skillInstaller'
+import {
+  BUNDLED_SKILLS,
+  bundledSourceUri,
+  readBundledSeedState,
+  writeBundledSeedState,
+  type BundledSeedState,
+} from './bundledSkills'
 import {
   classifyTarget,
   type ClassifyInput,
@@ -128,10 +135,13 @@ export class SkillManagerService {
   }
 
   /**
-   * Bootstrap: ensure directories exist, open DB, seed built-in agents.
+   * Bootstrap: ensure directories exist, open DB, seed built-in agents and bundled skills.
+   *
+   * `bundledRoot` 是内置技能的资源根（`bundledSkillsRoot()` 的解析结果）；不传就没有可读的资源，
+   * 于是跳过 seed —— 测试传自己的 db/center 时不会再三把仓库里那份技能塞进临时中心库。
    * Returns the service instance.
    */
-  static bootstrap(dbPath?: string, centerPath?: string): SkillManagerService {
+  static bootstrap(dbPath?: string, centerPath?: string, bundledRoot?: string): SkillManagerService {
     const resolvedCenterPath = centerPath ?? defaultCenterPath()
 
     // Ensure center library directory exists
@@ -148,6 +158,9 @@ export class SkillManagerService {
 
     // Save default settings if not present
     service.ensureDefaultSettings()
+
+    // 内置技能：正文随构建生成、随应用发布，装到 Agent 的动作在这里完成（票 07）
+    if (bundledRoot) service.seedBundledSkills(bundledRoot)
 
     return service
   }
@@ -211,16 +224,133 @@ export class SkillManagerService {
 
   // ── Agent registry ──────────────────────────────────────────────
 
+  /**
+   * 注册表是 Agent 路径的唯一来源，所以内置条目的路径每次启动都刷新：
+   * `CLAUDE_CONFIG_DIR` 这类环境变量改了以后，分发与 seed 才不会再写回旧目录。
+   * 只动路径列，版本与扫描时间是别的写入方的事。
+   */
   private seedBuiltInAgents(): void {
     const now = nowIso()
     const agents = getBuiltInAgents()
     const stmt = this.db.conn.prepare(`
-      INSERT OR IGNORE INTO agents (id, display_name, skills_dir, config_path, mcp_config_path, enabled, last_scanned_at)
+      INSERT INTO agents (id, display_name, skills_dir, config_path, mcp_config_path, enabled, last_scanned_at)
       VALUES (?, ?, ?, ?, ?, 1, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        display_name = excluded.display_name,
+        skills_dir = excluded.skills_dir,
+        config_path = excluded.config_path,
+        mcp_config_path = excluded.mcp_config_path
     `)
     for (const agent of agents) {
       stmt.run(agent.id, agent.displayName, agent.skillsDir, agent.configPath, agent.mcpConfigPath, now)
     }
+  }
+
+  // ── Bundled skills (票 07) ───────────────────────────────────────
+
+  /**
+   * Seed 内置技能：正文由构建生成并随应用发布，中心库里它是普通技能，装到 Agent 走同一条
+   * 分发链路。四条语义各有归属（口径见 ADR 0016）：
+   * - 从未 seed 过且中心库没有同名技能 → 写中心库；
+   * - 内置版本变化 → 重写中心库（技能正文与渲染端版本同批升级）；
+   * - 用户删掉 → 保持删除，直到下次版本变化才重新出现；
+   * - Target 只铺一次 → 用户从 Agent 卸载后，下次启动不再自动铺回去。
+   */
+  private seedBundledSkills(bundledRoot: string): void {
+    const state: BundledSeedState = readBundledSeedState(this.db)
+
+    for (const spec of BUNDLED_SKILLS) {
+      const sourceDir = path.join(bundledRoot, spec.skillId)
+      // 资源缺失（打包异常，或开发期没跑生成脚本）：不该拖住启动
+      if (!isSkillDir(sourceDir)) continue
+
+      const seeded = state[spec.skillId]
+      const version = hashDirContents(sourceDir)
+      const inCenter = this.hasCenterSkill(spec.skillId)
+      const record: BundledSeedState[string] = seeded ?? { version: '', targets: [] }
+
+      // 中心库里那份不是我们 seed 的（用户自己导入的同名技能）：不覆盖，也不替它铺 Target
+      if (inCenter && !seeded) continue
+      // 用户删掉了 seed 过的那份而内置版本没变：保持删除，等下次升级再回来
+      if (!inCenter && seeded && seeded.version === version) continue
+
+      if (!seeded || seeded.version !== version) {
+        if (!this.writeBundledSkill(spec.skillId, sourceDir, version)) continue
+        record.version = version
+        state[spec.skillId] = record
+      }
+      // 中心库那份是重新出现的：Agent 侧的安装也算没铺过，重铺一次
+      if (!inCenter) record.targets = []
+
+      for (const agentId of spec.targetAgentIds) {
+        // 之后用户改了 CLAUDE_CONFIG_DIR，已登记的目标路径不在这里迁移 —— 移动旧安装属于
+        // 分发/诊断的职责，不该由启动 seed 顺手做。
+        if (record.targets.includes(agentId)) continue
+        if (this.placeBundledTarget(spec.skillId, agentId)) record.targets.push(agentId)
+      }
+    }
+
+    writeBundledSeedState(this.db, state)
+  }
+
+  private hasCenterSkill(skillId: string): boolean {
+    return Boolean(
+      this.db.conn.prepare('SELECT 1 FROM skills WHERE id = ?').get(skillId)
+    )
+  }
+
+  /** 把内置资源拷进中心库并登记 `bundled` 来源；失败只跳过这份技能。 */
+  private writeBundledSkill(skillId: string, sourceDir: string, version: string): boolean {
+    const dest = path.join(this.centerPath, skillId)
+    try {
+      // 中心库自己持有一份副本：应用资源目录是只读的，链接过去会让升级变成断链
+      const result = this.installer.install(sourceDir, dest, 'copy')
+      if (result.error) throw new Error(result.error)
+      this.recordSourceAfterWrite(skillId, dest, sourceDir, {
+        sourcePath: sourceDir,
+        sourceType: 'bundled',
+        sourceUri: bundledSourceUri(skillId),
+        sourceRef: version,
+      })
+      return true
+    } catch (e) {
+      console.warn(`[SkillManager] bundled skill seed failed: ${skillId}: ${(e as Error).message}`)
+      return false
+    }
+  }
+
+  /**
+   * 按默认安装模式把内置技能铺到某个 Agent（link 失败按 linkFailPolicy 退 copy）。
+   * 返回 false 表示这次没铺成 —— 不记进 seed 状态，下次启动还有机会（例如用户先接管了）。
+   */
+  private placeBundledTarget(skillId: string, agentId: string): boolean {
+    const agentRow = this.db.conn.prepare('SELECT skills_dir FROM agents WHERE id = ?').get(agentId) as
+      | { skills_dir: string | null }
+      | undefined
+    const skillRow = this.db.conn.prepare('SELECT center_path, current_hash FROM skills WHERE id = ?').get(skillId) as
+      | { center_path: string; current_hash: string }
+      | undefined
+    if (!agentRow?.skills_dir || !skillRow) return false
+
+    const existing = this.db.conn.prepare(
+      'SELECT id FROM skill_targets WHERE skill_id = ? AND agent_id = ?'
+    ).get(skillId, agentId)
+    if (existing) return true
+
+    const targetPath = path.join(agentRow.skills_dir, skillId)
+    // 断链是本模块自己删中心库技能留下的，可以覆盖；真实存在的未管理技能不动它。
+    const kind = inspectPath(targetPath).kind
+    if (kind !== 'missing' && kind !== 'broken_symlink') return false
+
+    const mode = this.getSettings().defaultInstallMode
+    const result = this.installer.installToTarget(skillRow.center_path, targetPath, mode)
+    if (result.error) {
+      console.warn(`[SkillManager] bundled target failed: ${skillId} → ${agentId}: ${result.error}`)
+      return false
+    }
+
+    this.writeTargetAndClaim(skillId, agentId, targetPath, mode, result.actualMode, skillRow.current_hash)
+    return true
   }
 
   listAgents(): AgentSummary[] {
@@ -627,7 +757,7 @@ export class SkillManagerService {
   /**
    * Execute deletion of a center library skill.
    * Removes: DB record (skills, skill_sources, skill_targets, skill_target_claims via cascade),
-   *          filesystem directory.
+   *          filesystem directory, and every managed agent install (Revoke — see ADR 0016).
    * Throws if the skill id is not found.
    */
   executeDeleteCenterSkill(skillId: string): void {
@@ -639,11 +769,19 @@ export class SkillManagerService {
       throw new Error(`Skill not found: ${skillId}`)
     }
 
+    // 撤销要先读：删 skills 行会级联掉 target 行，路径就没了
+    const targetPaths = this.getSkillTargets(skillId).map((t) => t.targetPath)
+
     // Delete from DB (cascade will handle skill_sources, skill_targets, skill_target_claims)
     this.db.conn.prepare('DELETE FROM skills WHERE id = ?').run(skillId)
 
     // Delete the directory from filesystem
     removePath(row.center_path)
+    // Agent 侧的安装跟着中心库一起走：留下副本等于留下一个未管理的同名技能，
+    // 既读不到中心库的更新，也会挡住后续的重新分发。
+    for (const targetPath of targetPaths) {
+      removePath(targetPath)
+    }
   }
 
   // ── Add Center Skill (Slice 3) ──────────────────────────────────
@@ -2672,7 +2810,9 @@ function readPlugins(agentId: string): PluginStatus[] {
   if (agentId !== 'claude-code') return []
   const cache = pluginCachePathForAgent(agentId)
   if (!cache) return []
-  const enabledPlugins = readEnabledPlugins(path.join(home(), '.claude', 'settings.json'))
+  // 设置文件走注册表：那里已经尊重 CLAUDE_CONFIG_DIR，硬编码 ~/.claude 会读错目录
+  const settingsFile = getBuiltInAgent(agentId)?.configPath
+  const enabledPlugins = settingsFile ? readEnabledPlugins(settingsFile) : {}
   const manifests = collectPluginManifests(cache, 0)
   const plugins = new Map<string, PluginStatus>()
 

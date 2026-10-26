@@ -40,8 +40,29 @@
 | Term | Definition |
 | --- | --- |
 | **Agent** | A coding assistant tool that has its own Skills directory. SpaceCode manages Skill distribution to Agents. |
-| **Agent Registry** | The built-in list of known Agents (Claude Code, Codex, Cursor, Trae) and their Skill directory paths. Extensible with custom entries. |
+| **Agent Registry** | The built-in list of known Agents (Claude Code, Pi, Codex, Cursor, Trae) and their Skill directory paths. Extensible with custom entries. |
 | **Chat Agent (会话智能体)** | A persona a chat session runs as, defined by one `*.md` file under `.claude/agents` or pi's agent directories and chosen in the chat input. Not an **Agent** above (a tool SpaceCode distributes Skills to), and not the engine's `Agent` tool (which *delegates* to a fresh child session). _Avoid_: sub-agent, smart agent. |
+
+## Voice Input (语音输入)
+
+| Term | Definition |
+| --- | --- |
+| **Voice Input (语音输入)** | Converting speech captured by the local microphone into text placed in the active chat composer. Never sends the message by itself. _Avoid_: voice message, audio message, speech command. |
+| **Recording Session (录音会话)** | One bounded recording episode from start to stop, cancel, or failure. Bound to exactly one chat composer and its chat session; leaving that session ends it. |
+| **Live Transcript (实时转写)** | The provisional, continuously revised text shown while a Recording Session is active. Not part of the composer's durable content. |
+| **Final Transcript (终稿)** | The text a Recording Session commits to the composer when it stops. The only transcript that becomes composer content. |
+| **Speech Model (识别模型)** | The pinned, locally stored ASR model bundle Voice Input depends on. Downloaded on first use and integrity-checked before use. |
+
+## Generative UI (生成式 UI)
+
+| Term | Definition |
+| --- | --- |
+| **GenUI Card (生成式 UI 卡片)** | A live, interactive block the assistant produces, rendered in the conversation at the position of the message that produced it. Its state belongs to the card, not to the message. _Avoid_: widget, component, preview. |
+| **Card Schema (卡片 Schema)** | The declarative document a GenUI Card is rendered from. The only artifact the assistant is asked to produce for a card. _Avoid_: config, template, page. |
+| **Card Sandbox (卡片沙箱)** | The isolated execution environment a GenUI Card runs in. It has no network access and no handle on the app, its data, or other cards. |
+| **Card Action (卡片动作)** | An operation a GenUI Card may ask SpaceCode to perform on the user's behalf: submit, copy, expand, open link. The app decides whether and how; the card never acts directly. |
+| **Card Submission (卡片提交)** | The user completing a GenUI Card and submitting its payload. Produces a chat message carrying a human-readable summary plus the full payload for the model. |
+| **GenUI Skill (生成式 UI 技能)** | The Skill that teaches an Agent the Card Schema protocol and output contract. Its presence is what enables card generation; it is distributed like any other Center Skill. |
 
 ## Operations
 
