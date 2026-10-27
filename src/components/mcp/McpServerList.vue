@@ -26,7 +26,7 @@
               <component :is="getServerIcon(server)" :size="16" :class="['server-type-icon', getServerTypeColor(server)]" />
               <span class="server-name">{{ name }}</span>
               <span class="server-type-badge">{{ server.type || 'stdio' }}</span>
-              <span v-if="getRuntimeStatus(name)" class="status-badge" :class="getRuntimeStatus(name)?.status">
+              <span v-if="getRuntimeStatus(name)" class="status-badge" :class="getRuntimeStatus(name)?.status" :title="getRuntimeStatus(name)?.error">
                 {{ getRuntimeStatusLabel(getRuntimeStatus(name)!.status) }}
               </span>
               <span v-else class="status-badge configured">{{ t('mcpSettings.configured') }}</span>
@@ -86,6 +86,12 @@
 
         <!-- Expanded Details -->
         <div v-if="expandedServer === name" class="server-details">
+          <!-- Engine-reported failure — the badge alone says "失败" but not why -->
+          <div v-if="getRuntimeStatus(name)?.error" class="detail-section">
+            <span class="detail-label">{{ t('mcpSettings.runtimeError') }}</span>
+            <div class="probe-error">{{ getRuntimeStatus(name)!.error }}</div>
+          </div>
+
           <!-- Probe Result -->
           <div v-if="getProbeResult(name)" class="detail-section">
             <span class="detail-label">
@@ -95,6 +101,10 @@
                 {{ probeStatusLabel(getProbeResult(name)!.status) }}
               </span>
             </span>
+            <div v-if="getProbeResult(name)!.effectiveCommand" class="probe-effective-command">
+              {{ t('mcpSettings.effectiveCommand') }}
+              <code>{{ getProbeResult(name)!.effectiveCommand }}</code>
+            </div>
             <div v-if="getProbeResult(name)!.error" class="probe-error">{{ getProbeResult(name)!.error }}</div>
             <div v-if="getProbeResult(name)!.serverInfo" class="probe-server-info">
               {{ getProbeResult(name)!.serverInfo!.name }} v{{ getProbeResult(name)!.serverInfo!.version }}
@@ -543,6 +553,18 @@ function getServerTypeColor(server: MCPServer): string {
   font-size: 11px;
   color: var(--text-secondary);
   margin-bottom: 8px;
+}
+
+.probe-effective-command {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  word-break: break-all;
+
+  code {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+    color: var(--text-secondary);
+  }
 }
 
 .probe-tools {

@@ -54,6 +54,8 @@ export interface McpProbeResult {
   serverInfo?: { name: string; version: string }
   tools?: McpToolInfo[]
   error?: string
+  /** 探测时真正 spawn 的 command + args（内置服务器会被解析器改写） */
+  effectiveCommand?: string
   probedAt?: number
 }
 

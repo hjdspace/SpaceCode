@@ -67,7 +67,11 @@
         </div>
 
         <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
-          <ThinkingState :start-time="turnStartTime" />
+          <ThinkingState
+            :start-time="turnStartTime"
+            :variant="engineStarting ? 'starting' : undefined"
+            :mcp-failed-names="mcpFailedNames"
+          />
         </div>
     </div>
     </div>
@@ -289,6 +293,11 @@ const turnStartTime = computed(() => {
   }
   return msgs[msgs.length - 1]?.timestamp || Date.now()
 })
+
+// 引擎冷启动阶段：发送后尚未收到 system/init 时，等待状态显示「正在启动引擎」
+const engineStarting = computed(() => turnStore.isEngineStarting(props.sessionId))
+// 最近一次 system/init 中连接失败的 MCP server 名单
+const mcpFailedNames = computed(() => turnStore.getMcpFailures(props.sessionId))
 
 // 若某助手分组的回合产生了产物，返回对应的产物卡片项，否则 null。
 // 卡片是否出现只取决于本轮有没有收集到文件 —— 三种模式都可能有交付物

@@ -13,7 +13,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { warn, error as logError } from '../infra/logger'
-import { builtinNameFromServerKey, resolveBuiltinMcp } from './mcpConfigResolver'
+import { builtinNameFromServerKey, resolveBuiltinMcp, usesPackageManagerLauncher } from './mcpConfigResolver'
 
 /** MCP 服务器在持久化文件中可能携带的额外元字段（仅供 SpaceCode 内部使用） */
 export interface PersistedMcpServer {
@@ -153,13 +153,20 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
       const resolvedName = DEPRECATED_KEY_ALIASES[name] ?? name
       mcpServers[resolvedName] = cliConfig
 
-      // 内置 MCP 服务器（cua-driver / browser-use）路径解析委托给 mcpConfigResolver，
+      // 内置 MCP 服务器路径解析委托给 mcpConfigResolver，
       // 与 mcp:probeServer handler 共享同一份解析逻辑。
-      // 缺失依赖时保留原始命令——CLI 启动时该服务器会失败，但不影响其他服务器。
+      // - cdp-bridge / chrome-devtools：有本地安装则直连本地入口，否则钉版本
+      //   回退 uvx/npx（去掉 @latest 的强制联网解析）；用户改写过 command 时
+      //   （fallback-original）保留原配置。
+      // - cua-driver / browser-use：缺失依赖时保留原始命令——CLI 启动时该
+      //   服务器会失败，但不影响其他服务器。
       if (cliConfig.type === 'stdio') {
         const builtin = builtinNameFromServerKey(resolvedName)
         if (builtin) {
-          const resolution = resolveBuiltinMcp(builtin)
+          const resolution = resolveBuiltinMcp(builtin, {
+            command: cliConfig.command,
+            args: cliConfig.args,
+          })
           if (resolution.status === 'resolved') {
             cliConfig.command = resolution.config.command
             if (resolution.config.args) cliConfig.args = resolution.config.args
@@ -174,4 +181,31 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
 
   if (Object.keys(mcpServers).length === 0) return null
   return { mcpServers }
+}
+
+/**
+ * 是否有「启用的」服务器要靠 uvx / npx 在启动时做包解析。
+ *
+ * 供 sessionProcess 决定 MCP_TIMEOUT：launcher 形态的握手要付网络回源的钱，
+ * 15s 预算在回源 + 并发时会把本来健康的服务器判成 CONNECT_TIMEOUT。
+ *
+ * 只看持久化配置，不跑解析器 —— 这个判断在会话 spawn 前，`where` 子进程会
+ * 阻塞主进程事件循环。代价是本地已装好（走不到 launcher）时也多给预算。
+ */
+export function anyServerNeedsPackageManagerLauncher(): boolean {
+  const raw = loadMcpConfig()
+  for (const server of Object.values(raw)) {
+    if (!server || typeof server !== 'object') continue
+    if (server.enabled === false) continue
+    if (server._source === 'claude.json') continue
+    if (usesPackageManagerLauncher({
+      type: (server.type || 'stdio') as 'stdio' | 'sse' | 'http',
+      command: server.command,
+      args: server.args,
+      url: server.url,
+    })) {
+      return true
+    }
+  }
+  return false
 }

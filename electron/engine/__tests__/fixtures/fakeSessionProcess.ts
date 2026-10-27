@@ -34,6 +34,9 @@ export class FakeSessionProcess {
     if (FakeSessionProcess.failNextStart) {
       const err = FakeSessionProcess.failNextStart
       FakeSessionProcess.failNextStart = null
+      // 对齐真身：spawn 失败时 process 不会赋值，条目是"死"的
+      this.process = null
+      this.status = 'exited'
       throw err
     }
     this.onStarted()

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, readonly } from 'vue'
+import { ref, computed, readonly, watch } from 'vue'
 import type { Session, Message, ToolCall, AgentInfo, SessionEngineType, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
 import { ErrorCategory } from '@/types'
 import type { RewindOption } from '@/types/rewind'
@@ -923,9 +923,33 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return session
   }
 
+  // initClaudeCodeSession 的 per-session single-flight：预热与首条消息并发时共享同一次
+  // 初始化，防止两侧各拉一个引擎进程（double-spawn / --session-id already in use）。
+  const initInFlight = new Map<string, Promise<void>>()
+
   async function initClaudeCodeSession(
     sessionId: string,
-    overrides?: { systemPrompt?: string; agent?: string; cwd?: string }
+    overrides?: { systemPrompt?: string; agent?: string; cwd?: string },
+    opts?: { warmup?: boolean },
+  ): Promise<void> {
+    const inFlight = initInFlight.get(sessionId)
+    if (inFlight) {
+      await inFlight.catch(() => {})
+      // 在飞那次可能带着不同的 overrides / 目的；它此刻已收口（map 在 promise 链内部
+      // 清理），重走一遍自身逻辑 —— 通常直接命中「已在运行」早退。
+      return initClaudeCodeSession(sessionId, overrides, opts)
+    }
+    const p = doInitClaudeCodeSession(sessionId, overrides, opts).finally(() => {
+      if (initInFlight.get(sessionId) === p) initInFlight.delete(sessionId)
+    })
+    initInFlight.set(sessionId, p)
+    return p
+  }
+
+  async function doInitClaudeCodeSession(
+    sessionId: string,
+    overrides?: { systemPrompt?: string; agent?: string; cwd?: string },
+    opts?: { warmup?: boolean },
   ): Promise<void> {
     const claudeCode = api.claudeCode
     if (!claudeCode) {
@@ -984,6 +1008,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         ...diffStartupConfig(session.startupFingerprint, desiredStartup),
       ].filter(Boolean)
       if (restartReasons.length > 0) {
+        if (opts?.warmup) {
+          // 预热只做「顺势拉起」：绝不因配置漂移停掉一个正在运行的会话 ——
+          // 那是对账行为，留给用户真正发送时发生。
+          logger.info('ChatStore', `initClaudeCodeSession: warmup skipped, running session has config drift (${restartReasons.join(', ')}) | id=${sessionId.slice(0, 8)}`)
+          return
+        }
         logger.info('ChatStore', `initClaudeCodeSession: startup config changed (${restartReasons.join(', ')}), restarting | id=${sessionId.slice(0, 8)}`)
         const resumeId = (status.engineSessionId as string) || session.engineSessionId
         try {
@@ -1076,6 +1106,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         // pi 的 compat provider 要靠这份清单把可切换的模型一次登记进 models.json
         selectableModels: selectableModelIdsForSession(session, effectiveModel),
         rtkEnabled: settingsStore.rtkEnabled,
+        // 预热拉起标记：主进程池据此做「从未使用过的预热进程」空闲回收
+        warmed: opts?.warmup || undefined,
       })
 
       delete session._resumeSessionId
@@ -1131,6 +1163,22 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       })
 
     } catch (error) {
+      if (opts?.warmup) {
+        // 预热是后台动作：失败只记日志，不弹错误打扰用户；真正的错误
+        // 留给首次发送的完整 init 暴露。
+        logger.warn('ChatStore', `initClaudeCodeSession: warmup failed | id=${sessionId.slice(0, 8)}`, { error: String(error) })
+        traceEvent({
+          sessionId,
+          actor: 'system',
+          type: 'engine_session_start',
+          status: 'failed',
+          title: 'Engine warmup failed',
+          error: { message: String(error) },
+        })
+        session.processStatus = 'exited'
+        saveToStorage()
+        return
+      }
       const classified = errorHandler.handleError(error, {
         sessionId,
         provider: settingsStore.config.provider,
@@ -1149,6 +1197,54 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       })
       session.processStatus = 'exited'
       saveToStorage()
+    }
+  }
+
+  /**
+   * 预热会话的引擎进程：后台拉起 CLI（含 MCP 握手），让首条消息省掉冷启动等待。
+   *
+   * 复用 initClaudeCodeSession 的完整路径 —— provider/baseUrl/startupFingerprint 全部
+   * 写齐，之后的发送会命中「已在运行且配置一致」早退，预热才不白做。约束：
+   * - 只对 claude-code 引擎预热（本项优化针对它的 spawn→init 冷启动）；
+   * - 等待 settings hydration 完成，避免用半截配置起进程（发送时会判定漂移直接重启）；
+   * - 已在运行的会话不碰（warmup 模式下 init 也绝不触发重启）；
+   * - 主进程池在长时间没有用户消息时会挂起回收预热进程（config.warmed）；
+   * - 整体 best-effort：任何失败（含非桌面环境下 api 不完整）只记日志，绝不冒泡。
+   */
+  async function warmupSession(sessionId: string): Promise<void> {
+    try {
+      const session = sessions.value.find(s => s.id === sessionId)
+      if (!session) return
+      if (session.ephemeral) return
+      const claudeCode = api.claudeCode
+      if (!claudeCode) return
+      const desiredEngine = session.engineType ?? settingsStore.engineType
+      if (desiredEngine !== 'claude-code') return
+
+      // gui-settings.json / .env 是异步读入的：等 settingsReady 再取指纹
+      if (!settingsStore.settingsReady) {
+        await new Promise<void>(resolve => {
+          const stop = watch(() => settingsStore.settingsReady, ready => {
+            if (ready) {
+              stop()
+              resolve()
+            }
+          })
+        })
+      }
+
+      const status = await Promise.resolve(
+        typeof claudeCode.getSessionStatus === 'function' ? claudeCode.getSessionStatus(sessionId) : null,
+      ).catch(() => null)
+      if (status?.isRunning) {
+        logger.info('ChatStore', `warmupSession: session already running, nothing to warm | id=${sessionId.slice(0, 8)}`)
+        return
+      }
+      logger.info('ChatStore', `warmupSession: prewarming engine | id=${sessionId.slice(0, 8)}`)
+      await initClaudeCodeSession(sessionId, undefined, { warmup: true })
+    } catch (e) {
+      // 预热是后台动作，失败绝不打扰用户；真正的错误留给首次发送的完整 init 暴露
+      logger.warn('ChatStore', `warmupSession: aborted | id=${sessionId.slice(0, 8)}`, { error: String(e) })
     }
   }
 
@@ -2553,6 +2649,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     availableAgents,
     createSession,
     initClaudeCodeSession,
+    warmupSession,
     addMessage,
     renameSession,
     updateMessage,

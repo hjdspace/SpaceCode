@@ -54,6 +54,8 @@ export default {
   testConnection: '测试连接',
   reconnect: '重连',
   connectionTest: '连接测试',
+  effectiveCommand: '实际启动命令',
+  runtimeError: '引擎报告的错误',
   serverConnectedNoTools: '服务器已连接但未报告任何工具',
   connected: '已连接',
   authRequired: '需要认证',
