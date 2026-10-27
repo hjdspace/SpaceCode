@@ -30,7 +30,7 @@ import { ShellOutputStream } from './shellOutputStream'
 import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
 import { readSideTaskContextFile, discardSideTaskContextFile } from './transcriptDigest'
 import { removeTempFiles, writeSessionTempFile } from './tempArtifacts'
-import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
+import { anyServerNeedsPackageManagerLauncher, buildEnabledMcpConfig } from '../tools/mcpConfigStore'
 import { getOfficeCliInstallDir, syncInstalledOfficeCli } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
 
@@ -164,6 +164,12 @@ export interface SessionConfig {
   rtkEnabled?: boolean
   /** 侧边任务继承的主会话 transcript 快照文件；首条消息包裹注入后即清除（一次性）。 */
   sideTaskContextPath?: string
+  /**
+   * 由预热路径拉起的会话标记（见 chatSession.warmupSession）：进程池据此在
+   * 长时间没有用户消息时挂起回收，避免预热进程白白占住 MCP 子进程。
+   * 首条消息转发后即失效，不影响正常会话的生命周期。
+   */
+  warmed?: boolean
 }
 
 export type ProcessStatus = 'starting' | 'active' | 'idle' | 'suspended' | 'exited'
@@ -1624,6 +1630,25 @@ export class SessionProcess extends EventEmitter {
 
     if (!process.env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) {
       env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = '80000'
+    }
+
+    // ── MCP 握手超时 ──
+    //
+    // engine 的 MCP 连接超时默认 30s（engine/src/services/mcp/client.ts 读取
+    // MCP_TIMEOUT，只 race connect 握手）。任一启用的 MCP 服务器握手挂住时，
+    // system/init 会一直等它，实测失败场景 spawn→init 拖到 40s+。收紧到 15s
+    // 把最坏情况压到约 12-15s，正常本地/远程服务器握手都在数百毫秒到数秒内
+    // 完成，不受影响。注意它不覆盖连接后的 tools/list（engine 固定 60s）。
+    //
+    // 但 15s 对「走包管理器 launcher 的预设」预算不够：uvx/npx
+    // 每次启动都要做包解析，uv 还会按 PyPI 的 max-age=600 周期性回源。实测
+    // cdp-bridge 握手在缓存新鲜时 4.7-5.4s，回源且与另一个 launcher 并发时
+    // 6.9-10.8s —— 网络抖一下就翻过 15s，把一个本来健康的服务器判成
+    // CONNECT_TIMEOUT。所以按配置形态给预算：只有真的存在 launcher 型服务器时
+    // 才回到 engine 默认的 30s，其余仍然 15s，不牺牲常见故障场景的收敛速度。
+    // 用户显式设置的 MCP_TIMEOUT 优先。
+    if (!process.env.MCP_TIMEOUT) {
+      env.MCP_TIMEOUT = anyServerNeedsPackageManagerLauncher() ? '30000' : '15000'
     }
 
     // Windows 中文系统下 python stdout 默认 cp936(GBK)，引擎按 UTF-8 解码会产生乱码。
