@@ -42,6 +42,17 @@ vi.mock('fs', () => ({
     runtime.copies.push({ from: norm(from), to: norm(to) })
     runtime.files.add(norm(to))
   },
+  // readOfficeCliVersion 按 (size, mtime) 复用 `--version` 的结论。这里让指纹
+  // 完全由"这个二进制报的版本"推导：版本变了就等于文件被换过，缓存必须失效 ——
+  // 否则测试会在跨用例之间泄漏上一个版本。
+  statSync: (p: string) => {
+    const key = norm(p)
+    if (!runtime.files.has(key)) throw new Error('ENOENT')
+    const version = runtime.versions.get(key) ?? ''
+    let hash = 5381
+    for (let i = 0; i < version.length; i++) hash = (hash * 33 + version.charCodeAt(i)) | 0
+    return { size: version.length, mtimeMs: Math.abs(hash) }
+  },
   chmodSync: vi.fn(),
   writeFileSync: vi.fn(),
   readFileSync: vi.fn(() => ''),
@@ -201,5 +212,38 @@ describe('syncInstalledOfficeCli', () => {
     const result = syncInstalledOfficeCli()
 
     expect(result).toMatchObject({ copied: false, reason: 'copy-failed' })
+  })
+
+  it('reuses both version probes across session starts while neither binary changed', () => {
+    // syncInstalledOfficeCli 跑在每次会话 spawn 前的临界路径上，而它每次都要起
+    // 两个 `--version` 子进程（Windows 上还叠加 AV 扫描）。文件没变就不该再问第二遍。
+    // 版本取一个本文件没用过的：指纹由内容推导，撞上前面用例的缓存会让这个断言空转。
+    setup({ bundledVersion: '2.0.1', installedVersion: '2.0.1' })
+
+    const before = cp.spawnSync.mock.calls.length
+    syncInstalledOfficeCli()
+    const afterFirst = cp.spawnSync.mock.calls.length
+    const second = syncInstalledOfficeCli()
+
+    expect(afterFirst - before).toBe(2)
+    expect(cp.spawnSync.mock.calls.length).toBe(afterFirst)
+    expect(second).toMatchObject({ copied: false, reason: 'up-to-date' })
+  })
+
+  it('re-reads the user copy when it is replaced out-of-band, so a newer binary is never downgraded', () => {
+    // 缓存按文件指纹而不是"读过一次就定论"。用户在自己终端里跑了 `officecli install`
+    // 把 ~/.officecli/bin 换成更新版本后，下一次会话必须看得见 —— 拿旧结论会比成
+    // "bundled 更新"而把用户刚装好的二进制覆盖回去。
+    setup({ bundledVersion: '1.0.157', installedVersion: '1.0.149' })
+    syncInstalledOfficeCli()
+
+    const installed = norm(getOfficeCliInstalledBinary())
+    runtime.versions.set(installed, '1.0.160')
+    runtime.copies.length = 0
+
+    const result = syncInstalledOfficeCli()
+
+    expect(result).toMatchObject({ copied: false, reason: 'up-to-date', installedVersion: '1.0.160' })
+    expect(runtime.copies).toEqual([])
   })
 })
