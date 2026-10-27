@@ -612,6 +612,10 @@ onMounted(() => {
   // Recreate missing sidebar entries from that source on desktop startup.
   if (!isH5Mode()) {
     void sessionStore.recoverSessionsFromHistory()
+    // 预热当前会话的引擎进程：后台拉起 CLI（含 MCP 握手），首次发送免冷启动。
+    // warmupSession 内部自带闸门（等 settings hydration、已在运行则跳过、失败静默）。
+    const warmTarget = sessionStore.currentSessionId
+    if (warmTarget) void sessionStore.warmupSession(warmTarget)
   }
 
   // 暴露全局 API 供主进程通过 executeJavaScript 调用，避免直接访问 Vue 内部实现
