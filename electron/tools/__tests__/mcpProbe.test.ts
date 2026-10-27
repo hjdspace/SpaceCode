@@ -113,7 +113,11 @@ describe('probeMcpServer — dispatch', () => {
 })
 
 describe('probeStdio — spawn options', () => {
-  it('runs a bare command through the shell so PATH resolution still works', async () => {
+  it('spawns a bare command without the shell, the way the engine does', async () => {
+    // 探测要能预测会话里的结果，所以 spawn 语义必须和引擎侧 MCP SDK
+    // StdioClientTransport 一致。之前这里对裸命令走 shell:true，于是
+    // Windows 上「测试连接」把 npx.cmd 用 cmd.exe 拉起来报绿灯，而引擎
+    // 用 shell:false 起同一个命令必然 ENOENT —— 假绿正好盖住了真故障。
     const p = probeMcpServer(stdioConfig({ command: 'npx' }))
     emitLine(proc, initResponse)
     emitLine(proc, toolsResponse)
@@ -122,11 +126,11 @@ describe('probeStdio — spawn options', () => {
     expect(cp.spawn).toHaveBeenCalledWith(
       'npx',
       ['-y', 'some-server'],
-      expect.objectContaining({ shell: true, windowsHide: true }),
+      expect.objectContaining({ shell: false, windowsHide: true }),
     )
   })
 
-  it('does not use the shell for an absolute path, keeping odd characters out of cmd.exe', async () => {
+  it('does not use the shell for an absolute path either', async () => {
     const absolute = path.resolve('servers', 'mcp server.js')
     const p = probeMcpServer(stdioConfig({ command: absolute, args: [] }))
     emitLine(proc, initResponse)
