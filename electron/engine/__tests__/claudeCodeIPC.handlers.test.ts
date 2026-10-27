@@ -396,13 +396,43 @@ describe('CLI 安装 / 更新与代理状态', () => {
 })
 
 describe('mcp:probeServer 的内置服务器解析', () => {
-  it('非内置配置原样交给 probeMcpServer', async () => {
+  it('非内置配置原样交给 probeMcpServer，并回传实际 spawn 的命令', async () => {
     const config = { type: 'stdio' as const, command: 'npx', args: ['-y', 'some-server'] }
     const result = { status: 'connected' as const, tools: [] }
     mcpProbe.probeMcpServer.mockResolvedValue(result)
 
-    await expect(handler('mcp:probeServer')({}, config)).resolves.toBe(result)
+    await expect(handler('mcp:probeServer')({}, config)).resolves.toEqual({
+      ...result,
+      effectiveCommand: 'npx -y some-server',
+    })
     expect(mcpProbe.probeMcpServer).toHaveBeenCalledWith(config)
+  })
+
+  it('回传的是解析后的命令，不是存储的预设命令', async () => {
+    // 存储里写的是 npx -y chrome-devtools-mcp@latest，跑起来的却是钉版本、
+    // Windows 上还包了 cmd /c。排查时看错的那条只会浪费时间。
+    mcpResolver.detectBuiltinFromConfig.mockReturnValue('chrome-devtools')
+    mcpResolver.resolveBuiltinMcp.mockReturnValue({
+      status: 'resolved',
+      config: { command: 'cmd', args: ['/c', 'npx', '-y', 'chrome-devtools-mcp@1.12.0'] },
+    })
+    mcpProbe.probeMcpServer.mockResolvedValue({ status: 'connected', tools: [] })
+
+    const result = await handler('mcp:probeServer')({}, {
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'chrome-devtools-mcp@latest'],
+    })
+
+    expect(result).toMatchObject({ effectiveCommand: 'cmd /c npx -y chrome-devtools-mcp@1.12.0' })
+  })
+
+  it('URL 型服务器没有 command，不编造 effectiveCommand', async () => {
+    mcpProbe.probeMcpServer.mockResolvedValue({ status: 'connected', tools: [] })
+
+    const result = await handler('mcp:probeServer')({}, { type: 'http', url: 'https://x/mcp' })
+
+    expect(result).not.toHaveProperty('effectiveCommand')
   })
 
   it('内置服务器解析失败时直接回 failed，不去 spawn', async () => {
@@ -434,6 +464,17 @@ describe('mcp:probeServer 的内置服务器解析', () => {
       // 原有 env 在前、解析出的 env 在后 —— 后者覆盖同名键
       env: { USER: 'u', RESOLVED: '1' },
     })
+  })
+
+  it('解析器报告用户改写过 command（fallback-original）时按原配置探测', async () => {
+    mcpResolver.detectBuiltinFromConfig.mockReturnValue('cdp-bridge')
+    mcpResolver.resolveBuiltinMcp.mockReturnValue({ status: 'fallback-original' })
+    mcpProbe.probeMcpServer.mockResolvedValue({ status: 'connected', tools: [] })
+
+    const config = { type: 'stdio' as const, command: 'uvx', args: ['cdp-bridge@latest'] }
+    await handler('mcp:probeServer')({}, config)
+
+    expect(mcpProbe.probeMcpServer).toHaveBeenCalledWith(config)
   })
 })
 
