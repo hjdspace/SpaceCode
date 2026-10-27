@@ -612,10 +612,19 @@ onMounted(() => {
   // Recreate missing sidebar entries from that source on desktop startup.
   if (!isH5Mode()) {
     void sessionStore.recoverSessionsFromHistory()
-    // 预热当前会话的引擎进程：后台拉起 CLI（含 MCP 握手），首次发送免冷启动。
-    // warmupSession 内部自带闸门（等 settings hydration、已在运行则跳过、失败静默）。
-    const warmTarget = sessionStore.currentSessionId
-    if (warmTarget) void sessionStore.warmupSession(warmTarget)
+    // 预热引擎进程：后台拉起 CLI（含 MCP 握手），首次发送免冷启动。
+    // 挂在 currentSessionId 上，而不是只在启动时对当时那一个会话预热一次 ——
+    // 「新建会话」和「切换会话」同样是用户接下来要在这里发消息的信号，而真正发消息
+    // 的会话往往已经不是启动时那一个了（warmupSession 的预热进程还会被空闲回收）。
+    // warmupSession 自带闸门：等 settings hydration、只对 claude-code 生效、已在运行
+    // 就跳过、失败静默、绝不因配置漂移去重启正在运行的会话。
+    // 去抖是防止在侧栏里快速连点时每个会话都拉一个 CLI 进程 —— 只预热停下来的那个。
+    let warmupTimer: ReturnType<typeof setTimeout> | undefined
+    watch(() => sessionStore.currentSessionId, sessionId => {
+      if (warmupTimer) clearTimeout(warmupTimer)
+      if (!sessionId) return
+      warmupTimer = setTimeout(() => void sessionStore.warmupSession(sessionId), 500)
+    }, { immediate: true })
   }
 
   // 暴露全局 API 供主进程通过 executeJavaScript 调用，避免直接访问 Vue 内部实现
