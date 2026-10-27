@@ -75,6 +75,8 @@ export class ClaudeCodeEngine implements IEngine {
       modelContextWindows: config.modelContextWindows,
       rtkEnabled: config.rtkEnabled,
       sideTaskContextPath,
+      // 预热标记：池据此做“从未使用过的预热进程”空闲回收
+      warmed: config.warmed,
     }
     await this.pool.startSession(sessionId, sessionConfig)
   }
