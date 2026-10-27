@@ -356,7 +356,11 @@ import { useAgentSelector } from '@/composables/useAgentSelector'
 import { useFileAttachments } from '@/composables/useFileAttachments'
 import type { WorkspaceEntry } from '@/composables/useWorkspaceBrowser'
 import { usePromptOptimizer } from '@/composables/usePromptOptimizer'
-import { useVoiceInput } from '@/composables/useVoiceInput'
+import {
+  VOICE_ERROR_HINT_MS,
+  errorMessage,
+  useVoiceInput,
+} from '@/composables/useVoiceInput'
 import { captureCaret, restoreCaret } from '@/lib/voice/caretSnapshot'
 import { voiceTargetRegistry } from '@/lib/voice/voiceTargetRegistry'
 import type { VoiceInputTarget } from '@/lib/voice/voiceTargetRegistry'
@@ -685,7 +689,12 @@ async function beginVoiceInput() {
     try {
       voiceInstallInfo.value = await voice.getInstallInfo()
     } catch (error) {
+      // 读不到安装信息时绝不能静默返回：用户会以为按钮坏了。给出可见错误并保留 console 供排查。
       console.error('[ChatInput] Failed to read voice install info:', error)
+      voice.setHint(
+        { kind: 'error', code: 'install-failed', detail: errorMessage(error) },
+        VOICE_ERROR_HINT_MS,
+      )
       return
     }
     showVoiceInstallDialog.value = true
