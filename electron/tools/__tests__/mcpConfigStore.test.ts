@@ -24,6 +24,11 @@ const store = vi.hoisted(() => ({
   userData: process.cwd() + '/.fake-userdata',
   files: new Map<string, string>(),
   writeShouldThrow: false,
+  /** 每个用例一个代际：让读缓存默认不跨用例复用，谁要测缓存谁自己控制它。 */
+  epoch: 0,
+  /** true 时指纹恒定不变，用来验证"写入即失效"不依赖指纹变化。 */
+  freezeFingerprint: false,
+  reads: 0,
 }))
 
 vi.mock('electron', () => ({
@@ -36,9 +41,16 @@ vi.mock('electron', () => ({
 vi.mock('fs', () => ({
   existsSync: (p: string) => store.files.has(String(p)),
   readFileSync: (p: string) => {
+    store.reads++
     const value = store.files.get(String(p))
     if (value === undefined) throw new Error(`ENOENT: no such file, open '${p}'`)
     return value
+  },
+  statSync: (p: string) => {
+    const value = store.files.get(String(p))
+    if (value === undefined) throw new Error(`ENOENT: no such file, stat '${p}'`)
+    if (store.freezeFingerprint) return { size: 1, mtimeMs: 0 }
+    return { size: value.length, mtimeMs: store.epoch }
   },
   writeFileSync: (p: string, data: string) => {
     if (store.writeShouldThrow) throw new Error('EDQUOT: quota exceeded')
@@ -69,7 +81,6 @@ vi.mock('../mcpConfigResolver', () => ({
 
 import { warn, error as logError } from '../../infra/logger'
 import {
-  anyServerNeedsPackageManagerLauncher,
   MCP_CONFIG_PATH,
   buildEnabledMcpConfig,
   loadMcpConfig,
@@ -83,6 +94,8 @@ function writeRawConfig(value: unknown): void {
 beforeEach(() => {
   store.files.clear()
   store.writeShouldThrow = false
+  store.freezeFingerprint = false
+  store.epoch++
   resolver.builtinNameFromServerKey.mockReset().mockReturnValue(null)
   resolver.resolveBuiltinMcp.mockReset()
   resolver.usesPackageManagerLauncher.mockReset().mockReturnValue(false)
@@ -124,6 +137,54 @@ describe('loadMcpConfig', () => {
 
     expect(loadMcpConfig()).toEqual({})
     expect(warn).toHaveBeenCalled()
+  })
+})
+
+describe('loadMcpConfig 读缓存', () => {
+  it('文件没变时重复读取只解析一次 —— 一次 spawn 会读这份配置两遍', () => {
+    writeRawConfig({ a: { command: 'uvx', args: ['x'] } })
+
+    const before = store.reads
+    loadMcpConfig()
+    const afterFirst = store.reads
+    loadMcpConfig()
+
+    expect(afterFirst - before).toBe(1)
+    expect(store.reads).toBe(afterFirst)
+  })
+
+  it('手改文件（指纹变了）下一次读取就生效，不必重启应用', () => {
+    writeRawConfig({ a: { command: 'uvx' } })
+    expect(loadMcpConfig().a?.command).toBe('uvx')
+
+    store.files.set(MCP_CONFIG_PATH, JSON.stringify({ a: { command: 'npx' } }))
+    store.epoch++
+
+    expect(loadMcpConfig().a?.command).toBe('npx')
+  })
+
+  it('saveMcpConfig 后立刻读到新内容，即使指纹压根没变', () => {
+    // 写盘与 stat 落在同一个时间戳粒度里时，指纹是不变的 —— 那时唯一能靠的是
+    // 写入方主动作废缓存。这条测试把"不依赖指纹变化"钉住。
+    store.freezeFingerprint = true
+    saveMcpConfig({ first: { command: 'a' } })
+    expect(loadMcpConfig().first?.command).toBe('a')
+
+    saveMcpConfig({ second: { command: 'b' } })
+    expect(loadMcpConfig().second?.command).toBe('b')
+    expect(loadMcpConfig().first).toBeUndefined()
+  })
+
+  it('解析失败不写缓存：下一次读取仍然回到磁盘', () => {
+    store.files.set(MCP_CONFIG_PATH, '{"mcpServers": ')
+    expect(loadMcpConfig()).toEqual({})
+
+    const before = store.reads
+    store.files.set(MCP_CONFIG_PATH, JSON.stringify({ ok: { command: 'x' } }))
+    store.epoch++
+
+    expect(Object.keys(loadMcpConfig())).toEqual(['ok'])
+    expect(store.reads - before).toBe(1)
   })
 })
 
@@ -306,13 +367,13 @@ describe('buildEnabledMcpConfig — builtin delegation', () => {
   })
 })
 
-describe('anyServerNeedsPackageManagerLauncher', () => {
+describe('buildEnabledMcpConfig — handshake budget flag', () => {
   it('is false when there is no config file at all', () => {
-    expect(anyServerNeedsPackageManagerLauncher()).toBe(false)
+    expect(buildEnabledMcpConfig()).toBeNull()
     expect(resolver.usesPackageManagerLauncher).not.toHaveBeenCalled()
   })
 
-  it('is true as soon as one enabled server uses a launcher', () => {
+  it('is true as soon as one injected server still runs through a launcher', () => {
     writeRawConfig({
       'sc-computer-use': { type: 'stdio', command: 'cua-driver', args: ['mcp'] },
       'cdp-bridge': { type: 'stdio', command: 'uvx', args: ['cdp-bridge@latest'] },
@@ -321,7 +382,39 @@ describe('anyServerNeedsPackageManagerLauncher', () => {
       (config: { command?: string }) => config.command === 'uvx',
     )
 
-    expect(anyServerNeedsPackageManagerLauncher()).toBe(true)
+    expect(buildEnabledMcpConfig()!.usesPackageManagerLauncher).toBe(true)
+  })
+
+  it('is false when the resolver replaced the uvx preset with a local executable', () => {
+    // 预算判据必须取自解析之后的 command：本地装好时注入的是绝对路径，
+    // 握手不再付网络回源的钱，不该再为磁盘上那条 uvx 保留 30s。
+    writeRawConfig({ 'cdp-bridge': { type: 'stdio', command: 'uvx', args: ['cdp-bridge@latest'] } })
+    resolver.builtinNameFromServerKey.mockReturnValue('cdp-bridge')
+    resolver.resolveBuiltinMcp.mockReturnValue({
+      status: 'resolved',
+      config: { command: '/home/u/.local/bin/cdp-bridge', args: [] },
+    })
+    resolver.usesPackageManagerLauncher.mockImplementation(
+      (config: { command?: string }) => config.command === 'uvx' || config.command === 'npx',
+    )
+
+    const built = buildEnabledMcpConfig()!
+    expect(built.mcpServers['cdp-bridge'].command).toBe('/home/u/.local/bin/cdp-bridge')
+    expect(built.usesPackageManagerLauncher).toBe(false)
+    expect(resolver.usesPackageManagerLauncher).toHaveBeenCalledWith(
+      expect.objectContaining({ command: '/home/u/.local/bin/cdp-bridge' }),
+    )
+  })
+
+  it('stays true when a builtin dependency is missing and the uvx command is kept', () => {
+    writeRawConfig({ 'cdp-bridge': { type: 'stdio', command: 'uvx' } })
+    resolver.builtinNameFromServerKey.mockReturnValue('cdp-bridge')
+    resolver.resolveBuiltinMcp.mockReturnValue({ status: 'missing', error: 'uv not installed' })
+    resolver.usesPackageManagerLauncher.mockImplementation(
+      (config: { command?: string }) => config.command === 'uvx',
+    )
+
+    expect(buildEnabledMcpConfig()!.usesPackageManagerLauncher).toBe(true)
   })
 
   it('skips disabled servers — turning a preset off must not buy everyone a longer timeout', () => {
@@ -330,33 +423,35 @@ describe('anyServerNeedsPackageManagerLauncher', () => {
     })
     resolver.usesPackageManagerLauncher.mockReturnValue(true)
 
-    expect(anyServerNeedsPackageManagerLauncher()).toBe(false)
+    expect(buildEnabledMcpConfig()).toBeNull()
+    expect(resolver.usesPackageManagerLauncher).not.toHaveBeenCalled()
   })
 
-  it('skips claude.json servers, which buildEnabledMcpConfig never injects either', () => {
+  it('skips claude.json servers, which are not injected and not paid for here', () => {
     // 这些由 CLI 自己发现，SpaceCode 不为它们的启动成本负责。
     writeRawConfig({
       'someone-elses-npx': { type: 'stdio', command: 'npx', _source: 'claude.json' },
     })
     resolver.usesPackageManagerLauncher.mockReturnValue(true)
 
-    expect(anyServerNeedsPackageManagerLauncher()).toBe(false)
+    expect(buildEnabledMcpConfig()).toBeNull()
+    expect(resolver.usesPackageManagerLauncher).not.toHaveBeenCalled()
   })
 
   it('hands the predicate the type so remote servers can be ruled out', () => {
     writeRawConfig({ 'cloud': { type: 'http', url: 'https://api.example.com/mcp' } })
 
-    anyServerNeedsPackageManagerLauncher()
+    buildEnabledMcpConfig()
 
     expect(resolver.usesPackageManagerLauncher).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'http', url: 'https://api.example.com/mcp' }),
     )
   })
 
-  it('treats a missing type as stdio, matching buildEnabledMcpConfig', () => {
+  it('treats a missing type as stdio', () => {
     writeRawConfig({ 'legacy': { command: 'npx', args: ['-y', 'pkg'] } })
 
-    anyServerNeedsPackageManagerLauncher()
+    buildEnabledMcpConfig()
 
     expect(resolver.usesPackageManagerLauncher).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'stdio', command: 'npx' }),
