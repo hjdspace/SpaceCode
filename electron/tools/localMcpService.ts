@@ -118,6 +118,18 @@ function staticNpmBinDirs(): string[] {
 export function findChromeDevtoolsMcpLocal(): { command: string; args: string[] } | null {
   const shim = npmShimName()
 
+  // `where node` 一次解析里最多起一个子进程：兜底分支和最后的入口校验用的是同
+  // 一个答案，原来各查一遍。
+  let nodeProbed = false
+  let nodePath: string | null = null
+  const resolveNode = (): string | null => {
+    if (!nodeProbed) {
+      nodeProbed = true
+      nodePath = findInPath('node')
+    }
+    return nodePath
+  }
+
   const fromStatic = staticNpmBinDirs()
     .map(dir => join(dir, shim))
     .find(p => existsSync(p))
@@ -125,9 +137,9 @@ export function findChromeDevtoolsMcpLocal(): { command: string; args: string[] 
 
   if (!binPath) {
     // node 与它自己的全局 shim 同目录（自定义 prefix / 解压版 Node 的常见布局）
-    const nodePath = findInPath('node')
-    if (nodePath) {
-      const nextToNode = join(dirname(nodePath), shim)
+    const node = resolveNode()
+    if (node) {
+      const nextToNode = join(dirname(node), shim)
       if (existsSync(nextToNode)) binPath = nextToNode
     }
   }
@@ -139,8 +151,8 @@ export function findChromeDevtoolsMcpLocal(): { command: string; args: string[] 
   )
   if (!existsSync(jsEntry)) return null
 
-  const nodePath = findInPath('node')
-  if (!nodePath) return null
+  const node = resolveNode()
+  if (!node) return null
 
-  return { command: nodePath, args: [jsEntry] }
+  return { command: node, args: [jsEntry] }
 }
