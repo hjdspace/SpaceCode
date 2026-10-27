@@ -45,6 +45,8 @@ export interface EngineSessionConfig {
   sideTaskSourceEngine?: EngineType
   /** 已解析出的快照文件路径；引擎在首条用户消息中包裹注入，注入后即清除（一次性）。 */
   sideTaskContextPath?: string
+  /** 预热拉起的会话标记（仅 claude-code 池消费），见 SessionConfig.warmed。 */
+  warmed?: boolean
 }
 
 export interface UnifiedEngineEvent {
