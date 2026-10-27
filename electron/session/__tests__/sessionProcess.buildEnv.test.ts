@@ -78,8 +78,11 @@ vi.mock('../../infra/proxyManager', () => ({
   buildProxyConfigFromSettings: vi.fn(() => ({ upstreamProvider: 'x' })),
 }))
 
+const mcpStore = vi.hoisted(() => ({ needsPackageManagerLauncher: false }))
+
 vi.mock('../../tools/mcpConfigStore', () => ({
   buildEnabledMcpConfig: vi.fn(() => null),
+  anyServerNeedsPackageManagerLauncher: () => mcpStore.needsPackageManagerLauncher,
 }))
 
 const officeCli = vi.hoisted(() => ({
@@ -123,6 +126,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_ENABLE_TASKS',
   'CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING',
   'CLAUDE_CODE_GIT_BASH_PATH',
+  'MCP_TIMEOUT',
 ]
 
 const originalPlatform = process.platform
@@ -148,6 +152,7 @@ beforeEach(() => {
   net.startCalls = 0
   rtk.installed = false
   rtk.dir = '/rtk/bin'
+  mcpStore.needsPackageManagerLauncher = false
   officeCli.syncCalls = 0
   officeCli.result = { copied: false, reason: 'up-to-date', bundledVersion: '1.0.157', installedVersion: '1.0.157' }
   Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
@@ -238,6 +243,27 @@ describe('buildEnv — safety defaults & overrides', () => {
     expect(env.PYTHONIOENCODING).toBe('utf-8')
     expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe('1')
     expect(env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING).toBe('1')
+  })
+
+  it('tightens the MCP handshake timeout to 15s when the caller left MCP_TIMEOUT unset', async () => {
+    // engine 默认 30s：任一 MCP 握手挂住都会把 system/init 拖到 40s+。
+    const env = await buildEnv({ provider: 'anthropic' })
+    expect(env.MCP_TIMEOUT).toBe('15000')
+  })
+
+  it('gives launcher-based (uvx/npx) servers the full 30s handshake budget', async () => {
+    // uvx/npx 每次启动都要做包解析，uv 还会按 PyPI 的 max-age=600 周期性回源。
+    // 实测 cdp-bridge 握手 4.7-5.4s（缓存新鲜）→ 6.9-10.8s（回源 + 并发），
+    // 15s 预算会把本来健康的服务器判成 CONNECT_TIMEOUT。
+    mcpStore.needsPackageManagerLauncher = true
+    const env = await buildEnv({ provider: 'anthropic' })
+    expect(env.MCP_TIMEOUT).toBe('30000')
+  })
+
+  it('respects an MCP_TIMEOUT the caller already pinned instead of overwriting it', async () => {
+    process.env.MCP_TIMEOUT = '30000'
+    const env = await buildEnv({ provider: 'anthropic' })
+    expect(env.MCP_TIMEOUT).toBeUndefined()
   })
 
   it('respects a value the caller already pinned in process.env instead of overwriting it', async () => {
