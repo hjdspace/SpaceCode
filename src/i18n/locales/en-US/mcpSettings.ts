@@ -54,6 +54,8 @@ export default {
   testConnection: 'Test Connection',
   reconnect: 'Reconnect',
   connectionTest: 'Connection Test',
+  effectiveCommand: 'Effective launch command',
+  runtimeError: 'Error reported by the engine',
   serverConnectedNoTools: 'Server connected but reported no tools',
   connected: 'Connected',
   authRequired: 'Auth Required',
