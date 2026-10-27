@@ -64,6 +64,8 @@ export default {
     active: '正在思考',
     reasoningLabel: '推理中',
     responding: '正在回复',
+    starting: '正在启动引擎',
+    mcpFailed: 'MCP 连接失败：{names}',
   },
   toolChips: {
     toolCalls: '{count} 个工具调用',
