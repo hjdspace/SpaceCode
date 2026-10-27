@@ -30,7 +30,8 @@ import { ShellOutputStream } from './shellOutputStream'
 import { toInlineImageBlock, type InlineImageBlock } from './imageContentBlock'
 import { readSideTaskContextFile, discardSideTaskContextFile } from './transcriptDigest'
 import { removeTempFiles, writeSessionTempFile } from './tempArtifacts'
-import { anyServerNeedsPackageManagerLauncher, buildEnabledMcpConfig } from '../tools/mcpConfigStore'
+import { getSpawnEnvironment } from './spawnEnvironment'
+import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
 import { getOfficeCliInstallDir, syncInstalledOfficeCli } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
 
@@ -233,11 +234,32 @@ export class SessionProcess extends EventEmitter {
   spawnedThinkingEnabled?: boolean
   /** 同上，记的是 --effort 的**意图值**而非下发前的钳后值：钳制是确定性的，记钳后值会让池每轮都判定待重启而反复重启。 */
   spawnedEffortLevel?: EffortLevel
+  /** 本次 spawn 实际注入 --mcp-config 的服务器数量；首 Token 账本用它关联 MCP 握手成本。 */
+  spawnedMcpServerCount = 0
+
+  /**
+   * 本次 spawn 实际注入的配置里是否有 uvx/npx launcher 型条目。
+   * buildArgs 里由 buildEnabledMcpConfig 的解析结论给出，buildEnv 据此决定
+   * MCP_TIMEOUT 的握手预算 —— 必须是注入后的形态，不是磁盘上的原始 command。
+   */
+  spawnedMcpUsesLauncher = false
 
   // 工具调用状态追踪
   private pendingToolCalls: Set<string> = new Set()
   private isProcessing: boolean = false
   private initWaiters: Array<(ready: boolean) => void> = []
+  /**
+   * 冷启动那几十秒到底花在哪一段，只能实测拆分（见 reportFirstTokenLatency）：
+   * 宿主准备参数 → 进程拉起 → 引擎 init（含全部 MCP 握手）→ 首 Token。
+   * 每次 start() 重新计；initAt 早于 stdinAt 就说明这次发送命中了预热进程。
+   */
+  private latencyMarks: {
+    startAt?: number
+    preSpawnAt?: number
+    spawnedAt?: number
+    initAt?: number
+    stdinAt?: number
+  } = {}
 
   // 控制协议处理器：负责 can_use_tool / control_response / elicitation 等
   private readonly controlProtocol: ControlProtocolHandler
@@ -369,6 +391,8 @@ export class SessionProcess extends EventEmitter {
 
   async start(): Promise<void> {
     this.status = 'starting'
+    // 新的启动账本：上一代进程的 init 时戳不能参与这一轮的差值计算。
+    this.latencyMarks = { startAt: Date.now() }
     // 创建会话级日志文件
     setSessionLogPath(this.sessionId)
     traceEvent({
@@ -410,7 +434,7 @@ export class SessionProcess extends EventEmitter {
     // 新进程 = 新的待核验状态，不要把上一个进程结论带过来。
     this.reportedPermissionMode = null
     this.permissionModeVerified = null
-    const baseEnv = await this.buildEnv(this.config)
+    const baseEnv = await this.buildEnv(this.config, this.spawnedMcpUsesLauncher)
     const desktopCli = path.join(this.cliRoot, 'dist-desktop/cli.js')
     let launch = this.resolveCliCommand()
     let canRetryENOENT =
@@ -432,6 +456,7 @@ export class SessionProcess extends EventEmitter {
       }
     }
 
+    this.latencyMarks.preSpawnAt = Date.now()
     for (let attempt = 0; attempt < 2; attempt++) {
       const env = { ...process.env, ...baseEnv, ...(launch.launcherEnv ?? {}) }
       const args = [...launch.args, ...builtArgs]
@@ -457,6 +482,7 @@ export class SessionProcess extends EventEmitter {
       const outcome = await this.waitForSpawnOrError(proc)
 
       if (outcome === 'spawn') {
+        this.latencyMarks.spawnedAt = Date.now()
         this.process = proc
         this.attachProcessListeners(proc, this.tempArtifacts.slice())
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process spawned | pid=${proc.pid}`)
@@ -690,6 +716,8 @@ export class SessionProcess extends EventEmitter {
     }) + '\n'
     try {
       this.process.stdin!.write(msg)
+      // 这一轮的原点：首 Token 延迟全部以此起算。
+      this.latencyMarks.stdinAt = Date.now()
       debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Message written to stdin successfully`)
       // 注入已落地：快照使命完成，清理临时文件
       if (injectedContextPath) discardSideTaskContextFile(injectedContextPath)
@@ -1122,6 +1150,61 @@ export class SessionProcess extends EventEmitter {
   }
 
   /**
+   * 首个可见 Token 到达时，把这一轮的分段耗时落成一条记录。只认 text / thinking
+   * 增量：input_json_delta 是工具入参、tool_execution_delta 是主进程合成的 Bash
+   * 旁路，两者都不代表模型开始吐字。
+   */
+  private maybeReportFirstTokenLatency(ev: any): void {
+    const deltaType = ev?.delta?.type
+    if (deltaType !== 'text_delta' && deltaType !== 'thinking_delta') return
+    const stdinAt = this.latencyMarks.stdinAt
+    if (stdinAt === undefined) return
+    delete this.latencyMarks.stdinAt
+    this.reportFirstTokenLatency(Date.now(), stdinAt)
+  }
+
+  /**
+   * 首 Token 延迟账本。宿主准备（buildArgs/buildEnv 里那些同步子进程）、进程拉起、
+   * 引擎 init（含全部 MCP 握手）、上游 TTFT 四段各自独立，混在一个总数里就没法
+   * 判断该优化哪一段，所以逐个拆开记。
+   *
+   * 「冷」的定义是发送时引擎还没发出 system/init —— 这时这段启动成本算在这条消息
+   * 头上；预热命中（initAt 早于 stdinAt）则只有 boot 各段的历史参考价值，故不重复报。
+   */
+  private reportFirstTokenLatency(tokenAt: number, stdinAt: number): void {
+    const m = this.latencyMarks
+    const booting = m.initAt !== undefined && m.initAt > stdinAt
+    const metrics: Record<string, number | boolean | undefined> = {
+      ttftMs: tokenAt - stdinAt,
+      coldStart: booting,
+      warmedSpawn: !!this.config.warmed,
+      resumedSpawn: !!this.config.resumeSessionId,
+      mcpServerCount: this.spawnedMcpServerCount,
+    }
+    if (booting) {
+      metrics.hostPrepMs = m.preSpawnAt !== undefined && m.startAt !== undefined ? m.preSpawnAt - m.startAt : undefined
+      metrics.spawnMs = m.spawnedAt !== undefined && m.preSpawnAt !== undefined ? m.spawnedAt - m.preSpawnAt : undefined
+      metrics.engineBootMs = m.spawnedAt !== undefined ? (m.initAt as number) - m.spawnedAt : undefined
+      metrics.sendToInitMs = (m.initAt as number) - stdinAt
+      metrics.afterInitMs = tokenAt - (m.initAt as number)
+    }
+    const parts = Object.entries(metrics)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' | ')
+    info('SessionProcess', `[${this.sessionId.slice(0, 8)}] First token | ${parts}`)
+    traceEvent({
+      sessionId: this.sessionId,
+      engineSessionId: this.engineSessionId ?? undefined,
+      actor: 'system',
+      type: 'first_token_latency',
+      status: 'completed',
+      title: 'First model token received',
+      metadata: metrics,
+    })
+  }
+
+  /**
    * 入站消息路由：把控制协议消息消化掉，其余继续走原有 handleSDKMessage 逻辑。
    *
    * 实际工作由 ControlProtocolHandler 完成；此处保留是为了便于打日志。
@@ -1193,6 +1276,7 @@ export class SessionProcess extends EventEmitter {
     }
 
     if (msg.type === 'system' && msg.subtype === 'init') {
+      this.latencyMarks.initAt = Date.now()
       const sid = msg.session_id
       // 引擎在 init 里回报它自己认定的权限模式 —— 这是宿主唯一能拿到的实况，
       // 用来判断"用户意图是否真的落地"（池据此重试下发或直接重启进程）。
@@ -1232,6 +1316,8 @@ export class SessionProcess extends EventEmitter {
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] stream_event: message_start | model=${ev.message?.model}`)
       } else if (ev.type === 'message_stop') {
         info('SessionProcess', `[${this.sessionId.slice(0, 8)}] stream_event: message_stop`)
+      } else if (ev.type === 'content_block_delta') {
+        this.maybeReportFirstTokenLatency(ev)
       }
     }
 
@@ -1478,13 +1564,20 @@ export class SessionProcess extends EventEmitter {
     //
     // 复用上方已加载的 enabledMcpConfig，不再重复读取磁盘。
     try {
+      this.spawnedMcpServerCount = 0
+      this.spawnedMcpUsesLauncher = false
       if (enabledMcpConfig && Object.keys(enabledMcpConfig.mcpServers).length > 0) {
-        const mcpPath = writeSessionTempFile(this.sessionId, 'mcp', JSON.stringify(enabledMcpConfig, null, 2))
+        this.spawnedMcpServerCount = Object.keys(enabledMcpConfig.mcpServers).length
+        this.spawnedMcpUsesLauncher = enabledMcpConfig.usesPackageManagerLauncher
+        // 只写 mcpServers 这一层：返回值里的握手预算是宿主侧的记账字段，
+        // 混进 CLI payload 会被 schema 拒掉。
+        const payload = { mcpServers: enabledMcpConfig.mcpServers }
+        const mcpPath = writeSessionTempFile(this.sessionId, 'mcp', JSON.stringify(payload, null, 2))
         this.tempArtifacts.push(mcpPath)
         args.push('--mcp-config', mcpPath)
         debug(
           'SessionProcess',
-          `[${this.sessionId.slice(0, 8)}] Injected MCP config | path=${mcpPath} | servers=${Object.keys(enabledMcpConfig.mcpServers).join(',')}`,
+          `[${this.sessionId.slice(0, 8)}] Injected MCP config | path=${mcpPath} | servers=${Object.keys(enabledMcpConfig.mcpServers).join(',')} | launcher=${this.spawnedMcpUsesLauncher ? 'yes' : 'no'}`,
         )
       }
     } catch (err) {
@@ -1587,7 +1680,12 @@ export class SessionProcess extends EventEmitter {
     }
   }
 
-  private async buildEnv(config: SessionConfig): Promise<Record<string, string>> {
+  /**
+   * @param mcpUsesLauncher 本次 spawn 实际注入的 MCP 配置是否含 uvx/npx launcher
+   *        型条目（buildArgs 的解析结论）。它决定 MCP_TIMEOUT 的握手预算，
+   *        所以必须在 buildArgs 之后调用。
+   */
+  private async buildEnv(config: SessionConfig, mcpUsesLauncher: boolean): Promise<Record<string, string>> {
     const env: Record<string, string> = {}
     const provider = (config.provider || 'anthropic').toLowerCase()
     env.LLM_PROVIDER = provider
@@ -1622,10 +1720,17 @@ export class SessionProcess extends EventEmitter {
       env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop'
     }
 
-    const gitBashPath = this.findGitBashPath()
-    if (gitBashPath && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
-      env.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath
-      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Git Bash path detected | path=${gitBashPath}`)
+    // 机器上装了什么（注册表 PATH / Python 位置 / Git Bash）由共享快照负责：主进程
+    // 启动时预热一次，会话 spawn 通常直接命中缓存，不再把 reg query 子进程压在
+    // 事件循环上。见 spawnEnvironment.ts。
+    const spawnEnv = await getSpawnEnvironment()
+
+    // 宿主环境里已经显式设过 CLAUDE_CODE_GIT_BASH_PATH 时不覆盖，哪怕它指向的
+    // 文件不存在 —— 那是用户的声明，快照在这种情况下仍会返回探到的别处，但子进程
+    // 环境保持用户原值（口径与改造前一致）。
+    if (spawnEnv.gitBashPath && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
+      env.CLAUDE_CODE_GIT_BASH_PATH = spawnEnv.gitBashPath
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Git Bash path detected | path=${spawnEnv.gitBashPath}`)
     }
 
     if (!process.env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) {
@@ -1644,11 +1749,13 @@ export class SessionProcess extends EventEmitter {
     // 每次启动都要做包解析，uv 还会按 PyPI 的 max-age=600 周期性回源。实测
     // cdp-bridge 握手在缓存新鲜时 4.7-5.4s，回源且与另一个 launcher 并发时
     // 6.9-10.8s —— 网络抖一下就翻过 15s，把一个本来健康的服务器判成
-    // CONNECT_TIMEOUT。所以按配置形态给预算：只有真的存在 launcher 型服务器时
-    // 才回到 engine 默认的 30s，其余仍然 15s，不牺牲常见故障场景的收敛速度。
+    // CONNECT_TIMEOUT。所以按配置形态给预算：只有这次真的注入了 launcher 型
+    // 服务器时才回到 engine 默认的 30s，其余仍然 15s，不牺牲常见故障场景的收敛速度。
+    // 判据取自 buildArgs 解析之后的形态，不是磁盘上的原始 command —— 内置预设
+    // 一旦被本地安装直连，就不该再为它付这 15s 的差额。
     // 用户显式设置的 MCP_TIMEOUT 优先。
     if (!process.env.MCP_TIMEOUT) {
-      env.MCP_TIMEOUT = anyServerNeedsPackageManagerLauncher() ? '30000' : '15000'
+      env.MCP_TIMEOUT = mcpUsesLauncher ? '30000' : '15000'
     }
 
     // Windows 中文系统下 python stdout 默认 cp936(GBK)，引擎按 UTF-8 解码会产生乱码。
@@ -1663,26 +1770,10 @@ export class SessionProcess extends EventEmitter {
     // 运行的进程中。引擎进程继承这个过期的 PATH，导致 bash 工具执行
     // `python` 时报 exit code 127 (command not found)。
     //
-    // 修复：
-    // 1. 从 Windows 注册表读取当前系统级和用户级 PATH（包含最近安装的工具）
-    // 2. 检测常见 Python 安装位置（处理未勾选 "Add to PATH" 的情况）
-    // 3. 合并后注入 env.PATH，确保引擎进程获得最新的 PATH
-    const refreshedPath = this.refreshWindowsPath()
-    if (refreshedPath) {
-      env.PATH = refreshedPath
-    }
-
-    const pythonPaths = this.detectPythonPaths()
-    if (pythonPaths.length > 0) {
-      const currentPath = env.PATH || process.env.PATH || ''
-      const existingEntries = currentPath.split(path.delimiter)
-      const newEntries = pythonPaths.filter(
-        p => !existingEntries.some(e => e.toLowerCase() === p.toLowerCase()),
-      )
-      if (newEntries.length > 0) {
-        env.PATH = [...newEntries, ...existingEntries].join(path.delimiter)
-        debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] Detected Python installations not in PATH | dirs=${newEntries.join(';')}`)
-      }
+    // 修复（注册表读取 + Python 目录合并，口径见 spawnEnvironment.ts）：
+    // 上面的 getSpawnEnvironment() 已经把两者合成好了。
+    if (spawnEnv.path) {
+      env.PATH = spawnEnv.path
     }
 
     // Force-enable v2 task tools (TaskCreate / TaskGet / TaskUpdate / TaskList).
@@ -1872,172 +1963,6 @@ export class SessionProcess extends EventEmitter {
       warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] Failed to read gui-settings.json for proxy config`, { error: String(err) })
       return null
     }
-  }
-
-  /**
-   * On Windows, reads the current system and user PATH from the registry.
-   *
-   * Windows GUI apps inherit PATH from explorer.exe at launch time. If the user
-   * installs tools (Python, Node, etc.) after the app was launched, those new
-   * PATH entries don't propagate to already-running processes. Reading from the
-   * registry ensures we always get the current PATH, making newly-installed
-   * tools available to the engine's bash tool.
-   *
-   * Returns the merged PATH string, or null on non-Windows / failure.
-   */
-  private refreshWindowsPath(): string | null {
-    if (process.platform !== 'win32') return null
-
-    try {
-      const { execSync } = require('child_process') as typeof import('child_process')
-
-      const readRegPath = (hive: string): string => {
-        try {
-          const result = execSync(
-            `reg query "${hive}" /v Path`,
-            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 },
-          )
-          // Parse output like:
-          //   "    Path    REG_EXPAND_SZ    C:\Windows\system32;C:\Windows;..."
-          const match = result.match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.+)/)
-          if (!match) return ''
-          // Expand environment variables like %SystemRoot% (REG_EXPAND_SZ)
-          return match[1].trim().replace(/%([^%]+)%/g, (_, name: string) => process.env[name] || '')
-        } catch {
-          return ''
-        }
-      }
-
-      const systemPath = readRegPath('HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment')
-      const userPath = readRegPath('HKCU\\Environment')
-      const existingPath = process.env.PATH || ''
-
-      // Merge: system PATH first, then user PATH, then existing process.env.PATH
-      // (existing entries are kept to preserve any custom additions like officecli)
-      const allEntries = [
-        ...systemPath.split(';'),
-        ...userPath.split(';'),
-        ...existingPath.split(';'),
-      ].filter(Boolean)
-
-      // Deduplicate while preserving order (case-insensitive on Windows)
-      const seen = new Set<string>()
-      const deduped: string[] = []
-      for (const entry of allEntries) {
-        const key = entry.toLowerCase()
-        if (!seen.has(key)) {
-          seen.add(key)
-          deduped.push(entry)
-        }
-      }
-
-      const merged = deduped.join(';')
-      if (merged !== existingPath) {
-        debug(
-          'SessionProcess',
-          `[${this.sessionId.slice(0, 8)}] Refreshed PATH from Windows registry | originalEntries=${existingPath.split(';').length} | refreshedEntries=${deduped.length}`,
-        )
-      }
-      return merged
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * Detects Python installation directories on Windows that might not be in PATH.
-   *
-   * This handles cases where:
-   * - Python was installed without checking "Add Python to PATH"
-   * - Python is a portable/standalone installation
-   * - Python is managed by pyenv-win, conda, etc.
-   *
-   * Only directories containing python.exe are returned.
-   */
-  private detectPythonPaths(): string[] {
-    if (process.platform !== 'win32') return []
-
-    const found: string[] = []
-    const checked = new Set<string>()
-
-    const checkDir = (dir: string): void => {
-      if (!dir) return
-      const key = dir.toLowerCase()
-      if (checked.has(key)) return
-      checked.add(key)
-      try {
-        if (fs.existsSync(path.join(dir, 'python.exe'))) {
-          found.push(dir)
-        }
-      } catch { /* ignore */ }
-    }
-
-    // 1. python.org installer: %LOCALAPPDATA%\Programs\Python\Python3XX\
-    if (process.env.LOCALAPPDATA) {
-      const pythonDir = path.join(process.env.LOCALAPPDATA, 'Programs', 'Python')
-      try {
-        for (const entry of fs.readdirSync(pythonDir)) {
-          if (/^Python\d+/i.test(entry)) {
-            checkDir(path.join(pythonDir, entry))
-          }
-        }
-      } catch { /* directory doesn't exist */ }
-    }
-
-    // 2. Windows Store App Execution Aliases: %LOCALAPPDATA%\Microsoft\WindowsApps\
-    if (process.env.LOCALAPPDATA) {
-      checkDir(path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps'))
-    }
-
-    // 3. Anaconda / Miniconda
-    const condaDirs = [
-      path.join(os.homedir(), 'Anaconda3'),
-      path.join(os.homedir(), 'anaconda3'),
-      path.join(os.homedir(), 'Miniconda3'),
-      path.join(os.homedir(), 'miniconda3'),
-      'C:\\ProgramData\\Anaconda3',
-      'C:\\ProgramData\\miniconda3',
-    ]
-    for (const dir of condaDirs) {
-      checkDir(dir)
-    }
-
-    // 4. pyenv-win: %USERPROFILE%\.pyenv\pyenv-win\versions\<version>\
-    const pyenvDir = process.env.PYENV || path.join(os.homedir(), '.pyenv', 'pyenv-win')
-    try {
-      const versionsDir = path.join(pyenvDir, 'versions')
-      for (const entry of fs.readdirSync(versionsDir)) {
-        checkDir(path.join(versionsDir, entry))
-      }
-    } catch { /* pyenv-win not installed */ }
-
-    return found
-  }
-
-  private findGitBashPath(): string | null {
-    if (process.platform !== 'win32') return null
-    if (process.env.CLAUDE_CODE_GIT_BASH_PATH && fs.existsSync(process.env.CLAUDE_CODE_GIT_BASH_PATH)) {
-      return process.env.CLAUDE_CODE_GIT_BASH_PATH
-    }
-    const candidates = [
-      'C:\\Program Files\\Git\\bin\\bash.exe',
-      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
-      path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Git', 'bin', 'bash.exe'),
-      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
-      process.env.ProgramW6432 && path.join(process.env.ProgramW6432, 'Git', 'bin', 'bash.exe'),
-    ].filter(Boolean) as string[]
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) return candidate
-    }
-    try {
-      const out = require('child_process').execSync('where git', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-      const gitExe = out.split(/\r?\n/).map((s: string) => s.trim()).filter(Boolean)[0]
-      if (gitExe) {
-        const bashFromGit = path.join(path.dirname(path.dirname(gitExe)), 'bin', 'bash.exe')
-        if (fs.existsSync(bashFromGit)) return bashFromGit
-      }
-    } catch {}
-    return null
   }
 
   private resolveCliCommand(): { command: string; args: string[]; launcherEnv?: Record<string, string> } {

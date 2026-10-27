@@ -95,6 +95,11 @@ vi.mock('../../infra/proxyManager', () => ({
   buildProxyConfigFromSettings: vi.fn(() => null),
 }))
 vi.mock('../../tools/mcpConfigStore', () => ({ buildEnabledMcpConfig: vi.fn(() => null) }))
+// 机器探测（注册表 PATH / Git Bash）有自己的测试；这里 stub 掉，避免在 Windows
+// 开发机上跑单测时真去起 reg query 子进程。
+vi.mock('../spawnEnvironment', () => ({
+  getSpawnEnvironment: vi.fn(async () => ({ path: null, gitBashPath: null })),
+}))
 vi.mock('../../tools/officeCliService', () => ({
   getOfficeCliInstallDir: vi.fn(() => '/office/bin'),
   syncInstalledOfficeCli: vi.fn(() => ({ copied: false, reason: 'up-to-date', bundledVersion: null, installedVersion: null })),

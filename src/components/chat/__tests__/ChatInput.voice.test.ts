@@ -433,6 +433,26 @@ describe('ChatInput · 语音输入', () => {
     expect(api.voice.startSession).toHaveBeenCalledTimes(1)
   })
 
+  it('读取安装信息失败时给出可见错误提示，不再静默', async () => {
+    vi.mocked(api.voice.getModelStatus).mockResolvedValue(status('missing'))
+    vi.mocked(api.voice.getInstallInfo).mockRejectedValue(
+      new Error("No handler registered for 'voice:getInstallInfo'"),
+    )
+    const wrapper = mountInput()
+    await flushPromises()
+
+    await wrapper.find('.voice-btn').trigger('click')
+    await flushPromises()
+
+    const hint = wrapper.find('.voice-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.classes()).toContain('is-error')
+    expect(hint.text()).toContain('No handler registered')
+    expect(wrapper.find('.vmd-title').exists()).toBe(false)
+    expect(api.voice.startSession).not.toHaveBeenCalled()
+    expect(editorEl(wrapper).getAttribute('contenteditable')).toBe('true')
+  })
+
   it('收口中重复点击停止只提交一次终稿', async () => {
     const wrapper = mountInput()
     await flushPromises()

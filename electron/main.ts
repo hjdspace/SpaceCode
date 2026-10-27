@@ -42,6 +42,7 @@ import {
 import { flushTraceSidecars } from './infra/traceSidecar'
 import { proxyManager, buildProxyConfigFromSettings } from './infra/proxyManager'
 import { sweepStaleTempArtifacts } from './session/tempArtifacts'
+import { getSpawnEnvironment } from './session/spawnEnvironment'
 import { rtkManager } from './tools/rtkManager'
 import { PetFileService } from './pet/petFileService'
 import { PetWindowController } from './pet/petWindowManager'
@@ -234,6 +235,10 @@ app.whenReady().then(async () => {
   info('Startup', 'OfficeCLI IPC handlers registered')
 
   void ensureOfficeCliInstalled()
+  // 预热引擎 spawn 前的机器探测（注册表 PATH / Python 位置 / Git Bash）。这些探测
+  // 原本每次 spawn 都同步跑在主进程事件循环上；启动时跑一次填好缓存，首条消息就
+  // 不必为它们付延迟。fire-and-forget：探测失败会话照常起，只是退回原来越过缓存的成本。
+  void getSpawnEnvironment().catch(() => {})
 
   registerCuaDriverIPCHandlers()
   info('Startup', 'CuaDriver IPC handlers registered')

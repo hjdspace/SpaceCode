@@ -163,8 +163,32 @@ export interface OfficeCliSyncResult {
   installedVersion: string | null
 }
 
-/** Run `<binary> --version` and pull the dotted version out of its output. */
+/**
+ * Run `<binary> --version` and pull the dotted version out of its output.
+ *
+ * 每次会话 spawn，syncInstalledOfficeCli 都要比对 bundled 与 installed 两个二进制
+ * 的版本，而那是一次真实的子进程（Windows 上还要吃一遍 AV 扫描）。版本由二进制
+ * 内容决定，所以按 (size, mtime) 复用结论：bundled 在应用运行期不会变，installed
+ * 只可能因为一次 install 而变 —— 那时文件本身就被换掉了，指纹自然失效。
+ * 读不到版本（二进制损坏 / 超时）不缓存，否则一次抖动就被钉成永久结论。
+ */
+const versionCache = new Map<string, { fingerprint: string; version: string }>()
+
+function binaryFingerprint(binaryPath: string): string | null {
+  try {
+    const st = fs.statSync(binaryPath)
+    return `${st.size}:${Math.round(st.mtimeMs)}`
+  } catch {
+    return null
+  }
+}
+
 function readOfficeCliVersion(binaryPath: string): string | null {
+  const fingerprint = binaryFingerprint(binaryPath)
+  if (fingerprint) {
+    const cached = versionCache.get(binaryPath)
+    if (cached && cached.fingerprint === fingerprint) return cached.version
+  }
   try {
     const result = spawnSync(binaryPath, ['--version'], {
       timeout: 5000,
@@ -173,7 +197,9 @@ function readOfficeCliVersion(binaryPath: string): string | null {
     })
     if (result.status !== 0 || !result.stdout) return null
     const match = result.stdout.trim().match(/\d+\.\d+\.\d+/)
-    return match ? match[0] : null
+    if (!match) return null
+    if (fingerprint) versionCache.set(binaryPath, { fingerprint, version: match[0] })
+    return match[0]
   } catch {
     return null
   }

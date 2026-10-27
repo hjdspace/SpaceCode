@@ -74,7 +74,10 @@ vi.mock('../../infra/proxyManager', () => ({
   buildProxyConfigFromSettings: vi.fn(() => null),
 }))
 
-const mcp = vi.hoisted(() => ({ config: null as { mcpServers: Record<string, unknown> } | null, throwOnBuild: false }))
+const mcp = vi.hoisted(() => ({
+  config: null as { mcpServers: Record<string, unknown>; usesPackageManagerLauncher?: boolean } | null,
+  throwOnBuild: false,
+}))
 vi.mock('../../tools/mcpConfigStore', () => ({
   buildEnabledMcpConfig: () => {
     if (mcp.throwOnBuild) throw new Error('disk gone')
@@ -296,6 +299,42 @@ describe('buildArgs — MCP config & system-prompt hints', () => {
     expect(args).toContain('--permission-prompt-tool')
     expect(args).not.toContain('--mcp-config')
     mcp.throwOnBuild = false
+  })
+
+  it('writes the pure CLI payload to --mcp-config — the host-side budget field never reaches the file', () => {
+    mcp.config = {
+      mcpServers: { 'cdp-bridge': { type: 'stdio', command: 'uvx', args: ['cdp-bridge@0.1.25'] } },
+      usesPackageManagerLauncher: true,
+    }
+    buildArgs()
+
+    const written = fsp.writes.find(w => w.content.includes('mcpServers'))!
+    expect(Object.keys(JSON.parse(written.content))).toEqual(['mcpServers'])
+  })
+
+  it('carries this spawn\'s launcher verdict to the handshake budget, and drops it when the servers go away', () => {
+    // resume / 重启在同一个 SessionProcess 上再跑一次 buildArgs，
+    // 上一轮的预算结论不能留着把 MCP_TIMEOUT 一直抬在 30s。
+    const config: SessionConfig = { cwd: '/tmp/ws', provider: 'anthropic', permissionMode: 'default' }
+    const proc = new SessionProcess('sess-args-budget', config)
+    try {
+      mcp.config = {
+        mcpServers: { 'cdp-bridge': { type: 'stdio', command: '/home/u/.local/bin/cdp-bridge' } },
+        usesPackageManagerLauncher: true,
+      }
+      ;(proc as any).buildArgs(config)
+      expect(proc.spawnedMcpUsesLauncher).toBe(true)
+
+      mcp.config = { mcpServers: { fs: { type: 'stdio', command: 'node' } }, usesPackageManagerLauncher: false }
+      ;(proc as any).buildArgs(config)
+      expect(proc.spawnedMcpUsesLauncher).toBe(false)
+
+      mcp.config = null
+      ;(proc as any).buildArgs(config)
+      expect(proc.spawnedMcpUsesLauncher).toBe(false)
+    } finally {
+      proc.removeAllListeners()
+    }
   })
 })
 

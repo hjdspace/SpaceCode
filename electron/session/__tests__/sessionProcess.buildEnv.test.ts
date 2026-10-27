@@ -18,10 +18,11 @@ import { SessionProcess, type SessionConfig } from '../sessionProcess'
  *   - and tool directories (officecli / RTK) are prepended to PATH so the
  *     engine's Bash tool can find them.
  *
- * Windows-only branches (`refreshWindowsPath`, `detectPythonPaths`,
- * `findGitBashPath`) are avoided by forcing `process.platform = 'linux'`; those
- * use `require('child_process')` inside their bodies which vi.mock cannot
- * intercept (documented as a seam).
+ * Windows-only machine probing (registry PATH, Python dirs, Git Bash) no longer
+ * lives in this class — it moved to `spawnEnvironment.ts`, which is async,
+ * cached, and has its own test. Forcing `process.platform = 'linux'` here makes
+ * that whole branch resolve to an empty snapshot, so this file stays about env
+ * assembly.
  */
 
 const HOME = vi.hoisted(() => '/home/u')
@@ -78,11 +79,9 @@ vi.mock('../../infra/proxyManager', () => ({
   buildProxyConfigFromSettings: vi.fn(() => ({ upstreamProvider: 'x' })),
 }))
 
-const mcpStore = vi.hoisted(() => ({ needsPackageManagerLauncher: false }))
-
+// buildEnv 不再自己读 MCP 存储：握手预算由 buildArgs 的解析结论作为入参传进来。
 vi.mock('../../tools/mcpConfigStore', () => ({
   buildEnabledMcpConfig: vi.fn(() => null),
-  anyServerNeedsPackageManagerLauncher: () => mcpStore.needsPackageManagerLauncher,
 }))
 
 const officeCli = vi.hoisted(() => ({
@@ -132,11 +131,14 @@ const ENV_KEYS = [
 const originalPlatform = process.platform
 const savedEnv: Record<string, string | undefined> = {}
 
-async function buildEnv(overrides: Partial<SessionConfig> = {}): Promise<Record<string, string>> {
+async function buildEnv(
+  overrides: Partial<SessionConfig> = {},
+  mcpUsesLauncher = false,
+): Promise<Record<string, string>> {
   const config: SessionConfig = { cwd: '/tmp/ws', ...overrides }
   const proc = new SessionProcess('sess-env-0001', config)
   try {
-    return (await (proc as any).buildEnv(config)) as Record<string, string>
+    return (await (proc as any).buildEnv(config, mcpUsesLauncher)) as Record<string, string>
   } finally {
     proc.removeAllListeners()
   }
@@ -152,7 +154,6 @@ beforeEach(() => {
   net.startCalls = 0
   rtk.installed = false
   rtk.dir = '/rtk/bin'
-  mcpStore.needsPackageManagerLauncher = false
   officeCli.syncCalls = 0
   officeCli.result = { copied: false, reason: 'up-to-date', bundledVersion: '1.0.157', installedVersion: '1.0.157' }
   Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
@@ -251,12 +252,13 @@ describe('buildEnv — safety defaults & overrides', () => {
     expect(env.MCP_TIMEOUT).toBe('15000')
   })
 
-  it('gives launcher-based (uvx/npx) servers the full 30s handshake budget', async () => {
+  it('gives the full 30s budget only when this spawn actually injects a launcher-shaped server', async () => {
     // uvx/npx 每次启动都要做包解析，uv 还会按 PyPI 的 max-age=600 周期性回源。
     // 实测 cdp-bridge 握手 4.7-5.4s（缓存新鲜）→ 6.9-10.8s（回源 + 并发），
     // 15s 预算会把本来健康的服务器判成 CONNECT_TIMEOUT。
-    mcpStore.needsPackageManagerLauncher = true
-    const env = await buildEnv({ provider: 'anthropic' })
+    // 判据来自 buildArgs 解析之后的形态：预设被本地安装直连时走上面的 15s，
+    // 磁盘上那条 uvx 记录不再单独把预算抬起来。
+    const env = await buildEnv({ provider: 'anthropic' }, true)
     expect(env.MCP_TIMEOUT).toBe('30000')
   })
 

@@ -17,6 +17,8 @@ const fsp = vi.hoisted(() => ({
 const sh = vi.hoisted(() => ({
   // binName → where/which 返回的路径
   pathResults: {} as Record<string, string>,
+  // 每次 PATH 探测都记下来：这些是真实的子进程，跑在会话 spawn 前的临界路径上
+  probes: [] as string[],
 }))
 
 vi.mock('fs', () => ({
@@ -27,6 +29,7 @@ vi.mock('os', () => ({ homedir: () => HOME }))
 
 vi.mock('child_process', () => ({
   execFileSync: (_cmd: string, args: string[]) => {
+    sh.probes.push(args[0])
     const found = sh.pathResults[args[0]]
     if (!found) throw new Error('not found')
     return found + '\n'
@@ -43,6 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   fsp.exists = () => false
   sh.pathResults = {}
+  sh.probes = []
   Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
   for (const k of ENV_KEYS) {
     savedEnv[k] = process.env[k]
@@ -120,6 +124,23 @@ describe('findChromeDevtoolsMcpLocal', () => {
     fsp.exists = (p) => p === SHIM || p === JS_ENTRY
 
     expect(findChromeDevtoolsMcpLocal()).toBeNull()
+  })
+
+  it('shim 挨着 node 时，一次解析只起一个 `where node` 子进程', () => {
+    // 兜底分支要靠 node 的位置找 shim，出口又要用 node 当 command —— 同一条答案。
+    // 原先两处各起一次 which/execFile，而它跑在会话 spawn 前的临界路径上。
+    const shimNextToNode = join('/usr/bin', 'chrome-devtools-mcp')
+    const jsEntryNextToNode = join(
+      '/usr/bin', 'node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js',
+    )
+    sh.pathResults['node'] = '/usr/bin/node'
+    fsp.exists = (p) => p === shimNextToNode || p === jsEntryNextToNode || p === '/usr/bin/node'
+
+    expect(findChromeDevtoolsMcpLocal()).toEqual({
+      command: '/usr/bin/node',
+      args: [jsEntryNextToNode],
+    })
+    expect(sh.probes.filter(p => p === 'node')).toHaveLength(1)
   })
 
   it('returns null when nothing is installed', () => {

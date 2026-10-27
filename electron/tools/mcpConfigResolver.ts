@@ -144,10 +144,10 @@ function windowsLauncherConfig(args: string[]): ResolvedMcpConfig {
  * （缓存新鲜）涨到 6.9-10.8s（回源 + 与另一个 launcher 并发）。调用方据此决定
  * 给多长的 MCP 握手预算，而不是所有服务器共用一个拍出来的常数。
  *
- * 按命令形态判断，所以内置预设（uvx/npx）和用户自建但手写 npx 的条目都算；
- * 也刻意不跑 `findCdpBridgeExecutable()` 那类本地探测 —— 那要起 `where`
- * 子进程，而这个判断发生在会话 spawn 前的热路径上。本地已装好、其实走不到
- * launcher 的情况会被多给几秒预算，可接受。
+ * 按命令形态判断，所以内置预设（uvx/npx）和用户自建但手写 npx 的条目都算。
+ * 调用方（buildEnabledMcpConfig）刻意在解析器覆盖**之后**才问这个问题：本地
+ * 已安装、直连绝对路径的预设于是答 false，不再为一段走不到的网络开销买单。
+ * 这里本身只读 command，不再起探测子进程 —— 覆盖它的那次解析已经付过钱了。
  */
 export function usesPackageManagerLauncher(
   config: Pick<McpProbeConfig, 'type' | 'command' | 'args' | 'url'>,
