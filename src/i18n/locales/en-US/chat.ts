@@ -64,6 +64,8 @@ export default {
     active: 'Thinking',
     reasoningLabel: 'Reasoning',
     responding: 'Responding',
+    starting: 'Starting engine',
+    mcpFailed: 'MCP connection failed: {names}',
   },
   toolChips: {
     toolCalls: '{count} tool calls',
