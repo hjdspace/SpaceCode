@@ -11,6 +11,24 @@ const CLAUDE_CODE_EVENT_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.ev
 
 export const MAX_PROCESSES = 20
 
+/**
+ * 预热进程的空闲回收时限：spawn 后一直没有转发过用户消息的 warmed 会话，
+ * 超过该时长即挂起回收（释放其占住的 MCP 子进程）。用户真正发送时
+ * init 路径会自动 resume，只是重新付一次冷启动成本。
+ */
+export const WARM_IDLE_RECYCLE_MS = 120_000
+const RECYCLE_SWEEP_INTERVAL_MS = 15_000
+
+/**
+ * 判断两次 startSession 的配置是否等价（single-flight 共享在飞 spawn 的依据）。
+ * resumeSessionId / sideTaskContextPath 由引擎侧派生或一次性消费，warmed 是
+ * 调用目的标记 —— 三者都不改变进程的实际运行形态，不参与比较。
+ */
+function sameSessionConfig(a: SessionConfig, b: SessionConfig): boolean {
+  const strip = ({ resumeSessionId: _r, sideTaskContextPath: _s, warmed: _w, ...rest }: SessionConfig) => rest
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b))
+}
+
 export interface SessionStatusInfo {
   sessionId: string
   engineSessionId: string | null
@@ -29,6 +47,16 @@ export class ClaudeCodeProcessPool {
   private pendingPermissionModes: Map<string, string> = new Map()
   /** 已用"重启到该模式"补救过的 sessionId → mode，防止对确定性拒绝无限重启。 */
   private modeRepairTried: Map<string, string> = new Map()
+  /**
+   * per-session single-flight：spawn 在飞的 sessionId → { promise, config }。
+   * 预热未完成时用户发送，发送侧的 startSession 会撞上"进程还没 spawn 完、
+   * isRunning()=false"的窗口 —— 没有这份共享的话会删掉在飞记录再拉一个进程，
+   * 造成 double-spawn（进程泄漏 + 重复 MCP + --session-id already in use）。
+   */
+  private startingSessions: Map<string, { promise: Promise<void>; config: SessionConfig }> = new Map()
+  /** 预热拉起且从未转发过用户消息的 sessionId → 预热时刻；超时由 sweep 挂起回收。 */
+  private warmedSessions: Map<string, number> = new Map()
+  private recycleTimer: ReturnType<typeof setInterval> | null = null
   private mainWindow: BrowserWindow | null = null
   private routeEventListeners: Array<(sessionId: string, eventType: string, data: any) => void> = []
   private poolHandlers: Map<
@@ -58,17 +86,52 @@ export class ClaudeCodeProcessPool {
   }
 
   async startSession(sessionId: string, config: SessionConfig): Promise<void> {
-    info('ProcessPool', `startSession | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model} | existing=${this.processes.has(sessionId)}`)
+    const inFlight = this.startingSessions.get(sessionId)
+    if (inFlight) {
+      // 同一会话的 spawn 正在进行（典型：预热未完成时用户发送）。
+      // 配置等价 → 共享同一个 promise；不等价 → 等它落地后按本次配置重起。
+      if (sameSessionConfig(inFlight.config, config)) {
+        info('ProcessPool', `[${sessionId.slice(0, 8)}] startSession joining in-flight start (same config)`)
+        return inFlight.promise
+      }
+      info('ProcessPool', `[${sessionId.slice(0, 8)}] startSession waiting for in-flight start, then applying new config`)
+      await inFlight.promise.catch(() => { /* 落地失败也继续：下方常规流程会清理死记录并重试 */ })
+      // 在飞 spawn 用的是旧配置：运行中的进程与本配置不等价时必须重起，
+      // 否则调用方（init 路径）会按新配置写指纹，进程却永远跑在旧配置上。
+      const landed = this.processes.get(sessionId)
+      if (landed?.isRunning() && !sameSessionConfig(landed.config, config)) {
+        info('ProcessPool', `[${sessionId.slice(0, 8)}] In-flight start landed with different config, restarting`)
+        this.killSession(sessionId)
+      }
+    }
+
+    const run = this.doStartSession(sessionId, config)
+    const entry = { promise: run, config }
+    this.startingSessions.set(sessionId, entry)
+    try {
+      await run
+    } finally {
+      // 只清理自己注册的条目，避免误删等待期间后来者注册的 promise
+      if (this.startingSessions.get(sessionId)?.promise === run) {
+        this.startingSessions.delete(sessionId)
+      }
+    }
+  }
+
+  private async doStartSession(sessionId: string, config: SessionConfig): Promise<void> {
+    info('ProcessPool', `startSession | sessionId=${sessionId.slice(0, 8)} | cwd=${config.cwd} | provider=${config.provider} | model=${config.model} | warmed=${!!config.warmed} | existing=${this.processes.has(sessionId)}`)
 
     if (this.processes.has(sessionId)) {
       const existing = this.processes.get(sessionId)!
       if (existing.isRunning()) {
         info('ProcessPool', `[${sessionId.slice(0, 8)}] Session already running, reusing`)
+        if (config.warmed) this.markWarmed(sessionId)
         return
       }
       if (existing.status === 'suspended' && existing.engineSessionId) {
         info('ProcessPool', `[${sessionId.slice(0, 8)}] Session is suspended, resuming | engineSessionId=${existing.engineSessionId}`)
         await this.resumeSession(sessionId)
+        if (config.warmed) this.markWarmed(sessionId)
         return
       }
       // Dead/exited entry — drop it so a fresh process can take over cleanly.
@@ -88,6 +151,7 @@ export class ClaudeCodeProcessPool {
     try {
       await proc.start()
       info('ProcessPool', `[${sessionId.slice(0, 8)}] Session started successfully | pid=${proc.process?.pid} | totalActive=${Array.from(this.processes.values()).filter(p => p.isRunning()).length}`)
+      if (config.warmed) this.markWarmed(sessionId)
       await this.reconcilePermissionMode(sessionId, proc, 'start')
     } catch (err) {
       error('ProcessPool', `[${sessionId.slice(0, 8)}] Failed to start session`, { error: String(err) })
@@ -265,6 +329,45 @@ export class ClaudeCodeProcessPool {
     await this.applyStaleSpawnArgs(sessionId, proc)
     info('ProcessPool', `[${sessionId.slice(0, 8)}] Forwarding user message | contentLen=${content.length} | images=${images?.length || 0}`)
     proc.sendMessage(content, images)
+    // 会话已被真正使用：预热回收标记就此作废，进程生命周期回归常规管理
+    this.warmedSessions.delete(sessionId)
+  }
+
+  /** 记录一个"预热拉起、尚无用户消息"的会话，并确保回收 sweep 在跑。 */
+  private markWarmed(sessionId: string): void {
+    this.warmedSessions.set(sessionId, Date.now())
+    if (!this.recycleTimer) {
+      this.recycleTimer = setInterval(() => this.sweepWarmedSessions(), RECYCLE_SWEEP_INTERVAL_MS)
+      // 不阻塞应用退出（Electron 主进程的 Node timer 支持 unref）
+      ;(this.recycleTimer as unknown as { unref?: () => void })?.unref?.()
+    }
+  }
+
+  /**
+   * 预热空闲回收：warmed 会话超时仍未收到任何用户消息 → 挂起（保留 engineSessionId，
+   * 之后发送会自动 resume），释放其占住的 CLI 进程与 MCP 子进程（chrome-devtools
+   * 这类还可能连带拉起浏览器）。正被轮次占用（canSafelySuspend=false）的会话跳过。
+   */
+  private sweepWarmedSessions(): void {
+    const now = Date.now()
+    for (const [sessionId, warmedAt] of Array.from(this.warmedSessions.entries())) {
+      const proc = this.processes.get(sessionId)
+      if (!proc || !proc.isRunning()) {
+        // 进程没了（自己退出 / 被杀），标记随 sweep 清掉
+        this.warmedSessions.delete(sessionId)
+        continue
+      }
+      if (now - warmedAt < WARM_IDLE_RECYCLE_MS) continue
+      if (!proc.canSafelySuspend()) continue
+      info('ProcessPool', `[${sessionId.slice(0, 8)}] Recycling warmed session after idle timeout | idleMs=${now - warmedAt}`)
+      this.warmedSessions.delete(sessionId)
+      proc.suspend()
+      this.routeEvent(sessionId, 'suspended', { reason: 'idle-recycle' })
+    }
+    if (this.warmedSessions.size === 0 && this.recycleTimer) {
+      clearInterval(this.recycleTimer)
+      this.recycleTimer = null
+    }
   }
 
   /**
@@ -516,6 +619,7 @@ export class ClaudeCodeProcessPool {
     proc.kill()
     this.processes.delete(sessionId)
     this.modeRepairTried.delete(sessionId)
+    this.warmedSessions.delete(sessionId)
   }
 
   getSessionStatus(sessionId: string): SessionStatusInfo | null {
@@ -555,6 +659,11 @@ export class ClaudeCodeProcessPool {
     this.processes.clear()
     this.poolHandlers.clear()
     this.modeRepairTried.clear()
+    this.warmedSessions.clear()
+    if (this.recycleTimer) {
+      clearInterval(this.recycleTimer)
+      this.recycleTimer = null
+    }
   }
 
   private evictIfNeeded(): void {
@@ -628,7 +737,11 @@ export class ClaudeCodeProcessPool {
         }
       },
       log: (data: string) => this.routeEvent(sessionId, 'log', data),
-      exit: (data: { code: number | null; signal?: string | null; stderr?: string }) => this.routeEvent(sessionId, 'exit', data),
+      exit: (data: { code: number | null; signal?: string | null; stderr?: string }) => {
+        // 进程没了，预热回收标记不再有意义
+        this.warmedSessions.delete(sessionId)
+        this.routeEvent(sessionId, 'exit', data)
+      },
       error: (err: Error) => this.routeEvent(sessionId, 'error', { message: err.message }),
       permissionRequest: (data: any) => this.routeEvent(sessionId, 'permission_request', data),
       permissionRequestCancelled: (data: any) =>
