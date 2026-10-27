@@ -56,15 +56,20 @@ vi.mock('../../infra/logger', () => ({
 const resolver = vi.hoisted(() => ({
   builtinNameFromServerKey: vi.fn((_key: string) => null as string | null),
   resolveBuiltinMcp: vi.fn(),
+  usesPackageManagerLauncher: vi.fn(
+    (_config: { type: string; command?: string; args?: string[]; url?: string }) => false,
+  ),
 }))
 
 vi.mock('../mcpConfigResolver', () => ({
   builtinNameFromServerKey: resolver.builtinNameFromServerKey,
   resolveBuiltinMcp: resolver.resolveBuiltinMcp,
+  usesPackageManagerLauncher: resolver.usesPackageManagerLauncher,
 }))
 
 import { warn, error as logError } from '../../infra/logger'
 import {
+  anyServerNeedsPackageManagerLauncher,
   MCP_CONFIG_PATH,
   buildEnabledMcpConfig,
   loadMcpConfig,
@@ -80,6 +85,7 @@ beforeEach(() => {
   store.writeShouldThrow = false
   resolver.builtinNameFromServerKey.mockReset().mockReturnValue(null)
   resolver.resolveBuiltinMcp.mockReset()
+  resolver.usesPackageManagerLauncher.mockReset().mockReturnValue(false)
 })
 
 describe('MCP_CONFIG_PATH', () => {
@@ -248,7 +254,24 @@ describe('buildEnabledMcpConfig — builtin delegation', () => {
       args: ['--mcp'],
       env: { A: '1', B: '2' },
     })
-    expect(resolver.resolveBuiltinMcp).toHaveBeenCalledWith('cua-driver')
+    expect(resolver.resolveBuiltinMcp).toHaveBeenCalledWith('cua-driver', {
+      command: 'npx',
+      args: ['fallback'],
+    })
+  })
+
+  it('keeps the original config when the resolver reports a user-rewritten command', () => {
+    // cdp-bridge / chrome-devtools 的 command 被用户改写成非 uvx/npx 形态时，
+    // 运行时覆盖必须让位：按用户配置原样注入 CLI。
+    writeRawConfig({ 'cdp-bridge': { command: 'uvx', args: ['cdp-bridge@latest'] } })
+    resolver.builtinNameFromServerKey.mockReturnValue('cdp-bridge')
+    resolver.resolveBuiltinMcp.mockReturnValue({ status: 'fallback-original' })
+
+    expect(buildEnabledMcpConfig()!.mcpServers['cdp-bridge']).toEqual({
+      type: 'stdio',
+      command: 'uvx',
+      args: ['cdp-bridge@latest'],
+    })
   })
 
   it('keeps the original command when a builtin dependency is missing', () => {
@@ -280,5 +303,63 @@ describe('buildEnabledMcpConfig — builtin delegation', () => {
 
     buildEnabledMcpConfig()
     expect(resolver.builtinNameFromServerKey).toHaveBeenCalledWith('sc-computer-use')
+  })
+})
+
+describe('anyServerNeedsPackageManagerLauncher', () => {
+  it('is false when there is no config file at all', () => {
+    expect(anyServerNeedsPackageManagerLauncher()).toBe(false)
+    expect(resolver.usesPackageManagerLauncher).not.toHaveBeenCalled()
+  })
+
+  it('is true as soon as one enabled server uses a launcher', () => {
+    writeRawConfig({
+      'sc-computer-use': { type: 'stdio', command: 'cua-driver', args: ['mcp'] },
+      'cdp-bridge': { type: 'stdio', command: 'uvx', args: ['cdp-bridge@latest'] },
+    })
+    resolver.usesPackageManagerLauncher.mockImplementation(
+      (config: { command?: string }) => config.command === 'uvx',
+    )
+
+    expect(anyServerNeedsPackageManagerLauncher()).toBe(true)
+  })
+
+  it('skips disabled servers — turning a preset off must not buy everyone a longer timeout', () => {
+    writeRawConfig({
+      'cdp-bridge': { type: 'stdio', command: 'uvx', enabled: false },
+    })
+    resolver.usesPackageManagerLauncher.mockReturnValue(true)
+
+    expect(anyServerNeedsPackageManagerLauncher()).toBe(false)
+  })
+
+  it('skips claude.json servers, which buildEnabledMcpConfig never injects either', () => {
+    // 这些由 CLI 自己发现，SpaceCode 不为它们的启动成本负责。
+    writeRawConfig({
+      'someone-elses-npx': { type: 'stdio', command: 'npx', _source: 'claude.json' },
+    })
+    resolver.usesPackageManagerLauncher.mockReturnValue(true)
+
+    expect(anyServerNeedsPackageManagerLauncher()).toBe(false)
+  })
+
+  it('hands the predicate the type so remote servers can be ruled out', () => {
+    writeRawConfig({ 'cloud': { type: 'http', url: 'https://api.example.com/mcp' } })
+
+    anyServerNeedsPackageManagerLauncher()
+
+    expect(resolver.usesPackageManagerLauncher).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'http', url: 'https://api.example.com/mcp' }),
+    )
+  })
+
+  it('treats a missing type as stdio, matching buildEnabledMcpConfig', () => {
+    writeRawConfig({ 'legacy': { command: 'npx', args: ['-y', 'pkg'] } })
+
+    anyServerNeedsPackageManagerLauncher()
+
+    expect(resolver.usesPackageManagerLauncher).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'stdio', command: 'npx' }),
+    )
   })
 })
