@@ -62,6 +62,13 @@ export function useTurnStore(injectedApi?: any) {
 
     const streamingContents = ref<Map<string, string>>(new Map())
     const loadingSessions = ref<Map<string, boolean>>(new Map())
+    // ── 引擎启动阶段反馈 ──
+    // 发送时引擎尚未发出 system/init 的会话集合：UI 据此把「正在思考」
+    // 换成「正在启动引擎」，让用户知道长等待是冷启动（spawn + MCP 握手）造成的。
+    const engineStartingSessions = ref<Set<string>>(new Set())
+    // system/init 的 MCP 握手结果：sessionId → 连接失败的 server 名单（空数组 = 全部成功）。
+    // Map 中存在该 sessionId 即代表「引擎已完成本轮 init」。
+    const engineMcpFailures = ref<Map<string, string[]>>(new Map())
     // 基于 currentSessionId 的便利 computed（从 chatStream.ts 迁移）
     const isLoading = computed(() =>
       sessionStore.currentSessionId ? (loadingSessions.value.get(sessionStore.currentSessionId) ?? false) : false
@@ -69,6 +76,12 @@ export function useTurnStore(injectedApi?: any) {
     const streamingContent = computed(() =>
       sessionStore.currentSessionId ? (streamingContents.value.get(sessionStore.currentSessionId) ?? '') : ''
     )
+    /** 该会话的引擎是否处于本轮发送的冷启动阶段（尚未收到 system/init） */
+    const isEngineStarting = (sessionId: string | null | undefined): boolean =>
+      !!sessionId && engineStartingSessions.value.has(sessionId)
+    /** 该会话最近一次 system/init 中连接失败的 MCP server 名单 */
+    const getMcpFailures = (sessionId: string | null | undefined): string[] =>
+      (sessionId && engineMcpFailures.value.get(sessionId)) || []
     const pendingSendMessages = new Set<string>()
     const userAbortedSessions = new Set<string>()
 
@@ -516,6 +529,12 @@ export function useTurnStore(injectedApi?: any) {
           pendingSendMessages.delete(targetSessionId)
         }, 500)
         return
+      }
+
+      // 引擎尚未完成本轮 system/init（冷启动 / 预热未完成）：这一轮先展示「启动引擎中」。
+      // engineMcpFailures 里存在该会话 = 本应用运行期间已收到过 init（预热场景在发送前就绪）。
+      if (!engineMcpFailures.value.has(targetSessionId)) {
+        engineStartingSessions.value.add(targetSessionId)
       }
 
       try {
@@ -1079,6 +1098,8 @@ export function useTurnStore(injectedApi?: any) {
         handleStreamEvent(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onAssistant((event: { sessionId: string; data: any }) => {
+        // 助手消息开始流动 = 引擎早已就绪，「启动引擎中」阶段到此为止
+        engineStartingSessions.value.delete(event.sessionId)
         if (isTeammateRawMessage(event.data)) {
           sessionStore.recordTeammateMessage(event.data, event.sessionId)
           return
@@ -1146,6 +1167,28 @@ export function useTurnStore(injectedApi?: any) {
         handleUser(event.sessionId, ts, event.data)
       })
       claudeCodeApi.onSystem?.((event: { sessionId: string; data: any }) => {
+        if (event.data?.subtype === 'init') {
+          // system/init = 引擎就绪的真信号（spawn 成功 ≠ MCP 握手完成）。
+          // ① 解析 mcp_servers 的连接结果，失败的名单交给 UI 展示；
+          // ② 撤销「启动引擎中」阶段标记；
+          // ③ starting → idle：侧边栏状态从转圈变为就绪（轮次进行中是 active，不动）。
+          const sid = event.sessionId
+          engineStartingSessions.value.delete(sid)
+          const servers: Array<{ name?: string; status?: string }> = Array.isArray(event.data.mcp_servers)
+            ? event.data.mcp_servers
+            : []
+          const failedMcp = servers
+            .filter(s => s?.name && s.status && s.status !== 'connected')
+            .map(s => String(s.name))
+          engineMcpFailures.value.set(sid, failedMcp)
+          const s = sink.get(sid)
+          if (s && s.processStatus === 'starting') {
+            s.processStatus = 'idle'
+            sink.persist(sid)
+          }
+          sessionStore.logger.info('ChatStore', `[${sid.slice(0, 8)}] engine init | mcpFailed=${failedMcp.length ? failedMcp.join(',') : '(none)'}`)
+          return
+        }
         if (event.data?.subtype === 'auto_retry_end') {
           if (event.data.success === true) {
             sessionStore.logger.info('ChatStore', `[${event.sessionId.slice(0, 8)}] engine auto-retry succeeded, clearing retry state`)
@@ -1181,6 +1224,8 @@ export function useTurnStore(injectedApi?: any) {
         }
       })
       claudeCodeApi.onResult((event: { sessionId: string; data: any }) => {
+        // 轮次收口：无论引擎是否发过 system/init，启动阶段状态都不该再挂着
+        engineStartingSessions.value.delete(event.sessionId)
         // ★ 拦截 sidechain / teammate 的 result 事件，防止子智能体 turn 结束
         // 被当作主会话 result 处理（提前结算主会话 turn）。
         if (isTeammateRawMessage(event.data)) {
@@ -1197,6 +1242,9 @@ export function useTurnStore(injectedApi?: any) {
         handleResult(event.sessionId, ts, event.data ?? {})
       })
       claudeCodeApi.onExit((event: { sessionId: string; data: number | null | { code?: number | null; signal?: string | null; stderr?: string } }) => {
+        // 进程没了：启动阶段结束，MCP 握手结果作废（下次 spawn 的 init 会重新上报）
+        engineStartingSessions.value.delete(event.sessionId)
+        engineMcpFailures.value.delete(event.sessionId)
         // 进程没了，它欠的对话框就再也答不了。主进程本来会逐条发 closed 通知，这里再兜一次：
         // 走的是 killSession 那条先摘事件处理器再拆进程的路时，通知是发不出来的 (#54)。
         extensionDialogService.closeAllForSession(event.sessionId, 'process_exit')
@@ -1206,6 +1254,8 @@ export function useTurnStore(injectedApi?: any) {
       })
       if (typeof (claudeCodeApi as any).onError === 'function') {
         ;(claudeCodeApi as any).onError((event: { sessionId: string; data: any }) => {
+          // 出错的轮次不会再有 init 来收尾，启动阶段状态到此为止
+          engineStartingSessions.value.delete(event.sessionId)
           const ts = turnStates.get(event.sessionId)
           if (!ts) return
           const data = event.data
@@ -1310,6 +1360,9 @@ export function useTurnStore(injectedApi?: any) {
       answerExtensionDialog,
       getIsLoading,
       getStreamingContent,
+      // ── 引擎启动阶段反馈 ──
+      isEngineStarting,
+      getMcpFailures,
       pendingMessages,
       addPendingMessage,
       removePendingMessage,
