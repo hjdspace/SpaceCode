@@ -15,6 +15,8 @@ export interface Attachment {
   name: string
   path: string
   isFolder: boolean
+  /** 上传的附件在输入框/消息里渲染为卡片；工作区内联 chip 不带此标记 */
+  source?: 'workspace' | 'upload'
 }
 
 /** 引用文本附件（选中文本浮条"添加到对话"），发送时序列化为 blockquote */

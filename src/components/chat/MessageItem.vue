@@ -23,6 +23,15 @@
           <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
         </div>
         
+        <!-- 上传的文件附件（卡片显示在气泡上方） -->
+        <div v-if="uploadedFileAttachments.length" class="file-attachments">
+          <FileAttachmentCard
+            v-for="file in uploadedFileAttachments"
+            :key="file.path"
+            :file="file"
+          />
+        </div>
+
         <!-- 图片附件 -->
         <div v-if="message.imageAttachments?.length" class="image-attachments">
           <div 
@@ -171,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Message, ImageAttachment } from '@/types'
+import type { Message, ImageAttachment, Attachment } from '@/types'
 import { User, Bot, RotateCcw, CheckCircle, XCircle, X, Globe, FileText, Copy, Check, Pencil, SendHorizontal } from 'lucide-vue-next'
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -179,6 +188,7 @@ import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ReasoningCard from './ReasoningCard.vue'
 import ToolCallList from './ToolCallList.vue'
 import MessageMetadata from './MessageMetadata.vue'
+import FileAttachmentCard from './FileAttachmentCard.vue'
 import { renderContentWithAttachments } from '@/utils/mention-chips'
 import { resolveUserMessageDisplay } from '@/lib/genui/cardSubmission'
 import { detectWorkbenchTargets, type WorkbenchTarget } from '@/utils/workbench-targets'
@@ -290,6 +300,13 @@ function handleCopyClick() {
  */
 const renderedUserContent = computed(() =>
   renderContentWithAttachments(resolveUserMessageDisplay(props.message), props.message.imageAttachments)
+)
+
+/** 只有上传的附件以卡片展示；工作区 chip 已经在正文里，不重复成卡片 */
+const uploadedFileAttachments = computed<Attachment[]>(() =>
+  (props.message.attachments ?? []).filter(
+    (att): att is Attachment => 'isFolder' in att && att.source === 'upload'
+  )
 )
 
 function formatTime(timestamp: number): string {
@@ -532,6 +549,13 @@ function handleUserCopy(e: ClipboardEvent) {
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
   }
+}
+
+.file-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .image-attachments {

@@ -4,6 +4,8 @@ export default {
   addContext: 'Add Context',
   browseFiles: 'Browse files...',
   addAttachment: 'Add attachment',
+  uploadAttachment: 'Upload attachment',
+  removeAttachment: 'Remove attachment',
   refreshModels: 'Refresh model list',
   workspaceFiles: 'Workspace files',
   searchWorkspaceFiles: 'Search files in this project',

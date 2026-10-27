@@ -55,6 +55,17 @@
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <QuoteAttachmentsBar :quotes="attachedQuotes" @remove="removeQuoteAttachment" />
 
+      <!-- 上传的文件附件：卡片位于输入框内、正文上方 -->
+      <div v-if="uploadedAttachments.length" class="composer-file-attachments">
+        <FileAttachmentCard
+          v-for="file in uploadedAttachments"
+          :key="file.path"
+          :file="file"
+          removable
+          @remove="removeAttachment(file.path)"
+        />
+      </div>
+
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
       <div class="textarea-wrapper" @click="focusEditor">
         <div
@@ -198,8 +209,9 @@
             <Sparkles v-else :size="16" />
           </button>
 
-          <!-- 语音输入：录音中变为停止，并提供取消 -->
+          <!-- 语音输入：录音中显示电平波形与停止方块 -->
           <template v-if="voiceSupported">
+            <VoiceWaveform v-if="voiceActive" :level="voiceLevel" class="voice-waveform-slot" />
             <button
               type="button"
               class="toolbar-btn voice-btn"
@@ -210,7 +222,7 @@
               @mousedown.prevent
               @click.stop.prevent="handleVoiceClick"
             >
-              <CircleStop v-if="voiceActive" :size="16" />
+              <span v-if="voiceActive" class="voice-stop-square" aria-hidden="true"></span>
               <Mic v-else :size="16" />
             </button>
             <button
@@ -260,6 +272,7 @@
       :show-open-project-action="!!showOpenProjectAction"
       :root-dir="workspaceRootDir"
       @attach-image="handleAttachImage"
+      @upload-attachment="handleUploadAttachment"
       @add-workspace-entry="handleWorkspaceEntry"
       @select-agent="selectAgentAndCloseMenu"
       @open-project-folder="handleOpenProjectFolder"
@@ -305,13 +318,14 @@ import {
   ArrowUp, Plus, Square, X,
   Loader2, Zap, FolderOpen, Brain,
   Sparkles, Image, Archive, LayoutGrid, AlertTriangle,
-  Mic, CircleStop
+  Mic
 } from 'lucide-vue-next'
 import { useSettingsStore } from '@/stores/settings'
 import ChatContextToolbar from './ChatContextToolbar.vue'
 import SlashCommandMenu from './SlashCommandMenu.vue'
 import ContextMenu from './ContextMenu.vue'
 import AttachmentMenu from './AttachmentMenu.vue'
+import FileAttachmentCard from './FileAttachmentCard.vue'
 import { useAppStore, type InputInjectPayload } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
@@ -326,6 +340,7 @@ import ModelPickerMenu from './ModelPickerMenu.vue'
 import PendingQueueBar from './PendingQueueBar.vue'
 import QuoteAttachmentsBar from './QuoteAttachmentsBar.vue'
 import VoiceModelInstallDialog from '@/components/common/VoiceModelInstallDialog.vue'
+import VoiceWaveform from './VoiceWaveform.vue'
 
 // ── Composables ──────────────────────────────────────────────────
 import { useModelSelector } from '@/composables/useModelSelector'
@@ -503,9 +518,19 @@ const fileAttachments = useFileAttachments({
 const {
   attachedFiles, showAttachmentMenu,
   addFile: addFileAttachment,
+  addUploadedFilesFromDialog,
+  removeFile: removeAttachment,
   clearFiles, handleAddClick, closeAttachmentMenu,
   handleBrowseFiles: handleBrowseFilesBase,
 } = fileAttachments
+
+/** 输入框卡片区只展示上传的文件；工作区文件仍以内联 chip 呈现 */
+const uploadedAttachments = computed(() => attachedFiles.value.filter(f => f.source === 'upload'))
+
+async function handleUploadAttachment() {
+  closeAttachmentMenu()
+  await addUploadedFilesFromDialog()
+}
 
 // 工作区文件选择器的根目录
 const workspaceRootDir = computed(() => props.workingDirectory || appStore.projectRoot || '')
@@ -584,6 +609,7 @@ const {
   supported: voiceSupported,
   isActive: voiceActive,
   liveTranscript: voiceLiveTranscript,
+  level: voiceLevel,
   hint: voiceHint,
 } = voice
 
@@ -1845,6 +1871,13 @@ defineExpose({ getContent, setContent, focus: focusEditor })
 }
 
 // 文本输入区域
+.composer-file-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .textarea-wrapper {
   position: relative;
   flex: 1;
@@ -2008,7 +2041,12 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   }
 }
 
-// 语音输入：录音中按钮变为停止，红底表示正在采音
+// 语音输入：录音中变为浅红底的停止方块，波形紧挨在左侧
+.voice-waveform-slot {
+  flex: 0 1 auto;
+  max-width: 140px;
+}
+
 .voice-btn {
   width: 32px;
   height: 32px;
@@ -2022,16 +2060,21 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   }
 
   &.is-recording {
-    color: #fff;
-    background: var(--error);
-    animation: voice-pulse 1.6s ease-in-out infinite;
+    color: var(--error);
+    background: color-mix(in srgb, var(--error) 12%, transparent);
 
     &:hover {
-      background: var(--error);
-      color: #fff;
-      opacity: 0.9;
+      color: var(--error);
+      background: color-mix(in srgb, var(--error) 18%, transparent);
     }
   }
+}
+
+.voice-stop-square {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: currentColor;
 }
 
 .voice-cancel-btn {
@@ -2044,16 +2087,6 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   &:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
-  }
-}
-
-@keyframes voice-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 var(--error-glow);
-  }
-  50% {
-    box-shadow: 0 0 0 4px var(--error-glow);
   }
 }
 
@@ -2104,6 +2137,7 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .optimize-btn {

@@ -65,6 +65,8 @@ export interface Attachment {
   name: string
   path: string
   isFolder: boolean
+  /** 上传的附件在输入框/消息里渲染为卡片；工作区内联 chip 不带此标记 */
+  source?: 'workspace' | 'upload'
 }
 
 export interface Message {

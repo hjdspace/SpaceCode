@@ -87,6 +87,47 @@ describe('useFileAttachments — composable', () => {
     expect(addFile('a.ts', '/a.ts', false)).toBe(true)
   })
 
+  it('addUploadedFile：以 basename 命名、标记 source=upload，且不插入内联 chip', () => {
+    const onInsertChip = vi.fn()
+    const { addUploadedFile, attachedFiles } = useFileAttachments({ onInsertChip })
+
+    expect(addUploadedFile('D:\\docs\\ask-matt.md')).toBe(true)
+    expect(attachedFiles.value).toEqual([
+      { name: 'ask-matt.md', path: 'D:\\docs\\ask-matt.md', isFolder: false, source: 'upload' },
+    ])
+    expect(onInsertChip).not.toHaveBeenCalled()
+  })
+
+  it('addUploadedFile：重复路径返回 false 且不追加', () => {
+    const { addUploadedFile, attachedFiles } = useFileAttachments()
+
+    expect(addUploadedFile('/a.md')).toBe(true)
+    expect(addUploadedFile('/a.md')).toBe(false)
+    expect(attachedFiles.value).toHaveLength(1)
+  })
+
+  it('addUploadedFilesFromDialog：多选逐个加入，取消时无操作', async () => {
+    const { addUploadedFilesFromDialog, attachedFiles } = useFileAttachments()
+
+    selectFilesMock.mockResolvedValue({ canceled: true, filePaths: ['/a.md'] })
+    await expect(addUploadedFilesFromDialog()).resolves.toBe(0)
+    expect(attachedFiles.value).toEqual([])
+
+    selectFilesMock.mockResolvedValue({ canceled: false, filePaths: ['/a.md', '/nested/b.ts'] })
+    await expect(addUploadedFilesFromDialog()).resolves.toBe(2)
+    expect(attachedFiles.value.map(f => f.name)).toEqual(['a.md', 'b.ts'])
+  })
+
+  it('removeFile 按路径移除附件', () => {
+    const { addUploadedFile, removeFile, attachedFiles } = useFileAttachments()
+    addUploadedFile('/a.md')
+    addUploadedFile('/b.md')
+
+    removeFile('/a.md')
+
+    expect(attachedFiles.value.map(f => f.path)).toEqual(['/b.md'])
+  })
+
   it('clearFiles 清空附件列表', () => {
     const { addFile, clearFiles, attachedFiles } = useFileAttachments()
     addFile('a.ts', '/a.ts', false)
