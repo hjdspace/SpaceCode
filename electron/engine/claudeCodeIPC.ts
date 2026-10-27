@@ -299,26 +299,40 @@ export function registerClaudeCodeIPC() {
 
   // ── MCP Probe ── 直接探测 MCP 服务器（不依赖 engine session）
   ipcMain.handle('mcp:probeServer', async (_, config: McpProbeConfig): Promise<McpProbeResult> => {
-    // 内置 MCP 服务器（cua-driver / browser-use）路径解析委托给 mcpConfigResolver，
+    // 内置 MCP 服务器路径解析委托给 mcpConfigResolver，
     // 与 buildEnabledMcpConfig 共享同一份解析逻辑。
+    // - cua-driver / browser-use：依赖缺失 → 探测失败
+    // - cdp-bridge / chrome-devtools：本地安装可选，缺失回退钉版本 uvx/npx；
+    //   用户改写过 command 时（fallback-original）按原配置探测
     const builtin = detectBuiltinFromConfig(config)
     if (builtin) {
-      const resolution = resolveBuiltinMcp(builtin)
+      const resolution = resolveBuiltinMcp(builtin, {
+        command: config.command,
+        args: config.args,
+      })
       if (resolution.status === 'missing') {
         return { status: 'failed', error: resolution.error }
       }
-      config = {
-        ...config,
-        command: resolution.config.command,
-        args: resolution.config.args ?? config.args,
-        env: { ...config.env, ...resolution.config.env },
+      if (resolution.status === 'resolved') {
+        config = {
+          ...config,
+          command: resolution.config.command,
+          args: resolution.config.args ?? config.args,
+          env: { ...config.env, ...resolution.config.env },
+        }
       }
     }
 
     debug('McpProbe', `Probing server | type=${config.type} | command=${config.command || config.url}`)
     const result = await probeMcpServer(config)
-    debug('McpProbe', `Probe result | status=${result.status} | tools=${result.tools?.length ?? 0} | error=${result.error || '(none)'}`)
-    return result
+    // 内置服务器经过解析后，真正 spawn 的命令和存储的不一致（钉版本、
+    // Windows 的 cmd /c 包装）。把它回给 UI，否则「测试连接失败」时用户
+    // 只能看到预设里那条永远跑不通的 npx 命令。
+    const effectiveCommand = config.command
+      ? [config.command, ...(config.args || [])].join(' ')
+      : undefined
+    debug('McpProbe', `Probe result | status=${result.status} | tools=${result.tools?.length ?? 0} | effective=${effectiveCommand} | error=${result.error || '(none)'}`)
+    return effectiveCommand ? { ...result, effectiveCommand } : result
   })
 
   // ── MCP Dependency Check ── 检测内置 MCP 服务器依赖的命令（uvx/npx 等）是否可用
