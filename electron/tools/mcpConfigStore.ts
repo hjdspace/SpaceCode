@@ -10,7 +10,7 @@
  * （IPC handler + sessionProcess buildArgs）共用同一份解析逻辑。
  */
 import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { warn, error as logError } from '../infra/logger'
 import { builtinNameFromServerKey, resolveBuiltinMcp, usesPackageManagerLauncher } from './mcpConfigResolver'
@@ -55,19 +55,44 @@ export const MCP_CONFIG_PATH = join(app.getPath('userData'), 'mcp-servers.json')
  * 2. Claude Desktop 嵌套：`{ "mcpServers": { "<name>": {...} } }`
  *
  * 返回扁平后的 Record；任何错误都吃掉并返回 `{}`，避免阻塞会话启动。
+ *
+ * 按 (size, mtime) 复用解析结果：一次会话 spawn 里 buildArgs 要读它生成
+ * `--mcp-config`，Pi 侧投影与设置页还要各读一次，每次都重新
+ * readFileSync + JSON.parse。用文件指纹而不是"写入即失效"，是因为
+ * 用户可能直接改这个文件 —— 手改必须像今天一样在下一次 spawn 生效。
+ * 解析失败不缓存：那通常是半截写入，重试才有意义。
+ *
+ * 不变量：命中缓存时返回的是**同一个对象**，而调用方的写法是 load → 原地改 →
+ * save（见 claudeCodeIPC 的 mcp:addServer / deleteServer / toggleEnabled）。这条
+ * 链条之所以安全，靠的是 saveMcpConfig 同步作废缓存；任何"改了但不保存"的用法都
+ * 会把未提交的改动留给下一个读取方。
  */
+let readCache: { fingerprint: string; servers: Record<string, PersistedMcpServer> } | null = null
+
+function configFileFingerprint(): string | null {
+  try {
+    const st = statSync(MCP_CONFIG_PATH)
+    return `${st.size}:${Math.round(st.mtimeMs)}`
+  } catch {
+    return null
+  }
+}
+
 export function loadMcpConfig(): Record<string, PersistedMcpServer> {
+  const fingerprint = configFileFingerprint()
+  if (fingerprint && readCache && readCache.fingerprint === fingerprint) return readCache.servers
   try {
     if (!existsSync(MCP_CONFIG_PATH)) return {}
     const raw = JSON.parse(readFileSync(MCP_CONFIG_PATH, 'utf-8'))
-    if (
+    const servers = (
       raw && typeof raw === 'object' &&
       raw.mcpServers && typeof raw.mcpServers === 'object' &&
       !raw.command && !raw.type
-    ) {
-      return raw.mcpServers as Record<string, PersistedMcpServer>
-    }
-    return raw as Record<string, PersistedMcpServer>
+    )
+      ? raw.mcpServers as Record<string, PersistedMcpServer>
+      : raw as Record<string, PersistedMcpServer>
+    if (fingerprint) readCache = { fingerprint, servers }
+    return servers
   } catch (e) {
     warn('McpConfigStore', `Failed to load config: ${e}`)
     return {}
@@ -78,6 +103,8 @@ export function loadMcpConfig(): Record<string, PersistedMcpServer> {
 export function saveMcpConfig(data: Record<string, PersistedMcpServer>): void {
   try {
     writeFileSync(MCP_CONFIG_PATH, JSON.stringify(data, null, 2), 'utf-8')
+    // 写盘与 stat 的精度窗口内指纹可能不变，直接作废缓存而不是依赖它变化。
+    readCache = null
   } catch (e) {
     logError('McpConfigStore', `Failed to save config: ${e}`)
     throw e
@@ -128,6 +155,20 @@ const DEPRECATED_KEY_ALIASES: Record<string, string> = {
   'computer-use': 'sc-computer-use',
 }
 
+/** buildEnabledMcpConfig 的产出：CLI payload 之外附带本次注入的真实启动形态 */
+export interface EnabledMcpConfig {
+  /** 写入 `--mcp-config` 文件的内容（这一层以下必须是纯净 CLI schema） */
+  mcpServers: McpJsonConfig['mcpServers']
+  /**
+   * 这次**实际注入**的条目里，是否有要靠 uvx/npx 在启动时做包解析的。
+   *
+   * 判据取自解析器覆盖之后的 command，所以内置预设已被本地安装直连时为 false，
+   * 只有真走 launcher（含用户自建的手写 npx 条目）才是 true。供 sessionProcess
+   * 决定 MCP_TIMEOUT 的握手预算。
+   */
+  usesPackageManagerLauncher: boolean
+}
+
 /**
  * 加载所有「启用」的 MCP 服务器，转换成 CLI `--mcp-config` 可用的格式。
  *
@@ -139,9 +180,10 @@ const DEPRECATED_KEY_ALIASES: Record<string, string> = {
  *
  * @returns `null` 表示没有任何启用的服务器，调用方应跳过 `--mcp-config` 参数
  */
-export function buildEnabledMcpConfig(): McpJsonConfig | null {
+export function buildEnabledMcpConfig(): EnabledMcpConfig | null {
   const raw = loadMcpConfig()
   const mcpServers: McpJsonConfig['mcpServers'] = {}
+  let usesLauncher = false
 
   for (const [name, server] of Object.entries(raw)) {
     if (!server || typeof server !== 'object') continue
@@ -176,36 +218,20 @@ export function buildEnabledMcpConfig(): McpJsonConfig | null {
           }
         }
       }
+
+      // 握手预算按覆盖之后的最终形态判断：`missing` / `fallback-original`
+      // 保留的原始 command 仍是 uvx/npx，照旧算 launcher。
+      if (usesPackageManagerLauncher({
+        type: cliConfig.type ?? 'stdio',
+        command: cliConfig.command,
+        args: cliConfig.args,
+        url: cliConfig.url,
+      })) {
+        usesLauncher = true
+      }
     }
   }
 
   if (Object.keys(mcpServers).length === 0) return null
-  return { mcpServers }
-}
-
-/**
- * 是否有「启用的」服务器要靠 uvx / npx 在启动时做包解析。
- *
- * 供 sessionProcess 决定 MCP_TIMEOUT：launcher 形态的握手要付网络回源的钱，
- * 15s 预算在回源 + 并发时会把本来健康的服务器判成 CONNECT_TIMEOUT。
- *
- * 只看持久化配置，不跑解析器 —— 这个判断在会话 spawn 前，`where` 子进程会
- * 阻塞主进程事件循环。代价是本地已装好（走不到 launcher）时也多给预算。
- */
-export function anyServerNeedsPackageManagerLauncher(): boolean {
-  const raw = loadMcpConfig()
-  for (const server of Object.values(raw)) {
-    if (!server || typeof server !== 'object') continue
-    if (server.enabled === false) continue
-    if (server._source === 'claude.json') continue
-    if (usesPackageManagerLauncher({
-      type: (server.type || 'stdio') as 'stdio' | 'sse' | 'http',
-      command: server.command,
-      args: server.args,
-      url: server.url,
-    })) {
-      return true
-    }
-  }
-  return false
+  return { mcpServers, usesPackageManagerLauncher: usesLauncher }
 }
