@@ -13,8 +13,11 @@ const props = defineProps<{
    * 指示文案变体：
    * - thinking：等待 LLM 首 token（默认）
    * - responding：工具调用结束后等待 LLM 下一轮响应
+   * - starting：引擎冷启动中（spawn + MCP 握手完成前，尚未收到 system/init）
    */
-  variant?: 'thinking' | 'responding'
+  variant?: 'thinking' | 'responding' | 'starting'
+  /** system/init 报告连接失败的 MCP server 名单，展示在状态行下方 */
+  mcpFailedNames?: string[]
 }>()
 
 const { t } = useI18n()
@@ -46,11 +49,11 @@ onUnmounted(() => {
 
 const elapsedMs = computed(() => Math.max(0, now.value - mountTime.value))
 
-const label = computed(() =>
-  props.variant === 'responding'
-    ? t('chat.thinkingState.responding')
-    : t('chat.thinkingState.active')
-)
+const label = computed(() => {
+  if (props.variant === 'starting') return t('chat.thinkingState.starting')
+  if (props.variant === 'responding') return t('chat.thinkingState.responding')
+  return t('chat.thinkingState.active')
+})
 
 const elapsedText = computed(() => {
   const totalSec = Math.floor(elapsedMs.value / 1000)
@@ -66,20 +69,25 @@ const elapsedText = computed(() => {
 
 <template>
   <div class="thinking-state" role="status" :aria-label="label">
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="var(--text-muted)"
-      class="thinking-star"
-      aria-hidden="true"
-    >
-      <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
-    </svg>
-    <span class="thinking-label" aria-hidden="true">
-      {{ label }}
-    </span>
-    <span class="thinking-elapsed">{{ elapsedText }}</span>
+    <div class="thinking-row">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="var(--text-muted)"
+        class="thinking-star"
+        aria-hidden="true"
+      >
+        <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
+      </svg>
+      <span class="thinking-label" aria-hidden="true">
+        {{ label }}
+      </span>
+      <span class="thinking-elapsed">{{ elapsedText }}</span>
+    </div>
+    <div v-if="mcpFailedNames?.length" class="mcp-failed-line">
+      {{ t('chat.thinkingState.mcpFailed', { names: mcpFailedNames.join(', ') }) }}
+    </div>
   </div>
 </template>
 
@@ -87,9 +95,23 @@ const elapsedText = computed(() => {
 .thinking-state {
   display: flex;
   width: fit-content;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 6px;
+}
+
+.thinking-row {
+  display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 6px;
+}
+
+.mcp-failed-line {
+  padding-left: 26px;
+  color: var(--status-warning, #e6a700);
+  font-size: var(--text-sm);
+  white-space: nowrap;
 }
 
 .thinking-star {
