@@ -6,7 +6,6 @@
  */
 
 import { spawn, ChildProcess } from 'child_process'
-import { isAbsolute } from 'path'
 import { info, warn } from '../infra/logger'
 
 export interface McpProbeConfig {
@@ -28,6 +27,12 @@ export interface McpProbeResult {
   serverInfo?: { name: string; version: string }
   tools?: McpProbeTool[]
   error?: string
+  /**
+   * 实际用于 spawn 的 `command + args`。内置服务器的存储配置和真正跑起来的
+   * 命令不是一回事（`@latest` 会被钉成精确版本、Windows 上 npx 会包成
+   * `cmd /c npx`），只展示存储值会让人按错的命令去排查。
+   */
+  effectiveCommand?: string
 }
 
 /**
@@ -88,14 +93,14 @@ function probeStdio(
 
     try {
       const env = { ...process.env, ...(config.env || {}) }
-      const cmd = config.command!
-      // 绝对路径直接执行，不走 shell — 避免 cmd.exe 对含空格/特殊字符
-      // 的路径做错误引号处理；裸命令名（如 npx/uvx）仍走 shell 解析 PATH。
-      const useShell = !isAbsolute(cmd)
-      proc = spawn(cmd, config.args || [], {
+      // shell:false 是刻意的 —— 必须和引擎侧 MCP SDK StdioClientTransport 的
+      // spawn 语义一致，否则「测试连接」通过而会话里连不上（裸 npx 在 Windows
+      // 上走 shell 能起、走 shell:false 必 ENOENT，就是这种假绿）。命令形态的
+      // 可执行性由 mcpConfigResolver 负责，这里不做补救。
+      proc = spawn(config.command!, config.args || [], {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: useShell,
+        shell: false,
         windowsHide: true,
       })
 
