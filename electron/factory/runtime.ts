@@ -78,6 +78,9 @@ export type TaskPatch = Partial<
     | 'tests'
     | 'review'
     | 'cancelled'
+    | 'mergedCommits'
+    | 'targetBranch'
+    | 'timestamps'
   >
 >
 
@@ -110,7 +113,7 @@ export function transitionTask(
     stageIdx: to.lane === 'blocked' ? current.stageIdx : (to.stageIdx ?? stageIndexFor(to.lane)),
   }
 
-  const timestamps = { ...current.timestamps }
+  const timestamps = { ...(patch.timestamps ?? current.timestamps) }
   if (to.lane === 'implementing' && !timestamps.startedAt) timestamps.startedAt = at
   if (to.lane === 'done' && !timestamps.endedAt) timestamps.endedAt = at
   next.timestamps = timestamps

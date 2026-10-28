@@ -13,6 +13,9 @@ import type {
   FactoryEvent,
   FactoryEventPush,
   FactoryGithubAuthResult,
+  FactoryMergeExecuteInput,
+  FactoryMergePreflightResult,
+  FactoryMergeResult,
   FactoryPreflightResult,
   FactoryReviewCommentInput,
   FactoryRunCreateInput,
@@ -124,6 +127,19 @@ export const factoryNamespace = defineNamespace({
         input: FactoryReviewCommentInput,
       ],
       res: null as unknown as FactoryTaskActionResult,
+    },
+    mergePreflight: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryMergePreflightResult,
+    },
+    mergeExecute: {
+      req: [] as unknown as [
+        repoRoot: string,
+        runId: string,
+        taskId: string,
+        input: FactoryMergeExecuteInput,
+      ],
+      res: null as unknown as FactoryMergeResult,
     },
     runStop: {
       req: [] as unknown as [repoRoot: string, runId: string],

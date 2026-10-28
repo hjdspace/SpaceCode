@@ -10,6 +10,9 @@ import {
   FACTORY_RUNS_PATH,
   type FactoryEvent,
   type FactoryEventPush,
+  type FactoryMergeExecuteInput,
+  type FactoryMergePreflightResult,
+  type FactoryMergeResult,
   type FactoryReviewComment,
   type FactoryReviewCommentInput,
   type FactoryRunStopResult,
@@ -42,6 +45,7 @@ import {
 import { appendRawLog, openEventLog, readEvents as readEventLog, type FactoryEventInput } from './events'
 import { runImplementation, type ImplementInput, type ImplementationResult } from './implementer'
 import { runReview, type ReviewInput, type ReviewResult } from './reviewer'
+import { executeMerge, runMergePreflight, type MergeWriteBackPayload } from './merge'
 import type { AgentPort } from './agentEngineGateway'
 
 const LOGS_DIR = '.spacecode/factory/logs'
@@ -56,6 +60,8 @@ export interface FactoryRunnerDeps {
   runImplementation?: (input: ImplementInput) => Promise<ImplementationResult>
   runReview?: (input: ReviewInput) => Promise<ReviewResult>
   revealPath?: (path: string) => void | Promise<void>
+  /** 06 接 GitHub 评论/关闭：合并成功后的可替换回写钩子。 */
+  mergeWriteBack?: (payload: MergeWriteBackPayload) => void | Promise<void>
 }
 
 export interface FactoryRunner {
@@ -76,6 +82,13 @@ export interface FactoryRunner {
     taskId: string,
     input: FactoryReviewCommentInput,
   ): Promise<FactoryTaskActionResult>
+  mergePreflight(repoRoot: string, runId: string, taskId: string): Promise<FactoryMergePreflightResult>
+  mergeTask(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    input: FactoryMergeExecuteInput,
+  ): Promise<FactoryMergeResult>
   readEvents(repoRoot: string, runId: string, taskId?: string | null): FactoryEvent[]
   revealWorktree(repoRoot: string, runId: string, taskId: string): Promise<FactoryWorktreeRevealResult>
   isRunning(taskId: string): boolean
@@ -754,6 +767,21 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
+    },
+
+    async mergePreflight(repoRoot, runId, taskId) {
+      return runMergePreflight(repoRoot, runId, taskId, { git, now })
+    },
+
+    async mergeTask(repoRoot, runId, taskId, input) {
+      return executeMerge(repoRoot, runId, taskId, input, {
+        git,
+        now,
+        emit: (event) => {
+          emit(repoRoot, runId, event)
+        },
+        ...(deps.mergeWriteBack ? { writeBack: deps.mergeWriteBack } : {}),
+      })
     },
 
     readEvents(repoRoot, runId, taskId) {

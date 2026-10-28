@@ -16,6 +16,10 @@ import type {
   FactoryEvent,
   FactoryEventPush,
   FactoryGithubAuthResult,
+  FactoryMergeExecuteInput,
+  FactoryMergeMode,
+  FactoryMergePreflight,
+  FactoryMergeResult,
   FactoryPreflightResult,
   FactoryReviewCommentInput,
   FactoryRun,
@@ -103,6 +107,16 @@ export const useFactoryStore = defineStore('factory', () => {
   /** 忽略阻塞级意见时的二次确认目标。 */
   const pendingIgnoreId = ref<string | null>(null)
 
+  // 合并闸门：弹窗打开即跑一次只读预检；勾选「已审查 diff」才允许提交
+  const mergeOpen = ref(false)
+  const mergeTaskId = ref<string | null>(null)
+  const mergeMode = ref<FactoryMergeMode>('merge')
+  const mergeConfirmed = ref(false)
+  const mergeChecking = ref(false)
+  const mergePreflight = ref<FactoryMergePreflight | null>(null)
+  const mergeError = ref<FactoryActionError | null>(null)
+  const merging = ref(false)
+
   const seenEventSeqs = new Set<string>()
   let unsubscribeEvents: (() => void) | null = null
   let subscribedRoot: string | null = null
@@ -116,6 +130,21 @@ export const useFactoryStore = defineStore('factory', () => {
   /** 批准按钮的资格：测试通过 + 审查通过 + 无未决阻塞意见。 */
   const selectedEligibility = computed<MergeEligibility>(() =>
     selectedTask.value ? mergeEligibility(selectedTask.value) : { ok: false, reasons: [] },
+  )
+
+  /**
+   * 合并按钮：预检无致命项 + 已勾选审查确认 + 没有正在执行的预检/合并。
+   * 预检尚未返回时也视为有阻塞，避免用户在没看预检前就点合并。
+   */
+  const mergeHasBlockers = computed(() => {
+    const preflight = mergePreflight.value
+    return preflight ? preflight.blockers.length > 0 : true
+  })
+  const canConfirmMerge = computed(
+    () => mergeConfirmed.value && !mergeChecking.value && !merging.value && !mergeHasBlockers.value,
+  )
+  const mergeTarget = computed(
+    () => mergePreflight.value?.targetBranch ?? config.value?.repo.baseBranch ?? 'main',
   )
 
   const boardReady = computed(() => configured.value && config.value !== null)
@@ -533,6 +562,84 @@ export const useFactoryStore = defineStore('factory', () => {
     return updateComment(root, runId, taskId, { commentId, action: 'ignore', confirm: true })
   }
 
+  function setMergeMode(mode: FactoryMergeMode): void {
+    mergeMode.value = mode
+  }
+
+  function setMergeConfirmed(value: boolean): void {
+    mergeConfirmed.value = value
+  }
+
+  function closeMerge(): void {
+    mergeOpen.value = false
+    mergeTaskId.value = null
+    mergeMode.value = 'merge'
+    mergeConfirmed.value = false
+    mergePreflight.value = null
+    mergeError.value = null
+    merging.value = false
+  }
+
+  async function refreshMerge(root: string, runId: string, taskId?: string): Promise<void> {
+    const target = taskId ?? mergeTaskId.value
+    if (!target) return
+    mergeChecking.value = true
+    mergeError.value = null
+    try {
+      const result = await api.factory.mergePreflight(root, runId, target)
+      if (result.ok) {
+        mergePreflight.value = result.preflight
+      } else {
+        mergePreflight.value = null
+        mergeError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      }
+    } catch {
+      mergePreflight.value = null
+      mergeError.value = { code: 'git-error' }
+    } finally {
+      mergeChecking.value = false
+    }
+  }
+
+  /** 打开即预检；用户刷新时重新预检，不自动 rebase 基础分支。 */
+  async function openMerge(root: string, runId: string, taskId: string): Promise<void> {
+    mergeTaskId.value = taskId
+    mergeMode.value = 'merge'
+    mergeConfirmed.value = false
+    mergePreflight.value = null
+    mergeError.value = null
+    mergeOpen.value = true
+    await refreshMerge(root, runId, taskId)
+  }
+
+  async function confirmMerge(root: string, runId: string): Promise<FactoryMergeResult> {
+    const taskId = mergeTaskId.value
+    if (!taskId) return { ok: false, error: 'task-not-found' }
+    merging.value = true
+    mergeError.value = null
+    try {
+      const input: FactoryMergeExecuteInput = {
+        mode: mergeMode.value,
+        confirmed: mergeConfirmed.value,
+      }
+      const result = await api.factory.mergeExecute(root, runId, taskId, input)
+      if (result.ok) {
+        applySnapshot(result.snapshot)
+        mergeOpen.value = false
+        mergeConfirmed.value = false
+        return result
+      }
+      if (result.preflight) mergePreflight.value = result.preflight
+      mergeError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      return result
+    } catch {
+      mergeError.value = { code: 'git-error' }
+      return { ok: false, error: 'git-error' }
+    } finally {
+      merging.value = false
+    }
+  }
+
   function clearActionError(): void {
     actionError.value = null
     pendingDirtyId.value = null
@@ -592,6 +699,14 @@ export const useFactoryStore = defineStore('factory', () => {
     fixing.value = false
     updatingComment.value = false
     pendingIgnoreId.value = null
+    mergeOpen.value = false
+    mergeTaskId.value = null
+    mergeMode.value = 'merge'
+    mergeConfirmed.value = false
+    mergeChecking.value = false
+    mergePreflight.value = null
+    mergeError.value = null
+    merging.value = false
     seenEventSeqs.clear()
     unsubscribeEvents?.()
     unsubscribeEvents = null
@@ -637,6 +752,17 @@ export const useFactoryStore = defineStore('factory', () => {
     fixing,
     updatingComment,
     pendingIgnoreId,
+    mergeOpen,
+    mergeTaskId,
+    mergeMode,
+    mergeConfirmed,
+    mergeChecking,
+    mergePreflight,
+    mergeError,
+    merging,
+    mergeHasBlockers,
+    canConfirmMerge,
+    mergeTarget,
     selectedEvents,
     hasCommits,
     selectedTask,
@@ -680,6 +806,12 @@ export const useFactoryStore = defineStore('factory', () => {
     acceptComment,
     ignoreComment,
     confirmIgnoreComment,
+    setMergeMode,
+    setMergeConfirmed,
+    closeMerge,
+    refreshMerge,
+    openMerge,
+    confirmMerge,
     clearActionError,
     selectTask,
     setInspectorTab,

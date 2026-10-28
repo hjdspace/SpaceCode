@@ -334,6 +334,8 @@ export function registerFactoryIPCHandlers(): void {
     taskFix: (root, runId, taskId) => runner.fixTask(root, runId, taskId),
     taskCommentUpdate: (root, runId, taskId, input) =>
       runner.updateComment(root, runId, taskId, input),
+    mergePreflight: (root, runId, taskId) => runner.mergePreflight(root, runId, taskId),
+    mergeExecute: (root, runId, taskId, input) => runner.mergeTask(root, runId, taskId, input),
     runStop: (root, runId) => runner.stopRun(root, runId),
     taskEvents: (root, runId, taskId) => runner.readEvents(root, runId, taskId),
     worktreeReveal: (root, runId, taskId) => runner.revealWorktree(root, runId, taskId),

@@ -6,6 +6,8 @@ import type { FactoryRendererApi, FactoryEventApi } from '@/shared/channels/fact
 import type {
   FactoryBacklogResult,
   FactoryGithubAuthResult,
+  FactoryMergePreflightResult,
+  FactoryMergeResult,
   FactoryPreflightResult,
   FactoryRunCreateResult,
   FactorySaveResult,
@@ -42,6 +44,8 @@ const failedRun: FactoryRunCreateResult = { ok: false, error: 'empty-tasks' }
 const failedStart: FactoryTaskStartResult = { ok: false, error: 'task-not-found' }
 const failedAction: FactoryTaskActionResult = { ok: false, error: 'task-not-found' }
 const failedReveal: FactoryWorktreeRevealResult = { ok: false, error: 'task-not-found' }
+const failedMergePreflight: FactoryMergePreflightResult = { ok: false, error: 'task-not-found' }
+const failedMerge: FactoryMergeResult = { ok: false, error: 'task-not-found' }
 
 const invokeApi = createRendererApi(
   factoryNamespace.channels,
@@ -74,6 +78,8 @@ const invokeApi = createRendererApi(
     taskRequestChanges: () => failedAction,
     taskFix: () => failedAction,
     taskCommentUpdate: () => failedAction,
+    mergePreflight: () => failedMergePreflight,
+    mergeExecute: () => failedMerge,
     runStop: () => failedAction,
     taskEvents: () => [],
     worktreeReveal: () => failedReveal,

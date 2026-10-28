@@ -177,6 +177,10 @@ function parseTask(raw: unknown): FactoryTask | null {
         }
       : {}),
     ...(raw.cancelled === true ? { cancelled: true } : {}),
+    ...(typeof raw.mergedCommits === 'number' && Number.isFinite(raw.mergedCommits)
+      ? { mergedCommits: raw.mergedCommits }
+      : {}),
+    ...(typeof raw.targetBranch === 'string' && raw.targetBranch ? { targetBranch: raw.targetBranch } : {}),
     ...(parseTests(raw.tests) ? { tests: parseTests(raw.tests) } : {}),
     ...(parseReview(raw.review) ? { review: parseReview(raw.review) } : {}),
     ...(isRecord(raw.attention) && typeof raw.attention.reason === 'string'

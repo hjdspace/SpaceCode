@@ -96,6 +96,8 @@
             :fixing="store.fixing"
             :updating-comment="store.updatingComment"
             :pending-ignore-id="store.pendingIgnoreId"
+            :merge-target="store.mergeTarget"
+            :merging="store.merging"
             @select-tab="store.setInspectorTab"
             @start="handleStart"
             @stop="handleStopTask"
@@ -107,10 +109,29 @@
             @comment-accept="handleCommentAccept"
             @comment-ignore="handleCommentIgnore"
             @comment-confirm-ignore="handleCommentConfirmIgnore"
+            @merge="handleOpenMerge"
           />
         </div>
       </div>
     </template>
+
+    <FactoryMergeDialog
+      v-if="store.mergeOpen && root"
+      :task="mergeTask"
+      :target="store.mergeTarget"
+      :preflight="store.mergePreflight"
+      :checking="store.mergeChecking"
+      :error="store.mergeError"
+      :mode="store.mergeMode"
+      :confirmed="store.mergeConfirmed"
+      :merging="store.merging"
+      :can-confirm="store.canConfirmMerge"
+      @close="store.closeMerge()"
+      @refresh="handleRefreshMerge"
+      @update:mode="store.setMergeMode"
+      @update:confirmed="store.setMergeConfirmed"
+      @confirm="handleConfirmMerge"
+    />
 
     <FactorySetupWizard v-if="store.wizardOpen && root" :root="root" />
   </div>
@@ -127,6 +148,7 @@ import FactoryRunHeader from './FactoryRunHeader.vue'
 import FactoryBoard from './FactoryBoard.vue'
 import FactoryInspector from './FactoryInspector.vue'
 import FactoryBacklogPanel from './FactoryBacklogPanel.vue'
+import FactoryMergeDialog from './FactoryMergeDialog.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -173,6 +195,27 @@ watch(
 
 function selectedTaskId(): string | null {
   return store.selectedTask?.id ?? null
+}
+
+/** 弹窗内容跟随打开时的任务，而不是当前选中项。 */
+const mergeTask = computed(
+  () => store.tasks.find((task) => task.id === store.mergeTaskId) ?? store.selectedTask,
+)
+
+function handleOpenMerge(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.openMerge(root.value, store.run.id, taskId)
+}
+
+function handleRefreshMerge(): void {
+  if (!root.value || !store.run) return
+  void store.refreshMerge(root.value, store.run.id)
+}
+
+function handleConfirmMerge(): void {
+  if (!root.value || !store.run) return
+  void store.confirmMerge(root.value, store.run.id)
 }
 
 function handleStart(): void {

@@ -327,6 +327,10 @@ export interface FactoryTask {
   review?: FactoryReview
   cancelled?: boolean
   attention?: { reason: string; action: 'fix' | 'merge' | 'retry' }
+  /** 合并成功后记录：带入目标分支的提交数。 */
+  mergedCommits?: number
+  /** 合并成功后记录：目标分支（通常为配置的 baseBranch）。 */
+  targetBranch?: string
   timestamps: {
     claimedAt?: string
     startedAt?: string
@@ -440,3 +444,91 @@ export type FactoryRunStopResult = FactoryTaskActionResult | { ok: false; error:
 export type FactoryWorktreeRevealResult =
   | { ok: true }
   | { ok: false; error: 'task-not-found' | 'no-worktree' | 'reveal-failed' }
+
+// ── 合并闸门与本地合并 ─────────────────────────────────────────
+
+/** 允许的合并方式；禁止 force 与合并到非配置分支。 */
+export const FACTORY_MERGE_MODES = ['merge', 'squash', 'rebase'] as const
+
+export type FactoryMergeMode = (typeof FACTORY_MERGE_MODES)[number]
+
+/** 预检致命项；任意一项存在都禁用合并按钮。 */
+export type FactoryMergeBlocker =
+  | 'not-mergeable'
+  | 'tests-missing'
+  | 'tests-failed'
+  | 'review-missing'
+  | 'review-needs-changes'
+  | 'open-blockers'
+  | 'no-commits'
+  | 'worktree-missing'
+  | 'worktree-dirty'
+  | 'workspace-dirty'
+  | 'base-missing'
+  | 'base-advanced'
+  | 'conflict'
+  | 'verify-failed'
+  | 'git-error'
+
+/** 合并弹窗的预检投影：事实字段 + 致命项，不修改任务状态。 */
+export interface FactoryMergePreflight {
+  taskId: string
+  branch: string
+  targetBranch: string
+  commits: number
+  diff: FactoryTaskDiff
+  tests?: FactoryTestRun
+  review?: FactoryReview
+  worktreeClean: boolean
+  /** 主仓库工作区是否干净（仅在目标分支被检出时检查）。 */
+  workspaceClean: boolean
+  baseAdvanced: boolean
+  conflicts: boolean
+  conflictFiles: string[]
+  /** 复跑验证的结果。 */
+  verify?: FactoryTestRun
+  blockers: FactoryMergeBlocker[]
+  detail?: string
+  checkedAt: string
+}
+
+export type FactoryMergePreflightResult =
+  | { ok: true; preflight: FactoryMergePreflight }
+  | { ok: false; error: 'task-not-found' | 'config-missing' | 'git-error'; detail?: string }
+
+export interface FactoryMergeExecuteInput {
+  mode: FactoryMergeMode
+  /** 「我已审查 diff」复选框。 */
+  confirmed: boolean
+}
+
+export type FactoryMergeError =
+  | 'task-not-found'
+  | 'config-missing'
+  | 'not-eligible'
+  | 'confirm-required'
+  | 'invalid-mode'
+  | 'base-advanced'
+  | 'conflict'
+  | 'verify-failed'
+  | 'workspace-dirty'
+  | 'dirty-worktree'
+  | 'no-worktree'
+  | 'git-error'
+  | 'merge-failed'
+  | 'write-failed'
+
+export type FactoryMergeResult =
+  | {
+      ok: true
+      snapshot: FactoryRunSnapshot
+      mergedCommits: number
+      targetBranch: string
+      cleanup: 'removed' | 'kept'
+    }
+  | {
+      ok: false
+      error: FactoryMergeError
+      detail?: string
+      preflight?: FactoryMergePreflight
+    }

@@ -336,6 +336,16 @@
           >
             {{ fixing ? t('factory.actions.fixing') : t('factory.actions.fix') }}
           </button>
+          <button
+            v-if="task.lane === 'mergeable'"
+            class="action-btn primary"
+            data-task-merge
+            :disabled="merging"
+            @click="emit('merge')"
+          >
+            <GitMerge :size="12" />
+            {{ t('factory.actions.merge', { target: mergeTarget }) }}
+          </button>
         </div>
       </footer>
     </template>
@@ -353,6 +363,7 @@ import {
   FileDiff,
   Folder,
   GitBranch,
+  GitMerge,
   Layers,
   Loader2,
   Play,
@@ -393,6 +404,9 @@ const props = withDefaults(
     fixing?: boolean
     updatingComment?: boolean
     pendingIgnoreId?: string | null
+    /** 合并目标分支，仅用于按钮文案。 */
+    mergeTarget?: string
+    merging?: boolean
   }>(),
   {
     nowMs: () => Date.now(),
@@ -408,6 +422,8 @@ const props = withDefaults(
     fixing: false,
     updatingComment: false,
     pendingIgnoreId: null,
+    mergeTarget: 'main',
+    merging: false,
   },
 )
 
@@ -423,6 +439,7 @@ const emit = defineEmits<{
   'comment-accept': [commentId: string]
   'comment-ignore': [commentId: string]
   'comment-confirm-ignore': [commentId: string]
+  merge: []
 }>()
 
 const { t } = useI18n()
