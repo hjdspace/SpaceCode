@@ -392,10 +392,10 @@ onUnmounted(() => {
   width: 100%;
   max-width: 1320px;
   min-height: 0;
-  background: #fff;
-  border: 1px solid #d8e0eb;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
   border-radius: 12px;
-  box-shadow: 0 28px 80px rgba(24, 25, 31, 0.22);
+  box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -406,8 +406,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 18px;
   padding: 18px 20px;
-  border-bottom: 1px solid #dfe5ee;
-  background: #fff;
+  border-bottom: 1px solid var(--surface-border);
+  background: var(--bg-elevated);
 }
 
 .ds-preview-modal-title-block {
@@ -461,8 +461,8 @@ onUnmounted(() => {
   text-decoration: none;
   padding: 2px 8px;
   border-radius: var(--radius-full, 9999px);
-  border: 1px solid #dfe5ee;
-  background: #f5f7fa;
+  border: 1px solid var(--surface-border);
+  background: var(--bg-primary);
   cursor: pointer;
   transition:
     background var(--transition-fast),
@@ -472,7 +472,7 @@ onUnmounted(() => {
 }
 
 .ds-preview-modal-official-link:hover {
-  background: var(--surface-soft);
+  background: var(--bg-hover);
   border-color: var(--surface-border-strong);
   color: var(--text-primary);
 }
@@ -504,9 +504,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 2px;
   padding: 3px;
-  border: 1px solid #dfe5ee;
+  border: 1px solid var(--surface-border);
   border-radius: var(--radius-full);
-  background: #f5f7fa;
+  background: var(--bg-primary);
 }
 
 .ds-preview-modal-tab {
@@ -531,9 +531,9 @@ onUnmounted(() => {
 }
 
 .ds-preview-modal-tab.active {
-  background: #fff;
+  background: var(--bg-elevated);
   color: var(--text-primary);
-  box-shadow: 0 1px 4px rgba(24, 25, 31, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .ds-preview-modal-ghost,
@@ -545,8 +545,8 @@ onUnmounted(() => {
   gap: 7px;
   padding: 0 14px;
   border-radius: 8px;
-  border: 1px solid #dfe5ee;
-  background: #fff;
+  border: 1px solid var(--surface-border);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   font-size: 14px;
   font-weight: 700;
@@ -560,7 +560,7 @@ onUnmounted(() => {
 
 .ds-preview-modal-ghost:hover,
 .ds-preview-modal-share:hover {
-  background: var(--surface-soft);
+  background: var(--bg-hover);
   border-color: var(--surface-border-strong);
 }
 
@@ -575,10 +575,10 @@ onUnmounted(() => {
   right: 0;
   width: 220px;
   padding: 6px;
-  background: #fff;
-  border: 1px solid #d8e0eb;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
   border-radius: 12px;
-  box-shadow: 0 18px 44px rgba(24, 25, 31, 0.16);
+  box-shadow: var(--shadow-lg);
   z-index: 200;
   display: flex;
   flex-direction: column;
@@ -614,7 +614,7 @@ onUnmounted(() => {
 }
 
 .ds-share-item:hover:not(:disabled) {
-  background: var(--surface-soft);
+  background: var(--bg-hover);
 }
 
 .ds-share-item:disabled {
@@ -629,7 +629,7 @@ onUnmounted(() => {
 
 .ds-share-divider {
   height: 1px;
-  background: #e4e9f1;
+  background: var(--surface-border);
   margin: 4px 6px;
 }
 
@@ -667,7 +667,7 @@ onUnmounted(() => {
 }
 
 .ds-preview-modal-close:hover {
-  background: var(--surface-soft);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -677,7 +677,7 @@ onUnmounted(() => {
   display: flex;
   align-items: stretch;
   gap: 1px;
-  background: #dfe5ee;
+  background: var(--surface-border-strong);
 }
 
 .ds-preview-modal-iframe-wrap {
@@ -685,7 +685,7 @@ onUnmounted(() => {
   min-width: 0;
   position: relative;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-secondary);
   padding: 16px;
 }
 
@@ -708,7 +708,7 @@ onUnmounted(() => {
 .ds-preview-modal-iframe {
   width: 100%;
   height: 100%;
-  border: 1px solid #e8ecf2;
+  border: 1px solid var(--surface-border);
   border-radius: 8px;
   background: #fff;
 }
@@ -720,7 +720,7 @@ onUnmounted(() => {
   max-width: 560px;
   overflow: auto;
   @include scrollbar-overlay;
-  background: #fff;
+  background: var(--bg-elevated);
   padding: 36px 32px;
   animation: sidebarIn 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -741,10 +741,10 @@ onUnmounted(() => {
 
 .ds-preview-modal-markdown :deep(h1) {
   margin-top: 0;
-  color: #2563eb;
+  color: var(--accent-primary);
   font-size: 16px;
 }
-.ds-preview-modal-markdown :deep(h2) { color: #0891b2; font-size: 15px; }
+.ds-preview-modal-markdown :deep(h2) { color: var(--accent-secondary); font-size: 15px; }
 .ds-preview-modal-markdown :deep(h3) { font-size: 14px; }
 
 .ds-preview-modal-markdown :deep(p) {
@@ -765,14 +765,14 @@ onUnmounted(() => {
 .ds-preview-modal-markdown :deep(code) {
   font-family: var(--font-mono);
   font-size: 12px;
-  background: #eef6f8;
-  color: #0f766e;
+  background: var(--code-bg);
+  color: var(--code-function);
   padding: 2px 5px;
   border-radius: 5px;
 }
 
 .ds-preview-modal-markdown :deep(pre) {
-  background: #f6f8fb;
+  background: var(--code-bg);
   padding: 12px;
   border-radius: 8px;
   /* 纵向滚动归外层 .ds-preview-modal-sidebar, 否则横向条占的高度会画出幽灵纵向条 */
