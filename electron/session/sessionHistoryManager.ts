@@ -4,6 +4,7 @@ import * as os from 'os'
 import { info, warn, error, debug } from '../infra/logger'
 import { findPiSessionRecord } from '../engine/engines/piSessionRegistry'
 import { getPiFullSession, listPiSessions } from './piSessionHistory'
+import { parseEngineUserPrompt } from '@/shared/promptEnvelope'
 
 export type HistoryEngineType = 'claude-code' | 'pi'
 
@@ -158,13 +159,18 @@ async function readSessionLite(
 
         if (msg.type === 'user' && !firstUserMessage) {
           const content = msg.message?.content
-          
-          if (typeof content === 'string') {
-            firstUserMessage = content.trim()
-          } else if (Array.isArray(content)) {
-            const textItem = content.find((c: any) => c.type === 'text')
-            firstUserMessage = textItem?.text?.trim() || ''
-          }
+          const rawText = typeof content === 'string'
+            ? content
+            : Array.isArray(content)
+              ? (content.find((c: any) => c.type === 'text')?.text || '')
+              : ''
+
+          // 引擎正文带着 @"路径" + Attachments 说明块；侧栏标题/预览只该显示用户输入。
+          // 纯附件消息洗出来是空串，继续往后找第一条有正文的消息。
+          const previewText = rawText
+            ? parseEngineUserPrompt(rawText).text
+            : ''
+          if (previewText) firstUserMessage = previewText
         }
         
         if (!metadata?.timestamps?.lastMessageAt && msg.timestamp) {
