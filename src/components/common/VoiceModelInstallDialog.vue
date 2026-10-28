@@ -13,6 +13,14 @@
           <h3 class="vmd-title">{{ $t('voiceInput.installTitle') }}</h3>
           <p class="vmd-text">{{ $t('voiceInput.installIntro') }}</p>
           <dl class="vmd-rows">
+            <div v-if="info?.model" class="vmd-row">
+              <dt>{{ $t('voiceInput.modelLabel') }}</dt>
+              <dd class="vmd-model">{{ info.model.name }}</dd>
+            </div>
+            <div v-if="info?.model" class="vmd-row">
+              <dt>{{ $t('voiceInput.modelLicense') }}</dt>
+              <dd>{{ info.model.license }}</dd>
+            </div>
             <div class="vmd-row">
               <dt>{{ $t('voiceInput.archiveSize') }}</dt>
               <dd>{{ formatSize(info?.archiveBytes ?? 0) }}</dd>
@@ -156,6 +164,11 @@ function hostOf(url: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.vmd-model {
+  max-width: 300px;
+  text-align: right;
 }
 
 .vmd-hint {
