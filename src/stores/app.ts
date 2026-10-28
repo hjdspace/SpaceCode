@@ -895,8 +895,8 @@ export const useAppStore = defineStore('app', () => {
   /** 将本地文件路径转为预览 URL 并在内置浏览器打开（用于预览 .html 等产物） */
   async function openFileInWebview(filePath: string) {
     // 优先使用本地 HTTP 预览服务器（解决 file:// 协议下 ES Module / CORS 问题）
-    // 带上当前工作目录，预览服务才会把可读范围登记到该工作区，页面内的相对引用不断链
-    const previewUrl = await api.preview.getUrl(filePath, getEffectiveWorkspaceRoot())
+    // 可读范围固定为产物所在目录：同目录与子目录的相对引用不断链，也不会把整个项目登记进去
+    const previewUrl = await api.preview.getUrl(filePath)
     if (previewUrl) {
       openWebview(previewUrl)
       return
