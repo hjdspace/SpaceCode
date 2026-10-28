@@ -595,9 +595,17 @@ const specialToolNames = computed(() => {
 async function loadSpecialComponentByName(toolName: string) {
   if (!hasToolComponent(toolName) || specialComponents[toolName] || loadingSpecialComponents.has(toolName)) return
   loadingSpecialComponents.add(toolName)
-  const comp = await resolveToolComponent(toolName)
-  if (comp) specialComponents[toolName] = markRaw(comp)
-  loadingSpecialComponents.delete(toolName)
+  try {
+    const comp = await resolveToolComponent(toolName)
+    if (comp) specialComponents[toolName] = markRaw(comp)
+  } catch (err) {
+    // dev server 重启、HMR 断连时动态 import 会失败。不能在这里抛出去：
+    // 否则是未捕获 rejection，而且 loading 标记清不掉，这张卡会永久停在 generic 形态。
+    // 清掉标记后，下一次 tool 事件（或重挂载）会重新尝试加载。
+    console.warn(`[AgentTimeline] Failed to load tool card for "${toolName}"`, err)
+  } finally {
+    loadingSpecialComponents.delete(toolName)
+  }
 }
 
 function loadVisibleSpecialComponents() {
