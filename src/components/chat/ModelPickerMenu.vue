@@ -71,42 +71,27 @@
             <RefreshCw :size="12" :class="{ spin: isLoadingModels }" />
           </button>
         </div>
-        <div class="dropdown-search-box">
-          <Search :size="14" class="search-icon" />
-          <input
-            ref="modelSearchInput"
-            v-model="modelSearchQuery"
-            type="text"
-            :placeholder="t('chatInput.searchModels')"
-          />
-          <button v-if="modelSearchQuery" class="clear-btn" @click="modelSearchQuery = ''">
-            <X :size="12" />
-          </button>
-        </div>
         <div class="dropdown-list" ref="modelListRef">
-          <div v-if="!hasConfiguredModels && filteredModels.length === 0" class="dropdown-empty dropdown-config-prompt">
+          <div v-if="!hasConfiguredModels && availableModels.length === 0" class="dropdown-empty dropdown-config-prompt">
             <Settings :size="16" />
             <span>{{ t('chatInput.noModelsConfigured') }}</span>
             <button class="config-link-btn" @click="openSettingsModels">
               {{ t('chatInput.goToSettings') }}
             </button>
           </div>
-          <div v-else-if="isLoadingModels && filteredModels.length === 0" class="dropdown-loading">
+          <div v-else-if="isLoadingModels && availableModels.length === 0" class="dropdown-loading">
             <Loader2 :size="16" class="spin" />
             <span>{{ t('common.loading') }}</span>
           </div>
-          <div v-else-if="modelLoadError && filteredModels.length === 0" class="dropdown-error">
+          <div v-else-if="modelLoadError && availableModels.length === 0" class="dropdown-error">
             <AlertCircle :size="16" />
             <span>{{ modelLoadError }}</span>
             <button v-if="canRefreshModels" class="retry-btn" @click="refreshModels">
               {{ t('chatInput.retry') }}
             </button>
           </div>
-          <div v-else-if="filteredModels.length === 0" class="dropdown-empty">
-            <span>{{ t('chatInput.noMatchingModels') }}</span>
-          </div>
           <button
-            v-for="model in filteredModels"
+            v-for="model in availableModels"
             :key="model.value"
             class="dropdown-item"
             :class="{ active: selectedModel === model.value, highlighted: highlightedModel === model.value }"
@@ -125,16 +110,16 @@
 
 <script setup lang="ts">
 /**
- * 模型选择器：触发按钮 + 推理深度主下拉 + 可搜索的模型二级子菜单。
+ * 模型选择器：触发按钮 + 推理深度主下拉 + 模型二级子菜单。
  *
  * 接口只有一个 prop —— useModelSelector 的实例。状态与动作本来就住在那个
  * composable 里，这个组件补的是它的外部接口一直管不到的部分：开合、键盘导航、
- * 子菜单的视口定位、搜索框聚焦。宿主只需继续持有 initialize 和 selectedModel。
+ * 子菜单的视口定位。
  */
-import { computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   AlertCircle, Check, ChevronDown, ChevronRight, Loader2, RefreshCw,
-  Search, Settings, X,
+  Settings,
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -147,10 +132,10 @@ const props = defineProps<{ selector: ModelSelector }>()
 
 const {
   selectedModel, selectedMode, showModelDropdown, showModelSubmenu,
-  modelSearchQuery, highlightedModel, isLoadingModels, modelLoadError,
-  modelSearchInput, modelSelectorRef, modelListRef, modelSubmenuRef,
+  highlightedModel, isLoadingModels, modelLoadError,
+  modelSelectorRef, modelListRef, modelSubmenuRef,
   mainDropdownRef, modelTriggerRowRef,
-  availableModes, hasConfiguredModels, filteredModels, canRefreshModels, selectedModelLabel,
+  availableModes, hasConfiguredModels, availableModels, canRefreshModels, selectedModelLabel,
   selectModel, selectMode, closeModelDropdown, toggleModelDropdown,
   toggleModelSubmenu, onCurrentModelRowLeave, onModelSubmenuEnter,
   onModelSubmenuLeave, closeModelSubmenu, refreshModels, handleModelKeydown,
@@ -201,11 +186,6 @@ function openSettingsModels() {
 
 onMounted(() => document.addEventListener('keydown', handleModelKeydown))
 onUnmounted(() => document.removeEventListener('keydown', handleModelKeydown))
-
-// 展开子菜单即聚焦搜索框（清空搜索由 useModelSelector 自己负责）
-watch(showModelSubmenu, (open) => {
-  if (open) nextTick(() => modelSearchInput.value?.focus())
-})
 </script>
 
 <style lang="scss" scoped>
@@ -458,51 +438,6 @@ watch(showModelSubmenu, (open) => {
     color: var(--accent-primary);
     flex-shrink: 0;
     margin-left: 8px;
-  }
-}
-
-// dropdown-search-box 仍被模型下拉菜单使用
-.dropdown-search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--surface-border);
-  background: var(--bg-secondary);
-
-  .search-icon {
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    font-size: var(--text-base);
-    outline: none;
-
-    &::placeholder {
-      color: var(--text-muted);
-    }
-  }
-
-  .clear-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2px;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: var(--radius-xs);
-
-    &:hover {
-      background: var(--surface-hover);
-      color: var(--text-primary);
-    }
   }
 }
 

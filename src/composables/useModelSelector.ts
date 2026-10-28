@@ -3,7 +3,6 @@
  *
  * Manages:
  * - Model list (fetched → configured → default fallback)
- * - Model search filtering
  * - Model selection and effort level
  * - Dropdown menu state
  */
@@ -49,14 +48,12 @@ export function useModelSelector(options?: {
   )
   const showModelDropdown = ref(false)
   const showModelSubmenu = ref(false)
-  const modelSearchQuery = ref('')
   const highlightedModel = ref<string | null>(null)
   const isLoadingModels = ref(false)
   const modelLoadError = ref<string | null>(null)
   const fetchedModels = ref<ModelOption[]>([])
 
   // Refs for DOM elements (set by the component)
-  const modelSearchInput = ref<HTMLInputElement | null>(null)
   const modelSelectorRef = ref<HTMLElement | null>(null)
   const modelListRef = ref<HTMLElement | null>(null)
   const modelSubmenuRef = ref<HTMLElement | null>(null)
@@ -185,16 +182,6 @@ export function useModelSelector(options?: {
     return configured.length > 0
   })
 
-  /** Search-filtered model list */
-  const filteredModels = computed<ModelOption[]>(() => {
-    if (!modelSearchQuery.value) return availableModels.value
-    const query = modelSearchQuery.value.toLowerCase()
-    return availableModels.value.filter(model =>
-      model.label.toLowerCase().includes(query) ||
-      model.value.toLowerCase().includes(query)
-    )
-  })
-
   /** Whether we can refresh the model list from API */
   const canRefreshModels = computed(() => {
     if (isH5Mode()) return false
@@ -305,7 +292,6 @@ export function useModelSelector(options?: {
     selectedModel.value = modelValue
     showModelSubmenu.value = false
     showModelDropdown.value = false
-    modelSearchQuery.value = ''
     options?.onUpdateModel?.(modelValue)
   }
 
@@ -317,7 +303,6 @@ export function useModelSelector(options?: {
   function closeModelDropdown() {
     showModelDropdown.value = false
     showModelSubmenu.value = false
-    modelSearchQuery.value = ''
   }
 
   function toggleModelDropdown() {
@@ -360,7 +345,7 @@ export function useModelSelector(options?: {
   }
 
   function navigateModels(direction: number) {
-    const models = filteredModels.value
+    const models = availableModels.value
     if (models.length === 0) return
 
     const currentIndex = models.findIndex(m => m.value === highlightedModel.value)
@@ -377,9 +362,8 @@ export function useModelSelector(options?: {
 
     if (!showModelDropdown.value) {
       const isModelSelectorFocused = modelSelectorRef.value?.contains(target)
-      const isInSearchInput = target === modelSearchInput.value
 
-      if ((event.key === 'Enter' || event.key === ' ') && (isModelSelectorFocused || isInSearchInput)) {
+      if ((event.key === 'Enter' || event.key === ' ') && isModelSelectorFocused) {
         event.preventDefault()
         toggleModelDropdown()
       }
@@ -446,33 +430,18 @@ export function useModelSelector(options?: {
     if (clamped) options?.onUpdateEffort?.(clamped)
   })
 
-  watch(showModelDropdown, (open) => {
-    if (!open) modelSearchQuery.value = ''
-  })
-
-  watch(showModelSubmenu, (open) => {
-    if (open) {
-      // Auto-focus search input when submenu opens
-      // (caller should use nextTick + modelSearchInput.focus())
-    } else {
-      modelSearchQuery.value = ''
-    }
-  })
-
   return {
     // State
     selectedModel,
     selectedMode,
     showModelDropdown,
     showModelSubmenu,
-    modelSearchQuery,
     highlightedModel,
     isLoadingModels,
     modelLoadError,
     fetchedModels,
 
     // DOM refs (to be bound by the component)
-    modelSearchInput,
     modelSelectorRef,
     modelListRef,
     modelSubmenuRef,
@@ -482,7 +451,6 @@ export function useModelSelector(options?: {
     // Computed
     availableModels,
     hasConfiguredModels,
-    filteredModels,
     canRefreshModels,
     selectedModelLabel,
     availableModes,
