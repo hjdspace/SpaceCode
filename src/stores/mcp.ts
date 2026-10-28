@@ -98,6 +98,12 @@ export const useMcpStore = defineStore('mcp', () => {
   /** electron IPC 进度订阅句柄，store 销毁时复用 */
   let installProgressUnsub: (() => void) | null = null
 
+  // ── 内置预设本地化（uvx/npx → 一次性安装） ──
+  /** 正在后台本地化的预设 key；UI 据此显示「正在本地化」 */
+  const localizingPresets = ref<Record<string, boolean>>({})
+  /** 已确认本地直连的预设 key（本次运行内）；下次会话 spawn 起不再付 launcher 成本 */
+  const localizedPresets = ref<Record<string, boolean>>({})
+
   /** 当前会被注入到 claude-code CLI 的 MCP 服务器名列表（用于「已加载」徽标） */
   const activeMcpNames = ref<string[]>([])
 
@@ -407,6 +413,52 @@ export const useMcpStore = defineStore('mcp', () => {
     }
   }
 
+  /**
+   * 把一条内置预设从 uvx/npx 形态就地本地化（`uv tool install` / `npm install -g`）。
+   *
+   * 由 `toggleServerEnabled` 在用户**启用**内置预设时后台触发 —— 启用的那一刻就是
+   * 授权往这台机器上写这个包的信号，没启用过的永远不碰。
+   *
+   * 纯增益路径，四条都不打扰用户：
+   * - 主进程判断该不该装（非 launcher 形态 / 用户改写过 command → not-applicable）；
+   * - 已本地直连 → already-local，什么都不做；
+   * - 失败只写 console，配置一个字不改，下次 spawn 照旧回落到钉版本 launcher；
+   * - 成功才刷新依赖状态并 probe 这一条，让 UI 立刻反映「本地直连」。
+   *
+   * 已存在的会话不受影响：本地入口在下次 spawn 才被 resolver 取用。
+   */
+  async function localizeBuiltinPreset(name: string): Promise<void> {
+    if (localizingPresets.value[name] || localizedPresets.value[name]) return
+    const server = servers.value[name]
+    if (!server) return
+
+    localizingPresets.value = { ...localizingPresets.value, [name]: true }
+    try {
+      const result = await api.mcp.localizeBuiltin(name, {
+        type: server.type,
+        command: server.command,
+        args: server.args,
+      })
+      if (result?.status === 'localized' || result?.status === 'already-local') {
+        localizedPresets.value = { ...localizedPresets.value, [name]: true }
+        if (result.status === 'localized') {
+          // 与 installDependency 同一套收尾：依赖状态跟着变，这条服务器重连一次。
+          // activeMcpNames 不用刷 —— 本地化只改启动形态，不改有哪些服务器。
+          await checkAllBuiltinDependencies()
+          await probeServer(name).catch(() => {})
+        }
+      } else if (result?.status === 'failed') {
+        console.warn(`Failed to localize builtin MCP "${name}":`, result.error)
+      }
+    } catch (err) {
+      console.warn(`Failed to localize builtin MCP "${name}":`, err)
+    } finally {
+      const next = { ...localizingPresets.value }
+      delete next[name]
+      localizingPresets.value = next
+    }
+  }
+
   async function fetchRuntimeStatus() {
     runtimeLoading.value = true
     try {
@@ -524,6 +576,12 @@ export const useMcpStore = defineStore('mcp', () => {
       // 启用/禁用会改变下次 CLI spawn 时实际加载的 MCP 列表，立刻刷新一次
       fetchActiveMcpNames().catch(() => {})
       refreshPiStateIfShown()
+      // 启用内置预设 = 用户授权这条预设在这台机器上跑。顺手把它从 uvx/npx 形态
+      // 一次性本地化，免掉以后每次 spawn 都要付的包解析握手。后台跑，不 await：
+      // 装不装得上都不该影响这个开关本身。
+      if (enabled && isBuiltinServer(updated[name])) {
+        void localizeBuiltinPreset(name)
+      }
     } catch (err) {
       console.error('Failed to toggle MCP server:', err)
       await fetchServers()
@@ -707,6 +765,10 @@ export const useMcpStore = defineStore('mcp', () => {
     checkDependency,
     checkAllBuiltinDependencies,
     installDependency,
+    // 内置预设本地化（启用时后台把 uvx/npx 换成一次性安装）
+    localizingPresets,
+    localizedPresets,
+    localizeBuiltinPreset,
     // CLI 已加载的 MCP 服务器名列表（用于「已加载到 Claude Code」徽标）
     activeMcpNames,
     fetchActiveMcpNames,
