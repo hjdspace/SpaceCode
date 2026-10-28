@@ -89,21 +89,23 @@ describe('DesignPreview — 多文件设计的资源加载', () => {
     expect(el.getAttribute('srcdoc')).toBeNull()
   })
 
-  it('预览 URL 路径 sandbox 保留跨源 same-origin，仍不放下载', () => {
+  it('预览 URL 路径 sandbox 保留跨源 same-origin，但不再授予弹窗与下载', () => {
     const wrapper = mountPreview({ previewUrl: URL_A })
     const sandbox = frame(wrapper).getAttribute('sandbox') || ''
 
-    expect(sandbox).toBe('allow-scripts allow-same-origin allow-popups')
+    expect(sandbox).toBe('allow-scripts allow-same-origin')
+    expect(sandbox).not.toContain('allow-popups')
     expect(sandbox).not.toContain('allow-downloads')
     expect(sandbox).not.toContain('allow-top-navigation')
   })
 
-  it('srcdoc 回退路径不给 same-origin（会与宿主同源）', () => {
+  it('srcdoc 回退路径不给 same-origin（会与宿主同源），也不给弹窗', () => {
     const wrapper = mountPreview({ previewUrl: null })
     const sandbox = frame(wrapper).getAttribute('sandbox') || ''
 
-    expect(sandbox).toBe('allow-scripts allow-popups')
+    expect(sandbox).toBe('allow-scripts')
     expect(sandbox).not.toContain('allow-same-origin')
+    expect(sandbox).not.toContain('allow-popups')
   })
 
   it('reloadToken 递增后重新导航，CSS/JS 改动会被重新取回', async () => {
