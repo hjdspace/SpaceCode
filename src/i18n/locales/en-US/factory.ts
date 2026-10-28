@@ -161,6 +161,38 @@ export default {
   modelUnknown: 'No model configured',
   laneEmpty: 'No tasks',
 
+  tests: {
+    status: {
+      pass: 'Passed',
+      fail: 'Failed',
+      timeout: 'Timed out',
+      stopped: 'Interrupted',
+    },
+    command: '`{command}`',
+  },
+  review: {
+    verdict: {
+      approved: 'Approved',
+      needs_changes: 'Changes requested',
+    },
+    severity: {
+      blocker: 'Blocker',
+      suggestion: 'Suggestion',
+    },
+    status: {
+      open: 'Open',
+      accepted: 'Accepted',
+      ignored: 'Ignored',
+      resolved: 'Resolved',
+    },
+    comments: 'Review comments',
+    commentsEmpty: 'No review comments.',
+    summaryEmpty: 'The reviewer gave no summary.',
+    parseFailed: 'Could not parse the review output; the raw reply was kept.',
+    raw: 'Raw output',
+    ineligible: 'Not eligible for approval yet',
+  },
+
   run: {
     status: {
       pending: 'Pending',
@@ -220,6 +252,14 @@ export default {
     stop: 'Stop',
     stopping: 'Stopping…',
     confirmDirty: 'Start anyway',
+    approve: 'Approve',
+    approving: 'Approving…',
+    requestChanges: 'Request changes',
+    fix: 'Let the agent fix',
+    fixing: 'Fixing…',
+    accept: 'Accept',
+    ignore: 'Ignore',
+    confirmIgnore: 'Confirm ignore',
   },
 
   errors: {
@@ -245,6 +285,9 @@ export default {
     'reveal-failed': 'Could not open the file manager.',
     'write-failed': 'Failed to write the run state.',
     'load-failed': 'Failed to load.',
+    'not-eligible': 'Not eligible yet: verification must pass, review must approve, and no blocker comments may be open.',
+    'confirm-required': 'Ignoring a blocker comment requires confirmation.',
+    'not-fixable': 'There are no pending review comments to hand to the agent.',
   },
 
   events: {
@@ -259,10 +302,30 @@ export default {
         completed: 'Implementation finished',
       },
       iteration: { limit: 'Reached the iteration limit ({iterations} rounds), task blocked' },
+      approved: 'Approved; the task is now mergeable',
+      changes_requested: 'Changes requested; the task was blocked',
+      fix: { started: 'Fixing {comments} review comments' },
     },
     worktree: {
       created: 'Created worktree {path}',
       reused: 'Reused worktree {path}',
+    },
+    tests: {
+      started: 'Verifying with `{command}`',
+      passed: 'Verification passed with `{command}`',
+      failed: 'Verification failed with `{command}`',
+      timeout: 'Verification timed out with `{command}`',
+    },
+    review: {
+      started: 'Review started in a fresh session',
+      approved: 'Review approved',
+      needs_changes: 'Review requested changes',
+      parse_failed: 'Could not parse the review output',
+      error: 'Review session failed: {message}',
+      comment: {
+        accepted: 'Accepted review comment {commentId}',
+        ignored: 'Ignored review comment {commentId}',
+      },
     },
     prompt: { command: { blocked: 'Command is not allowlisted and was skipped: {command}' } },
     run: { stopped: 'Run stopped ({stopped} tasks interrupted)' },

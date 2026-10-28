@@ -269,6 +269,39 @@ export interface FactoryTaskUsage {
   costUsd?: number
 }
 
+/** 验证结果：只保留尾部关键行作为失败详情，完整日志在 logs/ 下。 */
+export interface FactoryTestRun {
+  status: 'pass' | 'fail' | 'timeout' | 'stopped'
+  command: string
+  at: string
+  exitCode?: number
+  detail?: string
+}
+
+export type FactoryReviewVerdict = 'approved' | 'needs_changes'
+export type FactoryReviewSeverity = 'blocker' | 'suggestion'
+/** open=待处理；accepted=已加入修复清单；ignored=人工忽略；resolved=后续审查不再出现。 */
+export type FactoryReviewCommentStatus = 'open' | 'accepted' | 'ignored' | 'resolved'
+
+export interface FactoryReviewComment {
+  id: string
+  /** 坏路径或越界行号会被降级掉，只保留纯文本意见。 */
+  file?: string
+  line?: number
+  body: string
+  severity: FactoryReviewSeverity
+  status: FactoryReviewCommentStatus
+}
+
+export interface FactoryReview {
+  verdict: FactoryReviewVerdict
+  summary: string
+  comments: FactoryReviewComment[]
+  at: string
+  /** 连续解析失败时保留原始输出，便于人工排查。 */
+  raw?: string
+}
+
 /** 任务投影。渲染层只读，所有迁移由主进程写入。 */
 export interface FactoryTask {
   id: string
@@ -290,6 +323,8 @@ export interface FactoryTask {
   diff: FactoryTaskDiff
   commits?: FactoryCommit[]
   usage?: FactoryTaskUsage
+  tests?: FactoryTestRun
+  review?: FactoryReview
   cancelled?: boolean
   attention?: { reason: string; action: 'fix' | 'merge' | 'retry' }
   timestamps: {
@@ -369,6 +404,10 @@ export type FactoryTaskStartError =
   | 'git-error'
   | 'prompt-error'
   | 'agent-error'
+  | 'not-eligible'
+  | 'confirm-required'
+  | 'not-fixable'
+  | 'no-worktree'
 
 export interface FactoryTaskStartInput {
   /** 基础仓库有未提交改动时，用户确认后仍可继续。 */
@@ -379,9 +418,22 @@ export type FactoryTaskStartResult =
   | { ok: true; snapshot: FactoryRunSnapshot }
   | { ok: false; error: FactoryTaskStartError; detail?: string }
 
+export type FactoryTaskActionError =
+  | FactoryTaskStartError
+  | 'not-running'
+  | 'stop-failed'
+  | 'write-failed'
+
 export type FactoryTaskActionResult =
   | { ok: true; snapshot: FactoryRunSnapshot }
-  | { ok: false; error: 'task-not-found' | 'not-running' | 'stop-failed' | 'write-failed' }
+  | { ok: false; error: FactoryTaskActionError; detail?: string }
+
+export interface FactoryReviewCommentInput {
+  commentId: string
+  action: 'accept' | 'ignore'
+  /** 忽略 blocker 级意见必须显式确认。 */
+  confirm?: boolean
+}
 
 export type FactoryRunStopResult = FactoryTaskActionResult | { ok: false; error: 'run-not-found' }
 

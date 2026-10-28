@@ -38,6 +38,8 @@ export interface PromptContext {
   issueNumber?: number
   sourceBranch: string
   targetBranch: string
+  /** 修复阶段注入的未决审查意见；其它阶段为空。 */
+  reviewComments?: string
 }
 
 function variables(context: PromptContext): Record<string, string> {
@@ -47,6 +49,7 @@ function variables(context: PromptContext): Record<string, string> {
     ISSUE_NUMBER: typeof context.issueNumber === 'number' ? String(context.issueNumber) : '',
     SOURCE_BRANCH: context.sourceBranch,
     TARGET_BRANCH: context.targetBranch,
+    REVIEW_COMMENTS: context.reviewComments ?? '',
   }
 }
 
@@ -203,6 +206,7 @@ export interface BuildPromptInput {
   targetBranch: string
   /** 命令展开的工作目录：任务工作树。 */
   worktree: string
+  reviewComments?: string
   deps?: { runCommand?: CommandExecutor; maxOutputChars?: number }
 }
 
@@ -210,7 +214,8 @@ export type BuildPromptResult =
   | { ok: true; text: string; blocked: string[] }
   | { ok: false; error: 'prompt-missing' | 'prompt-error'; detail?: string }
 
-export async function buildImplementPrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
+/** 实现/审查/修复共用：读模板 → 注入变量 → 展开白名单命令。 */
+async function buildStagePrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
   if (!isSafeRelativePath(input.promptPath)) return { ok: false, error: 'prompt-missing' }
 
   const path = join(input.repoRoot, input.promptPath)
@@ -229,6 +234,7 @@ export async function buildImplementPrompt(input: BuildPromptInput): Promise<Bui
     issueNumber: input.task.issueNumber,
     sourceBranch: input.sourceBranch,
     targetBranch: input.targetBranch,
+    reviewComments: input.reviewComments,
   })
   if (!rendered.ok) {
     return {
@@ -244,4 +250,18 @@ export async function buildImplementPrompt(input: BuildPromptInput): Promise<Bui
     ...(input.deps?.maxOutputChars ? { maxOutputChars: input.deps.maxOutputChars } : {}),
   })
   return { ok: true, text: expanded.text, blocked: expanded.blocked }
+}
+
+export function buildImplementPrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
+  return buildStagePrompt(input)
+}
+
+/** 审查用全新会话，模板里要求只输出 `<review>` JSON。 */
+export function buildReviewPrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
+  return buildStagePrompt(input)
+}
+
+/** 修复阶段把未决意见拼进 `reviewComments` 变量。 */
+export function buildFixPrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
+  return buildStagePrompt(input)
 }

@@ -3,7 +3,7 @@
  * 实现循环：完成信号、同会话续跑、迭代上限转阻塞、停止保留现场，
  * 以及事件投影、token 累计与每轮 diff/commits 写回。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -14,6 +14,7 @@ import { transitionTask } from '../runtime'
 import { runImplementation } from '../implementer'
 import type { AgentPort, AgentTurn } from '../agentEngineGateway'
 import type { FactoryEventInput } from '../events'
+import type { VerifyResult } from '../verify'
 
 let dir: string
 let runId: string
@@ -218,5 +219,145 @@ describe('runImplementation', () => {
       lane: 'blocked',
       attention: { reason: 'agent.error', action: 'fix' },
     })
+  })
+})
+
+function verified(
+  agent: FakeAgent,
+  verify: (input: { command: string; cwd: string }) => Promise<VerifyResult>,
+  overrides: Record<string, unknown> = {},
+) {
+  const runInput = input(agent, overrides) as Record<string, unknown> & { deps: Record<string, unknown> }
+  runInput.verifyCommand = 'npm run test'
+  runInput.deps = { ...runInput.deps, verify }
+  return runInput
+}
+
+function passResult(): VerifyResult {
+  return { status: 'pass', command: 'npm run test', at: '2026-10-28T10:00:00.000Z', exitCode: 0, detail: 'all green' }
+}
+
+function failResult(detail = 'FAIL src/a.test.ts > restores session'): VerifyResult {
+  return { status: 'fail', command: 'npm run test', at: '2026-10-28T10:00:00.000Z', exitCode: 1, detail }
+}
+
+describe('verification loop', () => {
+  it('records the passing run and moves the task to review', async () => {
+    const agent = fakeAgent([{ text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 2, outputTokens: 1 }])
+    const verify = vi.fn(async () => passResult())
+    const runInput = verified(agent, verify)
+
+    const result = await runImplementation(runInput as never)
+
+    expect(result).toMatchObject({ outcome: 'completed', verified: true })
+    expect(verify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm run test',
+        cwd: join(dir, '.spacecode', 'worktrees', 'bl-1'),
+      }),
+    )
+    const task = readRunSnapshot(dir, runId)!.tasks[0]
+    expect(task).toMatchObject({
+      lane: 'reviewing',
+      stageIdx: 4,
+      tests: { status: 'pass', command: 'npm run test', exitCode: 0 },
+    })
+    expect(events.map((event) => event.code)).toEqual(
+      expect.arrayContaining(['tests.started', 'tests.passed']),
+    )
+  })
+
+  it('feeds the tail of a failed verification back into the same session', async () => {
+    const agent = fakeAgent([
+      { text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 1, outputTokens: 1 },
+      { text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 1, outputTokens: 1 },
+    ])
+    const verify = vi
+      .fn<() => Promise<VerifyResult>>()
+      .mockResolvedValueOnce(failResult())
+      .mockResolvedValueOnce(passResult())
+    const runInput = verified(agent, verify)
+
+    const result = await runImplementation(runInput as never)
+
+    expect(result).toMatchObject({ outcome: 'completed', verified: true, iterations: 2 })
+    expect(agent.prompts).toHaveLength(2)
+    expect(agent.prompts[1]).toContain('FAIL src/a.test.ts > restores session')
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({
+      lane: 'reviewing',
+      tests: { status: 'pass' },
+    })
+    expect(events.map((event) => event.code)).toEqual(
+      expect.arrayContaining(['tests.failed', 'tests.passed']),
+    )
+  })
+
+  it('blocks with tests.failed when verification never passes before the limit', async () => {
+    const agent = fakeAgent([
+      { text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 1, outputTokens: 1 },
+      { text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 1, outputTokens: 1 },
+    ])
+    const verify = vi.fn(async () => failResult('still failing'))
+    const runInput = verified(agent, verify, { maxIterations: 2 })
+
+    const result = await runImplementation(runInput as never)
+
+    expect(result).toMatchObject({ outcome: 'tests-failed', iterations: 2 })
+    const task = readRunSnapshot(dir, runId)!.tasks[0]
+    expect(task).toMatchObject({
+      lane: 'blocked',
+      stageIdx: 3,
+      attention: { reason: 'tests.failed', action: 'retry' },
+      worktree: '.spacecode/worktrees/bl-1',
+      tests: { status: 'fail', detail: 'still failing' },
+    })
+  })
+
+  it('blocks with tests.timeout when the command times out', async () => {
+    const agent = fakeAgent([{ text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 0, outputTokens: 0 }])
+    const verify = vi.fn(async (): Promise<VerifyResult> => ({
+      status: 'timeout',
+      command: 'npm run test',
+      at: '2026-10-28T10:00:00.000Z',
+      detail: 'timed out',
+    }))
+    const result = await runImplementation(verified(agent, verify, { maxIterations: 1 }) as never)
+
+    expect(result).toMatchObject({ outcome: 'tests-timeout' })
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({
+      lane: 'blocked',
+      attention: { reason: 'tests.timeout', action: 'retry' },
+    })
+    expect(events).toContainEqual(expect.objectContaining({ code: 'tests.timeout', level: 'warn' }))
+  })
+
+  it('keeps the task stopped when verification is interrupted', async () => {
+    const agent = fakeAgent([{ text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 0, outputTokens: 0 }])
+    const verify = vi.fn(async (): Promise<VerifyResult> => ({
+      status: 'stopped',
+      command: 'npm run test',
+      at: '2026-10-28T10:00:00.000Z',
+      detail: '',
+    }))
+    const result = await runImplementation(verified(agent, verify) as never)
+
+    expect(result).toMatchObject({ outcome: 'stopped' })
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({
+      lane: 'blocked',
+      attention: { reason: 'stopped', action: 'retry' },
+    })
+  })
+
+  it('skips verification when the run has no command', async () => {
+    const agent = fakeAgent([{ text: '<promise>COMPLETE</promise>', isError: false, inputTokens: 0, outputTokens: 0 }])
+    const verify = vi.fn(async () => passResult())
+    const runInput = input(agent) as Record<string, unknown> & { deps: Record<string, unknown> }
+    runInput.deps = { ...runInput.deps, verify }
+
+    const result = await runImplementation(runInput as never)
+
+    expect(verify).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ outcome: 'completed' })
+    expect(result.verified).toBeUndefined()
   })
 })

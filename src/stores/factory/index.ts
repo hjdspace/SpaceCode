@@ -17,6 +17,7 @@ import type {
   FactoryEventPush,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
+  FactoryReviewCommentInput,
   FactoryRun,
   FactoryRunCreateError,
   FactoryRunSnapshot,
@@ -28,6 +29,7 @@ import type {
   FactoryTaskStartInput,
   FactoryTaskStartResult,
 } from '@/shared/factory'
+import { mergeEligibility, type MergeEligibility } from '@/shared/factoryReview'
 import {
   canAdvance,
   defaultDraft,
@@ -94,6 +96,13 @@ export const useFactoryStore = defineStore('factory', () => {
   const stopping = ref(false)
   const pendingDirtyId = ref<string | null>(null)
 
+  // 审查阶段：批准/要求修改/修复与意见处理各自的重入保护
+  const approving = ref(false)
+  const fixing = ref(false)
+  const updatingComment = ref(false)
+  /** 忽略阻塞级意见时的二次确认目标。 */
+  const pendingIgnoreId = ref<string | null>(null)
+
   const seenEventSeqs = new Set<string>()
   let unsubscribeEvents: (() => void) | null = null
   let subscribedRoot: string | null = null
@@ -104,6 +113,10 @@ export const useFactoryStore = defineStore('factory', () => {
     selectedId.value ? eventsByTask.value[selectedId.value] ?? [] : [],
   )
   const hasCommits = computed(() => (selectedTask.value?.commits?.length ?? 0) > 0)
+  /** 批准按钮的资格：测试通过 + 审查通过 + 无未决阻塞意见。 */
+  const selectedEligibility = computed<MergeEligibility>(() =>
+    selectedTask.value ? mergeEligibility(selectedTask.value) : { ok: false, reasons: [] },
+  )
 
   const boardReady = computed(() => configured.value && config.value !== null)
 
@@ -429,14 +442,107 @@ export const useFactoryStore = defineStore('factory', () => {
     return result.ok
   }
 
+  async function approveTask(
+    root: string,
+    runId: string,
+    taskId: string,
+  ): Promise<FactoryTaskActionResult> {
+    approving.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskApprove(root, runId, taskId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'write-failed' }
+    } finally {
+      approving.value = false
+    }
+  }
+
+  async function requestChanges(
+    root: string,
+    runId: string,
+    taskId: string,
+  ): Promise<FactoryTaskActionResult> {
+    actionError.value = null
+    try {
+      const result = await api.factory.taskRequestChanges(root, runId, taskId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'write-failed' }
+    }
+  }
+
+  async function fixTask(root: string, runId: string, taskId: string): Promise<FactoryTaskActionResult> {
+    fixing.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskFix(root, runId, taskId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'write-failed' }
+    } finally {
+      fixing.value = false
+    }
+  }
+
+  async function updateComment(
+    root: string,
+    runId: string,
+    taskId: string,
+    input: FactoryReviewCommentInput,
+  ): Promise<FactoryTaskActionResult> {
+    updatingComment.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskCommentUpdate(root, runId, taskId, input)
+      if (result.ok) {
+        applySnapshot(result.snapshot)
+        pendingIgnoreId.value = null
+      } else {
+        actionError.value = { code: result.error }
+        pendingIgnoreId.value = result.error === 'confirm-required' ? input.commentId : null
+      }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'write-failed' }
+    } finally {
+      updatingComment.value = false
+    }
+  }
+
+  function acceptComment(root: string, runId: string, taskId: string, commentId: string) {
+    return updateComment(root, runId, taskId, { commentId, action: 'accept' })
+  }
+
+  function ignoreComment(root: string, runId: string, taskId: string, commentId: string) {
+    return updateComment(root, runId, taskId, { commentId, action: 'ignore' })
+  }
+
+  function confirmIgnoreComment(root: string, runId: string, taskId: string, commentId: string) {
+    return updateComment(root, runId, taskId, { commentId, action: 'ignore', confirm: true })
+  }
+
   function clearActionError(): void {
     actionError.value = null
     pendingDirtyId.value = null
+    pendingIgnoreId.value = null
   }
 
   function selectTask(id: string | null): void {
     selectedId.value = id
     inspectorTab.value = 'overview'
+    pendingIgnoreId.value = null
   }
 
   function setInspectorTab(tab: FactoryInspectorTab): void {
@@ -482,6 +588,10 @@ export const useFactoryStore = defineStore('factory', () => {
     startingId.value = null
     stopping.value = false
     pendingDirtyId.value = null
+    approving.value = false
+    fixing.value = false
+    updatingComment.value = false
+    pendingIgnoreId.value = null
     seenEventSeqs.clear()
     unsubscribeEvents?.()
     unsubscribeEvents = null
@@ -523,9 +633,14 @@ export const useFactoryStore = defineStore('factory', () => {
     startingId,
     stopping,
     pendingDirtyId,
+    approving,
+    fixing,
+    updatingComment,
+    pendingIgnoreId,
     selectedEvents,
     hasCommits,
     selectedTask,
+    selectedEligibility,
     laneCounts,
     boardReady,
     stepErrors,
@@ -558,6 +673,13 @@ export const useFactoryStore = defineStore('factory', () => {
     stopTask,
     stopRun,
     revealWorktree,
+    approveTask,
+    requestChanges,
+    fixTask,
+    updateComment,
+    acceptComment,
+    ignoreComment,
+    confirmIgnoreComment,
     clearActionError,
     selectTask,
     setInspectorTab,

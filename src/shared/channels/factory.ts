@@ -14,6 +14,7 @@ import type {
   FactoryEventPush,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
+  FactoryReviewCommentInput,
   FactoryRunCreateInput,
   FactoryRunCreateResult,
   FactoryRunSnapshot,
@@ -101,6 +102,27 @@ export const factoryNamespace = defineNamespace({
     },
     taskStop: {
       req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskActionResult,
+    },
+    taskApprove: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskActionResult,
+    },
+    taskRequestChanges: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskActionResult,
+    },
+    taskFix: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskActionResult,
+    },
+    taskCommentUpdate: {
+      req: [] as unknown as [
+        repoRoot: string,
+        runId: string,
+        taskId: string,
+        input: FactoryReviewCommentInput,
+      ],
       res: null as unknown as FactoryTaskActionResult,
     },
     runStop: {

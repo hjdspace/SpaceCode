@@ -161,6 +161,38 @@ export default {
   modelUnknown: '未配置模型',
   laneEmpty: '暂无任务',
 
+  tests: {
+    status: {
+      pass: '通过',
+      fail: '未通过',
+      timeout: '超时',
+      stopped: '已中断',
+    },
+    command: '`{command}`',
+  },
+  review: {
+    verdict: {
+      approved: '通过',
+      needs_changes: '要求修改',
+    },
+    severity: {
+      blocker: '阻塞',
+      suggestion: '建议',
+    },
+    status: {
+      open: '待处理',
+      accepted: '已接受',
+      ignored: '已忽略',
+      resolved: '已解决',
+    },
+    comments: '审查意见',
+    commentsEmpty: '没有审查意见。',
+    summaryEmpty: '审查者未给出摘要。',
+    parseFailed: '审查结果解析失败，已保留原始输出。',
+    raw: '原始输出',
+    ineligible: '尚未满足批准条件',
+  },
+
   run: {
     status: {
       pending: '待启动',
@@ -220,6 +252,14 @@ export default {
     stop: '停止',
     stopping: '停止中…',
     confirmDirty: '仍然开始',
+    approve: '批准',
+    approving: '批准中…',
+    requestChanges: '要求修改',
+    fix: '让 Agent 修',
+    fixing: '修复中…',
+    accept: '接受',
+    ignore: '忽略',
+    confirmIgnore: '确认忽略',
   },
 
   errors: {
@@ -245,6 +285,9 @@ export default {
     'reveal-failed': '无法打开文件管理器。',
     'write-failed': '写入运行状态失败。',
     'load-failed': '读取失败。',
+    'not-eligible': '尚未满足批准条件：需要验证通过、审查通过且没有未决阻塞意见。',
+    'confirm-required': '忽略阻塞级意见需要再次确认。',
+    'not-fixable': '没有可交给 Agent 修复的未决意见。',
   },
 
   events: {
@@ -259,10 +302,30 @@ export default {
         completed: '实现完成，等待下一阶段',
       },
       iteration: { limit: '达到迭代上限（{iterations} 轮），已转阻塞' },
+      approved: '已批准，任务进入待合并',
+      changes_requested: '已要求修改，任务转阻塞',
+      fix: { started: '按 {comments} 条意见开始修复' },
     },
     worktree: {
       created: '已创建工作树 {path}',
       reused: '复用工作树 {path}',
+    },
+    tests: {
+      started: '开始验证 `{command}`',
+      passed: '验证通过 `{command}`',
+      failed: '验证未通过 `{command}`',
+      timeout: '验证超时 `{command}`',
+    },
+    review: {
+      started: '开始审查（全新会话）',
+      approved: '审查通过',
+      needs_changes: '审查要求修改',
+      parse_failed: '审查结果解析失败',
+      error: '审查会话出错：{message}',
+      comment: {
+        accepted: '已接受审查意见 {commentId}',
+        ignored: '已忽略审查意见 {commentId}',
+      },
     },
     prompt: { command: { blocked: '命令未在白名单内，已跳过：{command}' } },
     run: { stopped: '运行已停止（中断 {stopped} 个任务）' },

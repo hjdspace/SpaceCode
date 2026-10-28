@@ -10,6 +10,8 @@ import {
   FACTORY_RUNS_PATH,
   type FactoryEvent,
   type FactoryEventPush,
+  type FactoryReviewComment,
+  type FactoryReviewCommentInput,
   type FactoryRunStopResult,
   type FactoryTask,
   type FactoryTaskActionResult,
@@ -18,9 +20,10 @@ import {
   type FactoryTaskStartResult,
   type FactoryWorktreeRevealResult,
 } from '@/shared/factory'
+import { mergeEligibility, pendingComments, updateReviewComment } from '@/shared/factoryReview'
 import { readFactoryConfig } from './config'
 import { readRunSnapshot } from './runs'
-import { transitionTask, updateRun } from './runtime'
+import { patchTask, transitionTask, updateRun } from './runtime'
 import {
   defaultGitRunner,
   mapGitFailure,
@@ -29,9 +32,16 @@ import {
   type GitRunner,
   type WorktreeGitError,
 } from './worktree'
-import { buildImplementPrompt, type BuildPromptInput, type BuildPromptResult } from './prompt'
+import {
+  buildFixPrompt,
+  buildImplementPrompt,
+  buildReviewPrompt,
+  type BuildPromptInput,
+  type BuildPromptResult,
+} from './prompt'
 import { appendRawLog, openEventLog, readEvents as readEventLog, type FactoryEventInput } from './events'
 import { runImplementation, type ImplementInput, type ImplementationResult } from './implementer'
+import { runReview, type ReviewInput, type ReviewResult } from './reviewer'
 import type { AgentPort } from './agentEngineGateway'
 
 const LOGS_DIR = '.spacecode/factory/logs'
@@ -41,7 +51,10 @@ export interface FactoryRunnerDeps {
   git?: GitRunner
   agentFactory?: () => Promise<AgentPort>
   buildPrompt?: (input: BuildPromptInput) => Promise<BuildPromptResult>
+  buildReviewPrompt?: (input: BuildPromptInput) => Promise<BuildPromptResult>
+  buildFixPrompt?: (input: BuildPromptInput) => Promise<BuildPromptResult>
   runImplementation?: (input: ImplementInput) => Promise<ImplementationResult>
+  runReview?: (input: ReviewInput) => Promise<ReviewResult>
   revealPath?: (path: string) => void | Promise<void>
 }
 
@@ -54,6 +67,15 @@ export interface FactoryRunner {
   ): Promise<FactoryTaskStartResult>
   stopTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
   stopRun(repoRoot: string, runId: string): Promise<FactoryRunStopResult>
+  approveTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
+  requestChanges(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
+  fixTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
+  updateComment(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    input: FactoryReviewCommentInput,
+  ): Promise<FactoryTaskActionResult>
   readEvents(repoRoot: string, runId: string, taskId?: string | null): FactoryEvent[]
   revealWorktree(repoRoot: string, runId: string, taskId: string): Promise<FactoryWorktreeRevealResult>
   isRunning(taskId: string): boolean
@@ -114,12 +136,17 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
   const now = deps.now ?? (() => new Date())
   const git = deps.git ?? defaultGitRunner
   const buildPrompt = deps.buildPrompt ?? buildImplementPrompt
+  const buildReview = deps.buildReviewPrompt ?? buildReviewPrompt
+  const buildFix = deps.buildFixPrompt ?? buildFixPrompt
   const implement = deps.runImplementation ?? runImplementation
+  const review = deps.runReview ?? runReview
   const reveal = deps.revealPath ?? defaultReveal
 
   const running = new Map<string, RunningTask>()
   const sinks = new Map<string, ReturnType<typeof openEventLog>>()
   const listeners = new Set<(push: FactoryEventPush) => void>()
+  /** 每个任务的审查轮次；同一进程内递增，重启后按已有 review 回到下一轮。 */
+  const reviewRounds = new Map<string, number>()
 
   function eventsPath(repoRoot: string, runId: string): string {
     return join(repoRoot, FACTORY_RUNS_PATH, runId, 'events.jsonl')
@@ -155,6 +182,152 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     if (!task) return
     if (task.lane !== 'implementing' && task.lane !== 'reviewing') return
     transitionTask(repoRoot, runId, taskId, { lane: 'blocked' }, reason)
+  }
+
+  function nextReviewRound(repoRoot: string, runId: string, taskId: string, task: FactoryTask): number {
+    const key = `${repoRoot}::${runId}::${taskId}`
+    const base = reviewRounds.get(key) ?? (task.review ? 1 : 0)
+    const round = base + 1
+    reviewRounds.set(key, round)
+    return round
+  }
+
+  /** 修复提示词里的意见清单：文件:行号 + 级别 + 内容，越界字段已被解析器降级掉。 */
+  function formatReviewComments(comments: FactoryReviewComment[]): string {
+    return comments
+      .map((comment) => {
+        const where = comment.file
+          ? comment.line
+            ? `${comment.file}:${comment.line}`
+            : comment.file
+          : ''
+        return `- ${where ? `${where} ` : ''}[${comment.severity}] ${comment.body}`
+      })
+      .join('\n')
+  }
+
+  async function makeAgent(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    stage: 'implement' | 'review',
+  ): Promise<AgentPort | null> {
+    try {
+      return await (deps.agentFactory ?? defaultAgentFactory)()
+    } catch (error) {
+      safeBlock(repoRoot, runId, taskId, 'agent.error')
+      emit(repoRoot, runId, {
+        taskId,
+        stage,
+        code: 'task.agent.error',
+        level: 'error',
+        params: { message: String((error as Error)?.message ?? error) },
+      })
+      return null
+    }
+  }
+
+  /** 实现验证通过后发起全新审查会话；审查自己负责迁移与事件，这里只管提示词与会话。 */
+  async function startReview(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    worktreeAbsolute: string,
+    baseBranch: string,
+    agent: AgentPort,
+    controller: AbortController,
+  ): Promise<void> {
+    const config = readFactoryConfig(repoRoot)
+    const task = taskOf(repoRoot, runId, taskId)
+    if (!config || !task) return
+
+    const prompt = await buildReview({
+      repoRoot,
+      promptPath: config.prompts.review,
+      task: {
+        title: task.title,
+        goal: task.goal,
+        ...(typeof task.issueNumber === 'number' ? { issueNumber: task.issueNumber } : {}),
+      },
+      sourceBranch: task.branch,
+      targetBranch: baseBranch,
+      worktree: worktreeAbsolute,
+    })
+    if (!prompt.ok) {
+      transitionTask(repoRoot, runId, taskId, { lane: 'blocked' }, 'prompt.error')
+      emit(repoRoot, runId, {
+        taskId,
+        stage: 'review',
+        code: 'task.prompt.error',
+        level: 'error',
+        ...(prompt.detail ? { params: { detail: prompt.detail } } : {}),
+      })
+      return
+    }
+    for (const command of prompt.blocked) {
+      emit(repoRoot, runId, {
+        taskId,
+        stage: 'review',
+        code: 'prompt.command.blocked',
+        level: 'warn',
+        params: { command },
+      })
+    }
+
+    const stageConfig = config.stages.review
+    const round = nextReviewRound(repoRoot, runId, taskId, task)
+    await review({
+      repoRoot,
+      runId,
+      task,
+      prompt: prompt.text,
+      worktreeAbsolute,
+      sessionId: `fac-${runId}-${taskId}-review-${round}`,
+      ...(stageConfig.model ?? config.agent.model
+        ? { model: stageConfig.model ?? config.agent.model }
+        : {}),
+      permissionMode: stageConfig.permissionMode,
+      signal: controller.signal,
+      deps: {
+        agent,
+        emit: (event) => {
+          emit(repoRoot, runId, event)
+        },
+        appendLog: (id, text) => {
+          appendRawLog(join(repoRoot, LOGS_DIR), id, text)
+        },
+        now,
+      },
+    })
+  }
+
+  /** 实现/修复共用：跑实现循环，验证通过时接一次审查。 */
+  function runImplementationLoop(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    worktreeAbsolute: string,
+    baseBranch: string,
+    agent: AgentPort,
+    controller: AbortController,
+    input: ImplementInput,
+  ): Promise<void> {
+    return implement(input)
+      .then(async (result) => {
+        if (result.verified === true && !controller.signal.aborted) {
+          await startReview(repoRoot, runId, taskId, worktreeAbsolute, baseBranch, agent, controller)
+        }
+      })
+      .catch((error: unknown) => {
+        safeBlock(repoRoot, runId, taskId, 'agent.error')
+        emit(repoRoot, runId, {
+          taskId,
+          stage: 'implement',
+          code: 'task.agent.error',
+          level: 'error',
+          params: { message: String((error as Error)?.message ?? error) },
+        })
+      })
   }
 
   return {
@@ -275,20 +448,8 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         })
       }
 
-      let agent: AgentPort
-      try {
-        agent = await (deps.agentFactory ?? defaultAgentFactory)()
-      } catch (error) {
-        safeBlock(repoRoot, runId, taskId, 'agent.error')
-        emit(repoRoot, runId, {
-          taskId,
-          stage: 'implement',
-          code: 'task.agent.error',
-          level: 'error',
-          params: { message: String((error as Error)?.message ?? error) },
-        })
-        return { ok: false, error: 'agent-error' }
-      }
+      const agent = await makeAgent(repoRoot, runId, taskId, 'implement')
+      if (!agent) return { ok: false, error: 'agent-error' }
 
       const stageConfig = config.stages.implement
       const sessionId = `fac-${runId}-${taskId}-impl`
@@ -305,44 +466,44 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         { now },
       )
 
-      const promise: Promise<void> = implement({
+      const promise: Promise<void> = runImplementationLoop(
         repoRoot,
         runId,
-        task: current,
-        prompt: prompt.text,
-        worktreeAbsolute: worktree.absolute,
+        taskId,
+        worktree.absolute,
         baseBranch,
-        sessionId,
-        ...(stageConfig.model ?? config.agent.model
-          ? { model: stageConfig.model ?? config.agent.model }
-          : {}),
-        permissionMode: stageConfig.permissionMode,
-        signal: controller.signal,
-        maxIterations: stageConfig.maxIterations ?? config.agent.maxIterations,
-        deps: {
-          agent,
-          emit: (event) => {
-            emit(repoRoot, runId, event)
-          },
-          appendLog: (id, text) => {
-            appendRawLog(join(repoRoot, LOGS_DIR), id, text)
+        agent,
+        controller,
+        {
+          repoRoot,
+          runId,
+          task: current,
+          prompt: prompt.text,
+          worktreeAbsolute: worktree.absolute,
+          baseBranch,
+          sessionId,
+          ...(stageConfig.model ?? config.agent.model
+            ? { model: stageConfig.model ?? config.agent.model }
+            : {}),
+          permissionMode: stageConfig.permissionMode,
+          signal: controller.signal,
+          maxIterations: stageConfig.maxIterations ?? config.agent.maxIterations,
+          verifyCommand: config.commands.verify,
+          verifyTimeoutMs: config.limits.taskTimeoutSec * 1000,
+          deps: {
+            agent,
+            emit: (event) => {
+              emit(repoRoot, runId, event)
+            },
+            appendLog: (id, text) => {
+              appendRawLog(join(repoRoot, LOGS_DIR), id, text)
+            },
+            now,
           },
         },
+      ).finally(() => {
+        running.delete(taskId)
       })
-        .then(() => {})
-        .catch((error: unknown) => {
-          safeBlock(repoRoot, runId, taskId, 'agent.error')
-          emit(repoRoot, runId, {
-            taskId,
-            stage: 'implement',
-            code: 'task.agent.error',
-            level: 'error',
-            params: { message: String((error as Error)?.message ?? error) },
-          })
-        })
-        .finally(() => {
-          running.delete(taskId)
-        })
 
       running.set(taskId, { runId, sessionId, controller, promise })
 
@@ -385,6 +546,214 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'run-not-found' }
+    },
+
+    async approveTask(repoRoot, runId, taskId) {
+      const task = taskOf(repoRoot, runId, taskId)
+      if (!task) return { ok: false, error: 'task-not-found' }
+      if (task.lane !== 'reviewing') return { ok: false, error: 'not-eligible' }
+      if (!mergeEligibility(task).ok) return { ok: false, error: 'not-eligible' }
+
+      const moved = transitionTask(
+        repoRoot,
+        runId,
+        taskId,
+        { lane: 'mergeable', stageIdx: 5 },
+        'task.approved',
+        {},
+        { now },
+      )
+      if (!moved.ok) return { ok: false, error: 'not-eligible' }
+
+      emit(repoRoot, runId, {
+        taskId,
+        stage: 'review',
+        code: 'task.approved',
+        level: 'ok',
+      })
+
+      const latest = readRunSnapshot(repoRoot, runId)
+      return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
+    },
+
+    async requestChanges(repoRoot, runId, taskId) {
+      const task = taskOf(repoRoot, runId, taskId)
+      if (!task) return { ok: false, error: 'task-not-found' }
+      if (task.lane !== 'reviewing') return { ok: false, error: 'not-eligible' }
+
+      const moved = transitionTask(
+        repoRoot,
+        runId,
+        taskId,
+        { lane: 'blocked' },
+        'review.changes_requested',
+        {},
+        { now },
+      )
+      if (!moved.ok) return { ok: false, error: 'not-eligible' }
+
+      emit(repoRoot, runId, {
+        taskId,
+        stage: 'review',
+        code: 'task.changes_requested',
+        level: 'warn',
+      })
+
+      const latest = readRunSnapshot(repoRoot, runId)
+      return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
+    },
+
+    async fixTask(repoRoot, runId, taskId) {
+      const config = readFactoryConfig(repoRoot)
+      if (!config) return { ok: false, error: 'config-missing' }
+
+      const task = taskOf(repoRoot, runId, taskId)
+      if (!task) return { ok: false, error: 'task-not-found' }
+      if (!task.worktree) return { ok: false, error: 'no-worktree' }
+      if (running.has(taskId)) return { ok: false, error: 'already-running' }
+      if (task.lane !== 'blocked' && task.lane !== 'reviewing') {
+        return { ok: false, error: 'not-fixable' }
+      }
+
+      const pending = pendingComments(task.review)
+      if (pending.length === 0) return { ok: false, error: 'not-fixable' }
+
+      const worktreeAbsolute = worktreeAbsolutePath(repoRoot, taskId)
+      const prompt = await buildFix({
+        repoRoot,
+        promptPath: config.prompts.fix,
+        task: {
+          title: task.title,
+          goal: task.goal,
+          ...(typeof task.issueNumber === 'number' ? { issueNumber: task.issueNumber } : {}),
+        },
+        sourceBranch: task.branch,
+        targetBranch: config.repo.baseBranch,
+        worktree: worktreeAbsolute,
+        reviewComments: formatReviewComments(pending),
+      })
+      if (!prompt.ok) {
+        transitionTask(repoRoot, runId, taskId, { lane: 'blocked' }, 'prompt.error')
+        emit(repoRoot, runId, {
+          taskId,
+          stage: 'implement',
+          code: 'task.prompt.error',
+          level: 'error',
+          ...(prompt.detail ? { params: { detail: prompt.detail } } : {}),
+        })
+        return {
+          ok: false,
+          error: 'prompt-error',
+          ...(prompt.detail ? { detail: prompt.detail } : {}),
+        }
+      }
+      for (const command of prompt.blocked) {
+        emit(repoRoot, runId, {
+          taskId,
+          stage: 'implement',
+          code: 'prompt.command.blocked',
+          level: 'warn',
+          params: { command },
+        })
+      }
+
+      const agent = await makeAgent(repoRoot, runId, taskId, 'implement')
+      if (!agent) return { ok: false, error: 'agent-error' }
+
+      const moved = transitionTask(
+        repoRoot,
+        runId,
+        taskId,
+        { lane: 'implementing', stageIdx: 2 },
+        'fix.started',
+        {},
+        { now },
+      )
+      if (!moved.ok) return { ok: false, error: 'not-fixable' }
+
+      emit(repoRoot, runId, {
+        taskId,
+        stage: 'implement',
+        code: 'task.fix.started',
+        level: 'info',
+        params: { comments: pending.length },
+      })
+
+      const stageConfig = config.stages.implement
+      const sessionId = `fac-${runId}-${taskId}-fix`
+      const controller = new AbortController()
+      const current = taskOf(repoRoot, runId, taskId) ?? task
+
+      const promise: Promise<void> = runImplementationLoop(
+        repoRoot,
+        runId,
+        taskId,
+        worktreeAbsolute,
+        config.repo.baseBranch,
+        agent,
+        controller,
+        {
+          repoRoot,
+          runId,
+          task: current,
+          prompt: prompt.text,
+          worktreeAbsolute,
+          baseBranch: config.repo.baseBranch,
+          sessionId,
+          ...(stageConfig.model ?? config.agent.model
+            ? { model: stageConfig.model ?? config.agent.model }
+            : {}),
+          permissionMode: stageConfig.permissionMode,
+          signal: controller.signal,
+          maxIterations: stageConfig.maxIterations ?? config.agent.maxIterations,
+          verifyCommand: config.commands.verify,
+          verifyTimeoutMs: config.limits.taskTimeoutSec * 1000,
+          deps: {
+            agent,
+            emit: (event) => {
+              emit(repoRoot, runId, event)
+            },
+            appendLog: (id, text) => {
+              appendRawLog(join(repoRoot, LOGS_DIR), id, text)
+            },
+            now,
+          },
+        },
+      ).finally(() => {
+        running.delete(taskId)
+      })
+
+      running.set(taskId, { runId, sessionId, controller, promise })
+
+      const latest = readRunSnapshot(repoRoot, runId)
+      return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
+    },
+
+    async updateComment(repoRoot, runId, taskId, input) {
+      const task = taskOf(repoRoot, runId, taskId)
+      if (!task) return { ok: false, error: 'task-not-found' }
+      if (!task.review) return { ok: false, error: 'not-fixable' }
+
+      const comment = task.review.comments.find((item) => item.id === input.commentId)
+      if (!comment) return { ok: false, error: 'not-fixable' }
+      if (input.action === 'ignore' && comment.severity === 'blocker' && input.confirm !== true) {
+        return { ok: false, error: 'confirm-required' }
+      }
+
+      const review = updateReviewComment(task.review, input.commentId, input.action)
+      if (!review) return { ok: false, error: 'not-fixable' }
+      patchTask(repoRoot, runId, taskId, { review })
+
+      emit(repoRoot, runId, {
+        taskId,
+        stage: 'review',
+        code: input.action === 'accept' ? 'review.comment.accepted' : 'review.comment.ignored',
+        level: input.action === 'accept' ? 'info' : 'warn',
+        params: { commentId: comment.id },
+      })
+
+      const latest = readRunSnapshot(repoRoot, runId)
+      return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
     },
 
     readEvents(repoRoot, runId, taskId) {
@@ -437,6 +806,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       running.clear()
       listeners.clear()
       sinks.clear()
+      reviewRounds.clear()
     },
   } satisfies FactoryRunner
 }

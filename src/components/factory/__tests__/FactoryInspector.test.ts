@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import type { FactoryTask } from '@/shared/factory'
+import type { FactoryReview, FactoryTask } from '@/shared/factory'
 import { formatTimestamp } from '@/stores/factory/board'
 
 vi.mock('vue-i18n', () => ({
@@ -190,5 +190,106 @@ describe('FactoryInspector', () => {
     await running.find('[data-reveal-worktree]').trigger('click')
     expect(running.emitted('stop')).toHaveLength(1)
     expect(running.emitted('reveal')).toHaveLength(1)
+  })
+
+  const needsChanges: FactoryReview = {
+    verdict: 'needs_changes',
+    summary: 'One blocker found',
+    at: '2026-10-28T10:05:00Z',
+    comments: [
+      {
+        id: 'c1',
+        file: 'src/a.ts',
+        line: 3,
+        body: 'missing guard',
+        severity: 'blocker',
+        status: 'open',
+      },
+      { id: 'c2', body: 'plain note', severity: 'suggestion', status: 'resolved' },
+    ],
+  }
+
+  it('renders the review verdict, summary and comments', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: { task: task({ lane: 'reviewing', review: needsChanges }), tab: 'review' },
+    })
+
+    expect(wrapper.find('[data-review-verdict]').text()).toBe('factory.review.verdict.needs_changes')
+    expect(wrapper.find('[data-review-summary]').text()).toBe('One blocker found')
+    const comments = wrapper.findAll('[data-review-comment]')
+    expect(comments).toHaveLength(2)
+    expect(comments[0].text()).toContain('src/a.ts:3')
+    expect(comments[0].text()).toContain('missing guard')
+    expect(comments[0].text()).toContain('factory.review.severity.blocker')
+    expect(comments[0].classes()).toContain('blocker')
+    expect(comments[1].text()).not.toContain('src/a.ts')
+    expect(wrapper.find('[data-empty="review"]').exists()).toBe(false)
+  })
+
+  it('emits accept, ignore and confirmed ignore for a comment', async () => {
+    const wrapper = mount(FactoryInspector, {
+      props: { task: task({ lane: 'reviewing', review: needsChanges }), tab: 'review' },
+    })
+    await wrapper.find('[data-comment-accept]').trigger('click')
+    await wrapper.find('[data-comment-ignore]').trigger('click')
+    expect(wrapper.emitted('comment-accept')?.[0]).toEqual(['c1'])
+    expect(wrapper.emitted('comment-ignore')?.[0]).toEqual(['c1'])
+    expect(wrapper.find('[data-comment-confirm-ignore]').exists()).toBe(false)
+
+    await wrapper.setProps({ pendingIgnoreId: 'c1' })
+    await wrapper.find('[data-comment-confirm-ignore]').trigger('click')
+    expect(wrapper.emitted('comment-confirm-ignore')?.[0]).toEqual(['c1'])
+  })
+
+  it('keeps verdict and test results visible on the overview tab', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: {
+        task: task({
+          lane: 'reviewing',
+          review: needsChanges,
+          tests: { status: 'pass', command: 'npm run test', at: '2026-10-28T10:00:00Z' },
+        }),
+        tab: 'overview',
+      },
+    })
+    expect(wrapper.find('[data-inspector-tests]').text()).toBe('factory.tests.status.pass')
+    expect(wrapper.find('[data-inspector-review]').text()).toBe('factory.review.verdict.needs_changes')
+  })
+
+  it('disables approval until the task is eligible', async () => {
+    const reviewing = task({ lane: 'reviewing', review: needsChanges })
+    const blocked = mount(FactoryInspector, { props: { task: reviewing, tab: 'review' } })
+    expect(blocked.find('[data-task-approve]').attributes('disabled')).toBeDefined()
+    expect(blocked.find('[data-task-request-changes]').exists()).toBe(true)
+
+    const eligible = mount(FactoryInspector, {
+      props: { task: reviewing, tab: 'review', eligible: true },
+    })
+    expect(eligible.find('[data-task-approve]').attributes('disabled')).toBeUndefined()
+    await eligible.find('[data-task-approve]').trigger('click')
+    await eligible.find('[data-task-request-changes]').trigger('click')
+    expect(eligible.emitted('approve')).toHaveLength(1)
+    expect(eligible.emitted('request-changes')).toHaveLength(1)
+  })
+
+  it('offers the fix action only when pending comments exist', async () => {
+    const withPending = mount(FactoryInspector, {
+      props: { task: task({ lane: 'blocked', review: needsChanges }), tab: 'review' },
+    })
+    expect(withPending.find('[data-task-fix]').exists()).toBe(true)
+    await withPending.find('[data-task-fix]').trigger('click')
+    expect(withPending.emitted('fix')).toHaveLength(1)
+
+    const settled = mount(FactoryInspector, {
+      props: {
+        task: task({
+          lane: 'reviewing',
+          review: { ...needsChanges, comments: [] },
+        }),
+        tab: 'review',
+        eligible: true,
+      },
+    })
+    expect(settled.find('[data-task-fix]').exists()).toBe(false)
   })
 })

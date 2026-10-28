@@ -15,6 +15,9 @@ import { createFactoryRunner, type FactoryRunnerDeps } from '../factoryRunner'
 import type { GitRunner } from '../worktree'
 import type { AgentPort } from '../agentEngineGateway'
 import type { ImplementInput, ImplementationResult } from '../implementer'
+import type { ReviewInput, ReviewResult } from '../reviewer'
+import type { BuildPromptInput } from '../prompt'
+import type { FactoryReview } from '@/shared/factory'
 
 let dir: string
 let runId: string
@@ -322,5 +325,248 @@ describe('revealWorktree', () => {
     const runner = createFactoryRunner(deps())
     expect(await runner.revealWorktree(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'no-worktree' })
     expect(await runner.revealWorktree(dir, runId, 'bl-404')).toEqual({ ok: false, error: 'task-not-found' })
+  })
+})
+
+/** 把任务推进到审查泳道，并可附带验证与审查投影。 */
+function toReviewing(review?: FactoryReview, tests: 'pass' | 'fail' = 'pass'): void {
+  transitionTask(dir, runId, 'bl-1', { lane: 'implementing', stageIdx: 2 }, 'worktree.ready', {
+    worktree: '.spacecode/worktrees/bl-1',
+  })
+  transitionTask(
+    dir,
+    runId,
+    'bl-1',
+    { lane: 'reviewing', stageIdx: 4 },
+    'tests.passed',
+    {
+      tests: { status: tests, command: 'npm run test', at: '2026-10-28T10:00:00.000Z' },
+      ...(review ? { review } : {}),
+    },
+  )
+}
+
+const APPROVED_REVIEW: FactoryReview = {
+  verdict: 'approved',
+  summary: 'Looks good',
+  comments: [],
+  at: '2026-10-28T10:00:00.000Z',
+}
+
+describe('review orchestration', () => {
+  it('starts a fresh review session after a verified implementation', async () => {
+    seed()
+    let reviewInput: ReviewInput | null = null
+    const runner = createFactoryRunner(
+      deps({
+        runImplementation: async () => ({
+          outcome: 'completed',
+          verified: true,
+          iterations: 1,
+          inputTokens: 1,
+          outputTokens: 1,
+        }),
+        buildReviewPrompt: async () => ({ ok: true, text: 'review prompt', blocked: [] }),
+        runReview: async (input): Promise<ReviewResult> => {
+          reviewInput = input
+          return { outcome: 'approved' }
+        },
+      }),
+    )
+
+    await runner.startTask(dir, runId, 'bl-1', {})
+    await runner.whenIdle(runId)
+
+    expect(reviewInput).toMatchObject({
+      sessionId: 'fac-run-1-bl-1-review-1',
+      prompt: 'review prompt',
+      permissionMode: 'acceptEdits',
+      worktreeAbsolute: join(dir, '.spacecode', 'worktrees', 'bl-1'),
+    })
+  })
+
+  it('does not review when the implementation only reached verification failure', async () => {
+    seed()
+    let reviews = 0
+    const runner = createFactoryRunner(
+      deps({
+        runImplementation: async () => ({
+          outcome: 'tests-failed',
+          iterations: 2,
+          inputTokens: 1,
+          outputTokens: 1,
+        }),
+        runReview: async () => {
+          reviews++
+          return { outcome: 'approved' }
+        },
+      }),
+    )
+
+    await runner.startTask(dir, runId, 'bl-1', {})
+    await runner.whenIdle(runId)
+    expect(reviews).toBe(0)
+  })
+})
+
+describe('approve and change requests', () => {
+  it('moves an eligible task to mergeable when approved', async () => {
+    seed()
+    toReviewing(APPROVED_REVIEW)
+    const runner = createFactoryRunner(deps())
+
+    const result = await runner.approveTask(dir, runId, 'bl-1')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.snapshot.tasks[0]).toMatchObject({ lane: 'mergeable', stageIdx: 5 })
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.approved')
+  })
+
+  it('refuses to approve without a passing verification', async () => {
+    seed()
+    toReviewing(APPROVED_REVIEW, 'fail')
+    const runner = createFactoryRunner(deps())
+    expect(await runner.approveTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-eligible' })
+  })
+
+  it('refuses to approve while blocker comments are open', async () => {
+    seed()
+    toReviewing({
+      ...APPROVED_REVIEW,
+      comments: [{ id: 'c1', body: 'needs a guard', severity: 'blocker', status: 'open' }],
+    })
+    const runner = createFactoryRunner(deps())
+    expect(await runner.approveTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-eligible' })
+  })
+
+  it('blocks the task when the user requests changes', async () => {
+    seed()
+    toReviewing(APPROVED_REVIEW)
+    const runner = createFactoryRunner(deps())
+
+    const result = await runner.requestChanges(dir, runId, 'bl-1')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.snapshot.tasks[0]).toMatchObject({
+      lane: 'blocked',
+      attention: { reason: 'review.changes_requested', action: 'fix' },
+    })
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.changes_requested')
+  })
+})
+
+describe('review comments', () => {
+  const blocker: FactoryReview = {
+    verdict: 'needs_changes',
+    summary: 'one blocker',
+    at: '2026-10-28T10:00:00.000Z',
+    comments: [{ id: 'c1', file: 'src/a.ts', line: 3, body: 'missing guard', severity: 'blocker', status: 'open' }],
+  }
+
+  it('accepts a single comment and records the event', async () => {
+    seed()
+    toReviewing(blocker)
+    const runner = createFactoryRunner(deps())
+
+    const result = await runner.updateComment(dir, runId, 'bl-1', { commentId: 'c1', action: 'accept' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.snapshot.tasks[0].review?.comments[0]).toMatchObject({ id: 'c1', status: 'accepted' })
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('review.comment.accepted')
+  })
+
+  it('requires confirmation before ignoring a blocker', async () => {
+    seed()
+    toReviewing(blocker)
+    const runner = createFactoryRunner(deps())
+
+    expect(await runner.updateComment(dir, runId, 'bl-1', { commentId: 'c1', action: 'ignore' })).toEqual({
+      ok: false,
+      error: 'confirm-required',
+    })
+    const confirmed = await runner.updateComment(dir, runId, 'bl-1', {
+      commentId: 'c1',
+      action: 'ignore',
+      confirm: true,
+    })
+    expect(confirmed.ok).toBe(true)
+    if (!confirmed.ok) return
+    expect(confirmed.snapshot.tasks[0].review?.comments[0]).toMatchObject({ status: 'ignored' })
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('review.comment.ignored')
+  })
+
+  it('reports unknown comments and tasks without a review', async () => {
+    seed()
+    toReviewing(blocker)
+    const runner = createFactoryRunner(deps())
+    expect(await runner.updateComment(dir, runId, 'bl-1', { commentId: 'c9', action: 'accept' })).toEqual({
+      ok: false,
+      error: 'not-fixable',
+    })
+  })
+})
+
+describe('fix loop', () => {
+  it('reopens a fresh fix session with the pending comments, then reviews again', async () => {
+    seed()
+    toReviewing({
+      verdict: 'needs_changes',
+      summary: 'one blocker',
+      at: '2026-10-28T10:00:00.000Z',
+      comments: [{ id: 'c1', file: 'src/a.ts', line: 3, body: 'missing guard', severity: 'blocker', status: 'open' }],
+    })
+    transitionTask(dir, runId, 'bl-1', { lane: 'blocked' }, 'review.needs_changes', {})
+
+    const prompts: BuildPromptInput[] = []
+    const seen: ImplementInput[] = []
+    let reviewInput: ReviewInput | null = null
+    const runner = createFactoryRunner(
+      deps({
+        buildFixPrompt: async (input) => {
+          prompts.push(input)
+          return { ok: true, text: 'fix prompt', blocked: [] }
+        },
+        runImplementation: async (input) => {
+          seen.push(input)
+          return { outcome: 'completed', verified: true, iterations: 1, inputTokens: 1, outputTokens: 1 }
+        },
+        buildReviewPrompt: async () => ({ ok: true, text: 'review prompt', blocked: [] }),
+        runReview: async (input) => {
+          reviewInput = input
+          return { outcome: 'approved' }
+        },
+      }),
+    )
+
+    const result = await runner.fixTask(dir, runId, 'bl-1')
+    expect(result.ok).toBe(true)
+    await runner.whenIdle(runId)
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0].promptPath).toBe('.spacecode/factory/prompts/fix.md')
+    expect(prompts[0].reviewComments).toContain('missing guard')
+    expect(prompts[0].reviewComments).toContain('src/a.ts:3')
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({
+      sessionId: 'fac-run-1-bl-1-fix',
+      prompt: 'fix prompt',
+      verifyCommand: 'npm run test',
+    })
+    expect(reviewInput).toMatchObject({ sessionId: 'fac-run-1-bl-1-review-2' })
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.fix.started')
+  })
+
+  it('refuses to fix when there is nothing actionable', async () => {
+    seed()
+    toReviewing(APPROVED_REVIEW)
+    const runner = createFactoryRunner(deps())
+    expect(await runner.fixTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-fixable' })
+  })
+
+  it('refuses to fix whenever the task has no worktree', async () => {
+    seed()
+    const runner = createFactoryRunner(deps())
+    expect(await runner.fixTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'no-worktree' })
   })
 })

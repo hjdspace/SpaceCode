@@ -91,11 +91,22 @@
             :starting="store.startingId === store.selectedTask?.id"
             :stopping="store.stopping"
             :pending-dirty="store.pendingDirtyId === store.selectedTask?.id"
+            :eligible="store.selectedEligibility.ok"
+            :approving="store.approving"
+            :fixing="store.fixing"
+            :updating-comment="store.updatingComment"
+            :pending-ignore-id="store.pendingIgnoreId"
             @select-tab="store.setInspectorTab"
             @start="handleStart"
             @stop="handleStopTask"
             @reveal="handleReveal"
             @confirm-dirty="handleConfirmDirty"
+            @approve="handleApprove"
+            @request-changes="handleRequestChanges"
+            @fix="handleFix"
+            @comment-accept="handleCommentAccept"
+            @comment-ignore="handleCommentIgnore"
+            @comment-confirm-ignore="handleCommentConfirmIgnore"
           />
         </div>
       </div>
@@ -186,6 +197,42 @@ function handleReveal(): void {
   const taskId = selectedTaskId()
   if (!root.value || !store.run || !taskId) return
   void store.revealWorktree(root.value, store.run.id, taskId)
+}
+
+function handleApprove(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.approveTask(root.value, store.run.id, taskId)
+}
+
+function handleRequestChanges(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.requestChanges(root.value, store.run.id, taskId)
+}
+
+function handleFix(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.fixTask(root.value, store.run.id, taskId)
+}
+
+function handleCommentAccept(commentId: string): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.acceptComment(root.value, store.run.id, taskId, commentId)
+}
+
+function handleCommentIgnore(commentId: string): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.ignoreComment(root.value, store.run.id, taskId, commentId)
+}
+
+function handleCommentConfirmIgnore(commentId: string): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.confirmIgnoreComment(root.value, store.run.id, taskId, commentId)
 }
 
 function handleStopRun(): void {

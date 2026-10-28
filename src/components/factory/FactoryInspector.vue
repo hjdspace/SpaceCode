@@ -114,11 +114,21 @@
             </div>
             <div class="kv">
               <span>{{ t('factory.inspector.verify') }}</span>
-              <b class="muted">{{ t('factory.inspector.pending') }}</b>
+              <b v-if="task.tests" :class="task.tests.status === 'pass' ? 'ok' : 'bad'" data-inspector-tests>
+                {{ t(`factory.tests.status.${task.tests.status}`) }}
+              </b>
+              <b v-else class="muted">{{ t('factory.inspector.pending') }}</b>
             </div>
             <div class="kv">
               <span>{{ t('factory.inspector.review') }}</span>
-              <b class="muted">{{ t('factory.inspector.reviewPending') }}</b>
+              <b
+                v-if="review"
+                :class="review.verdict === 'approved' ? 'ok' : 'bad'"
+                data-inspector-review
+              >
+                {{ t(`factory.review.verdict.${review.verdict}`) }}
+              </b>
+              <b v-else class="muted">{{ t('factory.inspector.reviewPending') }}</b>
             </div>
           </section>
 
@@ -187,10 +197,81 @@
           </div>
         </template>
 
-        <div v-else class="ins-empty" data-empty="review">
-          <ShieldCheck :size="22" />
-          <p>{{ t('factory.empty.review') }}</p>
-        </div>
+        <template v-else-if="tab === 'review'">
+          <div v-if="!review" class="ins-empty" data-empty="review">
+            <ShieldCheck :size="22" />
+            <p>{{ t('factory.empty.review') }}</p>
+          </div>
+          <template v-else>
+            <div class="review-head">
+              <span class="verdict" :class="review.verdict" data-review-verdict>
+                {{ t(`factory.review.verdict.${review.verdict}`) }}
+              </span>
+              <time>{{ formatTimestamp(review.at) }}</time>
+            </div>
+            <p v-if="review.summary" class="review-summary" data-review-summary>
+              {{ review.summary }}
+            </p>
+            <p v-else class="review-summary muted">{{ t('factory.review.summaryEmpty') }}</p>
+
+            <section v-if="review.raw" class="section" data-review-raw>
+              <h4>{{ t('factory.review.parseFailed') }}</h4>
+              <pre class="review-raw">{{ review.raw }}</pre>
+            </section>
+
+            <section class="section">
+              <h4>{{ t('factory.review.comments') }}</h4>
+              <ul v-if="review.comments.length" class="review-comments" data-review-comments>
+                <li
+                  v-for="comment in review.comments"
+                  :key="comment.id"
+                  class="review-comment"
+                  :class="comment.severity"
+                  data-review-comment
+                >
+                  <div class="rc-head">
+                    <code v-if="comment.file">
+                      {{ comment.line ? `${comment.file}:${comment.line}` : comment.file }}
+                    </code>
+                    <span class="sev">{{ t(`factory.review.severity.${comment.severity}`) }}</span>
+                    <span class="st">{{ t(`factory.review.status.${comment.status}`) }}</span>
+                  </div>
+                  <p class="rc-body">{{ comment.body }}</p>
+                  <div v-if="isCommentActionable(comment.status)" class="rc-actions">
+                    <button
+                      class="mini-btn"
+                      data-comment-accept
+                      :disabled="updatingComment"
+                      @click="emit('comment-accept', comment.id)"
+                    >
+                      {{ t('factory.actions.accept') }}
+                    </button>
+                    <button
+                      class="mini-btn"
+                      data-comment-ignore
+                      :disabled="updatingComment"
+                      @click="emit('comment-ignore', comment.id)"
+                    >
+                      {{ t('factory.actions.ignore') }}
+                    </button>
+                    <button
+                      v-if="pendingIgnoreId === comment.id"
+                      class="mini-btn warn"
+                      data-comment-confirm-ignore
+                      :disabled="updatingComment"
+                      @click="emit('comment-confirm-ignore', comment.id)"
+                    >
+                      {{ t('factory.actions.confirmIgnore') }}
+                    </button>
+                  </div>
+                </li>
+              </ul>
+              <div v-else class="ins-empty" data-empty="review-comments">
+                <p>{{ t('factory.review.commentsEmpty') }}</p>
+              </div>
+            </section>
+          </template>
+        </template>
       </div>
 
       <footer class="ins-actions">
@@ -227,6 +308,34 @@
             <Square :size="12" />
             {{ stopping ? t('factory.actions.stopping') : t('factory.actions.stop') }}
           </button>
+          <button
+            v-if="task.lane === 'reviewing'"
+            class="action-btn primary"
+            data-task-approve
+            :disabled="!eligible || approving"
+            :title="eligible ? '' : t('factory.review.ineligible')"
+            @click="emit('approve')"
+          >
+            <Check :size="12" />
+            {{ approving ? t('factory.actions.approving') : t('factory.actions.approve') }}
+          </button>
+          <button
+            v-if="task.lane === 'reviewing' && review"
+            class="action-btn warn"
+            data-task-request-changes
+            @click="emit('request-changes')"
+          >
+            {{ t('factory.actions.requestChanges') }}
+          </button>
+          <button
+            v-if="canFix"
+            class="action-btn"
+            data-task-fix
+            :disabled="fixing"
+            @click="emit('fix')"
+          >
+            {{ fixing ? t('factory.actions.fixing') : t('factory.actions.fix') }}
+          </button>
         </div>
       </footer>
     </template>
@@ -251,7 +360,8 @@ import {
   Square,
   X,
 } from 'lucide-vue-next'
-import type { FactoryEvent, FactoryTask } from '@/shared/factory'
+import type { FactoryEvent, FactoryTask, FactoryReviewCommentStatus } from '@/shared/factory'
+import { pendingComments } from '@/shared/factoryReview'
 import type { FactoryActionError } from '@/stores/factory'
 import {
   FACTORY_INSPECTOR_TABS,
@@ -277,6 +387,12 @@ const props = withDefaults(
     starting?: boolean
     stopping?: boolean
     pendingDirty?: boolean
+    /** 批准资格：验证通过 + 审查通过 + 无未决阻塞意见。 */
+    eligible?: boolean
+    approving?: boolean
+    fixing?: boolean
+    updatingComment?: boolean
+    pendingIgnoreId?: string | null
   }>(),
   {
     nowMs: () => Date.now(),
@@ -287,6 +403,11 @@ const props = withDefaults(
     starting: false,
     stopping: false,
     pendingDirty: false,
+    eligible: false,
+    approving: false,
+    fixing: false,
+    updatingComment: false,
+    pendingIgnoreId: null,
   },
 )
 
@@ -296,6 +417,12 @@ const emit = defineEmits<{
   stop: []
   reveal: []
   'confirm-dirty': []
+  approve: []
+  'request-changes': []
+  fix: []
+  'comment-accept': [commentId: string]
+  'comment-ignore': [commentId: string]
+  'comment-confirm-ignore': [commentId: string]
 }>()
 
 const { t } = useI18n()
@@ -307,7 +434,20 @@ const visual = computed(() => (props.task ? stepStates(props.task) : []))
 const elapsedMs = computed(() => (props.task ? taskElapsedMs(props.task, props.nowMs) : 0))
 const files = computed(() => props.task?.diff.files ?? [])
 const commits = computed(() => props.task?.commits ?? [])
+const review = computed(() => props.task?.review ?? null)
+const pending = computed(() => pendingComments(props.task?.review))
+const canFix = computed(
+  () =>
+    pending.value.length > 0 &&
+    Boolean(props.task?.worktree) &&
+    (props.task?.lane === 'blocked' || props.task?.lane === 'reviewing'),
+)
 const canStart = computed(() => props.task?.lane === 'queued' || props.task?.lane === 'blocked')
+
+/** 待处理/已接受的意见还能改；已忽略与已解决不可再操作。 */
+function isCommentActionable(status: FactoryReviewCommentStatus): boolean {
+  return status === 'open' || status === 'accepted'
+}
 const actionErrorText = computed(() => {
   const err = props.actionError
   if (!err) return ''
@@ -576,6 +716,150 @@ const timestamps = computed(() => {
 
   b.muted {
     color: var(--text-disabled);
+  }
+
+  b.ok {
+    color: var(--success);
+  }
+
+  b.bad {
+    color: var(--warning);
+  }
+}
+
+.review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  time {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs, 11px);
+    color: var(--text-disabled);
+  }
+}
+
+.verdict {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-2xs, 11px);
+  font-weight: 600;
+
+  &.approved {
+    background: var(--surface-glass);
+    color: var(--success);
+  }
+
+  &.needs_changes {
+    background: var(--surface-glass);
+    color: var(--warning);
+  }
+}
+
+.review-summary {
+  margin: 0;
+  font-size: var(--text-sm, 12px);
+  line-height: 1.6;
+  color: var(--text-secondary);
+
+  &.muted {
+    color: var(--text-disabled);
+  }
+}
+
+.review-raw {
+  margin: 0;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs, 11px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.review-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border-left: 2px solid var(--surface-border-strong);
+  background: var(--surface-glass);
+
+  &.blocker {
+    border-left-color: var(--warning);
+  }
+
+  .rc-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-2xs, 11px);
+    color: var(--text-muted);
+
+    code {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+    }
+
+    .sev {
+      flex: none;
+      color: var(--text-primary);
+    }
+
+    .st {
+      margin-left: auto;
+      flex: none;
+      color: var(--text-disabled);
+    }
+  }
+
+  .rc-body {
+    margin: 0;
+    font-size: var(--text-2xs, 11px);
+    line-height: 1.6;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .rc-actions {
+    display: flex;
+    gap: 6px;
+  }
+}
+
+.mini-btn {
+  padding: 3px 8px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-2xs, 10px);
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &.warn:not(:disabled) {
+    border-color: var(--warning);
+    color: var(--warning);
   }
 }
 

@@ -47,7 +47,15 @@ export function canTransition(from: FactoryLane, to: FactoryLane): boolean {
 
 function attentionAction(reason: string): 'fix' | 'merge' | 'retry' {
   if (reason.startsWith('merge')) return 'merge'
-  if (reason === 'stopped' || reason === 'app.restarted' || reason === 'iteration.limit') return 'retry'
+  if (
+    reason === 'stopped' ||
+    reason === 'app.restarted' ||
+    reason === 'iteration.limit' ||
+    reason === 'tests.failed' ||
+    reason === 'tests.timeout'
+  ) {
+    return 'retry'
+  }
   return 'fix'
 }
 
@@ -59,7 +67,17 @@ export interface TransitionTarget {
 export type TaskPatch = Partial<
   Pick<
     FactoryTask,
-    'branch' | 'worktree' | 'model' | 'iteration' | 'maxIterations' | 'diff' | 'commits' | 'usage' | 'cancelled'
+    | 'branch'
+    | 'worktree'
+    | 'model'
+    | 'iteration'
+    | 'maxIterations'
+    | 'diff'
+    | 'commits'
+    | 'usage'
+    | 'tests'
+    | 'review'
+    | 'cancelled'
   >
 >
 

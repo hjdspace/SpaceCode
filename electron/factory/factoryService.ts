@@ -329,6 +329,11 @@ export function registerFactoryIPCHandlers(): void {
     runLatest: (root) => readLatestRun(root),
     taskStart: (root, runId, taskId, input) => runner.startTask(root, runId, taskId, input),
     taskStop: (root, runId, taskId) => runner.stopTask(root, runId, taskId),
+    taskApprove: (root, runId, taskId) => runner.approveTask(root, runId, taskId),
+    taskRequestChanges: (root, runId, taskId) => runner.requestChanges(root, runId, taskId),
+    taskFix: (root, runId, taskId) => runner.fixTask(root, runId, taskId),
+    taskCommentUpdate: (root, runId, taskId, input) =>
+      runner.updateComment(root, runId, taskId, input),
     runStop: (root, runId) => runner.stopRun(root, runId),
     taskEvents: (root, runId, taskId) => runner.readEvents(root, runId, taskId),
     worktreeReveal: (root, runId, taskId) => runner.revealWorktree(root, runId, taskId),

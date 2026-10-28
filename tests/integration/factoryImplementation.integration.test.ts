@@ -61,7 +61,7 @@ describe('factory implementation over a real repository', () => {
         agent: { engineType: 'claude-code', model: 'claude-sonnet-4-5' },
         sandbox: { type: 'worktree' },
         tracker: { type: 'local', mergeMode: 'local' },
-        commands: { verify: 'npm run test' },
+        commands: { verify: 'node --version' },
       },
       { baseBranch: 'main' },
     )
@@ -95,6 +95,7 @@ describe('factory implementation over a real repository', () => {
           },
         }
       },
+      runReview: async () => ({ outcome: 'approved' }),
     })
 
     const result = await runner.startTask(repo, 'run-1', 'bl-1', {})
@@ -111,12 +112,13 @@ describe('factory implementation over a real repository', () => {
     const snapshot = readRunSnapshot(repo, 'run-1')
     const task = snapshot?.tasks[0]
     expect(task).toMatchObject({
-      lane: 'implementing',
-      stageIdx: 2,
+      lane: 'reviewing',
+      stageIdx: 4,
       branch: 'agent/task-bl-1',
       worktree: '.spacecode/worktrees/bl-1',
       iteration: 1,
     })
+    expect(task?.tests?.status).toBe('pass')
     expect(task?.commits?.[0]?.message).toBe('feat: implement task')
     expect(task?.diff.additions).toBeGreaterThan(0)
     expect(task?.diff.files?.some((file) => file.path === 'implemented.txt')).toBe(true)
@@ -129,6 +131,7 @@ describe('factory implementation over a real repository', () => {
     expect(codes).toContain('task.started')
     expect(codes).toContain('worktree.created')
     expect(codes).toContain('task.implementation.completed')
+    expect(codes).toContain('tests.passed')
 
     await runner.dispose()
     // 事件日志落在运行目录，可跨进程重放

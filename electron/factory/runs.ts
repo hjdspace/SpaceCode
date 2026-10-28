@@ -11,6 +11,7 @@ import { join } from 'path'
 import {
   FACTORY_RUNS_PATH,
   type FactoryLane,
+  type FactoryReviewComment,
   type FactoryRun,
   type FactoryRunCreateInput,
   type FactoryRunCreateResult,
@@ -85,6 +86,53 @@ function parseDiff(raw: unknown): FactoryTask['diff'] {
   }
 }
 
+function parseTests(raw: unknown): FactoryTask['tests'] {
+  if (!isRecord(raw)) return undefined
+  const status = raw.status
+  if (status !== 'pass' && status !== 'fail' && status !== 'timeout' && status !== 'stopped') return undefined
+  if (typeof raw.command !== 'string' || typeof raw.at !== 'string') return undefined
+  return {
+    status,
+    command: raw.command,
+    at: raw.at,
+    ...(typeof raw.exitCode === 'number' ? { exitCode: raw.exitCode } : {}),
+    ...(typeof raw.detail === 'string' ? { detail: raw.detail } : {}),
+  }
+}
+
+function parseReviewComment(raw: unknown, index: number): FactoryReviewComment | null {
+  if (!isRecord(raw)) return null
+  if (typeof raw.body !== 'string' || !raw.body.trim()) return null
+  const status = raw.status
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : `c${index + 1}`,
+    ...(typeof raw.file === 'string' ? { file: raw.file } : {}),
+    ...(typeof raw.line === 'number' ? { line: raw.line } : {}),
+    body: raw.body,
+    severity: raw.severity === 'blocker' ? 'blocker' : 'suggestion',
+    status:
+      status === 'accepted' || status === 'ignored' || status === 'resolved' ? status : 'open',
+  }
+}
+
+function parseReview(raw: unknown): FactoryTask['review'] {
+  if (!isRecord(raw)) return undefined
+  if (raw.verdict !== 'approved' && raw.verdict !== 'needs_changes') return undefined
+  if (typeof raw.at !== 'string') return undefined
+  const comments = Array.isArray(raw.comments)
+    ? raw.comments
+        .map((item, index) => parseReviewComment(item, index))
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+    : []
+  return {
+    verdict: raw.verdict,
+    summary: typeof raw.summary === 'string' ? raw.summary : '',
+    comments,
+    at: raw.at,
+    ...(typeof raw.raw === 'string' ? { raw: raw.raw } : {}),
+  }
+}
+
 function parseTask(raw: unknown): FactoryTask | null {
   if (!isRecord(raw)) return null
   if (typeof raw.id !== 'string' || !raw.id) return null
@@ -129,6 +177,8 @@ function parseTask(raw: unknown): FactoryTask | null {
         }
       : {}),
     ...(raw.cancelled === true ? { cancelled: true } : {}),
+    ...(parseTests(raw.tests) ? { tests: parseTests(raw.tests) } : {}),
+    ...(parseReview(raw.review) ? { review: parseReview(raw.review) } : {}),
     ...(isRecord(raw.attention) && typeof raw.attention.reason === 'string'
       ? {
           attention: {
