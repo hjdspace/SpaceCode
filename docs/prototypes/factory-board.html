@@ -1,0 +1,2481 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>流水线看板 · SpaceCode</title>
+<style>
+  * { box-sizing: border-box; }
+  svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: Inter, "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; padding: 0; }
+  ::selection { background: var(--accent-soft); }
+  code, .mono { font-family: "JetBrains Mono", "SF Mono", Consolas, monospace; }
+
+  /* ---------- tokens ---------- */
+  [data-theme="light"] {
+    --bg: #f8f9fb; --bg-2: #f0f1f5; --bg-3: #e7e9ef; --elev: #ffffff;
+    --text: #18191f; --text-2: #44475a; --muted: #6e7191; --disabled: #9da1b8;
+    --border: rgba(24,25,31,.09); --border-2: rgba(24,25,31,.15);
+    --soft: rgba(24,25,31,.025); --soft-2: rgba(24,25,31,.045);
+    --accent: #0d9488; --accent-hover: #14b8a6; --accent-soft: rgba(13,148,136,.11);
+    --queued: #6e7191; --run: #0d9488; --review: #6366f1; --merge: #059669;
+    --warn: #d97706; --danger: #dc2626;
+    --lane-bg: rgba(24,25,31,.022);
+    --card: #ffffff;
+    --shadow-sm: 0 1px 2px rgba(24,25,31,.06);
+    --shadow-md: 0 6px 18px rgba(24,25,31,.09);
+    --shadow-lg: 0 20px 50px rgba(24,25,31,.16);
+    --code-add: rgba(5,150,105,.12); --code-del: rgba(220,38,38,.10);
+    --overlay: rgba(24,25,31,.34);
+  }
+  [data-theme="dark"] {
+    --bg: #0d0d0d; --bg-2: #141414; --bg-3: #1a1a1a; --elev: #1f1f1f;
+    --text: #f5f5f5; --text-2: #b0b0b0; --muted: #7a7a7a; --disabled: #525252;
+    --border: rgba(255,255,255,.07); --border-2: rgba(255,255,255,.14);
+    --soft: rgba(255,255,255,.03); --soft-2: rgba(255,255,255,.06);
+    --accent: #3b82f6; --accent-hover: #60a5fa; --accent-soft: rgba(59,130,246,.16);
+    --queued: #8a8a8a; --run: #3b82f6; --review: #818cf8; --merge: #34d399;
+    --warn: #f59e0b; --danger: #f87171;
+    --lane-bg: rgba(255,255,255,.022);
+    --card: #181818;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    --shadow-md: 0 8px 22px rgba(0,0,0,.45);
+    --shadow-lg: 0 24px 60px rgba(0,0,0,.65);
+    --code-add: rgba(52,211,153,.13); --code-del: rgba(248,113,113,.12);
+    --overlay: rgba(0,0,0,.55);
+  }
+
+  /* ---------- shell ---------- */
+  .shell { display: grid; grid-template-rows: 34px 1fr 26px; grid-template-columns: minmax(0, 1fr); height: 100%; min-width: 0; }
+  .titlebar {
+    display: flex; align-items: center; gap: 12px; padding: 0 12px;
+    border-bottom: 1px solid var(--border); background: var(--bg-2);
+    font-size: 11.5px; color: var(--muted); user-select: none;
+  }
+  .titlebar .brand { display: flex; align-items: center; gap: 7px; color: var(--text-2); font-weight: 600; letter-spacing: -.01em; }
+  .brand-mark {
+    width: 16px; height: 16px; border-radius: 4px; background: var(--accent);
+    display: grid; place-items: center; color: #fff;
+  }
+  .brand-mark svg { width: 11px; height: 11px; }
+  .titlebar .sep { width: 1px; height: 12px; background: var(--border-2); }
+  .titlebar .crumb { display: flex; align-items: center; gap: 6px; }
+  .titlebar .spacer { flex: 1; }
+  .titlebar .hint { color: var(--disabled); }
+
+  .body { display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+
+  /* rail */
+  .rail {
+    width: 50px; flex: 0 0 50px; border-right: 1px solid var(--border);
+    background: var(--bg-2); display: flex; flex-direction: column; align-items: center;
+    gap: 4px; padding: 10px 0; user-select: none;
+  }
+  .rail-btn {
+    width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
+    color: var(--muted); position: relative; transition: background .15s, color .15s;
+  }
+  .rail-btn:hover { background: var(--soft-2); color: var(--text); }
+  .rail-btn.active { background: var(--accent-soft); color: var(--accent); }
+  .rail-btn.active::before {
+    content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 2px;
+    border-radius: 2px; background: var(--accent);
+  }
+  .rail-btn svg { width: 18px; height: 18px; }
+  .rail .grow { flex: 1; }
+  .rail-avatar {
+    width: 26px; height: 26px; border-radius: 50%; background: var(--bg-3);
+    border: 1px solid var(--border); display: grid; place-items: center;
+    font-size: 10px; color: var(--text-2); margin-top: 6px;
+  }
+
+  /* center */
+  .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .tabstrip {
+    height: 34px; flex: 0 0 34px; display: flex; align-items: flex-end;
+    gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--border);
+    background: var(--bg-2); user-select: none;
+  }
+  .ctab {
+    display: flex; align-items: center; gap: 7px; height: 27px; padding: 0 10px;
+    border-radius: 7px 7px 0 0; color: var(--muted); font-size: 12px;
+    border: 1px solid transparent; border-bottom: 0; position: relative; top: 1px;
+  }
+  .ctab.active { background: var(--bg); color: var(--text); border-color: var(--border); }
+  .ctab .x { opacity: .5; display: grid; place-items: center; }
+  .ctab .x:hover { opacity: 1; }
+  .ctab-add { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); margin-bottom: 3px; }
+  .ctab-add:hover { background: var(--soft-2); color: var(--text); }
+
+  /* run header */
+  .run-head { padding: 11px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .rh-row { display: flex; align-items: center; gap: 9px; min-height: 28px; }
+  .rh-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .rh-title h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.015em; white-space: nowrap; }
+  .rh-title .repo { font-size: 11.5px; color: var(--muted); font-family: "JetBrains Mono", Consolas, monospace; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; height: 21px; padding: 0 8px;
+    border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap;
+    background: var(--soft-2); color: var(--text-2);
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.running { background: var(--accent-soft); color: var(--accent); }
+  .pill.paused { background: rgba(217,119,6,.12); color: var(--warn); }
+  .pill.stopped { background: var(--soft-2); color: var(--muted); }
+  .rh-stats { display: flex; align-items: center; gap: 12px; margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .rh-stats b { color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .rh-actions { display: flex; align-items: center; gap: 5px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 27px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--elev); color: var(--text-2); font-size: 12px; font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s, transform .1s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--bg-2); border-color: var(--border-2); color: var(--text); }
+  .btn:active { transform: translateY(.5px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn.danger { color: var(--danger); }
+  .btn.danger:hover { background: rgba(220,38,38,.08); border-color: rgba(220,38,38,.3); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  .btn.ghost:hover { background: var(--soft-2); color: var(--text); }
+  .btn.sm { height: 24px; padding: 0 8px; font-size: 11.5px; border-radius: 6px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .icon-btn {
+    width: 27px; height: 27px; border-radius: 7px; display: grid; place-items: center;
+    color: var(--muted); transition: background .15s, color .15s;
+  }
+  .icon-btn:hover { background: var(--soft-2); color: var(--text); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  .pipeline { display: flex; align-items: center; gap: 3px; margin: 9px 0 7px; }
+  .pseg {
+    flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0;
+    padding: 5px 8px; border-radius: 6px; color: var(--muted); font-size: 11px;
+    position: relative; transition: background .15s, color .15s;
+  }
+  .pseg:hover { background: var(--soft-2); color: var(--text-2); }
+  .pseg i { width: 6px; height: 6px; border-radius: 50%; background: var(--seg, var(--queued)); flex: 0 0 auto; }
+  .pseg b { color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pseg span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pseg + .pseg::before {
+    content: ""; position: absolute; left: -3px; top: 50%; width: 3px; height: 1px;
+    background: var(--border-2);
+  }
+  .pseg.flash { animation: segflash .7s ease; }
+  @keyframes segflash { 0% { background: var(--accent-soft); } 100% { background: transparent; } }
+
+  .attention {
+    display: flex; align-items: center; gap: 9px; margin: 0 -16px; padding: 7px 16px;
+    background: rgba(217,119,6,.07); border-top: 1px solid rgba(217,119,6,.16);
+    color: var(--warn); font-size: 11.5px;
+  }
+  .attention .a-label { font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .attention .a-items { display: flex; gap: 6px; overflow: hidden; }
+  .a-chip {
+    display: flex; align-items: center; gap: 5px; height: 21px; padding: 0 8px;
+    border-radius: 999px; background: rgba(217,119,6,.13); color: var(--warn);
+    font-size: 11px; white-space: nowrap; border: 1px solid rgba(217,119,6,.18);
+  }
+  .a-chip:hover { background: rgba(217,119,6,.22); }
+  .a-chip .mono { font-size: 10.5px; opacity: .8; }
+
+  /* board */
+  .board-scroll { flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+  .board {
+    display: grid; grid-auto-flow: column; grid-auto-columns: 236px;
+    gap: 10px; padding: 12px 16px 16px; height: 100%; align-items: stretch;
+    width: max-content; min-width: 100%;
+  }
+  .lane {
+    --lane-color: var(--queued);
+    display: flex; flex-direction: column; min-height: 0;
+    background: var(--lane-bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0 7px 7px;
+  }
+  .lane::before {
+    content: ""; height: 2px; border-radius: 2px; background: var(--lane-color);
+    opacity: .7; margin: 0 -7px 7px; border-radius: 10px 10px 0 0;
+  }
+  .lane-head { display: flex; align-items: center; gap: 7px; padding: 2px 5px 9px; }
+  .lane-head i { width: 6px; height: 6px; border-radius: 50%; background: var(--lane-color); }
+  .lane-head span { font-size: 12px; font-weight: 600; color: var(--text-2); letter-spacing: -.01em; }
+  .lane-head b { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lane-cards { display: flex; flex-direction: column; gap: 7px; overflow-y: auto; padding: 1px 1px 2px; min-height: 0; }
+  .lane-empty {
+    border: 1px dashed var(--border-2); border-radius: 8px; padding: 18px 8px;
+    text-align: center; color: var(--disabled); font-size: 11px;
+  }
+
+  /* cards */
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 9px;
+    padding: 9px 10px 9px; box-shadow: var(--shadow-sm); cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, transform .12s;
+    position: relative; flex: 0 0 auto;
+  }
+  .card:hover { border-color: var(--border-2); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow-md); }
+  .card.blocked { border-color: rgba(217,119,6,.28); }
+  .card.blocked.selected { border-color: var(--warn); box-shadow: 0 0 0 1px rgba(217,119,6,.15); }
+  .card.cancelled { opacity: .62; }
+  .card-top { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .cdot { width: 7px; height: 7px; border-radius: 50%; background: var(--lane-color, var(--queued)); flex: 0 0 auto; }
+  .cdot.pulse { animation: pulse 1.9s ease-out infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--lane-color) 45%, transparent); }
+    70% { box-shadow: 0 0 0 6px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  .card .num { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; color: var(--muted); }
+  .chip {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px;
+    font-size: 10px; font-weight: 500; background: var(--soft-2); color: var(--muted); white-space: nowrap;
+  }
+  .chip.accent { background: var(--accent-soft); color: var(--accent); }
+  .chip.warn { background: rgba(217,119,6,.13); color: var(--warn); }
+  .chip.ok { background: rgba(5,150,105,.12); color: var(--merge); }
+  .chip.review { background: rgba(99,102,241,.12); color: var(--review); }
+  .card .more { margin-left: auto; width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; color: var(--disabled); opacity: 0; transition: opacity .15s, background .15s; }
+  .card:hover .more { opacity: 1; }
+  .card .more:hover { background: var(--soft-2); color: var(--text); }
+  .card h3 {
+    margin: 0 0 6px; font-size: 12.5px; line-height: 1.4; font-weight: 550;
+    letter-spacing: -.005em; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .card .branch {
+    display: flex; align-items: center; gap: 4px; font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; margin-bottom: 7px;
+  }
+  .card .branch svg { width: 11px; height: 11px; flex: 0 0 auto; opacity: .7; }
+  .progress { height: 3px; border-radius: 3px; background: var(--soft-2); overflow: hidden; margin: 2px 0 7px; }
+  .progress i { display: block; height: 100%; border-radius: 3px; background: var(--lane-color, var(--accent)); transition: width .4s ease; }
+  .card-foot { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--muted); }
+  .diffstat { display: inline-flex; gap: 4px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; }
+  .diffstat b { color: var(--merge); font-weight: 500; }
+  .diffstat em { color: var(--danger); font-style: normal; }
+  .card-foot .spacer { flex: 1; }
+  .card-foot .model { font-size: 10px; }
+  .card-alert {
+    display: flex; align-items: flex-start; gap: 6px; margin: 7px 0 6px; padding: 6px 7px;
+    border-radius: 6px; background: rgba(217,119,6,.08); color: var(--warn);
+    font-size: 10.5px; line-height: 1.45;
+  }
+  .card-alert svg { width: 12px; height: 12px; flex: 0 0 auto; margin-top: 1px; }
+  .card-actions { display: flex; gap: 5px; margin-top: 8px; }
+  .card-actions .btn { flex: 1; }
+  .card-actions .btn.ghost { flex: 0 0 auto; }
+  .takeover-badge {
+    position: absolute; top: 7px; right: 7px; height: 17px; padding: 0 6px; border-radius: 999px;
+    background: var(--text); color: var(--bg); font-size: 9.5px; display: flex; align-items: center; gap: 4px;
+  }
+
+  /* inspector */
+  .inspector {
+    width: 396px; flex: 0 0 396px; border-left: 1px solid var(--border);
+    background: var(--bg); display: flex; flex-direction: column; min-height: 0;
+    transition: width .2s ease, flex-basis .2s ease, opacity .2s ease;
+  }
+  .shell.inspector-closed .inspector { width: 0; flex-basis: 0; opacity: 0; overflow: hidden; border-left: 0; }
+  .ins-head { padding: 11px 14px 0; border-bottom: 1px solid var(--border); }
+  .ins-top { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+  .ins-top .num { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; color: var(--muted); }
+  .ins-top .spacer { flex: 1; }
+  .ins-title { margin: 0 0 8px; font-size: 14px; line-height: 1.4; font-weight: 600; letter-spacing: -.01em; }
+  .ins-meta { display: flex; flex-direction: column; gap: 4px; margin-bottom: 9px; }
+  .meta-row { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); min-width: 0; }
+  .meta-row svg { width: 12px; height: 12px; flex: 0 0 auto; opacity: .75; }
+  .meta-row code { font-size: 10px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .copy-btn { width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; color: var(--disabled); flex: 0 0 auto; }
+  .copy-btn:hover { background: var(--soft-2); color: var(--text); }
+  .copy-btn svg { width: 11px; height: 11px; }
+
+  .railsteps { display: flex; align-items: flex-start; padding: 4px 2px 10px; }
+  .step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; min-width: 0; }
+  .step::after {
+    content: ""; position: absolute; top: 7px; left: calc(50% + 8px); right: calc(-50% + 8px);
+    height: 1px; background: var(--border-2);
+  }
+  .step:last-child::after { display: none; }
+  .step .sdot {
+    width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center;
+    border: 1.5px solid var(--border-2); background: var(--bg); color: transparent;
+    position: relative; z-index: 1;
+  }
+  .step .sdot svg { width: 8px; height: 8px; }
+  .step .slabel { font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+  .step.done .sdot { background: var(--merge); border-color: var(--merge); color: #fff; }
+  .step.done::after { background: color-mix(in srgb, var(--merge) 40%, var(--border-2)); }
+  .step.active .sdot { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .step.active .sdot::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .step.active .slabel { color: var(--accent); font-weight: 600; }
+  .step.blocked .sdot { border-color: var(--warn); background: var(--warn); color: #fff; }
+  .step.blocked .slabel { color: var(--warn); font-weight: 600; }
+
+  .tabs { display: flex; gap: 1px; padding: 0 2px; }
+  .itab {
+    position: relative; height: 29px; padding: 0 8px; display: flex; align-items: center; gap: 5px;
+    color: var(--muted); font-size: 11.5px; border-bottom: 2px solid transparent;
+  }
+  .itab:hover { color: var(--text); }
+  .itab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 550; }
+  .itab .badge { font-size: 9.5px; padding: 0 5px; height: 15px; border-radius: 999px; background: var(--soft-2); color: var(--muted); display: inline-flex; align-items: center; }
+  .itab.active .badge { background: var(--accent-soft); color: var(--accent); }
+
+  .ins-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 14px; }
+  .ins-foot { border-top: 1px solid var(--border); padding: 9px 12px; display: flex; gap: 6px; background: var(--bg); }
+  .ins-foot .btn { flex: 1; }
+  .ins-foot .btn.ghost { flex: 0 0 auto; }
+  .ins-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); padding: 30px; text-align: center; }
+  .ins-empty svg { width: 28px; height: 28px; opacity: .4; }
+  .ins-empty p { margin: 0; font-size: 12px; line-height: 1.6; }
+
+  .section { margin-bottom: 13px; }
+  .section:last-child { margin-bottom: 0; }
+  .section-title { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .04em; margin: 0 0 6px; text-transform: uppercase; }
+  .goal { font-size: 12px; line-height: 1.65; color: var(--text-2); background: var(--soft); border: 1px solid var(--border); border-radius: 7px; padding: 8px 9px; }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .metric { background: var(--soft); border: 1px solid var(--border); border-radius: 7px; padding: 7px 8px; }
+  .metric span { display: block; font-size: 9.5px; color: var(--muted); margin-bottom: 3px; }
+  .metric b { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .metric b.ok { color: var(--merge); }
+  .metric b.bad { color: var(--danger); }
+  .kv { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--border); font-size: 11px; }
+  .kv:last-child { border-bottom: 0; }
+  .kv span { color: var(--muted); }
+  .kv b { font-weight: 550; color: var(--text-2); font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; }
+  .commit { display: flex; gap: 7px; padding: 5px 0; font-size: 11px; }
+  .commit code { font-size: 10px; color: var(--accent); flex: 0 0 auto; }
+  .commit span { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* timeline */
+  .timeline { position: relative; padding-left: 18px; }
+  .timeline::before { content: ""; position: absolute; left: 5px; top: 4px; bottom: 4px; width: 1px; background: var(--border-2); }
+  .tl-item { position: relative; padding: 0 0 11px; }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-dot {
+    position: absolute; left: -17px; top: 3px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--bg); border: 1.5px solid var(--border-2); z-index: 1;
+  }
+  .tl-item.ok .tl-dot { border-color: var(--merge); background: var(--merge); }
+  .tl-item.warn .tl-dot { border-color: var(--warn); background: var(--warn); }
+  .tl-item.run .tl-dot { border-color: var(--accent); background: var(--accent); }
+  .tl-item.err .tl-dot { border-color: var(--danger); background: var(--danger); }
+  .tl-time { font-size: 9.5px; color: var(--disabled); font-family: "JetBrains Mono", Consolas, monospace; }
+  .tl-text { font-size: 11.5px; line-height: 1.5; color: var(--text-2); margin-top: 1px; word-break: break-word; }
+  .tl-text code { font-size: 10.5px; color: var(--accent); }
+  .tl-live { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--accent); margin-top: 3px; }
+  .tl-live i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+
+  /* diff */
+  .filelist { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+  .frow { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; font-size: 10.5px; color: var(--text-2); }
+  .frow:hover { background: var(--soft-2); }
+  .frow.active { background: var(--soft-2); }
+  .frow svg { width: 12px; height: 12px; opacity: .6; }
+  .frow code { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .spacer { flex: 1; }
+  .frow .diffstat { font-size: 9.5px; }
+  .diffbox { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; line-height: 1.6; background: var(--bg-2); }
+  .dline { display: flex; white-space: pre; }
+  .dline .ln { flex: 0 0 30px; text-align: right; padding-right: 7px; color: var(--disabled); user-select: none; }
+  .dline .code { flex: 1; padding: 0 7px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; }
+  .dline.add { background: var(--code-add); }
+  .dline.add .code { color: var(--merge); }
+  .dline.del { background: var(--code-del); }
+  .dline.del .code { color: var(--danger); }
+  .dline.hunk .code { color: var(--muted); }
+  .dline.hunk { background: var(--soft-2); }
+
+  /* review */
+  .verdict { display: flex; gap: 8px; padding: 9px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--soft); margin-bottom: 10px; }
+  .verdict svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; }
+  .verdict.needs { border-color: rgba(217,119,6,.28); background: rgba(217,119,6,.07); color: var(--warn); }
+  .verdict.ok { border-color: rgba(5,150,105,.24); background: rgba(5,150,105,.06); color: var(--merge); }
+  .verdict b { display: block; font-size: 11.5px; margin-bottom: 2px; }
+  .verdict p { margin: 0; font-size: 11px; line-height: 1.55; color: var(--text-2); }
+  .comment { border: 1px solid var(--border); border-radius: 7px; padding: 8px 9px; margin-bottom: 7px; background: var(--card); }
+  .comment.resolved { opacity: .62; }
+  .c-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .c-head code { font-size: 9.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-head .spacer { flex: 1; }
+  .c-body { font-size: 11px; line-height: 1.55; color: var(--text-2); }
+  .c-actions { display: flex; gap: 5px; margin-top: 7px; }
+  .empty { padding: 26px 12px; text-align: center; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+  .empty svg { width: 24px; height: 24px; opacity: .35; margin-bottom: 6px; }
+
+  /* setup wizard */
+  .center.setup-mode #run-head, .center.setup-mode #board-scroll { display: none; }
+  .setup-view { display: none; flex: 1; min-height: 0; overflow-y: auto; }
+  .center.setup-mode .setup-view { display: block; }
+  .setup-wrap { max-width: 980px; margin: 0 auto; padding: 20px 28px 40px; }
+  .wizard-head { display: flex; align-items: flex-start; gap: 10px; }
+  .wizard-head h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
+  .wizard-head p { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .wizard-head .repo { margin-left: auto; font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; color: var(--text-2); background: var(--soft-2); padding: 4px 7px; border-radius: 5px; white-space: nowrap; }
+  .stepper { display: flex; align-items: center; margin: 18px 0 14px; }
+  .sstep { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11.5px; padding: 3px 2px; border-radius: 6px; white-space: nowrap; }
+  .sstep:hover { color: var(--text); }
+  .snum { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--border-2); display: grid; place-items: center; font-size: 10px; flex: 0 0 auto; background: var(--bg); }
+  .snum svg { width: 10px; height: 10px; }
+  .sstep.done .snum { background: var(--merge); border-color: var(--merge); color: #fff; }
+  .sstep.active { color: var(--text); font-weight: 600; }
+  .sstep.active .snum { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .sline { flex: 1; height: 1px; background: var(--border-2); margin: 0 10px; min-width: 14px; }
+  .sstep.done + .sline { background: color-mix(in srgb, var(--merge) 40%, var(--border-2)); }
+
+  .panel { background: var(--elev); border: 1px solid var(--border); border-radius: 11px; padding: 15px 17px; margin-bottom: 11px; box-shadow: var(--shadow-sm); }
+  .panel-head { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 11px; }
+  .panel-head h2 { margin: 0; font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+  .panel-head p { margin: 3px 0 0; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
+  .panel-head .spacer { flex: 1; }
+  .opt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .opt-card { display: flex; gap: 9px; text-align: left; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); transition: border-color .15s, background .15s, box-shadow .15s; min-width: 0; }
+  .opt-card:hover { border-color: var(--border-2); background: var(--bg-2); }
+  .opt-card.selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent-soft); }
+  .opt-card.disabled { opacity: .55; cursor: not-allowed; }
+  .opt-card.disabled:hover { border-color: var(--border); background: var(--bg); }
+  .opt-radio { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--border-2); flex: 0 0 auto; margin-top: 2px; position: relative; background: var(--elev); }
+  .opt-card.selected .opt-radio { border-color: var(--accent); }
+  .opt-card.selected .opt-radio::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+  .opt-body { min-width: 0; flex: 1; }
+  .opt-title { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .opt-desc { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.55; margin-top: 3px; }
+  .opt-status { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); margin-top: 6px; }
+  .opt-status svg { width: 11px; height: 11px; }
+  .opt-status.ok { color: var(--merge); }
+  .opt-status.warn { color: var(--warn); }
+  .opt-status.err { color: var(--danger); }
+  .advanced-row { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--disabled); margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--border); }
+
+  .field-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 10px; }
+  .readonly { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--soft); min-width: 0; }
+  .readonly code { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .readonly span { margin-left: auto; font-size: 9.5px; color: var(--disabled); white-space: nowrap; }
+  .switch-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .mini-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); cursor: pointer; }
+  .mini-check input { accent-color: var(--accent); width: 13px; height: 13px; }
+  .radio-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .radio-pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; color: var(--text-2); cursor: pointer; }
+  .radio-pill:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+  .radio-pill input { accent-color: var(--accent); }
+
+  .cred-box { border: 1px solid var(--border); border-radius: 9px; background: var(--soft); padding: 10px 11px; margin-top: 8px; }
+  .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--soft-2); border-radius: 7px; margin-bottom: 9px; }
+  .seg-btn { height: 25px; padding: 0 9px; border-radius: 5px; font-size: 10.5px; color: var(--muted); }
+  .seg-btn.active { background: var(--elev); color: var(--text); box-shadow: var(--shadow-sm); }
+  .token-row { display: flex; gap: 6px; align-items: center; }
+  .token-row input { flex: 1; min-width: 0; height: 30px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); padding: 0 9px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; }
+  .token-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .mini-links { display: flex; align-items: center; gap: 10px; margin-top: 5px; font-size: 9.5px; color: var(--disabled); flex-wrap: wrap; }
+  .link-btn { color: var(--accent); font-size: 10px; }
+  .link-btn:hover { text-decoration: underline; }
+  .guide { margin-top: 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); overflow: hidden; }
+  .guide-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 10px; font-size: 10.5px; color: var(--text-2); text-align: left; }
+  .guide-head:hover { background: var(--soft-2); }
+  .guide-head .spacer { flex: 1; }
+  .guide-head svg { width: 12px; height: 12px; transition: transform .15s; }
+  .guide-head.open svg { transform: rotate(90deg); }
+  .guide-body { padding: 0 11px 11px; font-size: 10.5px; line-height: 1.65; color: var(--text-2); border-top: 1px solid var(--border); }
+  .guide-body ol { margin: 7px 0; padding-left: 17px; }
+  .guide-body li { margin-bottom: 3px; }
+  .guide-body code { font-size: 9.5px; color: var(--accent); background: var(--soft-2); padding: 1px 4px; border-radius: 3px; }
+  .perm-grid { display: grid; grid-template-columns: 1.1fr .8fr 1.1fr; gap: 2px 8px; font-size: 9.5px; margin: 7px 0; padding: 7px 8px; background: var(--bg-2); border-radius: 6px; font-family: "JetBrains Mono", Consolas, monospace; }
+  .perm-grid b { font-weight: 500; color: var(--text-2); }
+  .perm-grid span { color: var(--muted); }
+  .guide-note { font-size: 9.5px; color: var(--warn); background: rgba(217,119,6,.07); border-radius: 5px; padding: 6px 8px; margin-top: 7px; line-height: 1.5; }
+  .test-result { margin-top: 8px; border-radius: 8px; padding: 9px 10px; border: 1px solid var(--border); font-size: 10.5px; line-height: 1.55; }
+  .test-result.ok { border-color: rgba(5,150,105,.25); background: rgba(5,150,105,.06); }
+  .test-result.err { border-color: rgba(220,38,38,.25); background: rgba(220,38,38,.06); }
+  .test-result.testing { border-color: var(--border); background: var(--soft); }
+  .tr-title { display: flex; align-items: center; gap: 5px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+  .tr-title svg { width: 12px; height: 12px; }
+  .tr-rows { display: grid; grid-template-columns: 56px 1fr; gap: 2px 8px; font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .tr-rows b { font-weight: 500; color: var(--text-2); font-family: "JetBrains Mono", Consolas, monospace; font-size: 9.5px; }
+  .test-result p { margin: 5px 0 0; font-size: 9.5px; color: var(--muted); }
+  .reuse-row { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft); margin-top: 9px; }
+  .reuse-row b { font-size: 11px; display: block; }
+  .reuse-row span { font-size: 9.5px; color: var(--muted); font-family: "JetBrains Mono", Consolas, monospace; }
+  .reuse-row .spacer { flex: 1; }
+  .hint-box { display: flex; gap: 7px; padding: 8px 10px; border-radius: 7px; background: var(--soft-2); color: var(--muted); font-size: 10px; line-height: 1.55; margin-top: 9px; }
+  .hint-box svg { width: 12px; height: 12px; margin-top: 1px; }
+  .summary-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .sum-item { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 999px; background: var(--soft-2); font-size: 10.5px; color: var(--text-2); }
+  .sum-item svg { width: 11px; height: 11px; opacity: .7; }
+  .pf-list { display: flex; flex-direction: column; }
+  .pf-item { display: flex; align-items: center; gap: 7px; padding: 6px 2px; font-size: 11px; color: var(--text-2); border-bottom: 1px dashed var(--border); }
+  .pf-item:last-child { border-bottom: 0; }
+  .pf-ico { width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; }
+  .pf-ico svg { width: 9px; height: 9px; }
+  .pf-item.ok .pf-ico { background: rgba(5,150,105,.14); color: var(--merge); }
+  .pf-item.warn .pf-ico { background: rgba(217,119,6,.14); color: var(--warn); }
+  .pf-item.err .pf-ico { background: rgba(220,38,38,.12); color: var(--danger); }
+  .pf-item .spacer { flex: 1; }
+  .write-info { border: 1px solid var(--border); border-radius: 8px; background: var(--soft); padding: 2px 10px; margin-top: 8px; }
+  .write-info .kv { padding: 6px 0; }
+  .block-note { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 8px 10px; border-radius: 7px; background: rgba(217,119,6,.08); color: var(--warn); font-size: 10.5px; }
+  .block-note svg { width: 12px; height: 12px; }
+  .setup-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border); }
+  .setup-foot .spacer { flex: 1; }
+  .setup-foot .step-label { font-size: 10.5px; color: var(--muted); }
+  .setup-done { max-width: 620px; margin: 0 auto; padding: 70px 28px 40px; text-align: center; }
+  .done-icon { width: 52px; height: 52px; border-radius: 50%; background: rgba(5,150,105,.12); color: var(--merge); display: grid; place-items: center; margin: 0 auto 14px; }
+  .done-icon svg { width: 24px; height: 24px; stroke-width: 2.2; }
+  .setup-done h1 { margin: 0 0 6px; font-size: 19px; letter-spacing: -.02em; }
+  .setup-done > p { margin: 0 0 16px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .done-facts { display: flex; flex-direction: column; gap: 0; text-align: left; border: 1px solid var(--border); border-radius: 9px; background: var(--elev); padding: 3px 12px; margin: 14px 0 18px; }
+  .done-actions { display: flex; gap: 8px; justify-content: center; }
+  .done-actions .btn { height: 32px; padding: 0 14px; }
+
+  /* status bar */
+  .statusbar {
+    display: flex; align-items: center; gap: 14px; padding: 0 12px; border-top: 1px solid var(--border);
+    background: var(--bg-2); color: var(--muted); font-size: 10.5px; user-select: none;
+  }
+  .statusbar .item { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .statusbar .item svg { width: 11px; height: 11px; }
+  .statusbar .spacer { flex: 1; }
+  .statusbar .demo { color: var(--disabled); }
+  .sb-btn { height: 19px; padding: 0 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+  .sb-btn:hover { background: var(--soft-2); color: var(--text); }
+
+  /* modal */
+  .modal-backdrop { position: fixed; inset: 0; background: var(--overlay); backdrop-filter: blur(2px); animation: fade .15s ease; z-index: 40; }
+  .modal {
+    position: fixed; z-index: 41; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(620px, calc(100vw - 48px)); max-height: min(82vh, 760px);
+    background: var(--elev); border: 1px solid var(--border-2); border-radius: 12px;
+    box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+    animation: pop .18s cubic-bezier(.2,.9,.3,1.1);
+  }
+  .modal.wide { width: min(760px, calc(100vw - 48px)); }
+  .modal.chat { width: min(720px, calc(100vw - 48px)); height: min(600px, 82vh); }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes pop { from { opacity: 0; transform: translate(-50%, -48%) scale(.98); } }
+  .m-head { display: flex; align-items: flex-start; gap: 9px; padding: 14px 16px 11px; border-bottom: 1px solid var(--border); }
+  .m-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+  .m-head p { margin: 3px 0 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .m-head .spacer { flex: 1; }
+  .m-body { padding: 13px 16px; overflow-y: auto; }
+  .m-foot { display: flex; align-items: center; gap: 7px; padding: 11px 16px; border-top: 1px solid var(--border); }
+  .m-foot .spacer { flex: 1; }
+
+  .plan-item { display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 7px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .plan-item:hover { border-color: var(--border-2); background: var(--soft); }
+  .plan-item input { margin: 2px 0 0; accent-color: var(--accent); width: 14px; height: 14px; }
+  .plan-item .pi-main { flex: 1; min-width: 0; }
+  .plan-item .pi-title { font-size: 12px; font-weight: 550; display: flex; align-items: center; gap: 6px; }
+  .plan-item .pi-meta { font-size: 10.5px; color: var(--muted); margin-top: 3px; font-family: "JetBrains Mono", Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .plan-row { display: flex; align-items: center; gap: 8px; margin-top: 11px; font-size: 11.5px; color: var(--muted); }
+  .plan-row select { height: 26px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); padding: 0 6px; font-size: 11.5px; }
+  .plan-note { display: flex; gap: 7px; padding: 8px 10px; border-radius: 7px; background: rgba(217,119,6,.07); color: var(--warn); font-size: 11px; margin-top: 10px; line-height: 1.5; }
+  .plan-note svg { width: 13px; height: 13px; flex: 0 0 auto; margin-top: 1px; }
+
+  .field { margin-bottom: 11px; }
+  .field label { display: block; font-size: 10.5px; color: var(--muted); margin-bottom: 4px; }
+  .field select, .field input[type="text"] { width: 100%; height: 30px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); padding: 0 8px; font-size: 12px; }
+  .checkline { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-2); padding: 7px 0; cursor: pointer; }
+  .checkline input { accent-color: var(--accent); width: 14px; height: 14px; }
+  .merge-preview { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 11px; }
+  .mp-row { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-bottom: 1px solid var(--border); font-size: 11px; }
+  .mp-row:last-child { border-bottom: 0; }
+  .mp-row span { color: var(--muted); }
+  .mp-row b { margin-left: auto; font-weight: 550; font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; }
+  .mp-row b.ok { color: var(--merge); }
+  .radios { display: flex; gap: 6px; margin-bottom: 10px; }
+  .radio { flex: 1; border: 1px solid var(--border); border-radius: 7px; padding: 7px 8px; cursor: pointer; }
+  .radio:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .radio input { accent-color: var(--accent); margin-right: 5px; }
+  .radio span { font-size: 11.5px; font-weight: 550; }
+  .radio small { display: block; font-size: 9.5px; color: var(--muted); margin-top: 2px; margin-left: 19px; }
+
+  table.cfg { width: 100%; border-collapse: collapse; font-size: 11px; }
+  table.cfg th { text-align: left; font-size: 9.5px; color: var(--muted); font-weight: 500; padding: 0 6px 6px; border-bottom: 1px solid var(--border); }
+  table.cfg td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.cfg tr:last-child td { border-bottom: 0; }
+  table.cfg select { height: 24px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg); font-size: 10.5px; padding: 0 4px; }
+  .switch { position: relative; width: 28px; height: 16px; border-radius: 999px; background: var(--border-2); display: inline-block; transition: background .15s; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { transform: translateX(12px); }
+
+  /* takeover chat */
+  .takeover-head { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  .takeover-head .th-title { min-width: 0; }
+  .takeover-head h2 { margin: 0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .takeover-head p { margin: 2px 0 0; font-size: 10px; color: var(--muted); font-family: "JetBrains Mono", Consolas, monospace; }
+  .takeover-head .spacer { flex: 1; }
+  .chat-scroll { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .sys-note { align-self: center; font-size: 10px; color: var(--muted); background: var(--soft-2); padding: 4px 9px; border-radius: 999px; }
+  .msg { display: flex; gap: 8px; max-width: 86%; }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .avatar { width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto; display: grid; place-items: center; font-size: 9px; font-weight: 600; background: var(--soft-2); color: var(--muted); }
+  .msg.agent .avatar { background: var(--accent-soft); color: var(--accent); }
+  .bubble { background: var(--soft); border: 1px solid var(--border); border-radius: 9px; padding: 7px 10px; font-size: 11.5px; line-height: 1.6; color: var(--text-2); }
+  .msg.user .bubble { background: var(--accent-soft); border-color: transparent; color: var(--text); }
+  .bubble code { font-size: 10.5px; color: var(--accent); }
+  .chat-input { display: flex; gap: 7px; padding: 10px 14px; border-top: 1px solid var(--border); align-items: flex-end; }
+  .chat-input textarea { flex: 1; resize: none; height: 34px; max-height: 90px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); padding: 8px 9px; font-size: 11.5px; line-height: 1.5; outline: none; }
+  .chat-input textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+  /* toast */
+  #toast-root { position: fixed; right: 16px; bottom: 38px; display: flex; flex-direction: column; gap: 7px; z-index: 60; pointer-events: none; }
+  .toast {
+    display: flex; align-items: center; gap: 7px; padding: 8px 11px; border-radius: 8px;
+    background: var(--text); color: var(--bg); font-size: 11.5px; box-shadow: var(--shadow-md);
+    animation: toastin .22s ease; max-width: 360px;
+  }
+  .toast svg { width: 13px; height: 13px; flex: 0 0 auto; }
+  .toast.out { opacity: 0; transform: translateY(4px); transition: opacity .25s, transform .25s; }
+  @keyframes toastin { from { opacity: 0; transform: translateY(6px); } }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--disabled); background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11Z"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6.5" cy="5.5" r="2"/><circle cx="6.5" cy="18.5" r="2"/><circle cx="17.5" cy="8.5" r="2"/><path d="M6.5 7.5v9"/><path d="M17.5 10.5c0 4-4 4.5-7 4.5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="m7 9 3 3-3 3M12.5 15H17"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="3.5" width="6" height="6" rx="1.5"/><rect x="15" y="14.5" width="6" height="6" rx="1.5"/><path d="M9 6.5h5a3 3 0 0 1 3 3v5"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2.5-7 5 14 2.5-7h4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5-10-6.5Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5.5v13M15.5 5.5v13"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 3.5 19h17L12 4Z"/><path d="M12 9.5v4M12 16.5v.5"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="9" r="2"/><path d="M7 7v10"/><path d="M17 11v1a4 4 0 0 1-4 4H7"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M10 3v3.5M14 3v3.5M10 17.5V21M14 17.5V21M3 10h3.5M3 14h3.5M17.5 10H21M17.5 14H21"/></symbol>
+  <symbol id="i-dollar" viewBox="0 0 24 24"><path d="M12 4v16M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3 1.8 2.8 4 3.3 4 1.6 4 3.2-1.8 3-4 3-4-1.3-4-3"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 5v6h-6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3.5 13.7 9l5.5 1.7-5.5 1.7L12 18l-1.7-5.6L4.8 10.7 10.3 9 12 3.5Z"/><path d="M19 15.5 19.7 18l2.5.7-2.5.7L19 22l-.7-2.6-2.5-.7 2.5-.7L19 15.5Z"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4.8 18.2A2 2 0 0 0 6.5 21h11a2 2 0 0 0 1.7-2.8L14 9V3"/><path d="M7.5 15h9"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-8-8-4L21 3Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-1a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h1"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6.5 3.5h7l4.5 4.5v12.5h-11.5V3.5Z"/><path d="M13.5 3.5V8H18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H11l-1 8L19.5 10H13l0-7.5Z"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3.5 13h5l1.5 3h4l1.5-3h5"/><path d="M5 5.5h14l1.5 7.5v5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-5L5 5.5Z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.4 7 9 4.1-1.6 7-4.8 7-9V6l-7-2.5Z"/><path d="m9 12 2 2 4-4"/></symbol>
+</svg>
+
+<div class="shell" id="shell">
+  <header class="titlebar">
+    <div class="brand"><span class="brand-mark"><svg><use href="#i-layers"/></svg></span>SpaceCode</div>
+    <span class="sep"></span>
+    <div class="crumb"><svg class="ico" style="width:11px;height:11px"><use href="#i-folder"/></svg><span class="mono" style="font-size:11px">hjdspace/SpaceCode</span><span style="opacity:.5">/</span><span>流水线</span></div>
+    <div class="spacer"></div>
+    <span class="hint">交互原型 · 数据为演示</span>
+  </header>
+
+  <div class="body">
+    <nav class="rail" aria-label="主导航">
+      <button class="rail-btn" title="对话"><svg><use href="#i-chat"/></svg></button>
+      <button class="rail-btn" title="历史"><svg><use href="#i-clock"/></svg></button>
+      <button class="rail-btn" title="资源管理器"><svg><use href="#i-folder"/></svg></button>
+      <button class="rail-btn" title="源代码管理"><svg><use href="#i-branch"/></svg></button>
+      <button class="rail-btn" title="终端"><svg><use href="#i-terminal"/></svg></button>
+      <button class="rail-btn active" title="流水线"><svg><use href="#i-layers"/></svg></button>
+      <button class="rail-btn" title="编排"><svg><use href="#i-flow"/></svg></button>
+      <button class="rail-btn" title="调试"><svg><use href="#i-activity"/></svg></button>
+      <div class="grow"></div>
+      <button class="rail-btn" title="设置"><svg><use href="#i-settings"/></svg></button>
+      <div class="rail-avatar">JD</div>
+    </nav>
+
+    <main class="center">
+      <div class="tabstrip" id="tabstrip"></div>
+
+      <div id="run-head" class="run-head"></div>
+
+      <div class="setup-view" id="setup-view"></div>
+
+      <div class="board-scroll" id="board-scroll">
+        <div class="board" id="board"></div>
+      </div>
+    </main>
+
+    <aside class="inspector" id="inspector" aria-label="任务检查器"></aside>
+  </div>
+
+  <footer class="statusbar">
+    <span class="item"><svg><use href="#i-branch"/></svg>main</span>
+    <span class="item"><svg><use href="#i-shield"/></svg>工作区干净</span>
+    <span class="item" id="sb-engine"><svg><use href="#i-cpu"/></svg>Opus 4.8 · 并发 2/4</span>
+    <span class="spacer"></span>
+    <button class="sb-btn" data-action="demo-step"><svg style="width:11px;height:11px"><use href="#i-zap"/></svg>演示推进</button>
+    <button class="sb-btn" data-action="reset"><svg style="width:11px;height:11px"><use href="#i-refresh"/></svg>重置</button>
+    <span class="demo">原型演示</span>
+    <button class="sb-btn" data-action="theme" id="theme-btn"><svg style="width:11px;height:11px"><use href="#i-moon"/></svg><span>深色</span></button>
+  </footer>
+</div>
+
+<div id="overlay-root"></div>
+<div id="toast-root"></div>
+
+<script>
+/* ============================================================
+   数据
+   ============================================================ */
+function clock() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function fmt(sec) {
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+function ev(time, kind, text) { return { time, kind, text }; }
+
+function seedTasks() {
+  return [
+    {
+      id: '412', num: 412, title: '登录态在刷新后丢失', lane: 'implementing', stageIdx: 2,
+      branch: 'agent/issue-412-session-refresh', worktree: '.spacecode/worktrees/412',
+      model: 'Opus 4.8', iteration: 2, maxIter: 5, diff: { a: 86, d: 12 }, elapsed: 372,
+      goal: '刷新页面后会话未能从 leveldb 恢复，用户被登出。修复 sessionRestore 的恢复顺序，并补一条回归测试。',
+      tests: { status: 'fail', name: 'npm run test:changed', detail: '2 failed · 42 passed' },
+      commits: [
+        { sha: 'a3f91c2', msg: 'wip: 调整 sessionRestore 读取顺序' },
+        { sha: '7d2b440', msg: 'fix: 恢复 engineSessionId 后再读附件' }
+      ],
+      events: [
+        ev('14:28', 'claim', '领取任务 <code>#412</code>'),
+        ev('14:28', 'ok', '创建 worktree <code>.spacecode/worktrees/412</code>'),
+        ev('14:30', 'run', '引擎启动 · permissionMode <code>acceptEdits</code>'),
+        ev('14:31', 'run', '实现 迭代 1/5 · 读取 12 个文件'),
+        ev('14:34', 'ok', '编辑 <code>src/stores/chatSession.ts</code> (+34 −8)'),
+        ev('14:35', 'warn', '<code>npm run test:changed</code> 失败：2 failed · 42 passed'),
+        ev('14:36', 'run', '修复失败用例，进入迭代 2/5'),
+        ev('14:38', 'ok', '编辑 <code>electron/session/sessionProcess.ts</code> (+18 −2)'),
+        ev('14:40', 'run', '正在运行 <code>npm run test:changed</code>')
+      ],
+      diffFiles: [
+        { path: 'src/stores/chatSession.ts', a: 34, d: 8 },
+        { path: 'electron/session/sessionProcess.ts', a: 18, d: 2 },
+        { path: 'tests/sessionRestore.test.ts', a: 34, d: 2 }
+      ],
+      diffLines: [
+        { t: 'hunk', no: '', text: '@@ -862,8 +862,14 @@ export const useChatSessionStore = defineStore(\'chatSession\', () => {' },
+        { t: 'ctx', no: '862', text: '  function setWorkingDirectory(sessionId: string, dir: string) {' },
+        { t: 'ctx', no: '863', text: '    const session = sessions.value.find(s => s.id === sessionId)' },
+        { t: 'ctx', no: '864', text: '    if (!session) return' },
+        { t: 'del', no: '865', text: '    if (session.messages.length > 0) return' },
+        { t: 'add', no: '865', text: '    if (session.messages.length > 0) {' },
+        { t: 'add', no: '866', text: '      console.warn(\'working directory locked\')' },
+        { t: 'add', no: '867', text: '      return' },
+        { t: 'add', no: '868', text: '    }' },
+        { t: 'add', no: '869', text: '    if (session.engineSessionId) return' },
+        { t: 'ctx', no: '870', text: '    session.workingDirectory = dir' },
+        { t: 'add', no: '871', text: '    session.engineSessionId = undefined' },
+        { t: 'ctx', no: '872', text: '  }' }
+      ],
+      review: null,
+      attention: null
+    },
+    {
+      id: '407', num: 407, title: '缓存失效导致重复请求', lane: 'reviewing', stageIdx: 4,
+      branch: 'agent/issue-407-cache-dedupe', worktree: '.spacecode/worktrees/407',
+      model: 'Sonnet 4.6', iteration: 3, maxIter: 3, diff: { a: 52, d: 18 }, elapsed: 268,
+      goal: '同一资源在 TTL 过期瞬间会并发打三份请求。为 in-flight 请求加去重，并补充命中率测试。',
+      tests: { status: 'pass', name: 'npm run test:changed', detail: '64 passed · 38s' },
+      commits: [{ sha: 'c8841de', msg: 'perf: 合并 TTL 边界上的并发请求' }],
+      events: [
+        ev('14:12', 'claim', '领取任务 <code>#407</code>'),
+        ev('14:13', 'ok', 'worktree 就绪 · 实现 迭代 1/3'),
+        ev('14:20', 'ok', '编辑 <code>src/services/cache.ts</code> (+38 −14)'),
+        ev('14:24', 'ok', '测试通过 · 64 passed / 38s'),
+        ev('14:26', 'run', '审查 产出 3 条行内意见')
+      ],
+      diffFiles: [
+        { path: 'src/services/cache.ts', a: 38, d: 14 },
+        { path: 'src/services/__tests__/cache.test.ts', a: 14, d: 4 }
+      ],
+      diffLines: [
+        { t: 'hunk', no: '', text: '@@ -84,10 +84,18 @@ export function createCache<T>(ttl = 30_000) {' },
+        { t: 'ctx', no: '84', text: '  const inflight = new Map<string, Promise<T>>()' },
+        { t: 'ctx', no: '85', text: '  async function get(key: string, load: () => Promise<T>) {' },
+        { t: 'del', no: '86', text: '    const hit = store.get(key)' },
+        { t: 'del', no: '87', text: '    if (hit && Date.now() - hit.at < ttl) return hit.value' },
+        { t: 'add', no: '86', text: '    const hit = store.get(key)' },
+        { t: 'add', no: '87', text: '    if (hit && Date.now() - hit.at < ttl) return hit.value' },
+        { t: 'add', no: '88', text: '    const pending = inflight.get(key)' },
+        { t: 'add', no: '89', text: '    if (pending) return pending' },
+        { t: 'ctx', no: '90', text: '    const p = load().finally(() => inflight.delete(key))' },
+        { t: 'add', no: '91', text: '    inflight.set(key, p)' },
+        { t: 'ctx', no: '92', text: '    return p' },
+        { t: 'ctx', no: '93', text: '  }' }
+      ],
+      review: {
+        verdict: 'needs_changes',
+        summary: '实现方向正确，但 abort 后的队列清理和 TTL 常量需要调整，且缺少并发回归用例。',
+        comments: [
+          { file: 'src/stores/turn/index.ts', line: 214, body: 'abort 后 pendingMessages 没有清空，恢复会话后可能重复发送。', status: 'open' },
+          { file: 'src/services/cache.ts', line: 88, body: 'TTL 常量硬编码为 30_000，建议提取到配置并允许按端点覆盖。', status: 'open' },
+          { file: 'src/services/__tests__/cache.test.ts', line: 12, body: '缺少"TTL 边界上并发三请求只打一次"的回归用例。', status: 'open' }
+        ]
+      },
+      attention: { reason: '审查要求修改', action: 'fix' }
+    },
+    {
+      id: '405', num: 405, title: '权限模式切换后 --resume 丢失', lane: 'mergeable', stageIdx: 5,
+      branch: 'agent/issue-405-permission-resume', worktree: '.spacecode/worktrees/405',
+      model: 'Opus 4.8', iteration: 2, maxIter: 3, diff: { a: 128, d: 34 }, elapsed: 742,
+      goal: '切换权限模式自愈重启时没有带上 --resume，导致会话上下文丢失。重启必须恢复同一 engine session。',
+      tests: { status: 'pass', name: 'npm run test:changed', detail: '128 passed · 1m 12s' },
+      commits: [
+        { sha: '11ac0f3', msg: 'fix: 自愈重启携带 --resume' },
+        { sha: '42be912', msg: 'fix: init 回报后核验 permissionMode' },
+        { sha: '9de01aa', msg: 'test: 覆盖切换后上下文连续性' }
+      ],
+      events: [
+        ev('13:40', 'claim', '领取任务 <code>#405</code>'),
+        ev('13:42', 'ok', 'worktree 就绪 · 实现 迭代 1/2'),
+        ev('14:02', 'ok', '3 个提交 · diff +128 −34'),
+        ev('14:06', 'ok', '验证通过 · 128 passed / 1m 12s'),
+        ev('14:09', 'ok', '审查通过 · 补充了重启权限核验'),
+        ev('14:10', 'run', '等待合并批准')
+      ],
+      diffFiles: [
+        { path: 'electron/session/sessionProcess.ts', a: 42, d: 12 },
+        { path: 'electron/session/permissionGuard.ts', a: 56, d: 10 },
+        { path: 'tests/permissionResume.test.ts', a: 30, d: 12 }
+      ],
+      diffLines: [
+        { t: 'hunk', no: '', text: '@@ -1498,10 +1498,16 @@ export function spawnEngine(config: EngineSessionConfig) {' },
+        { t: 'ctx', no: '1498', text: '  const args = buildArgs(config)' },
+        { t: 'del', no: '1499', text: '  if (config.permissionMode) args.push(\'--permission-mode\', config.permissionMode)' },
+        { t: 'add', no: '1499', text: '  if (config.permissionMode) {' },
+        { t: 'add', no: '1500', text: '    args.push(\'--permission-mode\', config.permissionMode)' },
+        { t: 'add', no: '1501', text: '  }' },
+        { t: 'add', no: '1502', text: '  if (config.restartReason === \'permission\') {' },
+        { t: 'add', no: '1503', text: '    args.push(\'--resume\', config.engineSessionId)' },
+        { t: 'add', no: '1504', text: '  }' },
+        { t: 'ctx', no: '1505', text: '  return spawn(cliPath, args)' },
+        { t: 'ctx', no: '1506', text: '}' }
+      ],
+      review: {
+        verdict: 'approved',
+        summary: '改动与 issue 一致，补充了 init 回报后的权限核验；test:changed 通过，未发现行为回归。',
+        comments: [
+          { file: 'electron/session/sessionProcess.ts', line: 1503, body: 'resume 只在权限自愈路径上触发，普通重启仍走原逻辑，正确。', status: 'accepted' }
+        ]
+      },
+      attention: null
+    },
+    {
+      id: '410', num: 410, title: 'MCP 配置在打包后不生效', lane: 'blocked', stageIdx: 5,
+      branch: 'agent/issue-410-mcp-packaged', worktree: '.spacecode/worktrees/410',
+      model: 'Opus 4.8', iteration: 3, maxIter: 3, diff: { a: 41, d: 9 }, elapsed: 521,
+      goal: '生产包里 extraResources 没有带上 mcp 配置模板，导致安装版无法注册内置 MCP server。',
+      tests: { status: 'pass', name: 'npm run test:changed', detail: '76 passed · 51s' },
+      commits: [{ sha: 'be1207c', msg: 'fix: 打包时复制 mcp 配置模板' }],
+      events: [
+        ev('14:00', 'claim', '领取任务 <code>#410</code>'),
+        ev('14:01', 'ok', 'worktree 就绪 · 实现 迭代 1/3'),
+        ev('14:16', 'ok', '1 个提交 · diff +41 −9'),
+        ev('14:19', 'ok', '验证通过 · 76 passed'),
+        ev('14:21', 'warn', '合并预检失败：base 已前进 3 个提交'),
+        ev('14:22', 'err', 'rebase 冲突于 <code>electron/main.ts</code>')
+      ],
+      diffFiles: [{ path: 'electron/main.ts', a: 12, d: 3 }, { path: 'package.json', a: 18, d: 6 }, { path: 'electron/mcp/template.ts', a: 11, d: 0 }],
+      diffLines: [
+        { t: 'hunk', no: '', text: '@@ -210,7 +210,12 @@ async function bootstrap() {' },
+        { t: 'ctx', no: '210', text: '  registerGitHandlers()' },
+        { t: 'add', no: '211', text: '  registerFactoryHandlers()' },
+        { t: 'ctx', no: '212', text: '  registerCronHandlers()' },
+        { t: 'del', no: '213', text: '  loadMcpTemplate(app.getAppPath())' },
+        { t: 'add', no: '213', text: '  loadMcpTemplate(app.isPackaged' },
+        { t: 'add', no: '214', text: '    ? path.join(process.resourcesPath, \'mcp\')' },
+        { t: 'add', no: '215', text: '    : path.join(app.getAppPath(), \'electron/mcp\'))' },
+        { t: 'ctx', no: '216', text: '  createWindow()' },
+        { t: 'ctx', no: '217', text: '}' }
+      ],
+      review: null,
+      attention: { reason: 'base 已前进 3 个提交，rebase 冲突于 electron/main.ts', action: 'fix' }
+    },
+    {
+      id: '415', num: 415, title: '上下文用量面板数字跳动', lane: 'queued', stageIdx: -1,
+      branch: 'agent/issue-415-context-usage-flicker', worktree: '—',
+      model: 'Opus 4.8', iteration: 0, maxIter: 5, diff: { a: 0, d: 0 }, elapsed: 0,
+      goal: '同一次回复里上下文用量会被 count_tokens 的中间值覆盖，面板数字来回跳。',
+      tests: null, commits: [], events: [ev('14:43', 'claim', '加入队列 · 等待空闲并发槽位')],
+      diffFiles: [], diffLines: [], review: null, attention: null
+    },
+    {
+      id: '416', num: 416, title: '文件树在大仓库下滚动卡顿', lane: 'queued', stageIdx: -1,
+      branch: 'agent/issue-416-file-tree-perf', worktree: '—',
+      model: 'Sonnet 4.6', iteration: 0, maxIter: 4, diff: { a: 0, d: 0 }, elapsed: 0,
+      goal: '超过 20k 文件时文件树一次性渲染全部节点，滚动掉帧。改为虚拟列表。',
+      tests: null, commits: [], events: [ev('14:44', 'claim', '加入队列 · 等待空闲并发槽位')],
+      diffFiles: [], diffLines: [], review: null, attention: null
+    },
+    {
+      id: '409', num: 409, title: 'H5 端侧边栏遮罩层层级错误', lane: 'done', stageIdx: 6,
+      branch: 'agent/issue-409-h5-overlay', worktree: '—',
+      model: 'Sonnet 4.6', iteration: 2, maxIter: 3, diff: { a: 18, d: 6 }, elapsed: 410,
+      goal: '遮罩层盖住了侧边栏，点击无法关闭。修正 z-index 与点击命中区域。',
+      tests: { status: 'pass', name: 'npm run test:changed', detail: '31 passed · 22s' },
+      commits: [{ sha: '71b0e4d', msg: 'fix: 调整 H5 遮罩层层级' }, { sha: '3c8a112', msg: 'test: 覆盖窄屏侧边栏开关' }],
+      events: [
+        ev('12:10', 'claim', '领取任务 <code>#409</code>'),
+        ev('12:24', 'ok', '验证通过 · 31 passed'),
+        ev('12:26', 'ok', '审查通过'),
+        ev('12:41', 'ok', '已合并到 main · 2 commits')
+      ],
+      diffFiles: [], diffLines: [], review: { verdict: 'approved', summary: '层级与点击区域修正正确。', comments: [] },
+      attention: null, mergedAt: '12:41', mergedCommits: 2
+    },
+    {
+      id: '403', num: 403, title: '会话恢复时附件丢失', lane: 'done', stageIdx: 6,
+      branch: 'agent/issue-403-attachment-restore', worktree: '—',
+      model: 'Opus 4.8', iteration: 3, maxIter: 4, diff: { a: 64, d: 22 }, elapsed: 896,
+      goal: '重启后恢复的历史会话不含附件，附件展示区为空。把附件元数据一起回填。',
+      tests: { status: 'pass', name: 'npm run test:changed', detail: '57 passed · 46s' },
+      commits: [
+        { sha: '5aa9c10', msg: 'fix: 回填附件元数据' },
+        { sha: 'd0f61b3', msg: 'fix: 恢复时保留 attach 顺序' },
+        { sha: 'e7211c8', msg: 'test: 附件恢复快照' }
+      ],
+      events: [
+        ev('10:54', 'claim', '领取任务 <code>#403</code>'),
+        ev('11:43', 'ok', '审查通过'),
+        ev('11:58', 'ok', '已合并到 main · 3 commits')
+      ],
+      diffFiles: [], diffLines: [], review: { verdict: 'approved', summary: '附件恢复顺序与元数据都覆盖到了。', comments: [] },
+      attention: null, mergedAt: '11:58', mergedCommits: 3
+    }
+  ];
+}
+
+const LANES = [
+  { key: 'queued', name: '队列', color: 'var(--queued)' },
+  { key: 'implementing', name: '实现中', color: 'var(--run)' },
+  { key: 'reviewing', name: '审查中', color: 'var(--review)' },
+  { key: 'mergeable', name: '待合并', color: 'var(--merge)' },
+  { key: 'blocked', name: '阻塞', color: 'var(--warn)' },
+  { key: 'done', name: '已完成', color: 'var(--merge)' }
+];
+const SEGMENTS = [
+  { key: 'queued', label: '领取', color: 'var(--queued)' },
+  { key: 'implementing', label: '实现', color: 'var(--run)' },
+  { key: 'reviewing', label: '审查', color: 'var(--review)' },
+  { key: 'mergeable', label: '待合并', color: 'var(--merge)' },
+  { key: 'blocked', label: '阻塞', color: 'var(--warn)' },
+  { key: 'done', label: '完成', color: 'var(--merge)' }
+];
+const STEPS = ['领取', '工作树', '实现', '验证', '审查', '合并'];
+
+function defaultSetup() {
+  return {
+    step: 1,
+    agent: 'claude-code',
+    sandbox: 'worktree',
+    tracker: 'github',
+    label: 'ready-for-agent',
+    commentIssue: true,
+    closeIssue: true,
+    mergeMode: 'local',
+    authMethod: 'token',
+    token: '',
+    tokenVisible: false,
+    tokenStatus: 'idle',
+    tokenError: '',
+    tokenIdentity: '',
+    tokenIssues: 0,
+    tokenLabelCount: 0,
+    ghStatus: 'idle',
+    ghError: '',
+    showGuide: false,
+    dockerStatus: 'stopped',
+    done: false
+  };
+}
+
+let state;
+function freshState() {
+  return {
+    run: { id: 12, status: 'running', paused: false, spend: 3.42, runElapsed: 18 * 60, maxConcurrency: 4 },
+    tasks: seedTasks(),
+    selectedId: '412',
+    inspectorOpen: true,
+    tab: 'events',
+    takeoverId: null,
+    planBusy: false,
+    tickCount: 0,
+    mergeId: null,
+    view: 'board',
+    setupStep: 1,
+    setup: defaultSetup(),
+    prevInspectorOpen: true
+  };
+}
+
+/* ============================================================
+   工具
+   ============================================================ */
+const $ = (sel, root = document) => root.querySelector(sel);
+const icon = (name, cls = '') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const laneOf = (key) => LANES.find(l => l.key === key) || LANES[0];
+const taskById = (id) => state.tasks.find(t => t.id === id);
+const isAttention = (t) => t.lane === 'blocked' || (t.lane === 'reviewing' && t.review && t.review.verdict === 'needs_changes');
+const openComments = (t) => t.review ? t.review.comments.filter(c => c.status === 'open').length : 0;
+
+function laneStatusText(t) {
+  switch (t.lane) {
+    case 'queued': return '排队中';
+    case 'implementing': return `迭代 ${t.iteration}/${t.maxIter}`;
+    case 'reviewing': return `${openComments(t)} 条意见`;
+    case 'mergeable': return '待批准';
+    case 'blocked': return '需处理';
+    case 'done': return t.cancelled ? '已取消' : '已合并';
+  }
+  return '';
+}
+
+/* ============================================================
+   渲染：运行头部
+   ============================================================ */
+function countByLane(key) { return state.tasks.filter(t => t.lane === key).length; }
+
+function renderChrome() {
+  const att = state.tasks.filter(isAttention);
+  const running = countByLane('implementing') + countByLane('reviewing');
+  const statusPill = state.run.status === 'running'
+    ? (state.paused
+        ? `<span class="pill paused"><span class="dot"></span>已暂停</span>`
+        : `<span class="pill running"><span class="dot"></span>运行中</span>`)
+    : `<span class="pill stopped"><span class="dot"></span>已停止</span>`;
+
+  const segs = SEGMENTS.map(s => `
+    <button class="pseg" data-action="focus-lane" data-lane="${s.key}" style="--seg:${s.color}">
+      <i></i><span>${s.label}</span><b>${countByLane(s.key)}</b>
+    </button>`).join('');
+
+  const attHTML = att.length ? `
+    <div class="attention">
+      <span class="a-label">${icon('alert')}需你处理 ${att.length}</span>
+      <div class="a-items">
+        ${att.map(t => `<button class="a-chip" data-action="select" data-id="${t.id}">
+          <span class="mono">#${t.num}</span>
+          <span>${t.lane === 'blocked' ? '合并冲突' : '审查待处理'}</span>
+        </button>`).join('')}
+      </div>
+    </div>` : '';
+
+  $('#run-head').innerHTML = `
+    <div class="rh-row">
+      <div class="rh-title">
+        <h1>流水线</h1>
+        <span class="repo">hjdspace/SpaceCode</span>
+        ${statusPill}
+        <span class="pill">run #${state.run.id}</span>
+      </div>
+      <div class="rh-stats">
+        <span>并发 <b id="stat-running">${running}</b>/<b>${state.run.maxConcurrency}</b></span>
+        <span>花费 <b id="stat-spend">$${state.run.spend.toFixed(2)}</b></span>
+        <span>用时 <b id="stat-elapsed">${Math.floor(state.run.runElapsed / 60)}m</b></span>
+      </div>
+      <div class="rh-actions">
+        <button class="btn sm" data-action="toggle-run">${state.paused || state.run.status !== 'running' ? icon('play') + '继续' : icon('pause') + '暂停'}</button>
+        <button class="btn sm danger" data-action="stop-run">${icon('stop')}停止</button>
+        <button class="btn sm" data-action="config">${icon('sliders')}配置</button>
+        <button class="btn sm primary" data-action="new-run">${icon('plus')}新建运行</button>
+      </div>
+    </div>
+    <div class="pipeline">${segs}</div>
+    ${attHTML}
+  `;
+}
+
+/* ============================================================
+   渲染：看板
+   ============================================================ */
+function cardActions(t) {
+  const id = t.id;
+  if (t.lane === 'queued') return `<button class="btn sm primary" data-action="start-task" data-id="${id}">${icon('play')}立即开始</button><button class="btn sm ghost" data-action="select" data-id="${id}">详情</button>`;
+  if (t.lane === 'implementing') return `<button class="btn sm" data-action="takeover" data-id="${id}">${icon('chat')}接管</button><button class="btn sm ghost" data-action="select" data-id="${id}">详情</button>`;
+  if (t.lane === 'reviewing') return `<button class="btn sm" data-action="select" data-id="${id}">${icon('eye')}审查</button><button class="btn sm ghost" data-action="takeover" data-id="${id}">接管</button>`;
+  if (t.lane === 'mergeable') return `<button class="btn sm primary" data-action="merge" data-id="${id}">${icon('merge')}合并</button><button class="btn sm ghost" data-action="select" data-id="${id}">详情</button>`;
+  if (t.lane === 'blocked') return `<button class="btn sm primary" data-action="fix-agent" data-id="${id}">${icon('sparkles')}让 Agent 修</button><button class="btn sm ghost" data-action="cancel-task" data-id="${id}">放弃</button>`;
+  return `<button class="btn sm ghost" data-action="select" data-id="${id}">${icon('eye')}查看</button>`;
+}
+
+function renderCard(t) {
+  const lane = laneOf(t.lane);
+  const selected = state.selectedId === t.id ? ' selected' : '';
+  const blocked = t.lane === 'blocked' ? ' blocked' : '';
+  const cancelled = t.cancelled ? ' cancelled' : '';
+  const pulse = (t.lane === 'implementing' && !state.paused && state.run.status === 'running') ? ' pulse' : '';
+  const pct = t.maxIter ? Math.min(100, Math.round(t.iteration / t.maxIter * 100)) : 0;
+  const diff = t.diff.a || t.diff.d
+    ? `<span class="diffstat"><b>+${t.diff.a}</b><em>−${t.diff.d}</em></span>`
+    : `<span class="diffstat" style="color:var(--disabled)">—</span>`;
+  const meta = t.lane === 'done'
+    ? `<span class="model">${t.mergedAt ? '合并于 ' + t.mergedAt : '已完成'} · ${t.mergedCommits || t.commits.length} commits</span>`
+    : `<span class="model">${t.model} · <span data-elapsed-id="${t.id}">${fmt(t.elapsed)}</span></span>`;
+  const chipCls = t.lane === 'blocked' ? 'warn' : t.lane === 'reviewing' ? 'review' : t.lane === 'done' ? 'ok' : t.lane === 'implementing' ? 'accent' : '';
+  const alert = t.lane === 'blocked' && t.attention
+    ? `<div class="card-alert">${icon('alert')}<span>${t.attention.reason}</span></div>` : '';
+  const takeover = state.takeoverId === t.id ? `<span class="takeover-badge">${icon('chat')}已接管</span>` : '';
+  const progress = (t.lane === 'implementing' || t.lane === 'reviewing') && !t.cancelled
+    ? `<div class="progress"><i style="width:${t.lane === 'reviewing' ? 100 : pct}%"></i></div>` : '';
+
+  return `
+    <article class="card${selected}${blocked}${cancelled}" data-action="select" data-id="${t.id}" tabindex="0" role="button" aria-label="任务 ${t.num} ${t.title}" style="--lane-color:${lane.color}">
+      ${takeover}
+      <div class="card-top">
+        <span class="cdot${pulse}"></span>
+        <span class="num">#${t.num}</span>
+        <span class="chip ${chipCls}">${laneStatusText(t)}</span>
+        <button class="more" title="更多" data-action="select" data-id="${t.id}">${icon('more')}</button>
+      </div>
+      <h3>${t.title}</h3>
+      <div class="branch">${icon('branch')}<span>${t.branch}</span></div>
+      ${progress}
+      ${alert}
+      <div class="card-foot">
+        ${diff}
+        <span class="spacer"></span>
+        ${meta}
+      </div>
+      <div class="card-actions">${cardActions(t)}</div>
+    </article>`;
+}
+
+function renderBoard() {
+  const board = $('#board');
+  board.innerHTML = LANES.map(lane => {
+    const items = state.tasks.filter(t => t.lane === lane.key);
+    return `
+      <section class="lane" data-lane="${lane.key}" style="--lane-color:${lane.color}">
+        <div class="lane-head"><i></i><span>${lane.name}</span><b>${items.length}</b></div>
+        <div class="lane-cards">
+          ${items.length ? items.map(renderCard).join('') : `<div class="lane-empty">暂无任务</div>`}
+        </div>
+      </section>`;
+  }).join('');
+}
+
+/* ============================================================
+   渲染：检查器
+   ============================================================ */
+function stepState(t, idx) {
+  if (t.lane === 'queued') return 'pending';
+  if (t.lane === 'done') return 'done';
+  if (t.lane === 'blocked' && idx === t.stageIdx) return 'blocked';
+  if (idx < t.stageIdx) return 'done';
+  if (idx === t.stageIdx) return 'active';
+  return 'pending';
+}
+
+function stageRail(t) {
+  return `<div class="railsteps">${STEPS.map((label, idx) => {
+    const st = stepState(t, idx);
+    return `<div class="step ${st}" title="${label}">
+      <span class="sdot">${st === 'done' ? icon('check') : st === 'blocked' ? icon('x') : ''}</span>
+      <span class="slabel">${label}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function timeline(t) {
+  const items = t.events.map(e => `
+    <div class="tl-item ${e.kind}">
+      <span class="tl-dot"></span>
+      <div class="tl-time">${e.time}</div>
+      <div class="tl-text">${e.text}</div>
+    </div>`).join('');
+  const live = (t.lane === 'implementing' && !state.paused && state.run.status === 'running')
+    ? `<div class="tl-item run"><span class="tl-dot"></span><div class="tl-live"><i></i>Agent 正在执行</div></div>` : '';
+  return `<div class="timeline">${items}${live}</div>`;
+}
+
+function overview(t) {
+  const open = openComments(t);
+  return `
+    <div class="section">
+      <h4 class="section-title">任务目标</h4>
+      <div class="goal">${t.goal}</div>
+    </div>
+    <div class="section">
+      <h4 class="section-title">本次运行</h4>
+      <div class="metrics">
+        <div class="metric"><span>提交</span><b>${t.commits.length}</b></div>
+        <div class="metric"><span>变更</span><b>+${t.diff.a} −${t.diff.d}</b></div>
+        <div class="metric"><span>用时</span><b>${t.elapsed ? fmt(t.elapsed) : '—'}</b></div>
+      </div>
+    </div>
+    <div class="section">
+      <h4 class="section-title">阶段产物</h4>
+      <div class="kv"><span>分支</span><b>${t.branch.replace('agent/', '')}</b></div>
+      <div class="kv"><span>工作树</span><b>${t.worktree}</b></div>
+      <div class="kv"><span>引擎</span><b>${t.model}</b></div>
+      <div class="kv"><span>验证</span><b style="color:${t.tests ? (t.tests.status === 'pass' ? 'var(--merge)' : 'var(--danger)') : 'var(--muted)'}">${t.tests ? (t.tests.status === 'pass' ? '通过' : '失败') + ' · ' + t.tests.detail : '待运行'}</b></div>
+      <div class="kv"><span>审查</span><b>${t.review ? (t.review.verdict === 'approved' ? '通过' : open + ' 条待处理') : '待审查'}</b></div>
+    </div>
+    ${t.commits.length ? `<div class="section">
+      <h4 class="section-title">提交</h4>
+      ${t.commits.map(c => `<div class="commit"><code>${c.sha}</code><span>${c.msg}</span></div>`).join('')}
+    </div>` : ''}
+    ${t.review ? `<div class="section">
+      <h4 class="section-title">审查结论</h4>
+      <div class="verdict ${t.review.verdict === 'approved' ? 'ok' : 'needs'}">
+        ${icon(t.review.verdict === 'approved' ? 'check' : 'alert')}
+        <div><b>${t.review.verdict === 'approved' ? '审查通过' : '需要修改'}</b><p>${t.review.summary}</p></div>
+      </div>
+    </div>` : ''}
+  `;
+}
+
+function diffView(t) {
+  if (!t.diffLines.length) return `<div class="empty">${icon('file')}<div>该任务暂无 diff</div></div>`;
+  return `
+    <div class="filelist">
+      ${t.diffFiles.map((f, i) => `<div class="frow${i === 0 ? ' active' : ''}" title="${f.path}">
+        ${icon('file')}<code>${f.path}</code><span class="spacer"></span>
+        <span class="diffstat"><b>+${f.a}</b><em>−${f.d}</em></span>
+      </div>`).join('')}
+    </div>
+    <div class="diffbox">
+      ${t.diffLines.map(l => `<div class="dline ${l.t}"><span class="ln">${l.no}</span><span class="code">${escapeHTML(l.text)}</span></div>`).join('')}
+    </div>`;
+}
+
+function reviewView(t) {
+  if (!t.review) return `<div class="empty">${icon('shield')}<div>该任务尚未进入审查阶段</div></div>`;
+  const verdict = t.review.verdict === 'approved';
+  return `
+    <div class="verdict ${verdict ? 'ok' : 'needs'}">
+      ${icon(verdict ? 'check' : 'alert')}
+      <div><b>${verdict ? '审查通过' : '需要修改'}</b><p>${t.review.summary}</p></div>
+    </div>
+    ${t.review.comments.map((c, i) => `
+      <div class="comment ${c.status !== 'open' ? 'resolved' : ''}">
+        <div class="c-head"><code>${c.file}:${c.line}</code><span class="spacer"></span>
+          <span class="chip ${c.status === 'open' ? 'warn' : 'ok'}">${c.status === 'open' ? '待处理' : c.status === 'accepted' ? '已修复' : '已忽略'}</span>
+        </div>
+        <div class="c-body">${c.body}</div>
+        ${c.status === 'open' ? `<div class="c-actions">
+          <button class="btn sm" data-action="address-comment" data-id="${t.id}" data-comment="${i}">${icon('sparkles')}让 Agent 修</button>
+          <button class="btn sm ghost" data-action="dismiss-comment" data-id="${t.id}" data-comment="${i}">忽略</button>
+        </div>` : ''}
+      </div>`).join('') || `<div class="empty">没有行内意见</div>`}
+  `;
+}
+
+function footerActions(t) {
+  if (t.lane === 'queued') return `<button class="btn primary" data-action="start-task" data-id="${t.id}">${icon('play')}立即开始</button><button class="btn ghost" data-action="cancel-task" data-id="${t.id}">移除</button>`;
+  if (t.lane === 'implementing') return `<button class="btn primary" data-action="takeover" data-id="${t.id}">${icon('chat')}接管会话</button><button class="btn ghost" data-action="open-worktree" data-id="${t.id}">${icon('external')}工作树</button>`;
+  if (t.lane === 'reviewing') return `<button class="btn primary" data-action="fix-agent" data-id="${t.id}">${icon('sparkles')}让 Agent 修</button><button class="btn" data-action="approve-review" data-id="${t.id}">${icon('check')}批准</button>`;
+  if (t.lane === 'mergeable') return `<button class="btn primary" data-action="merge" data-id="${t.id}">${icon('merge')}合并到 main</button><button class="btn ghost" data-action="open-worktree" data-id="${t.id}">${icon('external')}工作树</button>`;
+  if (t.lane === 'blocked') return `<button class="btn primary" data-action="fix-agent" data-id="${t.id}">${icon('sparkles')}让 Agent 修</button><button class="btn ghost" data-action="cancel-task" data-id="${t.id}">放弃</button>`;
+  return `<button class="btn" data-action="open-worktree" data-id="${t.id}">${icon('external')}查看工作树</button>`;
+}
+
+function renderInspector() {
+  const ins = $('#inspector');
+  const t = taskById(state.selectedId);
+  if (!t) {
+    ins.innerHTML = `<div class="ins-empty">${icon('layers')}<p>从看板选择一个任务<br>查看阶段、日志、Diff 与审查意见</p></div>`;
+    return;
+  }
+  const reviewCount = t.review ? t.review.comments.length : 0;
+  const body = state.tab === 'overview' ? overview(t)
+    : state.tab === 'events' ? timeline(t)
+    : state.tab === 'diff' ? diffView(t)
+    : reviewView(t);
+
+  ins.innerHTML = `
+    <div class="ins-head">
+      <div class="ins-top">
+        <span class="num">#${t.num}</span>
+        <span class="chip ${t.lane === 'blocked' ? 'warn' : t.lane === 'reviewing' ? 'review' : t.lane === 'done' ? 'ok' : 'accent'}">${laneStatusText(t)}</span>
+        <span class="spacer"></span>
+        <button class="icon-btn" data-action="close-inspector" title="关闭检查器">${icon('x')}</button>
+      </div>
+      <h2 class="ins-title">${t.title}</h2>
+      <div class="ins-meta">
+        <div class="meta-row">${icon('branch')}<code>${t.branch}</code><button class="copy-btn" data-action="copy" data-copy="${t.branch}" data-label="分支名" title="复制分支名">${icon('copy')}</button></div>
+        <div class="meta-row">${icon('folder')}<code>${t.worktree}</code></div>
+        <div class="meta-row">${icon('cpu')}<code>${t.model}</code><span style="opacity:.6">·</span><span>permissionMode acceptEdits</span></div>
+      </div>
+      ${stageRail(t)}
+      <div class="tabs">
+        <button class="itab ${state.tab === 'overview' ? 'active' : ''}" data-action="tab" data-tab="overview">概览</button>
+        <button class="itab ${state.tab === 'events' ? 'active' : ''}" data-action="tab" data-tab="events">事件流</button>
+        <button class="itab ${state.tab === 'diff' ? 'active' : ''}" data-action="tab" data-tab="diff">Diff <span class="badge">${t.diffFiles.length}</span></button>
+        <button class="itab ${state.tab === 'review' ? 'active' : ''}" data-action="tab" data-tab="review">审查 <span class="badge">${reviewCount}</span></button>
+      </div>
+    </div>
+    <div class="ins-body" id="ins-body">${body}</div>
+    <div class="ins-foot">${footerActions(t)}</div>
+  `;
+  if (state.tab === 'events') {
+    const b = $('#ins-body');
+    b.scrollTop = b.scrollHeight;
+  }
+}
+
+/* ============================================================
+   配置向导
+   ============================================================ */
+const SETUP_STEPS = ['运行引擎', '隔离方式', '任务来源', '预检与确认'];
+
+function renderTabs() {
+  const el = $('#tabstrip');
+  if (!el) return;
+  const inSetup = state.view === 'setup';
+  el.innerHTML = `
+    <button class="ctab ${inSetup ? '' : 'active'}" data-action="show-board">
+      ${icon('layers')}流水线 #${state.run.id}
+      ${inSetup ? '' : `<span class="x">${icon('x')}</span>`}
+    </button>
+    ${inSetup ? `<button class="ctab active" data-action="show-setup">
+      ${icon('sliders')}配置流水线
+      <span class="x" data-action="show-board">${icon('x')}</span>
+    </button>` : ''}
+    <button class="ctab-add" title="新建运行" data-action="new-run">${icon('plus')}</button>`;
+}
+
+function openSetup(step = 1) {
+  state.view = 'setup';
+  state.setupStep = step;
+  state.prevInspectorOpen = state.inspectorOpen;
+  $('#shell').classList.add('inspector-closed');
+  refreshAll();
+}
+
+function showBoardView() {
+  state.view = 'board';
+  if (state.prevInspectorOpen !== false) $('#shell').classList.remove('inspector-closed');
+  refreshAll();
+}
+
+function setupOption(opts) {
+  const { action, value, title, desc, status = '', statusKind = '', selected = false, disabled = false } = opts;
+  return `<div class="opt-card ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}"
+    ${disabled ? '' : `data-action="${action}" data-value="${value}" role="button" tabindex="0"`}>
+    <span class="opt-radio"></span>
+    <span class="opt-body">
+      <span class="opt-title">${title}</span>
+      <span class="opt-desc">${desc}</span>
+      ${status ? `<span class="opt-status ${statusKind}">${status}</span>` : ''}
+    </span>
+  </div>`;
+}
+
+function setupStepper() {
+  return `<div class="stepper">${SETUP_STEPS.map((label, i) => {
+    const n = i + 1;
+    const cls = n < state.setupStep ? 'done' : n === state.setupStep ? 'active' : '';
+    return `<button class="sstep ${cls}" data-action="setup-step" data-step="${n}">
+      <span class="snum">${n < state.setupStep ? icon('check') : n}</span><span>${label}</span>
+    </button>${i < SETUP_STEPS.length - 1 ? '<span class="sline"></span>' : ''}`;
+  }).join('')}</div>`;
+}
+
+function setupStepOne() {
+  const s = state.setup;
+  return `<div class="panel">
+    <div class="panel-head"><div><h2>选择运行引擎</h2>
+      <p>Agent 用哪个 CLI 与模型执行实现和审查。模型访问复用桌面配置，不写入项目目录。</p></div></div>
+    <div class="opt-grid">
+      ${setupOption({
+        action: 'set-agent', value: 'claude-code',
+        title: 'Claude Code <span class="chip ok">默认</span>',
+        desc: 'Opus 4.8 · acceptEdits · 复用桌面模型与代理',
+        status: `${icon('check')}桌面引擎已连接`,
+        statusKind: 'ok', selected: s.agent === 'claude-code'
+      })}
+      ${setupOption({
+        action: 'set-agent', value: 'pi',
+        title: 'Pi Engine',
+        desc: '独立引擎 · 模型与凭据由 Pi 配置决定',
+        status: `${icon('alert')}${s.agent === 'pi' ? '尚未配置，完成后可去设置' : '未配置'}`,
+        statusKind: 'warn', selected: s.agent === 'pi'
+      })}
+    </div>
+    <div class="advanced-row">${icon('cpu')}Codex / Cursor / OpenCode / Copilot：注册表已预留，当前版本不暴露</div>
+    <div class="hint-box">${icon('shield')}<span>模型 Key 只从桌面设置读取；向导不会要求重新粘贴模型密钥。</span></div>
+  </div>`;
+}
+
+function setupStepTwo() {
+  const s = state.setup;
+  const dockerStatus = s.dockerStatus === 'running'
+    ? `<span class="opt-status ok">${icon('check')}Docker Desktop 已运行</span>`
+    : s.dockerStatus === 'checking'
+      ? `<span class="opt-status">${icon('refresh')}正在检测…</span>`
+      : `<span class="opt-status err">${icon('alert')}未检测到 Docker Desktop</span>`;
+  return `<div class="panel">
+    <div class="panel-head"><div><h2>选择隔离方式</h2>
+      <p>决定 Agent 在哪里改代码。容器更隔离，但需要额外解决容器内的模型凭据与代理连通。</p></div></div>
+    <div class="opt-grid">
+      ${setupOption({
+        action: 'set-sandbox', value: 'worktree',
+        title: '本地 worktree <span class="chip ok">推荐</span>',
+        desc: '独立分支 + 独立目录；合并前不动主分支；无网络隔离',
+        status: `${icon('check')}git 2.40 · 目录可写`, statusKind: 'ok',
+        selected: s.sandbox === 'worktree'
+      })}
+      ${setupOption({
+        action: 'set-sandbox', value: 'docker', title: 'Docker',
+        desc: '容器内运行引擎；需要容器内凭据与 host.docker.internal 可达',
+        status: dockerStatus + (s.dockerStatus !== 'running' ? ` <button class="link-btn" data-action="retry-docker">重新检测</button>` : ''),
+        statusKind: s.dockerStatus === 'running' ? 'ok' : 'err',
+        selected: s.sandbox === 'docker'
+      })}
+      ${setupOption({
+        action: 'set-sandbox', value: 'podman', title: 'Podman',
+        desc: 'rootless 容器；与 Docker 一样需要容器内引擎配置',
+        status: `${icon('alert')}未安装`, statusKind: 'err',
+        selected: false, disabled: true
+      })}
+    </div>
+    ${s.sandbox === 'docker' ? `<div class="guide-note">容器内运行意味着 engineGateway 的代理与凭据链路要单独打通；P0 建议先用 worktree。</div>` : ''}
+    <div class="hint-box">${icon('folder')}<span>worktree 位于 <code>.spacecode/worktrees/&lt;task&gt;</code>；停止或失败时保留，合并成功后再清理。</span></div>
+  </div>`;
+}
+
+function setupReuseRow() {
+  return `<div class="reuse-row">
+    <div><b>模型访问 · 复用桌面配置</b><span>anthropic · Opus 4.8 · 127.0.0.1:34567</span></div>
+    <span class="spacer"></span>
+    <button class="btn sm ghost" data-action="open-model-settings">查看设置</button>
+  </div>`;
+}
+
+function setupGithubPanel() {
+  const s = state.setup;
+  const tokenStatusText = s.tokenStatus === 'ok' ? '已验证' : s.tokenStatus === 'error' ? '验证失败' : s.tokenStatus === 'testing' ? '测试中…' : '未验证';
+  const ghStatusText = s.ghStatus === 'error' ? '未登录' : s.ghStatus === 'checking' ? '检测中…' : '未验证';
+  const statusText = s.authMethod === 'token' ? tokenStatusText : ghStatusText;
+  const statusKind = s.authMethod === 'token'
+    ? (s.tokenStatus === 'ok' ? 'ok' : s.tokenStatus === 'error' ? 'warn' : '')
+    : (s.ghStatus === 'error' ? 'warn' : '');
+
+  let authBody = '';
+  if (s.authMethod === 'token') {
+    authBody = `
+      <div class="token-row">
+        <input id="gh-token" type="${s.tokenVisible ? 'text' : 'password'}" placeholder="github_pat_… 或 ghp_…" autocomplete="off" spellcheck="false">
+        <button class="btn sm" data-action="toggle-token">${s.tokenVisible ? '隐藏' : '显示'}</button>
+        <button class="btn sm primary" data-action="test-token">${s.tokenStatus === 'testing' ? icon('refresh') + '测试中' : icon('zap') + '测试连接'}</button>
+      </div>
+      <div class="mini-links">
+        <button class="link-btn" data-action="demo-token">填入示例 Token（演示）</button>
+        <span>仅保存在本机系统凭据库</span>
+      </div>
+      ${s.tokenStatus === 'ok' ? `<div class="test-result ok">
+        <div class="tr-title">${icon('check')}连接成功</div>
+        <div class="tr-rows">
+          <span>身份</span><b>@hjdspace</b>
+          <span>仓库</span><b>hjdspace/SpaceCode · private</b>
+          <span>Issues</span><b>${s.tokenIssues || 12} open · ${s.label} ${s.tokenLabelCount || 3}</b>
+        </div>
+        <p>写权限无法在测试中验证，首次评论/关闭时确认。</p>
+      </div>` : ''}
+      ${s.tokenStatus === 'error' ? `<div class="test-result err">
+        <div class="tr-title">${icon('alert')}连接失败</div>
+        <div>${s.tokenError}</div>
+        <p>401 检查 token 是否过期；403 检查组织 SSO；404 检查 Repository access 是否包含此仓库。</p>
+      </div>` : ''}
+      ${s.tokenStatus === 'testing' ? `<div class="test-result testing"><div class="tr-title">${icon('refresh')}正在验证 token…</div></div>` : ''}
+    `;
+  } else {
+    authBody = `
+      <div class="token-row" style="align-items:center">
+        <div class="readonly" style="flex:1"><code>gh auth login</code><span>在终端执行</span></div>
+        <button class="btn sm ghost" data-action="copy" data-copy="gh auth login" data-label="命令">${icon('copy')}复制</button>
+        <button class="btn sm primary" data-action="check-gh">${s.ghStatus === 'checking' ? icon('refresh') + '检测中' : icon('zap') + '检测 gh 登录'}</button>
+      </div>
+      ${s.ghStatus === 'error' ? `<div class="test-result err"><div class="tr-title">${icon('alert')}未登录</div><div>${s.ghError}</div><p>也可以切回 Personal access token。</p></div>` : ''}
+      ${s.ghStatus === 'ok' ? `<div class="test-result ok"><div class="tr-title">${icon('check')}gh 已登录</div><div>将复用 gh CLI 的账号与 token。</div></div>` : ''}
+    `;
+  }
+
+  return `<div class="panel">
+    <div class="panel-head"><div><h2>GitHub 连接</h2><p>token 只由主进程使用：读取 issue、回写评论、关闭 issue，不传给 Agent。</p></div>
+      <span class="spacer"></span><span class="chip ${statusKind}">${statusText}</span></div>
+    <div class="seg">
+      <button class="seg-btn ${s.authMethod === 'token' ? 'active' : ''}" data-action="auth-method" data-value="token">Personal access token</button>
+      <button class="seg-btn ${s.authMethod === 'gh' ? 'active' : ''}" data-action="auth-method" data-value="gh">使用 gh CLI</button>
+    </div>
+    <div class="cred-box">${authBody}</div>
+    <div class="guide">
+      <button class="guide-head ${s.showGuide ? 'open' : ''}" data-action="toggle-guide">${icon('arrow-right')}如何获取 GITHUB_TOKEN<span class="spacer"></span><span>${s.showGuide ? '收起' : '展开'}</span></button>
+      ${s.showGuide ? `<div class="guide-body">
+        <ol>
+          <li>打开 <code>github.com/settings/personal-access-tokens/new</code></li>
+          <li>Resource owner 选个人或组织；Repository access → Only select repositories → <code>hjdspace/SpaceCode</code></li>
+          <li>按下表勾选权限，Expiration 建议 90 天</li>
+          <li>Generate 后 token 只显示一次，立即复制</li>
+          <li>粘贴到上方 → 点“测试连接”</li>
+        </ol>
+        <div class="perm-grid">
+          <b>Metadata</b><span>Read</span><span>必需</span>
+          <b>Issues</b><span>Read / Write</span><span>领取、评论、关闭</span>
+          <b>Contents</b><span>Read / Write</span><span>推送分支（PR 模式）</span>
+          <b>Pull requests</b><span>Read / Write</span><span>创建 PR / 回复审查</span>
+        </div>
+        <div class="guide-note">组织仓库若提示 SSO，需在 token 页面 Authorize 后再测试。也可以直接用上方“使用 gh CLI”复用本机登录。</div>
+      </div>` : ''}
+    </div>
+    ${setupReuseRow()}
+  </div>`;
+}
+
+function setupStepThree() {
+  const s = state.setup;
+  const trackerPanel = `<div class="panel">
+    <div class="panel-head"><div><h2>任务来源</h2>
+      <p>决定 Agent 从哪里领取任务。GitHub Issues 需要额外配置只读/读写权限的 token。</p></div></div>
+    <div class="opt-grid" style="grid-template-columns:repeat(3,1fr)">
+      ${setupOption({
+        action: 'set-tracker', value: 'github', title: 'GitHub Issues',
+        desc: '按标签领取 issue，完成后评论/关闭',
+        status: `${icon('check')}已识别 origin`, statusKind: 'ok',
+        selected: s.tracker === 'github'
+      })}
+      ${setupOption({
+        action: 'set-tracker', value: 'local', title: '本地 backlog',
+        desc: '任务存在项目内，不依赖外部服务',
+        status: `${icon('check')}无需凭据`, statusKind: 'ok',
+        selected: s.tracker === 'local'
+      })}
+      ${setupOption({
+        action: 'set-tracker', value: 'custom', title: '自定义 / Beads',
+        desc: '自定义命令接入，后续版本支持',
+        status: `${icon('alert')}暂不可用`, statusKind: 'warn',
+        selected: false, disabled: true
+      })}
+    </div>
+  </div>`;
+
+  if (s.tracker === 'local') {
+    return trackerPanel + `<div class="panel">
+      <div class="panel-head"><div><h2>本地 backlog</h2><p>任务写入 <code>.spacecode/factory/backlog.json</code>，可在看板里手工添加与排序。</p></div></div>
+      <div class="write-info">
+        <div class="kv"><span>存储位置</span><b>.spacecode/factory/backlog.json</b></div>
+        <div class="kv"><span>凭据</span><b>不需要</b></div>
+        <div class="kv"><span>领取方式</span><b>看板手动开始</b></div>
+      </div>
+      ${setupReuseRow()}
+    </div>`;
+  }
+
+  return trackerPanel + `<div class="panel">
+    <div class="panel-head"><div><h2>仓库与领取规则</h2><p>仓库从 git remote 自动识别，可在配置文件中覆盖。</p></div></div>
+    <div class="field-grid">
+      <div class="field"><label>仓库</label><div class="readonly"><code>hjdspace/SpaceCode</code><span>来自 origin</span></div></div>
+      <div class="field"><label>领取标签</label>
+        <select id="setup-label">
+          ${['ready-for-agent', 'Sandcastle', 'agent:implement'].map(v => `<option ${s.label === v ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="field" style="margin-top:10px"><label>合并方式</label>
+      <div class="radio-row">
+        <label class="radio-pill"><input type="radio" name="setup-merge" value="local" ${s.mergeMode === 'local' ? 'checked' : ''}>本地合并到 main</label>
+        <label class="radio-pill"><input type="radio" name="setup-merge" value="pr" ${s.mergeMode === 'pr' ? 'checked' : ''}>创建 PR（需要 Contents / PR 权限）</label>
+      </div>
+    </div>
+    <div class="switch-row" style="margin-top:10px">
+      <label class="mini-check"><input type="checkbox" id="setup-comment" ${s.commentIssue ? 'checked' : ''}>完成后评论 issue</label>
+      <label class="mini-check"><input type="checkbox" id="setup-close" ${s.closeIssue ? 'checked' : ''}>完成后关闭 issue</label>
+    </div>
+  </div>` + setupGithubPanel();
+}
+
+function preflightItems() {
+  const s = state.setup;
+  const items = [];
+  items.push({ kind: 'ok', label: 'Git 仓库 · 工作区干净' });
+  items.push(s.agent === 'claude-code'
+    ? { kind: 'ok', label: '引擎 Claude Code 已连接' }
+    : { kind: 'warn', label: 'Pi 引擎未配置', link: { label: '去配置', action: 'setup-step', step: 1 } });
+  if (s.sandbox === 'worktree') {
+    items.push({ kind: 'ok', label: 'worktree 目录可写' });
+  } else if (s.sandbox === 'docker') {
+    items.push(s.dockerStatus === 'running'
+      ? { kind: 'warn', label: 'Docker 已运行 · 容器内模型凭据需单独配置', link: { label: '查看说明', action: 'setup-step', step: 2 } }
+      : { kind: 'err', label: 'Docker Desktop 未运行', link: { label: '重新检测', action: 'retry-docker' } });
+  } else {
+    items.push({ kind: 'err', label: 'Podman 未安装', link: { label: '返回选择', action: 'setup-step', step: 2 } });
+  }
+  if (s.tracker === 'github') {
+    if (s.authMethod === 'gh') {
+      items.push(s.ghStatus === 'ok'
+        ? { kind: 'ok', label: 'gh CLI 已登录' }
+        : { kind: 'err', label: 'gh CLI 未登录', link: { label: '回到第 3 步', action: 'setup-step', step: 3 } });
+    } else {
+      items.push(s.tokenStatus === 'ok'
+        ? { kind: 'ok', label: 'GitHub 身份 @hjdspace' }
+        : { kind: 'err', label: 'GitHub 凭据未验证', link: { label: '回到第 3 步', action: 'setup-step', step: 3 } });
+    }
+    items.push({ kind: 'ok', label: `领取标签 ${s.label}` });
+  } else {
+    items.push({ kind: 'ok', label: '本地 backlog · 无需凭据' });
+  }
+  items.push({ kind: 'ok', label: '验证命令 npm run test:changed' });
+  return items;
+}
+
+function setupStepFour() {
+  const s = state.setup;
+  const items = preflightItems();
+  const blocking = items.some(i => i.kind === 'err');
+  const agentLabel = s.agent === 'claude-code' ? 'Claude Code' : 'Pi Engine';
+  const sandboxLabel = s.sandbox === 'worktree' ? '本地 worktree' : s.sandbox === 'docker' ? 'Docker' : 'Podman';
+  const trackerLabel = s.tracker === 'github' ? 'GitHub Issues' : '本地 backlog';
+  return `<div class="panel">
+    <div class="panel-head"><div><h2>配置摘要</h2><p>以下选择会写入项目配置；密钥不会出现在项目目录。</p></div></div>
+    <div class="summary-row">
+      <span class="sum-item">${icon('cpu')}${agentLabel}</span>
+      <span class="sum-item">${icon('folder')}${sandboxLabel}</span>
+      <span class="sum-item">${icon('inbox')}${trackerLabel}</span>
+      ${s.tracker === 'github' ? `<span class="sum-item">${icon('branch')}${s.label}</span>` : ''}
+      <span class="sum-item">${icon('merge')}${s.mergeMode === 'pr' ? '创建 PR' : '本地合并'}</span>
+    </div>
+    <div class="pf-list">
+      ${items.map(i => `<div class="pf-item ${i.kind}">
+        <span class="pf-ico">${icon(i.kind === 'err' ? 'x' : i.kind === 'warn' ? 'alert' : 'check')}</span>
+        <span>${i.label}</span><span class="spacer"></span>
+        ${i.link ? `<button class="link-btn" data-action="${i.link.action}" ${i.link.step ? `data-step="${i.link.step}"` : ''}>${i.link.label}</button>` : ''}
+      </div>`).join('')}
+    </div>
+    ${blocking ? `<div class="block-note">${icon('alert')}还有未通过的项，完成后才能开跑。可回上一步修复，或改用本地 backlog。</div>` : ''}
+  </div>
+  <div class="panel">
+    <div class="panel-head"><div><h2>将写入</h2><p>项目配置可提交；token 只存本机凭据库，不进日志。</p></div></div>
+    <div class="write-info">
+      <div class="kv"><span>配置文件</span><b>.spacecode/factory/config.json</b></div>
+      <div class="kv"><span>GITHUB_TOKEN</span><b>${s.tracker === 'github' ? '系统凭据库 · DPAPI / Keychain' : '不需要'}</b></div>
+      <div class="kv"><span>模型 API</span><b>复用桌面配置 · 不落项目目录</b></div>
+    </div>
+  </div>`;
+}
+
+function setupDoneView() {
+  const s = state.setup;
+  return `<div class="setup-done">
+    <div class="done-icon">${icon('check')}</div>
+    <h1>流水线已就绪</h1>
+    <p>配置已保存到项目；凭据加密保存在本机。每次开跑前仍会重新预检。</p>
+    <div class="summary-row" style="justify-content:center">
+      <span class="sum-item">${icon('cpu')}${s.agent === 'claude-code' ? 'Claude Code' : 'Pi Engine'}</span>
+      <span class="sum-item">${icon('folder')}${s.sandbox === 'worktree' ? '本地 worktree' : s.sandbox === 'docker' ? 'Docker' : 'Podman'}</span>
+      <span class="sum-item">${icon('inbox')}${s.tracker === 'github' ? 'GitHub Issues' : '本地 backlog'}</span>
+    </div>
+    <div class="done-facts">
+      <div class="kv"><span>配置文件</span><b>.spacecode/factory/config.json</b></div>
+      <div class="kv"><span>GitHub Token</span><b>${s.tracker === 'github' ? '系统凭据库 · 加密保存' : '未使用'}</b></div>
+      <div class="kv"><span>模型 API</span><b>复用桌面配置</b></div>
+    </div>
+    <div class="done-actions">
+      <button class="btn primary" data-action="done-plan">${icon('sparkles')}生成第一个计划</button>
+      <button class="btn" data-action="show-board">查看看板</button>
+    </div>
+  </div>`;
+}
+
+function renderSetup() {
+  const el = $('#setup-view');
+  if (!el) return;
+  const s = state.setup;
+  if (s.done) {
+    el.innerHTML = setupDoneView();
+    return;
+  }
+  const blocking = state.setupStep === 4 && preflightItems().some(i => i.kind === 'err');
+  el.innerHTML = `<div class="setup-wrap">
+    <div class="wizard-head">
+      <div><h1>配置流水线</h1><p>初始化一次即可复用；之后可在运行头部「配置」里重新进入。</p></div>
+      <span class="repo">hjdspace/SpaceCode</span>
+    </div>
+    ${setupStepper()}
+    ${state.setupStep === 1 ? setupStepOne()
+      : state.setupStep === 2 ? setupStepTwo()
+      : state.setupStep === 3 ? setupStepThree()
+      : setupStepFour()}
+    <div class="setup-foot">
+      <span class="step-label">第 ${state.setupStep} / 4 步</span>
+      <span class="spacer"></span>
+      ${state.setupStep > 1 ? `<button class="btn" data-action="setup-prev">上一步</button>` : ''}
+      ${state.setupStep < 4
+        ? `<button class="btn primary" data-action="setup-next">下一步${icon('arrow-right')}</button>`
+        : `<button class="btn primary" data-action="setup-complete" ${blocking ? 'disabled' : ''}>${icon('check')}完成配置</button>`}
+    </div>
+  </div>`;
+  const input = $('#gh-token');
+  if (input) input.value = s.token;
+}
+
+function testToken() {
+  const s = state.setup;
+  if (!s.token.trim()) {
+    s.tokenStatus = 'error';
+    s.tokenError = '请先粘贴 token';
+    renderSetup();
+    return;
+  }
+  s.tokenStatus = 'testing';
+  s.tokenError = '';
+  renderSetup();
+  setTimeout(() => {
+    if (/^(github_pat_|ghp_)/.test(s.token.trim())) {
+      s.tokenStatus = 'ok';
+      s.tokenIdentity = '@hjdspace';
+      s.tokenIssues = 12;
+      s.tokenLabelCount = 3;
+      toast('GitHub 连接成功', 'success');
+    } else {
+      s.tokenStatus = 'error';
+      s.tokenError = '401 Bad credentials · token 无效或已过期';
+    }
+    renderSetup();
+  }, 800);
+}
+
+function checkGh() {
+  const s = state.setup;
+  s.ghStatus = 'checking';
+  renderSetup();
+  setTimeout(() => {
+    s.ghStatus = 'error';
+    s.ghError = 'gh 未登录。先在终端运行 gh auth login，或改用 Personal access token。';
+    renderSetup();
+  }, 700);
+}
+
+function completeSetup() {
+  const blocking = preflightItems().some(i => i.kind === 'err');
+  if (blocking) {
+    toast('还有预检项未通过', 'warn');
+    return;
+  }
+  state.setup.done = true;
+  renderSetup();
+  toast('流水线配置已保存', 'success');
+}
+
+function refreshAll() {
+  renderTabs();
+  renderChrome();
+  renderBoard();
+  renderInspector();
+  const center = document.querySelector('.center');
+  if (center) center.classList.toggle('setup-mode', state.view === 'setup');
+  if (state.view === 'setup') renderSetup();
+}
+
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+/* ============================================================
+   交互
+   ============================================================ */
+function selectTask(id, tab) {
+  state.selectedId = id;
+  state.inspectorOpen = true;
+  if (tab) state.tab = tab;
+  $('#shell').classList.remove('inspector-closed');
+  renderBoard();
+  renderInspector();
+}
+
+function toast(msg, kind = 'default') {
+  const root = $('#toast-root');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = icon(kind === 'success' ? 'check' : kind === 'warn' ? 'alert' : 'zap') + `<span>${msg}</span>`;
+  root.appendChild(el);
+  setTimeout(() => el.classList.add('out'), 2600);
+  setTimeout(() => el.remove(), 3100);
+}
+
+function addEvent(t, kind, text) {
+  t.events.push(ev(clock(), kind, text));
+  if (t.events.length > 40) t.events.shift();
+}
+
+function moveTask(t, lane, stageIdx) {
+  t.lane = lane;
+  t.stageIdx = stageIdx;
+}
+
+function focusLane(key) {
+  const el = $(`.lane[data-lane="${key}"]`);
+  if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+  const seg = $(`.pseg[data-lane="${key}"]`);
+  if (seg) { seg.classList.remove('flash'); void seg.offsetWidth; seg.classList.add('flash'); }
+}
+
+/* ----- modals ----- */
+function openModal(html, cls = '') {
+  $('#overlay-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"></div><div class="modal ${cls}" role="dialog" aria-modal="true">${html}</div>`;
+}
+function closeModal() { $('#overlay-root').innerHTML = ''; }
+
+function openNewRun() {
+  openModal(`
+    <div class="m-head">
+      <div>
+        <h2>新建运行</h2>
+        <p>Planner 会先读取 backlog 与仓库状态，产出一份可编辑的任务计划。</p>
+      </div>
+      <span class="spacer"></span>
+      <button class="icon-btn" data-action="close-modal">${icon('x')}</button>
+    </div>
+    <div class="m-body">
+      <label class="plan-item">
+        <input type="checkbox" checked value="418" class="plan-check">
+        <span class="pi-main">
+          <span class="pi-title">#418 深色主题下代码块对比度不足 <span class="chip accent">可并行</span></span>
+          <span class="pi-meta">agent/issue-418-codeblock-contrast · 预计 4 个文件</span>
+        </span>
+      </label>
+      <label class="plan-item">
+        <input type="checkbox" checked value="420" class="plan-check">
+        <span class="pi-main">
+          <span class="pi-title">#420 会话搜索无结果时缺少空态 <span class="chip accent">可并行</span></span>
+          <span class="pi-meta">agent/issue-420-search-empty-state · 预计 2 个文件</span>
+        </span>
+      </label>
+      <div class="plan-note">${icon('alert')}<span>#410 仍有合并冲突，本轮跳过；#416 仍在队列中，将沿用当前运行。</span></div>
+      <div class="plan-row">
+        <span>并发上限</span>
+        <select id="plan-concurrency"><option>2</option><option selected>4</option><option>6</option></select>
+        <span style="margin-left:8px">验证命令</span>
+        <code style="font-size:10.5px;color:var(--text-2)">npm run test:changed</code>
+      </div>
+    </div>
+    <div class="m-foot">
+      <span style="font-size:11px;color:var(--muted)" id="plan-count">已选择 2 个任务</span>
+      <span class="spacer"></span>
+      <button class="btn" data-action="close-modal">取消</button>
+      <button class="btn primary" data-action="plan-start">${icon('play')}开始运行</button>
+    </div>`, '');
+}
+
+function startPlan() {
+  const checked = [...document.querySelectorAll('.plan-check:checked')].map(i => i.value);
+  ensurePlanTasks(checked);
+  closeModal();
+  refreshAll();
+  focusLane('queued');
+  toast(`已加入队列：${checked.length} 个任务`, 'success');
+}
+
+function ensurePlanTasks(ids) {
+  const defs = {
+    '418': {
+      id: '418', num: 418, title: '深色主题下代码块对比度不足', lane: 'queued', stageIdx: -1,
+      branch: 'agent/issue-418-codeblock-contrast', worktree: '—', model: 'Opus 4.8',
+      iteration: 0, maxIter: 5, diff: { a: 0, d: 0 }, elapsed: 0,
+      goal: '深色主题下代码块背景与正文对比度不足，长时间阅读疲劳。调整 token 并补充视觉回归。',
+      tests: null, commits: [], events: [ev(clock(), 'claim', '加入队列 · 等待空闲并发槽位')],
+      diffFiles: [], diffLines: [], review: null, attention: null
+    },
+    '420': {
+      id: '420', num: 420, title: '会话搜索无结果时缺少空态', lane: 'queued', stageIdx: -1,
+      branch: 'agent/issue-420-search-empty-state', worktree: '—', model: 'Sonnet 4.6',
+      iteration: 0, maxIter: 4, diff: { a: 0, d: 0 }, elapsed: 0,
+      goal: '搜索无命中时列表直接空白，用户不知道是没结果还是仍在加载。补空态与重试入口。',
+      tests: null, commits: [], events: [ev(clock(), 'claim', '加入队列 · 等待空闲并发槽位')],
+      diffFiles: [], diffLines: [], review: null, attention: null
+    }
+  };
+  ids.forEach(id => {
+    if (!taskById(id) && defs[id]) state.tasks.push(defs[id]);
+  });
+}
+
+function openConfig() {
+  openModal(`
+    <div class="m-head">
+      <div><h2>流水线配置</h2><p>固定阶段，只开放开关与阶段参数；不做通用 DAG 编辑器。</p></div>
+      <span class="spacer"></span>
+      <button class="icon-btn" data-action="close-modal">${icon('x')}</button>
+    </div>
+    <div class="m-body">
+      <table class="cfg">
+        <thead><tr><th style="width:34px">启用</th><th>阶段</th><th>Agent / 模型</th><th>权限模式</th><th>人工闸门</th></tr></thead>
+        <tbody>
+          <tr><td><span class="switch on" data-action="noop"></span></td><td><b>规划</b><div style="font-size:9.5px;color:var(--muted)">输出 &lt;plan&gt; JSON</div></td><td><select><option>Opus 4.8</option><option>Sonnet 4.6</option></select></td><td><select><option>plan（只读）</option></select></td><td>—</td></tr>
+          <tr><td><span class="switch on" data-action="noop"></span></td><td><b>实现</b><div style="font-size:9.5px;color:var(--muted)">迭代上限 5</div></td><td><select><option>Opus 4.8</option><option>Sonnet 4.6</option></select></td><td><select><option>acceptEdits</option><option>default</option></select></td><td>—</td></tr>
+          <tr><td><span class="switch on" data-action="noop"></span></td><td><b>验证</b><div style="font-size:9.5px;color:var(--muted)">主进程执行命令</div></td><td><select><option>不使用 Agent</option></select></td><td>—</td><td>—</td></tr>
+          <tr><td><span class="switch on" data-action="noop"></span></td><td><b>审查</b><div style="font-size:9.5px;color:var(--muted)">结构化意见</div></td><td><select><option>Opus 4.8</option><option>Sonnet 4.6</option></select></td><td><select><option>acceptEdits</option></select></td><td>—</td></tr>
+          <tr><td><span class="switch on" data-action="noop"></span></td><td><b>合并</b><div style="font-size:9.5px;color:var(--muted)">禁止 force push</div></td><td><select><option>不使用 Agent</option><option>Opus 4.8（解冲突）</option></select></td><td><select><option>acceptEdits</option></select></td><td><span class="chip warn">必须批准</span></td></tr>
+        </tbody>
+      </table>
+      <div class="plan-note" style="margin-top:12px">${icon('alert')}<span>桌面端第一阶段没有容器隔离：Agent 运行在 git worktree 内，权限模式为 acceptEdits，并禁止 push。Docker 沙箱作为后续扩展点。</span></div>
+    </div>
+    <div class="m-foot"><button class="btn ghost" data-action="restart-setup">${icon('refresh')}重新初始化</button><span class="spacer"></span><button class="btn" data-action="close-modal">取消</button><button class="btn primary" data-action="save-config">${icon('check')}保存配置</button></div>
+  `);
+}
+
+function openMerge(id) {
+  const t = taskById(id);
+  if (!t) return;
+  state.mergeId = id;
+  const conflicts = t.lane === 'blocked';
+  openModal(`
+    <div class="m-head">
+      <div><h2>合并 #${t.num}</h2><p>${t.title}</p></div>
+      <span class="spacer"></span>
+      <button class="icon-btn" data-action="close-modal">${icon('x')}</button>
+    </div>
+    <div class="m-body">
+      <div class="merge-preview">
+        <div class="mp-row"><span>分支</span><b>${t.branch}</b></div>
+        <div class="mp-row"><span>目标</span><b>main</b></div>
+        <div class="mp-row"><span>提交</span><b>${t.commits.length} commits</b></div>
+        <div class="mp-row"><span>变更</span><b><span style="color:var(--merge)">+${t.diff.a}</span> <span style="color:var(--danger)">−${t.diff.d}</span></b></div>
+        <div class="mp-row"><span>验证</span><b class="ok">${t.tests ? t.tests.detail : '未运行'}</b></div>
+        <div class="mp-row"><span>审查</span><b class="ok">${t.review && t.review.verdict === 'approved' ? '通过' : '未通过'}</b></div>
+        <div class="mp-row"><span>冲突预检</span><b class="${conflicts ? '' : 'ok'}" style="${conflicts ? 'color:var(--warn)' : ''}">${conflicts ? '存在冲突' : '无冲突'}</b></div>
+      </div>
+      <div class="radios">
+        <label class="radio"><input type="radio" name="mergemode" checked><span>Merge commit</span><small>保留分支历史，推荐</small></label>
+        <label class="radio"><input type="radio" name="mergemode"><span>Squash</span><small>压成单个提交</small></label>
+        <label class="radio"><input type="radio" name="mergemode"><span>Rebase</span><small>线性历史</small></label>
+      </div>
+      <label class="checkline"><input type="checkbox" id="merge-ack"> 我已审查 diff，并确认合并到 <b style="margin-left:3px">main</b></label>
+      <div class="plan-note">${icon('alert')}<span>合并前会再跑一次 <code>npm run test:changed</code>；失败则中止并保留 worktree。</span></div>
+    </div>
+    <div class="m-foot">
+      <span class="spacer"></span>
+      <button class="btn" data-action="close-modal">取消</button>
+      <button class="btn primary" id="merge-confirm" data-action="confirm-merge" disabled>${icon('merge')}确认合并</button>
+    </div>
+  `);
+}
+
+function confirmMerge() {
+  const t = taskById(state.mergeId);
+  if (!t) return;
+  moveTask(t, 'done', 6);
+  t.mergedAt = clock();
+  t.mergedCommits = t.commits.length || 1;
+  t.attention = null;
+  addEvent(t, 'ok', `已合并到 main · ${t.mergedCommits} commits`);
+  state.mergeId = null;
+  closeModal();
+  refreshAll();
+  toast(`#${t.num} 已合并到 main · ${t.mergedCommits} commits`, 'success');
+}
+
+function openStop() {
+  openModal(`
+    <div class="m-head"><div><h2>停止本次运行？</h2><p>运行中的任务会转为阻塞并保留 worktree，已完成的提交不会回滚。</p></div></div>
+    <div class="m-body">
+      <div class="plan-note">${icon('alert')}<span>停止后可在任务详情里从阶段重试；分支与工作树不会被删除。</span></div>
+    </div>
+    <div class="m-foot"><span class="spacer"></span><button class="btn" data-action="close-modal">取消</button><button class="btn danger" data-action="confirm-stop">${icon('stop')}停止运行</button></div>
+  `);
+}
+
+function confirmStop() {
+  state.run.status = 'stopped';
+  state.paused = true;
+  state.tasks.filter(t => t.lane === 'implementing').forEach(t => {
+    moveTask(t, 'blocked', t.stageIdx);
+    t.attention = { reason: '运行已停止，工作树已保留', action: 'fix' };
+    addEvent(t, 'warn', '运行被手动停止');
+  });
+  closeModal();
+  refreshAll();
+  toast('运行已停止，worktree 已保留', 'warn');
+}
+
+function openTakeover(id) {
+  const t = taskById(id);
+  if (!t) return;
+  state.takeoverId = id;
+  renderBoard();
+  openModal(`
+    <div class="takeover-head">
+      <span class="chip accent">已接管</span>
+      <div class="th-title">
+        <h2>#${t.num} ${t.title}</h2>
+        <p>${t.branch} · ${t.worktree}</p>
+      </div>
+      <span class="spacer"></span>
+      <span class="chip warn">后台 Agent 已暂停</span>
+      <button class="icon-btn" data-action="close-modal">${icon('x')}</button>
+    </div>
+    <div class="chat-scroll" id="chat-scroll">
+      <div class="sys-note">你已接管此任务。回复会继续使用同一引擎会话与工作树。</div>
+      <div class="msg user"><div class="avatar">你</div><div class="bubble">先别动 auth store，确认刷新时 session 到底从哪读的。</div></div>
+      <div class="msg agent"><div class="avatar">AI</div><div class="bubble">已定位：<code>sessionRestore</code> 在附件恢复完成前就写了 <code>engineSessionId</code>，刷新后读到的是空会话。当前迭代 2/5 正在补回归测试。</div></div>
+      <div class="msg user"><div class="avatar">你</div><div class="bubble">顺便看一下 <code>tests/sessionRestore.test.ts</code> 有没有覆盖 leveldb 时序。</div></div>
+      <div class="msg agent"><div class="avatar">AI</div><div class="bubble">已有 2 个用例，但都假设附件先于 session 恢复。我会补一个反序用例，然后重新跑 <code>test:changed</code>。</div></div>
+    </div>
+    <form class="chat-input" id="takeover-form">
+      <textarea id="takeover-input" placeholder="继续追问，或直接让它改代码…"></textarea>
+      <button class="btn primary" type="submit" style="height:34px">${icon('send')}发送</button>
+    </form>
+    <div class="m-foot" style="border-top:0;padding-top:0">
+      <span style="font-size:10.5px;color:var(--muted)">接管期间后台不推进该任务；交回后从当前阶段继续。</span>
+      <span class="spacer"></span>
+      <button class="btn" data-action="return-flow" data-id="${id}">${icon('arrow-left')}交回流水线</button>
+    </div>`, 'chat');
+  setTimeout(() => $('#takeover-input') && $('#takeover-input').focus(), 30);
+}
+
+function returnFlow(id) {
+  state.takeoverId = null;
+  closeModal();
+  renderBoard();
+  renderInspector();
+  toast('已交回流水线，后台从当前阶段继续', 'success');
+}
+
+function openWorktree(id) {
+  const t = taskById(id);
+  if (!t) return;
+  toast(`打开 ${t.worktree}（原型不启动终端）`);
+}
+
+/* ----- actions ----- */
+document.addEventListener('click', (e) => {
+  const hit = e.target.closest('[data-action]');
+  if (!hit) return;
+  const action = hit.dataset.action;
+  const id = hit.dataset.id;
+
+  switch (action) {
+    case 'select':
+      if (id) selectTask(id);
+      break;
+    case 'close-inspector':
+      state.inspectorOpen = false;
+      $('#shell').classList.add('inspector-closed');
+      break;
+    case 'tab':
+      state.tab = hit.dataset.tab;
+      renderInspector();
+      break;
+    case 'toggle-run':
+      if (state.run.status === 'stopped') { toast('运行已停止，请新建运行', 'warn'); break; }
+      state.paused = !state.paused;
+      renderChrome(); renderBoard(); renderInspector();
+      toast(state.paused ? '运行已暂停，当前迭代会跑完' : '运行已恢复', state.paused ? 'warn' : 'success');
+      break;
+    case 'stop-run':
+      openStop();
+      break;
+    case 'confirm-stop':
+      confirmStop();
+      break;
+    case 'config':
+      openConfig();
+      break;
+    case 'save-config':
+      closeModal();
+      toast('流水线配置已保存', 'success');
+      break;
+    case 'new-run':
+      openNewRun();
+      break;
+    case 'plan-start':
+      startPlan();
+      break;
+    case 'focus-lane':
+      focusLane(hit.dataset.lane);
+      break;
+    case 'start-task': {
+      const t = taskById(id);
+      if (!t) break;
+      moveTask(t, 'implementing', 2);
+      t.iteration = 1;
+      t.worktree = `.spacecode/worktrees/${t.num}`;
+      addEvent(t, 'run', '引擎启动 · 实现 迭代 1/5');
+      refreshAll();
+      toast(`#${t.num} 已开始实现`, 'success');
+      break;
+    }
+    case 'merge':
+      openMerge(id);
+      break;
+    case 'confirm-merge':
+      confirmMerge();
+      break;
+    case 'fix-agent': {
+      const t = taskById(id);
+      if (!t) break;
+      moveTask(t, 'implementing', 2);
+      t.iteration = 1;
+      t.attention = null;
+      if (t.review) t.review.verdict = 'needs_changes';
+      addEvent(t, 'run', '已把修改意见交回 Agent，进入迭代 1/5');
+      refreshAll();
+      toast(`已把意见交回 #${t.num}，worktree 保留`, 'success');
+      break;
+    }
+    case 'approve-review': {
+      const t = taskById(id);
+      if (!t) break;
+      if (t.review && t.review.comments.some(c => c.status === 'open')) {
+        toast('仍有未处理的审查意见', 'warn');
+        break;
+      }
+      moveTask(t, 'mergeable', 5);
+      if (t.review) t.review.verdict = 'approved';
+      t.attention = null;
+      addEvent(t, 'ok', '审查通过 · 进入合并队列');
+      refreshAll();
+      toast(`#${t.num} 审查通过，已进入合并队列`, 'success');
+      break;
+    }
+    case 'takeover':
+      openTakeover(id);
+      break;
+    case 'return-flow':
+      returnFlow(id);
+      break;
+    case 'open-worktree':
+      openWorktree(id);
+      break;
+    case 'cancel-task': {
+      const t = taskById(id);
+      if (!t) break;
+      moveTask(t, 'done', 6);
+      t.cancelled = true;
+      t.attention = null;
+      addEvent(t, 'warn', '任务被放弃');
+      refreshAll();
+      toast(`已放弃 #${t.num}，worktree 保留在磁盘`, 'warn');
+      break;
+    }
+    case 'address-comment':
+    case 'dismiss-comment': {
+      const t = taskById(id);
+      if (!t) break;
+      const c = t.review.comments[Number(hit.dataset.comment)];
+      c.status = action === 'address-comment' ? 'accepted' : 'dismissed';
+      addEvent(t, 'ok', action === 'address-comment' ? '审查意见已标记为待修复' : '审查意见已忽略');
+      renderInspector();
+      refreshChrome();
+      toast(action === 'address-comment' ? '已加入修复清单' : '已忽略该意见');
+      break;
+    }
+    case 'copy':
+      try { navigator.clipboard.writeText(hit.dataset.copy); } catch (_) {}
+      toast('已复制' + (hit.dataset.label ? ' ' + hit.dataset.label : ''));
+      break;
+    case 'show-board':
+      showBoardView();
+      break;
+    case 'show-setup':
+      openSetup(state.setupStep);
+      break;
+    case 'restart-setup':
+      closeModal();
+      state.setup.done = false;
+      openSetup(1);
+      break;
+    case 'setup-step':
+      state.setupStep = Number(hit.dataset.step) || 1;
+      renderSetup();
+      break;
+    case 'setup-next':
+      state.setupStep = Math.min(4, state.setupStep + 1);
+      renderSetup();
+      break;
+    case 'setup-prev':
+      state.setupStep = Math.max(1, state.setupStep - 1);
+      renderSetup();
+      break;
+    case 'setup-complete':
+      completeSetup();
+      break;
+    case 'set-agent':
+      state.setup.agent = hit.dataset.value;
+      renderSetup();
+      break;
+    case 'set-sandbox':
+      state.setup.sandbox = hit.dataset.value;
+      renderSetup();
+      break;
+    case 'set-tracker':
+      state.setup.tracker = hit.dataset.value;
+      renderSetup();
+      break;
+    case 'auth-method':
+      state.setup.authMethod = hit.dataset.value;
+      renderSetup();
+      break;
+    case 'toggle-token':
+      state.setup.tokenVisible = !state.setup.tokenVisible;
+      renderSetup();
+      break;
+    case 'toggle-guide':
+      state.setup.showGuide = !state.setup.showGuide;
+      renderSetup();
+      break;
+    case 'test-token':
+      testToken();
+      break;
+    case 'demo-token':
+      state.setup.token = 'github_pat_11AA7DEMOonlyForPrototype';
+      state.setup.tokenStatus = 'idle';
+      state.setup.tokenVisible = false;
+      renderSetup();
+      toast('已填入示例 Token，点“测试连接”验证');
+      break;
+    case 'check-gh':
+      checkGh();
+      break;
+    case 'retry-docker':
+      state.setup.sandbox = 'docker';
+      state.setup.dockerStatus = 'checking';
+      renderSetup();
+      setTimeout(() => {
+        state.setup.dockerStatus = 'running';
+        renderSetup();
+        toast('已检测到 Docker Desktop', 'success');
+      }, 800);
+      break;
+    case 'open-model-settings':
+      toast('打开设置 → 模型配置（原型不跳转）');
+      break;
+    case 'done-plan':
+      showBoardView();
+      setTimeout(openNewRun, 200);
+      break;
+    case 'close-modal':
+      if (state.takeoverId) state.takeoverId = null;
+      closeModal();
+      renderBoard();
+      break;
+    case 'demo-step':
+      demoStep();
+      break;
+    case 'reset':
+      state = freshState();
+      $('#shell').classList.remove('inspector-closed');
+      refreshAll();
+      syncThemeButton();
+      toast('已重置演示数据');
+      break;
+    case 'theme':
+      toggleTheme();
+      break;
+    case 'noop':
+      if (hit.classList.contains('switch')) hit.classList.toggle('on');
+      break;
+    default:
+      break;
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if ($('#overlay-root').innerHTML) {
+      if (state.takeoverId) { state.takeoverId = null; renderBoard(); }
+      closeModal();
+    } else if (state.inspectorOpen) {
+      state.inspectorOpen = false;
+      $('#shell').classList.add('inspector-closed');
+    }
+  }
+});
+
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'merge-ack') {
+    const btn = $('#merge-confirm');
+    if (btn) btn.disabled = !e.target.checked;
+  }
+  if (e.target.classList.contains('plan-check')) {
+    const n = document.querySelectorAll('.plan-check:checked').length;
+    const el = $('#plan-count');
+    if (el) el.textContent = `已选择 ${n} 个任务`;
+  }
+  if (e.target.id === 'setup-label') state.setup.label = e.target.value;
+  if (e.target.id === 'setup-comment') state.setup.commentIssue = e.target.checked;
+  if (e.target.id === 'setup-close') state.setup.closeIssue = e.target.checked;
+  if (e.target.name === 'setup-merge') state.setup.mergeMode = e.target.value;
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'gh-token') {
+    state.setup.token = e.target.value;
+    if (state.setup.tokenStatus !== 'idle') state.setup.tokenStatus = 'idle';
+  }
+});
+
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'takeover-form') return;
+  e.preventDefault();
+  const input = $('#takeover-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const scroll = $('#chat-scroll');
+  const user = document.createElement('div');
+  user.className = 'msg user';
+  user.innerHTML = `<div class="avatar">你</div><div class="bubble">${escapeHTML(text)}</div>`;
+  scroll.appendChild(user);
+  input.value = '';
+  scroll.scrollTop = scroll.scrollHeight;
+  setTimeout(() => {
+    const reply = document.createElement('div');
+    reply.className = 'msg agent';
+    reply.innerHTML = `<div class="avatar">AI</div><div class="bubble">收到。我会先核对 <code>sessionRestore</code> 的读取顺序，再跑一遍 <code>test:changed</code>；结果同步到任务事件流。</div>`;
+    scroll.appendChild(reply);
+    scroll.scrollTop = scroll.scrollHeight;
+  }, 700);
+});
+
+/* ============================================================
+   演示推进 / 计时
+   ============================================================ */
+function demoStep() {
+  const t = state.tasks.find(x => x.lane === 'implementing' && x.id !== state.takeoverId);
+  if (!t) { toast('当前没有实现中的任务', 'warn'); return; }
+  if (t.iteration < t.maxIter) {
+    t.iteration += 1;
+    t.elapsed += 35;
+    addEvent(t, 'run', `实现 迭代 ${t.iteration}/${t.maxIter} · 继续修改`);
+    if (t.iteration >= 3) addEvent(t, 'ok', '编辑 <code>src/stores/turn/index.ts</code> (+6 −2)');
+  } else {
+    moveTask(t, 'reviewing', 4);
+    t.tests = { status: 'pass', name: 'npm run test:changed', detail: '51 passed · 44s' };
+    t.review = {
+      verdict: 'needs_changes',
+      summary: '实现可读性不错，但边界条件还缺一个用例，另有一处命名需要调整。',
+      comments: [
+        { file: 'src/stores/turn/index.ts', line: 214, body: 'abort 分支需要补一个恢复后不重复发送的用例。', status: 'open' },
+        { file: 'src/stores/chatSession.ts', line: 871, body: '变量名 session 与 store 同名，容易误读。', status: 'open' }
+      ]
+    };
+    t.attention = { reason: '审查要求修改', action: 'fix' };
+    addEvent(t, 'run', '实现完成，进入审查阶段');
+    addEvent(t, 'run', '审查 产出 2 条行内意见');
+  }
+  refreshAll();
+}
+
+let tick = 0;
+setInterval(() => {
+  if (state.run.status !== 'running' || state.paused) return;
+  tick += 1;
+  state.tickCount += 1;
+  state.run.runElapsed += 5;
+  if (tick % 4 === 0) state.run.spend = +(state.run.spend + 0.03).toFixed(2);
+
+  let changed = false;
+  state.tasks.filter(t => t.lane === 'implementing' && t.id !== state.takeoverId).forEach(t => {
+    t.elapsed += 5;
+    changed = true;
+    if (tick % 3 === 0) {
+      addEvent(t, 'run', ['读取 <code>docs/adr/0011-tests-must-cross-the-seam.md</code>', '编辑 <code>src/stores/turn/index.ts</code> (+6 −2)', '运行 <code>npm run test:changed</code>'][tick % 3]);
+    }
+  });
+  if (!changed) return;
+
+  const spend = $('#stat-spend');
+  if (spend) spend.textContent = `$${state.run.spend.toFixed(2)}`;
+  const el = $('#stat-elapsed');
+  if (el) el.textContent = `${Math.floor(state.run.runElapsed / 60)}m`;
+  document.querySelectorAll('[data-elapsed-id]').forEach(node => {
+    const t = taskById(node.dataset.elapsedId);
+    if (t) node.textContent = fmt(t.elapsed);
+  });
+  if (state.tab === 'events') renderInspector();
+}, 5000);
+
+/* ============================================================
+   主题
+   ============================================================ */
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  root.dataset.theme = next;
+  syncThemeButton();
+}
+function syncThemeButton() {
+  const btn = $('#theme-btn');
+  if (!btn) return;
+  const dark = document.documentElement.dataset.theme === 'dark';
+  btn.innerHTML = icon(dark ? 'sun' : 'moon') + `<span>${dark ? '浅色' : '深色'}</span>`;
+}
+
+/* ============================================================
+   启动
+   ============================================================ */
+const params = new URLSearchParams(location.search);
+if (params.get('theme') === 'dark') {
+  document.documentElement.dataset.theme = 'dark';
+}
+state = freshState();
+refreshAll();
+syncThemeButton();
+const demo = params.get('demo');
+if (demo === 'merge') setTimeout(() => openMerge('405'), 30);
+if (demo === 'takeover') setTimeout(() => openTakeover('412'), 30);
+if (demo === 'plan') setTimeout(openNewRun, 30);
+if (demo === 'config') setTimeout(openConfig, 30);
+if (demo === 'setup') setTimeout(() => openSetup(1), 30);
+if (demo === 'setup2') setTimeout(() => openSetup(2), 30);
+if (demo === 'setup3') setTimeout(() => { state.setup.showGuide = true; openSetup(3); }, 30);
+if (demo === 'setup3-ok') setTimeout(() => {
+  state.setup.token = 'github_pat_demo';
+  state.setup.tokenStatus = 'ok';
+  state.setup.tokenIdentity = '@hjdspace';
+  state.setup.tokenIssues = 12;
+  state.setup.tokenLabelCount = 3;
+  openSetup(3);
+}, 30);
+if (demo === 'setup4') setTimeout(() => {
+  state.setup.token = 'github_pat_demo';
+  state.setup.tokenStatus = 'ok';
+  state.setup.tokenIdentity = '@hjdspace';
+  state.setup.tokenIssues = 12;
+  state.setup.tokenLabelCount = 3;
+  openSetup(4);
+}, 30);
+if (demo === 'setup-done') setTimeout(() => {
+  state.setup.tokenStatus = 'ok';
+  state.setup.done = true;
+  openSetup(4);
+}, 30);
+</script>
+</body>
+</html>
