@@ -219,6 +219,18 @@ function parseWriteback(raw: unknown): FactoryTaskWriteback | undefined {
   }
 }
 
+function parsePullRequest(raw: unknown): FactoryTask['pullRequest'] {
+  if (!isRecord(raw)) return undefined
+  if (typeof raw.number !== 'number' || !Number.isFinite(raw.number)) return undefined
+  if (typeof raw.url !== 'string' || !raw.url) return undefined
+  return {
+    number: raw.number,
+    url: raw.url,
+    ...(raw.reused === true ? { reused: true } : {}),
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+  }
+}
+
 function parseTask(raw: unknown): FactoryTask | null {
   if (!isRecord(raw)) return null
   if (typeof raw.id !== 'string' || !raw.id) return null
@@ -289,6 +301,7 @@ function parseTask(raw: unknown): FactoryTask | null {
       : {}),
     ...(typeof raw.targetBranch === 'string' && raw.targetBranch ? { targetBranch: raw.targetBranch } : {}),
     ...(parseWriteback(raw.writeback) ? { writeback: parseWriteback(raw.writeback) } : {}),
+    ...(parsePullRequest(raw.pullRequest) ? { pullRequest: parsePullRequest(raw.pullRequest) } : {}),
     ...(parseTests(raw.tests) ? { tests: parseTests(raw.tests) } : {}),
     ...(parseReview(raw.review) ? { review: parseReview(raw.review) } : {}),
     ...(isRecord(raw.attention) && typeof raw.attention.reason === 'string'

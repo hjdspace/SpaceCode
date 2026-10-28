@@ -108,6 +108,14 @@
               <span>{{ t('factory.inspector.worktree') }}</span>
               <b>{{ task.worktree || t('factory.inspector.worktreePending') }}</b>
             </div>
+            <div v-if="task.pullRequest" class="kv" data-inspector-pr>
+              <span>{{ t('factory.pr.titleShort') }}</span>
+              <b>
+                <a :href="task.pullRequest.url" target="_blank" rel="noopener">
+                  #{{ task.pullRequest.number }}
+                </a>
+              </b>
+            </div>
             <div class="kv">
               <span>{{ t('factory.inspector.engine') }}</span>
               <b>{{ task.model || t('factory.modelUnknown') }}</b>

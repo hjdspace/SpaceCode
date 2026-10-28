@@ -98,7 +98,7 @@
 
           <p v-if="preflight.detail" class="detail" data-merge-detail>{{ preflight.detail }}</p>
 
-          <div class="radios">
+          <div v-if="deliveryMode === 'local'" class="radios">
             <label
               v-for="item in MERGE_MODES"
               :key="item.mode"
@@ -129,12 +129,12 @@
               data-merge-confirm-checkbox
               @change="emit('update:confirmed', ($event.target as HTMLInputElement).checked)"
             />
-            <span>{{ t('factory.merge.ack', { target }) }}</span>
+            <span>{{ deliveryMode === 'pr' ? t('factory.merge.ackPr', { target }) : t('factory.merge.ack', { target }) }}</span>
           </label>
 
           <p class="note" data-merge-note>
             <AlertTriangle :size="13" />
-            <span>{{ t('factory.merge.verifyNote') }}</span>
+            <span>{{ deliveryMode === 'pr' ? t('factory.merge.prNote') : t('factory.merge.verifyNote') }}</span>
           </p>
         </template>
       </div>
@@ -150,7 +150,15 @@
             {{ t('factory.cancel') }}
           </button>
           <button class="primary-btn" data-merge-confirm :disabled="!canConfirm" @click="emit('confirm')">
-            {{ merging ? t('factory.merge.merging') : t('factory.merge.confirm') }}
+            {{
+              merging
+                ? deliveryMode === 'pr'
+                  ? t('factory.merge.prCreating')
+                  : t('factory.merge.merging')
+                : deliveryMode === 'pr'
+                  ? t('factory.merge.prConfirm')
+                  : t('factory.merge.confirm')
+            }}
           </button>
         </div>
       </footer>
@@ -176,6 +184,7 @@ const props = withDefaults(
     confirmed: boolean
     merging: boolean
     canConfirm: boolean
+    deliveryMode?: 'local' | 'pr'
   }>(),
   {
     task: null,
@@ -187,6 +196,7 @@ const props = withDefaults(
     confirmed: false,
     merging: false,
     canConfirm: false,
+    deliveryMode: 'local',
   },
 )
 

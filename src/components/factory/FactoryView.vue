@@ -163,6 +163,7 @@
       :error="store.mergeError"
       :mode="store.mergeMode"
       :confirmed="store.mergeConfirmed"
+      :delivery-mode="deliveryMode"
       :merging="store.merging"
       :can-confirm="store.canConfirmMerge"
       @close="store.closeMerge()"
@@ -189,6 +190,7 @@
       @update:concurrency="store.setConfigConcurrency"
       @update:verify="store.setConfigVerifyCommand"
       @update:gate-confirm="store.setConfigGateConfirm"
+      @update:merge-mode="store.setConfigMergeMode"
     />
 
     <FactorySetupWizard v-if="store.wizardOpen && root" :root="root" />
@@ -224,6 +226,9 @@ const claimedIds = computed(() => {
 })
 
 const isGithubTracker = computed(() => store.config?.tracker.type === 'github-issues')
+const deliveryMode = computed<'local' | 'pr'>(() =>
+  store.config?.tracker.type === 'github-issues' ? store.config.tracker.mergeMode : 'local',
+)
 const usage = computed(() => runUsage(store.tasks))
 
 async function loadBoard(value: string): Promise<void> {

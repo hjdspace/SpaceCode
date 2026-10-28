@@ -177,6 +177,7 @@ export interface FactoryPreflightItem {
     | 'engine'
     | 'modelProfile'
     | 'trackerAuth'
+    | 'trackerPush'
     | 'trackerLabel'
     | 'verifyCommand'
     | 'sandbox'
@@ -200,6 +201,8 @@ export interface FactoryGithubAuthResult {
   login?: string
   repo?: string
   private?: boolean
+  /** 凭据是否具备仓库写权限（PR 模式预检用）。 */
+  canPush?: boolean
   issueCount?: number
   labelCount?: number
 }
@@ -486,6 +489,19 @@ export type FactoryReturnResult =
   | { ok: true; snapshot: FactoryRunSnapshot; verified: boolean }
   | { ok: false; error: FactoryTaskActionError | 'not-takeover'; detail?: string }
 
+/** PR 模式交付结果：复用已有 PR 时 `reused` 为 true。 */
+export interface FactoryPullRequest {
+  number: number
+  url: string
+  reused?: boolean
+  createdAt: string
+}
+
+/** PR 模式预检：凭据与仓库写权限是否满足推送/建 PR。 */
+export type FactoryPrReadyResult =
+  | { ok: true }
+  | { ok: false; reason: FactoryGithubFailureReason }
+
 /** 任务投影。渲染层只读，所有迁移由主进程写入。 */
 export interface FactoryTask {
   id: string
@@ -526,6 +542,8 @@ export interface FactoryTask {
   targetBranch?: string
   /** 合并后回写 GitHub 的结果；失败时任务仍保持完成，等待重试。 */
   writeback?: FactoryTaskWriteback
+  /** PR 模式交付成功后记录的 PR 编号与链接；不轮询合并状态。 */
+  pullRequest?: FactoryPullRequest
   timestamps: {
     claimedAt?: string
     startedAt?: string
@@ -685,6 +703,8 @@ export type FactoryMergeBlocker =
   | 'conflict'
   | 'verify-failed'
   | 'git-error'
+  | 'pr-auth'
+  | 'pr-remote'
 
 /** 合并弹窗的预检投影：事实字段 + 致命项，不修改任务状态。 */
 export interface FactoryMergePreflight {
@@ -732,6 +752,10 @@ export type FactoryMergeError =
   | 'no-worktree'
   | 'git-error'
   | 'merge-failed'
+  | 'push-failed'
+  | 'pr-create-failed'
+  | 'pr-auth'
+  | 'pr-remote'
   | 'write-failed'
   | 'run-locked'
 
@@ -742,6 +766,8 @@ export type FactoryMergeResult =
       mergedCommits: number
       targetBranch: string
       cleanup: 'removed' | 'kept'
+      /** PR 模式交付成功时返回，本地合并为 undefined。 */
+      pullRequest?: FactoryPullRequest
     }
   | {
       ok: false

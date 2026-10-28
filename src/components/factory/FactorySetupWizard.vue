@@ -181,14 +181,20 @@
             <div class="field">
               <span>{{ t('factory.mergeModeLabel') }}</span>
               <div class="segmented">
-                <button :class="{ active: (tracker.mergeMode ?? 'local') === 'local' }">
+                <button
+                  :class="{ active: (tracker.mergeMode ?? 'local') === 'local' }"
+                  @click="patchTracker({ mergeMode: 'local' })"
+                >
                   {{ t('factory.mergeLocal') }}
                 </button>
-                <button disabled>
+                <button
+                  :class="{ active: (tracker.mergeMode ?? 'local') === 'pr' }"
+                  @click="patchTracker({ mergeMode: 'pr' })"
+                >
                   {{ t('factory.mergePr') }}
-                  <span class="badge">{{ t('factory.comingSoon') }}</span>
                 </button>
               </div>
+              <p class="hint">{{ t('factory.mergeModeHint') }}</p>
             </div>
 
             <label class="checkbox-row">
@@ -388,6 +394,7 @@ const itemLabelSuffix: Record<FactoryPreflightItem['id'], string> = {
   engine: 'Engine',
   modelProfile: 'ModelProfile',
   trackerAuth: 'TrackerAuth',
+  trackerPush: 'TrackerPush',
   trackerLabel: 'TrackerLabel',
   verifyCommand: 'VerifyCommand',
   sandbox: 'Sandbox',

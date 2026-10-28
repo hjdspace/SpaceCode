@@ -114,6 +114,31 @@
           </tbody>
         </table>
 
+        <div v-if="props.config.tracker.type === 'github-issues'" class="global-row">
+          <span class="field">
+            <span>{{ t('factory.mergeModeLabel') }}</span>
+            <span class="segmented">
+              <button
+                :class="{ active: props.config.tracker.mergeMode === 'local' }"
+                :disabled="saving"
+                data-config-merge-local
+                @click="emit('update:mergeMode', 'local')"
+              >
+                {{ t('factory.mergeLocal') }}
+              </button>
+              <button
+                :class="{ active: props.config.tracker.mergeMode === 'pr' }"
+                :disabled="saving"
+                data-config-merge-pr
+                @click="emit('update:mergeMode', 'pr')"
+              >
+                {{ t('factory.mergePr') }}
+              </button>
+            </span>
+          </span>
+          <span class="muted">{{ t('factory.mergeModeHint') }}</span>
+        </div>
+
         <div class="global-row">
           <label class="field">
             <span>{{ t('factory.config.concurrency') }}</span>
@@ -230,6 +255,7 @@ const emit = defineEmits<{
   'update:concurrency': [value: number]
   'update:verify': [value: string]
   'update:gateConfirm': [value: boolean]
+  'update:mergeMode': [mode: 'local' | 'pr']
 }>()
 
 const { t } = useI18n()
@@ -488,6 +514,32 @@ select {
     input {
       width: 100%;
       box-sizing: border-box;
+    }
+  }
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+
+  button {
+    padding: 5px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+
+    &.active {
+      background: var(--surface-glass);
+      color: var(--text-primary);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
     }
   }
 }

@@ -23,6 +23,7 @@ import {
   type FactoryMergePreflight,
   type FactoryMergePreflightResult,
   type FactoryMergeResult,
+  type FactoryPrReadyResult,
   type FactoryReview,
   type FactoryRunSnapshot,
   type FactoryTask,
@@ -40,6 +41,8 @@ import {
 } from './worktree'
 import { runVerification, type VerifyInput, type VerifyResult } from './verify'
 import { openEventLog, type FactoryEventInput } from './events'
+import { executePullRequestDelivery } from './prMode'
+import type { GhRunner } from './githubClient'
 
 const DETAIL_MAX = 500
 /** 工厂自己的目录不算用户脏改动（与启动校验保持一致）。 */
@@ -62,6 +65,10 @@ export interface MergeDeps {
   emit?: (input: FactoryEventInput) => void
   /** 06 接入 GitHub 评论/关闭的可替换回写钩子。 */
   writeBack?: (payload: MergeWriteBackPayload) => void | Promise<void>
+  /** PR 模式：gh CLI runner（测试注入假 gh）。 */
+  gh?: GhRunner
+  /** PR 模式：凭据/仓库写权限是否可推送建 PR。 */
+  checkPrReady?: (repoRoot: string) => Promise<FactoryPrReadyResult>
   timeoutMs?: number
 }
 
@@ -250,6 +257,27 @@ async function computePreflight(
 
   if (commits <= 0 && !blockers.includes('git-error')) blockers.push('no-commits')
 
+  // PR 模式：远端必须存在，且当前凭据具备推送/建 PR 的写权限。
+  const prMode = config.tracker.type === 'github-issues' && config.tracker.mergeMode === 'pr'
+  if (prMode) {
+    const remotes = await git(['remote'], repoRoot)
+    const names = remotes.ok
+      ? remotes.stdout
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : []
+    if (names.length === 0) blockers.push('pr-remote')
+    if (deps.checkPrReady) {
+      try {
+        const ready = await deps.checkPrReady(repoRoot)
+        if (!ready.ok) blockers.push(ready.reason === 'repo-not-found' ? 'pr-remote' : 'pr-auth')
+      } catch {
+        blockers.push('pr-auth')
+      }
+    }
+  }
+
   const head = await git(['symbolic-ref', '--short', 'HEAD'], repoRoot)
   if (head.ok && head.stdout.trim() === targetBranch) {
     const status = await git(['status', '--porcelain'], repoRoot)
@@ -322,6 +350,8 @@ export async function runMergePreflight(
 
 function blockerToError(blockers: FactoryMergeBlocker[]): FactoryMergeError {
   if (blockers.includes('conflict')) return 'conflict'
+  if (blockers.includes('pr-auth')) return 'pr-auth'
+  if (blockers.includes('pr-remote')) return 'pr-remote'
   if (blockers.includes('base-advanced')) return 'base-advanced'
   if (blockers.includes('verify-failed')) return 'verify-failed'
   if (blockers.includes('workspace-dirty')) return 'workspace-dirty'
@@ -432,9 +462,13 @@ async function blockTask(
               ? 'merge.worktree.missing'
               : error === 'git-error'
                 ? 'merge.git.error'
-                : error === 'not-eligible'
-                  ? 'merge.not.eligible'
-                  : 'merge.failed'
+                : error === 'pr-auth'
+                  ? 'merge.pr.auth'
+                  : error === 'pr-remote'
+                    ? 'merge.pr.remote'
+                    : error === 'not-eligible'
+                      ? 'merge.not.eligible'
+                      : 'merge.failed'
       state.emit({ taskId, stage: 'merge', code, level: 'error' })
     }
   }
@@ -486,6 +520,23 @@ export async function executeMerge(
   const task = readRunSnapshot(repoRoot, runId)?.tasks.find((item) => item.id === taskId) ?? null
   if (!task) return { ok: false, error: 'task-not-found' }
   if (task.lane !== 'mergeable') return { ok: false, error: 'not-eligible', preflight }
+
+  // PR 模式：只推任务分支并建 PR，本地不做任何合并。
+  const config = readFactoryConfig(repoRoot)
+  if (config?.tracker.type === 'github-issues' && config.tracker.mergeMode === 'pr') {
+    return executePullRequestDelivery({
+      repoRoot,
+      runId,
+      taskId,
+      task,
+      targetBranch: preflight.targetBranch,
+      commits: preflight.commits,
+      tests: preflight.verify ?? task.tests,
+      review: preflight.review ?? task.review,
+      preflight,
+      deps: { git, gh: deps.gh, now, emit },
+    })
+  }
 
   const worktreeAbsolute = worktreeAbsolutePath(repoRoot, taskId)
   const branchTipBefore = (await git(['rev-parse', `refs/heads/${task.branch}`], repoRoot)).stdout.trim()

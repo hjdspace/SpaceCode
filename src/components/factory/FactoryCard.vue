@@ -29,6 +29,19 @@
       <span>{{ task.worktree }}</span>
     </div>
 
+    <a
+      v-if="task.pullRequest"
+      class="card-branch card-pr"
+      :href="task.pullRequest.url"
+      target="_blank"
+      rel="noopener"
+      data-card-pr
+      @click.stop
+    >
+      <GitPullRequest :size="12" />
+      <span>#{{ task.pullRequest.number }} · {{ t('factory.pr.open') }}</span>
+    </a>
+
     <div class="card-progress" data-card-progress>
       <i :style="{ width: `${percent}%` }" />
     </div>
@@ -56,7 +69,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Folder, GitBranch } from 'lucide-vue-next'
+import { AlertTriangle, Folder, GitBranch, GitPullRequest } from 'lucide-vue-next'
 import type { FactoryTask } from '@/shared/factory'
 import {
   canReturnTask,
@@ -168,6 +181,15 @@ const attentionText = computed(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+.card-pr {
+  color: var(--accent-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
   }
 }
 

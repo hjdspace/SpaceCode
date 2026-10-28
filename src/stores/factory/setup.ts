@@ -53,7 +53,7 @@ export function draftFromConfig(config: FactoryConfig): FactorySetupDraft {
             repo: config.tracker.repo,
             label: config.tracker.label,
             auth: config.tracker.auth,
-            mergeMode: 'local',
+            mergeMode: config.tracker.mergeMode,
             commentIssue: config.tracker.commentIssue,
             closeIssue: config.tracker.closeIssue,
           }

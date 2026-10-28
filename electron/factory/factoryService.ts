@@ -19,6 +19,7 @@ import type {
   FactoryEngineType,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
+  FactoryPrReadyResult,
   FactoryRepoInfo,
   FactorySaveResult,
   FactorySecretSaveResult,
@@ -42,7 +43,7 @@ import {
   writePromptSkeletons,
 } from './init'
 import { runFactoryPreflight } from './preflight'
-import { checkGhAuth as defaultCheckGhAuth, verifyGithubToken } from './github'
+import { checkGhAuth as defaultCheckGhAuth, checkGhWriteAccess, verifyGithubToken } from './github'
 import { createFactorySecretStore, type FactorySecretStore } from './secrets'
 import {
   createBacklogItem,
@@ -111,6 +112,8 @@ export interface FactoryServiceDeps {
   /** 可选：完整的 Docker 沙箱预检；缺省时只检查 docker 是否可用。 */
   dockerPreflight?(root: string, imageName: string): Promise<FactoryDockerPreflight>
   checkGhAuth(): Promise<FactoryGithubAuthResult>
+  /** PR 模式：gh 凭据对目标仓库的写权限；缺省时预检按未知处理。 */
+  checkGhRepoWrite?(repo: string): Promise<FactoryPrReadyResult>
   verifyToken(token: string, repo: string): Promise<FactoryGithubAuthResult>
   verifyScriptMissing(root: string, command: string): boolean
   secrets: FactorySecretStore
@@ -171,7 +174,14 @@ async function resolveGithubAuth(
   deps: FactoryServiceDeps,
 ): Promise<FactoryGithubAuthResult | null> {
   if (config.tracker.type === 'local') return null
-  if (config.tracker.auth === 'gh') return deps.checkGhAuth()
+  if (config.tracker.auth === 'gh') {
+    const auth = await deps.checkGhAuth()
+    if (auth.ok && config.tracker.mergeMode === 'pr' && deps.checkGhRepoWrite) {
+      const ready = await deps.checkGhRepoWrite(config.tracker.repo)
+      return { ...auth, canPush: ready.ok }
+    }
+    return auth
+  }
   const token = deps.secrets.readGithubToken()
   if (!token) return { ok: false, reason: 'invalid-token' }
   return deps.verifyToken(token, config.tracker.repo)
@@ -451,6 +461,7 @@ export function registerFactoryIPCHandlers(): void {
     isDockerAvailable,
     dockerPreflight,
     checkGhAuth: () => defaultCheckGhAuth(),
+    checkGhRepoWrite: (repo) => checkGhWriteAccess(repo),
     verifyToken: (token, repo) => verifyGithubToken(token, repo),
     verifyScriptMissing,
     secrets,
@@ -464,6 +475,7 @@ export function registerFactoryIPCHandlers(): void {
 
   const runner = createFactoryRunner({
     mergeWriteBack: (payload) => githubTracker.writeBackMerge(payload),
+    checkPrReady: (root) => githubTracker.checkPrReady(root),
     pushSession: pushFactorySession,
   })
   runner.onPush(broadcastFactoryEvent)

@@ -5,7 +5,8 @@
  * 这里只用 token 的只读接口；写权限在首次评论/关闭时再验证（与原型一致）。
  */
 import { execFile } from 'child_process'
-import type { FactoryGithubAuthResult } from '@/shared/factory'
+import type { FactoryGithubAuthResult, FactoryPrReadyResult } from '@/shared/factory'
+import { classifyGhFailure, type GhRunner as ClientGhRunner } from './githubClient'
 
 export interface GithubFetchResponse {
   status: number
@@ -58,12 +59,14 @@ export async function verifyGithubToken(
       return { ok: false, reason: 'network', ...(login ? { login } : {}) }
     }
     const repoBody = asRecord(await repoRes.json())
+    const permissions = asRecord(repoBody.permissions)
     return {
       ok: true,
       reason: 'ok',
       ...(login ? { login } : {}),
       repo,
       private: repoBody.private === true,
+      canPush: permissions.push === true,
     }
   } catch {
     return { ok: false, reason: 'network' }
@@ -92,5 +95,21 @@ export async function checkGhAuth(run: GhRunner = defaultGhRunner): Promise<Fact
     return { ok: true, reason: 'ok', ...(match ? { login: match[1] } : {}) }
   } catch {
     return { ok: false, reason: 'gh-not-logged-in' }
+  }
+}
+
+/** PR 模式：gh 凭据对目标仓库是否具备写权限（push/建 PR）。 */
+export async function checkGhWriteAccess(
+  repo: string,
+  run: ClientGhRunner = defaultGhRunner,
+): Promise<FactoryPrReadyResult> {
+  try {
+    const result = await run(['api', `repos/${repo}`, '--jq', '.permissions.push'])
+    if (result.code !== 0) {
+      return { ok: false, reason: classifyGhFailure(result.code, result.stdout ?? '') }
+    }
+    return result.stdout.trim() === 'true' ? { ok: true } : { ok: false, reason: 'repo-permission' }
+  } catch {
+    return { ok: false, reason: 'unsupported' }
   }
 }

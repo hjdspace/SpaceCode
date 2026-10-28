@@ -94,11 +94,15 @@ describe('buildFactoryConfig', () => {
     expect(badRepo.ok).toBe(false)
   })
 
-  it('rejects not-yet-supported sandbox and merge modes', () => {
+  it('rejects not-yet-supported sandbox and keeps PR mode available for GitHub', () => {
     expect(buildFactoryConfig({ ...baseDraft, sandbox: { type: 'podman' } }, { baseBranch: 'main' }).ok).toBe(false)
-    expect(
-      buildFactoryConfig({ ...baseDraft, tracker: { ...baseDraft.tracker!, mergeMode: 'pr' } }, { baseBranch: 'main' }).ok,
-    ).toBe(false)
+    const pr = buildFactoryConfig(
+      { ...baseDraft, tracker: { ...baseDraft.tracker!, mergeMode: 'pr' } },
+      { baseBranch: 'main' },
+    )
+    expect(pr.ok).toBe(true)
+    if (!pr.ok) return
+    expect(pr.config.tracker).toMatchObject({ type: 'github-issues', mergeMode: 'pr' })
   })
 })
 

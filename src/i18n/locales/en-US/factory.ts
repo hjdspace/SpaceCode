@@ -78,6 +78,7 @@ export default {
   mergeModeLabel: 'Merge mode',
   mergeLocal: 'Local merge',
   mergePr: 'Pull request',
+  mergeModeHint: 'PR mode only pushes the task branch and opens a pull request; the base branch is never changed directly.',
   commentIssue: 'Comment on issue after merge',
   closeIssue: 'Close issue after merge',
 
@@ -100,6 +101,7 @@ export default {
   itemEngine: 'Engine availability',
   itemModelProfile: 'Model configuration',
   itemTrackerAuth: 'GitHub authentication',
+  itemTrackerPush: 'Repository write access',
   itemTrackerLabel: 'Claim label',
   itemVerifyCommand: 'Verify command',
   itemSandbox: 'Isolation',
@@ -237,6 +239,10 @@ export default {
     clean: 'Clean',
     dirty: 'Uncommitted changes',
     ack: 'I reviewed the diff and confirm merging into {target}',
+    ackPr: 'I reviewed the diff and confirm opening a pull request into {target}',
+    prConfirm: 'Create pull request',
+    prCreating: 'Creating…',
+    prNote: 'PR mode only pushes the task branch and opens a pull request. The base branch is never changed directly; a rejected push blocks the task and keeps the worktree.',
     verifyNote: 'The configured verify command runs once more before merging; a failure aborts and keeps the worktree.',
     modes: {
       merge: 'Merge commit',
@@ -264,7 +270,14 @@ export default {
       conflict: 'The branch conflicts with the target',
       'verify-failed': 'Verification failed on rerun',
       'git-error': 'Git operation failed',
+      'pr-auth': 'Credentials lack repository write access',
+      'pr-remote': 'The repository has no push remote',
     },
+  },
+
+  pr: {
+    open: 'Open PR',
+    titleShort: 'Pull request',
   },
 
   run: {
@@ -473,6 +486,10 @@ export default {
     'worktree-missing': 'The task worktree is missing; claim the task again.',
     'branch-missing': 'The task branch is missing; claim the task again.',
     'task-busy': 'A background turn is still running for this task. Try again shortly.',
+    'push-failed': 'Failed to push the task branch (the remote may have advanced). Task blocked and worktree kept.',
+    'pr-create-failed': 'Failed to create the pull request. Task blocked and worktree kept.',
+    'pr-auth': 'The current credentials lack repository write access, so push and PR creation are unavailable.',
+    'pr-remote': 'The repository has no push remote. Configure origin first.',
   },
 
   events: {
@@ -547,6 +564,22 @@ export default {
       write: { failed: 'The merge landed but writing the task state failed' },
       failed: 'Merge failed',
       writeback: { error: 'Failed to write the merge result back: {message}' },
+      pr: {
+        auth: 'Credentials lack repository write access; PR delivery aborted',
+        remote: 'The repository has no push remote; PR delivery aborted',
+      },
+    },
+    pr: {
+      push: {
+        started: 'Pushing task branch {branch} to {remote}',
+        failed: 'Failed to push the task branch (the remote may have advanced). Task blocked and worktree kept.',
+      },
+      created: 'Created PR #{number}: {url}',
+      reused: 'Reused existing PR #{number}: {url}',
+      completed: 'PR delivery complete #{number} ({commits} commits)',
+      remote: { missing: 'No push remote available; PR delivery aborted' },
+      create: { failed: 'Failed to create the pull request. Task blocked and worktree kept.' },
+      write: { failed: 'PR created, but writing the task state failed' },
     },
     scheduler: {
       claimed: 'Claimed a task (concurrency {active}/{max})',

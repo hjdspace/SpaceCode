@@ -18,6 +18,7 @@ import {
   type FactoryMergeExecuteInput,
   type FactoryMergePreflightResult,
   type FactoryMergeResult,
+  type FactoryPrReadyResult,
   type FactoryReviewComment,
   type FactoryReviewCommentInput,
   type FactoryRunStopResult,
@@ -102,6 +103,8 @@ export interface FactoryRunnerDeps {
   revealPath?: (path: string) => void | Promise<void>
   /** 06 接 GitHub 评论/关闭：合并成功后的可替换回写钩子。 */
   mergeWriteBack?: (payload: MergeWriteBackPayload) => void | Promise<void>
+  /** PR 模式：检查凭据能否推送任务分支并创建 PR。 */
+  checkPrReady?: (repoRoot: string) => Promise<FactoryPrReadyResult>
   /** 接管：把会话推送到渲染层聊天列表（生产注入 H5 远程消息链路）。 */
   pushSession?: (session: FactoryTakeoverSession) => void
   /** 交回时的验证命令执行器；测试注入假实现。 */
@@ -1734,7 +1737,11 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     },
 
     async mergePreflight(repoRoot, runId, taskId) {
-      return runMergePreflight(repoRoot, runId, taskId, { git, now })
+      return runMergePreflight(repoRoot, runId, taskId, {
+        git,
+        now,
+        ...(deps.checkPrReady ? { checkPrReady: deps.checkPrReady } : {}),
+      })
     },
 
     async mergeTask(repoRoot, runId, taskId, input) {
@@ -1745,6 +1752,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           emit(repoRoot, runId, event)
         },
         ...(deps.mergeWriteBack ? { writeBack: deps.mergeWriteBack } : {}),
+        ...(deps.checkPrReady ? { checkPrReady: deps.checkPrReady } : {}),
       })
     },
 

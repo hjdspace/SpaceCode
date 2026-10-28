@@ -97,6 +97,19 @@ export function runFactoryPreflight(config: FactoryConfig, input: FactoryPreflig
         ? { id: 'trackerLabel', level: 'warn', params: { label: config.tracker.label } }
         : { id: 'trackerLabel', level: 'ok', params: { label: config.tracker.label } },
     )
+
+    // PR 模式必须能把任务分支推上去并建 PR；无写权限时合并按钮不可用。
+    if (config.tracker.mergeMode === 'pr') {
+      if (!auth?.ok) {
+        items.push({ id: 'trackerPush', level: 'warn', params: { reason: 'not-checked' } })
+      } else if (auth.canPush === false) {
+        items.push({ id: 'trackerPush', level: 'error', params: { reason: 'no-push-permission' } })
+      } else if (auth.canPush === true) {
+        items.push({ id: 'trackerPush', level: 'ok' })
+      } else {
+        items.push({ id: 'trackerPush', level: 'warn', params: { reason: 'unknown' } })
+      }
+    }
   }
 
   if (!config.commands.verify.trim()) {

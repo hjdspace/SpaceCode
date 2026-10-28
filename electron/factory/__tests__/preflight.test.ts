@@ -130,6 +130,20 @@ describe('runFactoryPreflight', () => {
     expect(dockerOk.blocking).toBe(false)
   })
 
+  it('requires repository write permission when PR mode is selected', () => {
+    const pr = config({ tracker: { ...draft.tracker, mergeMode: 'pr' } })
+    const noPush = runFactoryPreflight(pr, input({ githubAuth: { ok: true, reason: 'ok', canPush: false } }))
+    expect(item(noPush, 'trackerPush')?.level).toBe('error')
+    expect(noPush.blocking).toBe(true)
+
+    const canPush = runFactoryPreflight(pr, input({ githubAuth: { ok: true, reason: 'ok', canPush: true } }))
+    expect(item(canPush, 'trackerPush')?.level).toBe('ok')
+    expect(canPush.blocking).toBe(false)
+
+    const local = runFactoryPreflight(config(), input())
+    expect(item(local, 'trackerPush')).toBeUndefined()
+  })
+
   it('blocks docker when the image, mounts or proxy are not usable', () => {
     const docker = config({ sandbox: { type: 'docker', imageName: 'img' } })
 

@@ -627,6 +627,12 @@ export const useFactoryStore = defineStore('factory', () => {
     configConfirmGateOff.value = value
   }
 
+  function setConfigMergeMode(mode: 'local' | 'pr'): void {
+    const draftConfig = configDraft.value
+    if (!draftConfig || draftConfig.tracker.type !== 'github-issues') return
+    draftConfig.tracker = { ...draftConfig.tracker, mergeMode: mode }
+  }
+
   async function saveConfig(root: string): Promise<boolean> {
     const draftConfig = configDraft.value
     if (!draftConfig) return false
@@ -1209,6 +1215,7 @@ export const useFactoryStore = defineStore('factory', () => {
     setConfigConcurrency,
     setConfigVerifyCommand,
     setConfigGateConfirm,
+    setConfigMergeMode,
     saveConfig,
     applyPush,
     subscribeEvents,

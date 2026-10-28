@@ -78,6 +78,7 @@ export default {
   mergeModeLabel: '合并方式',
   mergeLocal: '本地合并',
   mergePr: 'Pull Request',
+  mergeModeHint: 'PR 模式只推送任务分支并创建 Pull Request，不直接改动基础分支。',
   commentIssue: '合并后评论 issue',
   closeIssue: '合并后关闭 issue',
 
@@ -100,6 +101,7 @@ export default {
   itemEngine: '引擎可用性',
   itemModelProfile: '模型配置',
   itemTrackerAuth: 'GitHub 鉴权',
+  itemTrackerPush: '仓库写权限',
   itemTrackerLabel: '领取标签',
   itemVerifyCommand: '验证命令',
   itemSandbox: '隔离方式',
@@ -237,6 +239,10 @@ export default {
     clean: '干净',
     dirty: '有未提交改动',
     ack: '我已审查 diff，并确认合并到 {target}',
+    ackPr: '我已审查 diff，并确认创建 Pull Request 到 {target}',
+    prConfirm: '创建 Pull Request',
+    prCreating: '创建中…',
+    prNote: 'PR 模式只推送任务分支并创建 Pull Request；基础分支不会被直接改动，远端拒绝时转阻塞且保留工作树。',
     verifyNote: '合并前会再跑一次配置中的验证命令；失败则中止并保留工作树。',
     modes: {
       merge: 'Merge commit',
@@ -264,7 +270,14 @@ export default {
       conflict: '与目标分支存在冲突',
       'verify-failed': '复跑验证未通过',
       'git-error': 'Git 操作失败',
+      'pr-auth': '凭据缺少仓库写权限',
+      'pr-remote': '仓库没有可推送的远端',
     },
+  },
+
+  pr: {
+    open: '打开 PR',
+    titleShort: 'Pull Request',
   },
 
   run: {
@@ -473,6 +486,10 @@ export default {
     'worktree-missing': '任务工作树不存在，请重新领取。',
     'branch-missing': '任务分支不存在，请重新领取。',
     'task-busy': '该任务仍有后台回合在运行，请稍后再试。',
+    'push-failed': '推送任务分支失败（远端可能已前进），已转阻塞并保留工作树。',
+    'pr-create-failed': '创建 Pull Request 失败，已转阻塞并保留工作树。',
+    'pr-auth': '当前凭据没有仓库写权限，无法推送或创建 PR。',
+    'pr-remote': '仓库没有可推送的远端，请先配置 origin。',
   },
 
   events: {
@@ -547,6 +564,22 @@ export default {
       write: { failed: '合并已落地，但写回任务状态失败' },
       failed: '合并失败',
       writeback: { error: '回写合并结果失败：{message}' },
+      pr: {
+        auth: '凭据缺少仓库写权限，PR 交付已中止',
+        remote: '仓库没有可推送的远端，PR 交付已中止',
+      },
+    },
+    pr: {
+      push: {
+        started: '正在推送任务分支 {branch} 到 {remote}',
+        failed: '推送任务分支失败（远端可能已前进），已转阻塞并保留工作树',
+      },
+      created: '已创建 PR #{number}：{url}',
+      reused: '复用已有 PR #{number}：{url}',
+      completed: 'PR 交付完成 #{number}（{commits} 个提交）',
+      remote: { missing: '没有可推送的远端，PR 交付已中止' },
+      create: { failed: '创建 Pull Request 失败，已转阻塞并保留工作树' },
+      write: { failed: 'PR 已创建，但写回任务状态失败' },
     },
     scheduler: {
       claimed: '领取任务（并发 {active}/{max}）',

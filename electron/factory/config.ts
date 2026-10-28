@@ -82,7 +82,6 @@ function buildTracker(draft: FactorySetupDraft['tracker']): FactoryTrackerConfig
     return { type: 'local', backlogPath: FACTORY_BACKLOG_PATH, mergeMode: 'local' }
   }
   if (type !== 'github-issues') return { error: 'tracker.type' }
-  if ((draft?.mergeMode ?? 'local') === 'pr') return { error: 'tracker.mergeMode' }
   const repo = (draft?.repo ?? '').trim()
   const label = (draft?.label ?? '').trim()
   if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) return { error: 'tracker.repo' }
@@ -94,7 +93,7 @@ function buildTracker(draft: FactorySetupDraft['tracker']): FactoryTrackerConfig
     repo,
     label,
     auth,
-    mergeMode: 'local',
+    mergeMode: draft?.mergeMode === 'pr' ? 'pr' : 'local',
     commentIssue: draft?.commentIssue ?? true,
     closeIssue: draft?.closeIssue ?? true,
   }

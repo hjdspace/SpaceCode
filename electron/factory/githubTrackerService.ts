@@ -19,6 +19,7 @@ import {
   type FactoryGithubListInput,
   type FactoryGithubListResult,
   type FactoryGithubWritebackRetryResult,
+  type FactoryPrReadyResult,
   type FactoryTaskWriteback,
 } from '@/shared/factory'
 import { readFactoryConfig } from './config'
@@ -40,7 +41,7 @@ import {
   type GithubFetch,
 } from './githubClient'
 import { buildMergeComment, createGithubTracker, type GithubTracker } from './githubTracker'
-import { checkGhAuth as defaultCheckGhAuth, defaultGhRunner } from './github'
+import { checkGhAuth as defaultCheckGhAuth, checkGhWriteAccess, defaultGhRunner, verifyGithubToken } from './github'
 import type { MergeWriteBackPayload } from './merge'
 import type { FactorySecretStore } from './secrets'
 
@@ -71,6 +72,8 @@ export interface GithubTrackerService {
   claimIssues(repoRoot: string, input: FactoryGithubClaimInput): Promise<FactoryGithubClaimResult>
   /** 作为 merge 的 writeBack 钩子；失败时抛出，由 merge 记录事件且不推翻合并。 */
   writeBackMerge(payload: MergeWriteBackPayload): Promise<void>
+  /** PR 模式：当前凭据能否推送任务分支并创建 PR。 */
+  checkPrReady(repoRoot: string): Promise<FactoryPrReadyResult>
   retryWriteback(
     repoRoot: string,
     runId: string,
@@ -151,6 +154,39 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
     const token = deps.secrets.readGithubToken()
     if (token) return { ok: true, tracker: rest(token) }
     if (ghStatus.ok) return { ok: true, tracker: gh() }
+    return { ok: false, reason: 'invalid-token' }
+  }
+
+  /** token 路径的写权限来自仓库 permissions.push；gh 路径直接问 API。 */
+  async function tokenReady(token: string, repo: string): Promise<FactoryPrReadyResult> {
+    const result = await verifyGithubToken(token, repo)
+    if (!result.ok) {
+      if (result.reason === 'gh-not-logged-in') return { ok: false, reason: 'not-logged-in' }
+      return { ok: false, reason: result.reason === 'ok' ? 'unknown' : result.reason }
+    }
+    return result.canPush === true ? { ok: true } : { ok: false, reason: 'repo-permission' }
+  }
+
+  async function checkPrReady(repoRoot: string): Promise<FactoryPrReadyResult> {
+    const config = readFactoryConfig(repoRoot)
+    if (!config || config.tracker.type !== 'github-issues') {
+      return { ok: false, reason: 'unsupported' }
+    }
+    const trackerConfig = config.tracker
+    const ghStatus = await (deps.checkGh ?? defaultCheckGhAuth)()
+    const ghCheck = (): Promise<FactoryPrReadyResult> =>
+      checkGhWriteAccess(trackerConfig.repo, deps.runGh ?? defaultGhRunner)
+
+    if (trackerConfig.auth === 'gh') {
+      if (ghStatus.ok) return ghCheck()
+      const token = deps.secrets.readGithubToken()
+      if (token) return tokenReady(token, trackerConfig.repo)
+      return { ok: false, reason: 'not-logged-in' }
+    }
+
+    const token = deps.secrets.readGithubToken()
+    if (token) return tokenReady(token, trackerConfig.repo)
+    if (ghStatus.ok) return ghCheck()
     return { ok: false, reason: 'invalid-token' }
   }
 
@@ -437,6 +473,7 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
   return {
     listIssues,
     claimIssues,
+    checkPrReady,
     async writeBackMerge(payload) {
       const result = await attemptWriteBack(payload)
       if (!result.ok) throw new Error(result.reason ?? 'unknown')

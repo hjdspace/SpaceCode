@@ -47,7 +47,7 @@ export function canTransition(from: FactoryLane, to: FactoryLane): boolean {
 }
 
 function attentionAction(reason: string): 'fix' | 'merge' | 'retry' {
-  if (reason.startsWith('merge')) return 'merge'
+  if (reason.startsWith('merge') || reason.startsWith('pr')) return 'merge'
   if (
     reason === 'stopped' ||
     reason === 'app.restarted' ||
@@ -82,6 +82,7 @@ export type TaskPatch = Partial<
     | 'cancelled'
     | 'mergedCommits'
     | 'targetBranch'
+    | 'pullRequest'
     | 'writeback'
     | 'timestamps'
   >
