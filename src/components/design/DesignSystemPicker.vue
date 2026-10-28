@@ -364,10 +364,10 @@ onUnmounted(() => {
 .ds-picker-menu {
   /* 视口坐标 (left / bottom / width / max-height) 由 useAnchoredMenu 算好后内联 */
   position: fixed;
-  background: #fff;
-  border: 1px solid #d8e0eb;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
   border-radius: 14px;
-  box-shadow: 0 22px 56px rgba(24, 25, 31, 0.18);
+  box-shadow: var(--shadow-xl);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -382,7 +382,7 @@ onUnmounted(() => {
   gap: 8px;
   height: 44px;
   padding: 0 12px;
-  border-bottom: 1px solid #e4e9f1;
+  border-bottom: 1px solid var(--surface-border);
   color: var(--text-muted);
   flex: 0 0 auto;
 }
@@ -408,8 +408,8 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
-  background: #fff;
-  border: 1px solid #dbe2eb;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
   border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
@@ -421,15 +421,15 @@ onUnmounted(() => {
 }
 
 .ds-picker-action:hover {
-  background: var(--surface-soft);
+  background: var(--surface-hover);
   border-color: var(--surface-border-strong);
   color: var(--text-primary);
 }
 
 .ds-picker-action--primary {
   color: var(--accent-primary);
-  border-color: color-mix(in srgb, var(--accent-primary) 36%, #dbe2eb);
-  background: color-mix(in srgb, var(--accent-primary) 7%, #fff);
+  border-color: color-mix(in srgb, var(--accent-primary) 36%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .ds-picker-action:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -446,7 +446,7 @@ onUnmounted(() => {
   overflow-y: auto;
   @include scrollbar-overlay;
   padding: 10px;
-  border-right: 1px solid #e4e9f1;
+  border-right: 1px solid var(--surface-border);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -478,11 +478,11 @@ onUnmounted(() => {
 }
 
 .ds-picker-option:hover {
-  background: var(--surface-soft);
+  background: var(--surface-hover);
 }
 
 .ds-picker-option.active {
-  background: color-mix(in srgb, var(--accent-primary) 10%, #fff);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .ds-picker-option-title {
@@ -506,7 +506,7 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: transparent;
 }
 
 .ds-preview-scroll {
@@ -563,7 +563,7 @@ onUnmounted(() => {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  border: 1px solid #dce3ec;
+  border: 1px solid var(--surface-border);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44);
 }
 
@@ -577,7 +577,7 @@ onUnmounted(() => {
   appearance: none;
   font: inherit;
   cursor: pointer;
-  border: 1px solid #dce3ec;
+  border: 1px solid var(--surface-border);
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
@@ -616,20 +616,20 @@ onUnmounted(() => {
   gap: 8px;
   padding: 0 16px;
   border-radius: var(--radius-full);
-  border: 1px solid #dce3ec;
-  background: #fff;
+  border: 1px solid var(--surface-border);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 12px 28px rgba(24, 25, 31, 0.14);
+  box-shadow: var(--shadow-lg);
   transition:
     background var(--transition-fast),
     border-color var(--transition-fast);
 }
 
 .ds-preview-open:hover {
-  background: var(--surface-soft);
+  background: var(--surface-hover);
   border-color: var(--surface-border-strong);
 }
 
@@ -645,7 +645,7 @@ onUnmounted(() => {
   .ds-picker-list {
     max-height: 200px;
     border-right: 0;
-    border-bottom: 1px solid #e4e9f1;
+    border-bottom: 1px solid var(--surface-border);
   }
 }
 </style>
