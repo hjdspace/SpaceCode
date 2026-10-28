@@ -1,0 +1,439 @@
+<template>
+  <aside class="factory-inspector">
+    <div v-if="!task" class="ins-empty" data-inspector-empty>
+      <Layers :size="26" />
+      <p>{{ t('factory.inspector.empty') }}</p>
+    </div>
+
+    <template v-else>
+      <header class="ins-head">
+        <div class="ins-top">
+          <span v-if="task.issueNumber !== undefined" class="ins-num">#{{ task.issueNumber }}</span>
+          <span v-else class="ins-num">{{ t('factory.cardLocal') }}</span>
+          <span class="ins-chip" data-inspector-status>
+            {{ status.params ? t(status.key, status.params) : t(status.key) }}
+          </span>
+        </div>
+
+        <h2 class="ins-title" data-inspector-title>{{ task.title }}</h2>
+
+        <div class="ins-meta">
+          <div class="meta-row">
+            <GitBranch :size="12" />
+            <code>{{ task.branch }}</code>
+          </div>
+          <div class="meta-row">
+            <Folder :size="12" />
+            <code :class="{ pending: !task.worktree }">
+              {{ task.worktree || t('factory.inspector.worktreePending') }}
+            </code>
+          </div>
+          <div class="meta-row">
+            <Cpu :size="12" />
+            <code>{{ task.model || t('factory.modelUnknown') }}</code>
+          </div>
+        </div>
+
+        <div class="railsteps">
+          <div
+            v-for="(step, index) in FACTORY_STEPS"
+            :key="step"
+            class="step"
+            :class="visual[index]"
+            :data-step="step"
+          >
+            <span class="sdot">
+              <Check v-if="visual[index] === 'done'" :size="10" />
+              <X v-else-if="visual[index] === 'blocked'" :size="10" />
+            </span>
+            <span class="slabel">{{ t(`factory.steps.${step}`) }}</span>
+          </div>
+        </div>
+
+        <nav class="tabs">
+          <button
+            v-for="item in FACTORY_INSPECTOR_TABS"
+            :key="item.key"
+            class="itab"
+            :class="{ active: item.key === tab }"
+            :data-inspector-tab="item.key"
+            @click="emit('select-tab', item.key)"
+          >
+            {{ t(item.labelKey) }}
+          </button>
+        </nav>
+      </header>
+
+      <div class="ins-body">
+        <template v-if="tab === 'overview'">
+          <section class="section">
+            <h4>{{ t('factory.inspector.goal') }}</h4>
+            <p class="goal">{{ task.goal || t('factory.inspector.goalEmpty') }}</p>
+          </section>
+
+          <section class="section">
+            <h4>{{ t('factory.inspector.thisRun') }}</h4>
+            <div class="metrics">
+              <div class="metric">
+                <span>{{ t('factory.inspector.changes') }}</span>
+                <b>+{{ task.diff.additions }} −{{ task.diff.deletions }}</b>
+              </div>
+              <div class="metric">
+                <span>{{ t('factory.inspector.elapsed') }}</span>
+                <b>{{ formatClock(elapsedMs) }}</b>
+              </div>
+            </div>
+          </section>
+
+          <section class="section">
+            <h4>{{ t('factory.inspector.artifacts') }}</h4>
+            <div class="kv">
+              <span>{{ t('factory.inspector.branch') }}</span>
+              <b>{{ task.branch }}</b>
+            </div>
+            <div class="kv">
+              <span>{{ t('factory.inspector.worktree') }}</span>
+              <b>{{ task.worktree || t('factory.inspector.worktreePending') }}</b>
+            </div>
+            <div class="kv">
+              <span>{{ t('factory.inspector.engine') }}</span>
+              <b>{{ task.model || t('factory.modelUnknown') }}</b>
+            </div>
+            <div class="kv">
+              <span>{{ t('factory.inspector.verify') }}</span>
+              <b class="muted">{{ t('factory.inspector.pending') }}</b>
+            </div>
+            <div class="kv">
+              <span>{{ t('factory.inspector.review') }}</span>
+              <b class="muted">{{ t('factory.inspector.reviewPending') }}</b>
+            </div>
+          </section>
+
+          <section v-if="timestamps.length" class="section">
+            <h4>{{ t('factory.inspector.timestamps') }}</h4>
+            <div v-for="entry in timestamps" :key="entry.key" class="kv">
+              <span>{{ t(entry.labelKey) }}</span>
+              <b>{{ formatTimestamp(entry.value) }}</b>
+            </div>
+          </section>
+        </template>
+
+        <div v-else-if="tab === 'events'" class="ins-empty" data-empty="events">
+          <Activity :size="22" />
+          <p>{{ t('factory.empty.events') }}</p>
+        </div>
+
+        <div v-else-if="tab === 'diff'" class="ins-empty" data-empty="diff">
+          <FileDiff :size="22" />
+          <p>{{ t('factory.empty.diff') }}</p>
+        </div>
+
+        <div v-else class="ins-empty" data-empty="review">
+          <ShieldCheck :size="22" />
+          <p>{{ t('factory.empty.review') }}</p>
+        </div>
+      </div>
+    </template>
+  </aside>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { Activity, Check, Cpu, FileDiff, Folder, GitBranch, Layers, ShieldCheck, X } from 'lucide-vue-next'
+import type { FactoryTask } from '@/shared/factory'
+import {
+  FACTORY_INSPECTOR_TABS,
+  FACTORY_STEPS,
+  formatClock,
+  formatTimestamp,
+  stepStates,
+  taskElapsedMs,
+  taskStatus,
+  type FactoryInspectorTab,
+  type FactoryTaskStatus,
+} from '@/stores/factory/board'
+
+const props = withDefaults(
+  defineProps<{
+    task: FactoryTask | null
+    tab: FactoryInspectorTab
+    nowMs?: number
+  }>(),
+  { nowMs: () => Date.now() },
+)
+
+const emit = defineEmits<{ 'select-tab': [tab: FactoryInspectorTab] }>()
+
+const { t } = useI18n()
+
+const status = computed<FactoryTaskStatus>(() =>
+  props.task ? taskStatus(props.task) : { key: '' },
+)
+const visual = computed(() => (props.task ? stepStates(props.task) : []))
+const elapsedMs = computed(() => (props.task ? taskElapsedMs(props.task, props.nowMs) : 0))
+
+const timestamps = computed(() => {
+  const ts = props.task?.timestamps
+  if (!ts) return []
+  return (
+    [
+      { key: 'claimedAt', labelKey: 'factory.inspector.claimedAt', value: ts.claimedAt },
+      { key: 'startedAt', labelKey: 'factory.inspector.startedAt', value: ts.startedAt },
+      { key: 'endedAt', labelKey: 'factory.inspector.endedAt', value: ts.endedAt },
+      { key: 'mergedAt', labelKey: 'factory.inspector.mergedAt', value: ts.mergedAt },
+    ] as const
+  ).filter((entry) => Boolean(entry.value))
+})
+</script>
+
+<style lang="scss" scoped>
+.factory-inspector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-elevated);
+}
+
+.ins-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  padding: 24px;
+  color: var(--text-disabled);
+  font-size: var(--text-sm, 12px);
+  text-align: center;
+
+  p {
+    margin: 0;
+    max-width: 200px;
+  }
+}
+
+.ins-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.ins-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-2xs, 11px);
+}
+
+.ins-num {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.ins-chip {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--surface-glass);
+  color: var(--text-secondary);
+}
+
+.ins-title {
+  margin: 0;
+  font-size: var(--text-base, 14px);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.ins-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--text-muted);
+
+  code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs, 11px);
+  }
+
+  code.pending {
+    color: var(--text-disabled);
+  }
+}
+
+.railsteps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  font-size: var(--text-2xs, 10px);
+  color: var(--text-disabled);
+
+  .sdot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--surface-border-strong);
+    border-radius: 50%;
+    background: var(--bg-secondary);
+  }
+
+  &.done {
+    color: var(--success);
+
+    .sdot {
+      border-color: var(--success);
+      background: var(--success);
+      color: #fff;
+    }
+  }
+
+  &.active {
+    color: var(--accent-primary);
+
+    .sdot {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px var(--accent-primary-glow);
+    }
+  }
+
+  &.blocked {
+    color: var(--warning);
+
+    .sdot {
+      border-color: var(--warning);
+      background: var(--warning);
+      color: #fff;
+    }
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+}
+
+.itab {
+  flex: 1;
+  padding: 5px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-2xs, 11px);
+  cursor: pointer;
+
+  &.active {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.ins-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  @include scrollbar-overlay;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  h4 {
+    margin: 0;
+    font-size: var(--text-2xs, 11px);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+}
+
+.goal {
+  margin: 0;
+  font-size: var(--text-sm, 12px);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.metrics {
+  display: flex;
+  gap: 8px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-muted);
+
+  b {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+}
+
+.kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-muted);
+
+  b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  b.muted {
+    color: var(--text-disabled);
+  }
+}
+</style>

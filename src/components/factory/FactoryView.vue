@@ -36,12 +36,50 @@
             {{ t('factory.reconfigure') }}
           </button>
         </header>
-        <div class="board-meta">
-          <span>{{ t('factory.configPath') }}</span>
-          <code>{{ store.configPath }}</code>
-        </div>
-        <div class="board-placeholder">
-          <Workflow :size="28" />
+
+        <FactoryRunHeader v-if="store.run" :run="store.run" :tasks="store.tasks" @select="store.selectTask" />
+        <div v-else class="run-empty">{{ t('factory.run.empty') }}</div>
+
+        <div class="factory-columns">
+          <FactoryBacklogPanel
+            :items="store.backlog"
+            :loading="store.backlogLoading"
+            :error="store.backlogError"
+            :run-error="store.createRunError"
+            :claimed-ids="claimedIds"
+            :creating="store.creatingRun"
+            :run-id="store.run?.id ?? null"
+            @create="handleCreate"
+            @update="handleUpdate"
+            @remove="handleRemove"
+            @move="handleMove"
+            @create-run="handleCreateRun"
+          />
+
+          <div class="board-column">
+            <div v-if="store.runLoading" class="state-inline">
+              <Loader2 :size="18" class="spin" />
+              <span>{{ t('factory.loading') }}</span>
+            </div>
+            <div v-else-if="store.runError" class="state-inline error">
+              <AlertTriangle :size="18" />
+              <span>{{ t('factory.run.loadFailed') }}</span>
+            </div>
+            <FactoryBoard
+              v-else-if="store.run"
+              :tasks="store.tasks"
+              :selected-id="store.selectedId"
+              @select="store.selectTask"
+            />
+            <div v-else class="board-empty" data-board-empty>{{ t('factory.run.empty') }}</div>
+          </div>
+
+          <FactoryInspector
+            v-if="store.run"
+            :task="store.selectedTask"
+            :tab="store.inspectorTab"
+            @select-tab="store.setInspectorTab"
+          />
         </div>
       </div>
     </template>
@@ -57,6 +95,10 @@ import { Workflow, AlertTriangle, Loader2 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useFactoryStore } from '@/stores/factory'
 import FactorySetupWizard from './FactorySetupWizard.vue'
+import FactoryRunHeader from './FactoryRunHeader.vue'
+import FactoryBoard from './FactoryBoard.vue'
+import FactoryInspector from './FactoryInspector.vue'
+import FactoryBacklogPanel from './FactoryBacklogPanel.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -64,15 +106,49 @@ const store = useFactoryStore()
 
 const root = computed(() => (appStore.projectRoot || '').trim())
 
-onMounted(() => {
-  if (root.value) void store.refresh(root.value)
+/** 未结束的运行仍占着这些待办；停止后才能重新领取。 */
+const claimedIds = computed(() => {
+  if (!store.run || store.run.status === 'stopped') return []
+  return store.tasks.map((task) => task.id)
 })
 
-watch(root, (value, previous) => {
+async function loadBoard(value: string): Promise<void> {
+  await Promise.all([store.loadBacklog(value), store.loadRun(value)])
+}
+
+onMounted(async () => {
+  if (!root.value) return
+  await store.refresh(root.value)
+  await loadBoard(root.value)
+})
+
+watch(root, async (value, previous) => {
   if (value === previous) return
   store.reset()
-  if (value) void store.refresh(value)
+  if (!value) return
+  await store.refresh(value)
+  await loadBoard(value)
 })
+
+function handleCreate(input: { title: string; goal: string }): void {
+  if (root.value) void store.createBacklogTask(root.value, input)
+}
+
+function handleUpdate(input: { id: string; title: string; goal: string }): void {
+  if (root.value) void store.updateBacklogTask(root.value, input)
+}
+
+function handleRemove(id: string): void {
+  if (root.value) void store.deleteBacklogTask(root.value, id)
+}
+
+function handleMove(id: string, direction: 'up' | 'down'): void {
+  if (root.value) void store.moveBacklogTask(root.value, id, direction)
+}
+
+function handleCreateRun(ids: string[]): void {
+  if (root.value) void store.createRun(root.value, ids)
+}
 </script>
 
 <style lang="scss" scoped>
@@ -150,8 +226,9 @@ watch(root, (value, previous) => {
 .factory-board-shell {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   height: 100%;
+  min-height: 0;
 }
 
 .board-header {
@@ -174,30 +251,57 @@ watch(root, (value, previous) => {
   }
 }
 
-.board-meta {
+.run-empty {
+  padding: 10px 14px;
+  border: 1px dashed var(--surface-border);
+  border-radius: var(--radius-lg, 12px);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.factory-columns {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(260px, 320px);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  @include scrollbar-overlay;
+}
+
+.board-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  @include scrollbar-overlay;
+}
+
+.state-inline {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  font-size: 12px;
+  flex: 1;
   color: var(--text-muted);
+  font-size: 12px;
 
-  code {
-    padding: 2px 6px;
-    border-radius: var(--radius-sm);
-    background: var(--surface-glass);
-    color: var(--text-secondary);
+  &.error {
+    color: var(--error);
   }
 }
 
-.board-placeholder {
+.board-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 1;
-  min-height: 240px;
+  min-height: 200px;
   border: 1px dashed var(--surface-border);
   border-radius: var(--radius-lg, 12px);
   color: var(--text-muted);
+  font-size: 12px;
 }
 
 .primary-btn,

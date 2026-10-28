@@ -8,11 +8,19 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '@/services/electronAPI'
 import type {
+  FactoryBacklogInput,
+  FactoryBacklogItem,
+  FactoryBacklogResult,
+  FactoryBacklogUpdate,
   FactoryConfig,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
+  FactoryRun,
+  FactoryRunCreateError,
+  FactoryRunSnapshot,
   FactorySetupContext,
   FactorySetupDraft,
+  FactoryTask,
 } from '@/shared/factory'
 import {
   canAdvance,
@@ -21,6 +29,12 @@ import {
   setupStepErrors,
   type SetupStep,
 } from './setup'
+import { findTask, laneCounts as computeLaneCounts, type FactoryInspectorTab } from './board'
+
+export interface FactoryRunError {
+  code: FactoryRunCreateError | 'create-failed'
+  params?: Record<string, string | number>
+}
 
 export const useFactoryStore = defineStore('factory', () => {
   const loading = ref(false)
@@ -41,6 +55,24 @@ export const useFactoryStore = defineStore('factory', () => {
 
   const tokenTesting = ref(false)
   const tokenResult = ref<FactoryGithubAuthResult | null>(null)
+
+  // 看板：本地待办 + 当前运行投影 + 检查器选中
+  const backlog = ref<FactoryBacklogItem[]>([])
+  const backlogLoading = ref(false)
+  const backlogError = ref<string | null>(null)
+
+  const run = ref<FactoryRun | null>(null)
+  const tasks = ref<FactoryTask[]>([])
+  const runLoading = ref(false)
+  const runError = ref<string | null>(null)
+
+  const selectedId = ref<string | null>(null)
+  const inspectorTab = ref<FactoryInspectorTab>('overview')
+
+  const creatingRun = ref(false)
+  const createRunError = ref<FactoryRunError | null>(null)
+  const selectedTask = computed(() => findTask(tasks.value, selectedId.value))
+  const laneCounts = computed(() => computeLaneCounts(tasks.value))
 
   const boardReady = computed(() => configured.value && config.value !== null)
 
@@ -160,6 +192,107 @@ export const useFactoryStore = defineStore('factory', () => {
     return result.ok
   }
 
+  async function loadBacklog(root: string): Promise<void> {
+    backlogLoading.value = true
+    backlogError.value = null
+    try {
+      backlog.value = await api.factory.backlogList(root)
+    } catch {
+      backlogError.value = 'load-failed'
+    } finally {
+      backlogLoading.value = false
+    }
+  }
+
+  async function applyBacklogMutation(pending: Promise<FactoryBacklogResult>): Promise<boolean> {
+    try {
+      const result = await pending
+      backlog.value = result.items
+      if (!result.ok) {
+        backlogError.value = result.error
+        return false
+      }
+      backlogError.value = null
+      return true
+    } catch {
+      backlogError.value = 'write-failed'
+      return false
+    }
+  }
+
+  function createBacklogTask(root: string, input: FactoryBacklogInput): Promise<boolean> {
+    return applyBacklogMutation(api.factory.backlogCreate(root, input))
+  }
+
+  function updateBacklogTask(root: string, input: FactoryBacklogUpdate): Promise<boolean> {
+    return applyBacklogMutation(api.factory.backlogUpdate(root, input))
+  }
+
+  function deleteBacklogTask(root: string, id: string): Promise<boolean> {
+    return applyBacklogMutation(api.factory.backlogDelete(root, id))
+  }
+
+  function moveBacklogTask(root: string, id: string, direction: 'up' | 'down'): Promise<boolean> {
+    return applyBacklogMutation(api.factory.backlogMove(root, id, direction))
+  }
+
+  function applySnapshot(snapshot: FactoryRunSnapshot | null): void {
+    run.value = snapshot?.run ?? null
+    tasks.value = snapshot?.tasks ?? []
+    if (!findTask(tasks.value, selectedId.value)) {
+      selectedId.value = tasks.value[0]?.id ?? null
+      inspectorTab.value = 'overview'
+    }
+  }
+
+  async function loadRun(root: string): Promise<void> {
+    runLoading.value = true
+    runError.value = null
+    try {
+      applySnapshot(await api.factory.runLatest(root))
+    } catch {
+      runError.value = 'load-failed'
+    } finally {
+      runLoading.value = false
+    }
+  }
+
+  async function createRun(root: string, taskIds: string[], concurrency?: number): Promise<boolean> {
+    creatingRun.value = true
+    createRunError.value = null
+    try {
+      const result = await api.factory.runCreate(root, {
+        taskIds,
+        ...(concurrency === undefined ? {} : { concurrency }),
+      })
+      if (!result.ok) {
+        const ids = [...(result.duplicates ?? []), ...(result.missing ?? [])].join(', ')
+        createRunError.value = { code: result.error, ...(ids ? { params: { ids } } : {}) }
+        return false
+      }
+      applySnapshot(result.snapshot)
+      return true
+    } catch {
+      createRunError.value = { code: 'create-failed' }
+      return false
+    } finally {
+      creatingRun.value = false
+    }
+  }
+
+  function selectTask(id: string | null): void {
+    selectedId.value = id
+    inspectorTab.value = 'overview'
+  }
+
+  function setInspectorTab(tab: FactoryInspectorTab): void {
+    inspectorTab.value = tab
+  }
+
+  function clearCreateRunError(): void {
+    createRunError.value = null
+  }
+
   function reset(): void {
     loading.value = false
     loaded.value = false
@@ -176,6 +309,17 @@ export const useFactoryStore = defineStore('factory', () => {
     saveError.value = null
     tokenTesting.value = false
     tokenResult.value = null
+    backlog.value = []
+    backlogLoading.value = false
+    backlogError.value = null
+    run.value = null
+    tasks.value = []
+    runLoading.value = false
+    runError.value = null
+    selectedId.value = null
+    inspectorTab.value = 'overview'
+    creatingRun.value = false
+    createRunError.value = null
   }
 
   return {
@@ -194,6 +338,19 @@ export const useFactoryStore = defineStore('factory', () => {
     saveError,
     tokenTesting,
     tokenResult,
+    backlog,
+    backlogLoading,
+    backlogError,
+    run,
+    tasks,
+    runLoading,
+    runError,
+    selectedId,
+    inspectorTab,
+    creatingRun,
+    createRunError,
+    selectedTask,
+    laneCounts,
     boardReady,
     stepErrors,
     canGoNext,
@@ -210,6 +367,16 @@ export const useFactoryStore = defineStore('factory', () => {
     testToken,
     storeToken,
     checkGhAuth,
+    loadBacklog,
+    createBacklogTask,
+    updateBacklogTask,
+    deleteBacklogTask,
+    moveBacklogTask,
+    loadRun,
+    createRun,
+    selectTask,
+    setInspectorTab,
+    clearCreateRunError,
     reset,
   }
 })

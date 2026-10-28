@@ -32,6 +32,14 @@ import { ensureFactoryGitignore, ensureFactoryLayout, writePromptSkeletons } fro
 import { runFactoryPreflight } from './preflight'
 import { checkGhAuth as defaultCheckGhAuth, verifyGithubToken } from './github'
 import { createFactorySecretStore, type FactorySecretStore } from './secrets'
+import {
+  createBacklogItem,
+  deleteBacklogItem,
+  moveBacklogItem,
+  readBacklog,
+  updateBacklogItem,
+} from './backlog'
+import { createFactoryRun, readLatestRun, readRunSnapshot } from './runs'
 import { loadEngineSessionConfig } from '../engine/engineSessionConfig'
 import { info, warn } from '../infra/logger'
 
@@ -297,6 +305,14 @@ export function registerFactoryIPCHandlers(): void {
     checkGhAuth: () => service.checkGhAuth(),
     saveGithubToken: (token) => service.saveGithubToken(token),
     clearGithubToken: () => service.clearGithubToken(),
+    backlogList: (root) => readBacklog(root),
+    backlogCreate: (root, input) => createBacklogItem(root, input),
+    backlogUpdate: (root, input) => updateBacklogItem(root, input),
+    backlogDelete: (root, id) => deleteBacklogItem(root, id),
+    backlogMove: (root, id, direction) => moveBacklogItem(root, id, direction),
+    runCreate: (root, input) => createFactoryRun(root, input),
+    runGet: (root, runId) => readRunSnapshot(root, runId),
+    runLatest: (root) => readLatestRun(root),
   })
   info('Factory', 'Factory IPC handlers registered')
 }

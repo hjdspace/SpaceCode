@@ -6,8 +6,15 @@
  */
 import { defineNamespace } from '@/shared/channelMap'
 import type {
+  FactoryBacklogInput,
+  FactoryBacklogItem,
+  FactoryBacklogResult,
+  FactoryBacklogUpdate,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
+  FactoryRunCreateInput,
+  FactoryRunCreateResult,
+  FactoryRunSnapshot,
   FactorySaveResult,
   FactorySecretSaveResult,
   FactorySetupContext,
@@ -48,6 +55,38 @@ export const factoryNamespace = defineNamespace({
     clearGithubToken: {
       req: [] as unknown as [],
       res: null as unknown as { ok: boolean },
+    },
+    backlogList: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as FactoryBacklogItem[],
+    },
+    backlogCreate: {
+      req: [] as unknown as [repoRoot: string, input: FactoryBacklogInput],
+      res: null as unknown as FactoryBacklogResult,
+    },
+    backlogUpdate: {
+      req: [] as unknown as [repoRoot: string, input: FactoryBacklogUpdate],
+      res: null as unknown as FactoryBacklogResult,
+    },
+    backlogDelete: {
+      req: [] as unknown as [repoRoot: string, id: string],
+      res: null as unknown as FactoryBacklogResult,
+    },
+    backlogMove: {
+      req: [] as unknown as [repoRoot: string, id: string, direction: 'up' | 'down'],
+      res: null as unknown as FactoryBacklogResult,
+    },
+    runCreate: {
+      req: [] as unknown as [repoRoot: string, input: FactoryRunCreateInput],
+      res: null as unknown as FactoryRunCreateResult,
+    },
+    runGet: {
+      req: [] as unknown as [repoRoot: string, runId: string],
+      res: null as unknown as FactoryRunSnapshot | null,
+    },
+    runLatest: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as FactoryRunSnapshot | null,
     },
   },
   events: {},

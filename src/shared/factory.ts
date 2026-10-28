@@ -22,6 +22,7 @@ export const FACTORY_PROMPT_KEYS: readonly FactoryPromptKey[] = [
 
 export const FACTORY_SANDBOX_WORKTREE_ROOT = '.spacecode/worktrees' as const
 export const FACTORY_BACKLOG_PATH = '.spacecode/factory/backlog.json' as const
+export const FACTORY_RUNS_PATH = '.spacecode/factory/runs' as const
 export const FACTORY_IGNORE_ENTRIES = [
   '.spacecode/worktrees/',
   '.spacecode/factory/runs/',
@@ -211,3 +212,99 @@ export interface FactorySaveResult {
   preflight?: FactoryPreflightResult
   configPath?: string
 }
+
+// ── 本地待办与运行（看板投影） ──────────────────────────────────
+
+/** 六条泳道。`blocked` 是横向异常态，保留卡住时的 stageIdx。 */
+export type FactoryLane = 'queued' | 'implementing' | 'reviewing' | 'mergeable' | 'blocked' | 'done'
+
+/** `.spacecode/factory/backlog.json` 的单条记录；order 决定看板与领取顺序。 */
+export interface FactoryBacklogItem {
+  id: string
+  title: string
+  goal: string
+  createdAt: string
+  order: number
+}
+
+export type FactoryBacklogError = 'title-required' | 'not-found'
+
+/** 变更类操作统一返回最新列表，失败时也带上当前列表以免 UI 丢数据。 */
+export type FactoryBacklogResult =
+  | { ok: true; items: FactoryBacklogItem[] }
+  | { ok: false; error: FactoryBacklogError; items: FactoryBacklogItem[] }
+
+export interface FactoryBacklogInput {
+  title: string
+  goal?: string
+}
+
+export interface FactoryBacklogUpdate {
+  id: string
+  title?: string
+  goal?: string
+}
+
+export interface FactoryTaskDiff {
+  additions: number
+  deletions: number
+}
+
+/** 任务投影。渲染层只读，所有迁移由主进程写入。 */
+export interface FactoryTask {
+  id: string
+  runId: string
+  source: 'local' | 'github-issues'
+  issueNumber?: number
+  title: string
+  goal: string
+  lane: FactoryLane
+  /** 0 领取 … 6 完成，对应六步进度条。 */
+  stageIdx: number
+  /** 领取时生成的分支占位；本票不真正创建分支。 */
+  branch: string
+  worktree: string | null
+  model: string
+  iteration: number
+  maxIterations: number
+  diff: FactoryTaskDiff
+  cancelled?: boolean
+  attention?: { reason: string; action: 'fix' | 'merge' | 'retry' }
+  timestamps: {
+    claimedAt?: string
+    startedAt?: string
+    endedAt?: string
+    mergedAt?: string
+  }
+}
+
+export type FactoryRunStatus = 'pending' | 'running' | 'paused' | 'stopped'
+
+export interface FactoryRun {
+  id: string
+  status: FactoryRunStatus
+  paused: boolean
+  createdAt: string
+  startedAt?: string
+  endedAt?: string
+  maxConcurrency: number
+  /** 展示位；真实成本由后续阶段的 usage 累计。 */
+  spendUsd: number
+  elapsedMs: number
+}
+
+export interface FactoryRunSnapshot {
+  run: FactoryRun
+  tasks: FactoryTask[]
+}
+
+export interface FactoryRunCreateInput {
+  taskIds: string[]
+  concurrency?: number
+}
+
+export type FactoryRunCreateError = 'empty-tasks' | 'missing-tasks' | 'duplicate-tasks'
+
+export type FactoryRunCreateResult =
+  | { ok: true; snapshot: FactoryRunSnapshot }
+  | { ok: false; error: FactoryRunCreateError; duplicates?: string[]; missing?: string[] }

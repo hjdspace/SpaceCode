@@ -4,8 +4,10 @@
 import { factoryNamespace } from '@/shared/channels/factory'
 import type { FactoryRendererApi } from '@/shared/channels/factory'
 import type {
+  FactoryBacklogResult,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
+  FactoryRunCreateResult,
   FactorySaveResult,
   FactorySecretSaveResult,
   FactorySetupContext,
@@ -32,6 +34,9 @@ const emptyPreflight: FactoryPreflightResult = {
 
 const failedAuth: FactoryGithubAuthResult = { ok: false, reason: 'network' }
 
+const emptyBacklog: FactoryBacklogResult = { ok: true, items: [] }
+const failedRun: FactoryRunCreateResult = { ok: false, error: 'empty-tasks' }
+
 export const factory: FactoryRendererApi = createRendererApi(
   factoryNamespace.channels,
   'factory',
@@ -49,5 +54,13 @@ export const factory: FactoryRendererApi = createRendererApi(
     checkGhAuth: () => failedAuth,
     saveGithubToken: (): FactorySecretSaveResult => ({ ok: false, reason: 'write-failed' }),
     clearGithubToken: () => ({ ok: false }),
+    backlogList: () => [],
+    backlogCreate: () => emptyBacklog,
+    backlogUpdate: () => emptyBacklog,
+    backlogDelete: () => emptyBacklog,
+    backlogMove: () => emptyBacklog,
+    runCreate: () => failedRun,
+    runGet: () => null,
+    runLatest: () => null,
   },
 )
