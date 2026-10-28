@@ -13,7 +13,7 @@
  * 官方正文与手写契约冲突时（典型：官方示例用 `Page` 根节点，SpaceCode 宿主只认物料白名单），
  * 以渲染端实际支持的协议为准，本节显式压过官方说法。
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -290,18 +290,28 @@ ${generatedBody()}
 `
 }
 
-/** 生成并写入产物，返回写入路径与正文。 */
-export async function generateGenuiSkill(root = defaultRepoRoot()): Promise<{ path: string; markdown: string }> {
+/**
+ * 生成并写入产物，返回写入路径与正文。正文没变就不落盘：
+ * git 在 Windows 上按 `core.autocrlf` 把这份产物检出成 CRLF，而生成器只产 LF，
+ * 每跑一次 build 都重写会把行尾改回 LF，`git status` 里就出现整文件换行差异。
+ */
+export async function generateGenuiSkill(
+  root = defaultRepoRoot(),
+): Promise<{ path: string; markdown: string; written: boolean }> {
   const markdown = buildGenuiSkillMarkdown(root)
   const path = join(root, GENUI_SKILL_ARTIFACT_REL_PATH)
+  const existing = await readFile(path, 'utf-8').catch(() => undefined)
+  if (existing?.replace(/\r\n/g, '\n') === markdown) {
+    return { path, markdown, written: false }
+  }
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, markdown, 'utf-8')
-  return { path, markdown }
+  return { path, markdown, written: true }
 }
 
 const invokedDirectly = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (invokedDirectly) {
-  const { path } = await generateGenuiSkill()
-  console.log(`[genui-skill] generated -> ${path}`)
+  const { path, written } = await generateGenuiSkill()
+  console.log(`[genui-skill] ${written ? 'generated' : 'unchanged'} -> ${path}`)
 }
