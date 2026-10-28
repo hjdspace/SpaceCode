@@ -65,8 +65,12 @@ export interface Attachment {
   name: string
   path: string
   isFolder: boolean
-  /** 上传的附件在输入框/消息里渲染为卡片；工作区内联 chip 不带此标记 */
-  source?: 'workspace' | 'upload'
+  /** 上传/粘贴的附件在输入框/消息里渲染为卡片；工作区内联 chip 不带此标记 */
+  source?: 'workspace' | 'upload' | 'paste'
+  /** 粘贴长文本的卡片标题（首行摘要）；缺省时卡片用 name */
+  title?: string
+  /** 粘贴长文本的 UTF-8 字节数，卡片副标题展示大小 */
+  sizeBytes?: number
 }
 
 export interface Message {
