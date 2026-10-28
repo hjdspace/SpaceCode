@@ -143,25 +143,28 @@ describe('PreviewServer 文件读取边界', () => {
     expect(res.body).not.toContain('outside-workspace-secret')
   })
 
-  it('传入的 workspaceRoot 只在确实包含文件时放宽范围', async () => {
+  it('可读范围固定为产物目录：跨目录引用越界，同目录与子目录仍可用', async () => {
     const project = join(dir, 'ws-d')
     const docDir = join(project, 'docs', 'prototypes')
     mkdirSync(docDir, { recursive: true })
-    writeFileSync(join(docDir, 'icon-preview.html'), '<img src="../../icons/a.svg">')
+    mkdirSync(join(docDir, 'assets'))
     mkdirSync(join(project, 'icons'))
-    writeFileSync(join(project, 'icons', 'a.svg'), '<svg></svg>')
+    writeFileSync(join(docDir, 'icon-preview.html'), '<img src="../../icons/a.svg">')
+    writeFileSync(join(docDir, 'style.css'), 'body{color:green}')
+    writeFileSync(join(docDir, 'assets', 'local.svg'), '<svg>local</svg>')
+    writeFileSync(join(project, 'icons', 'a.svg'), '<svg>outside</svg>')
 
-    const url = server.toPreviewUrl(join(docDir, 'icon-preview.html'), project)!
-    const asset = await get(new URL('../../icons/a.svg', url).pathname)
-    expect(asset.status).toBe(200)
+    const url = server.toPreviewUrl(join(docDir, 'icon-preview.html'))!
+    const token = pathnameOf(url).split('/')[1]
 
-    // 未登记 project 根时，可读范围只剩文件所在目录，同目录之外的引用被边界拒掉
-    const narrow = server.toPreviewUrl(join(docDir, 'icon-preview.html'))!
-    const narrowToken = pathnameOf(narrow).split('/')[1]
-    const denied = await get(`/${narrowToken}/%2e%2e%2f%2e%2e%2ficons%2fa.svg`)
-
+    // 项目根不再被登记：`../../icons/a.svg` 的编码穿越被词法闸门拒掉
+    const denied = await get(`/${token}/%2e%2e%2f%2e%2e%2ficons%2fa.svg`)
     expect(denied.status).toBe(403)
-    expect(denied.body).not.toContain('<svg>')
+    expect(denied.body).not.toContain('outside')
+
+    // 同目录与子目录的相对资源是常规多文件产物形态，必须保持可用
+    expect((await get(`/${token}/style.css`)).body).toContain('color:green')
+    expect((await get(`/${token}/assets/local.svg`)).body).toContain('local')
   })
 
   it.skipIf(!canSymlink)('符号链接指向工作区外时被 realpath 边界拦截', async () => {
@@ -206,7 +209,6 @@ describe('PreviewServer 文件读取边界', () => {
     const driveRootFile = join(parse(dir).root, 'spacecode-preview-probe.html')
 
     expect(server.toPreviewUrl(driveRootFile)).toBeNull()
-    expect(server.toPreviewUrl(driveRootFile, parse(dir).root)).toBeNull()
   })
 
   it('预览 iframe 的专用源 URL 与 HTTP URL 共用同一份登记', async () => {
@@ -214,8 +216,8 @@ describe('PreviewServer 文件读取边界', () => {
     mkdirSync(workspace)
     writeFileSync(join(workspace, 'index.html'), '<h1>frame</h1>')
 
-    const frameUrl = server.toFrameUrl(join(workspace, 'index.html'), workspace)
-    const httpUrl = server.toPreviewUrl(join(workspace, 'index.html'), workspace)
+    const frameUrl = server.toFrameUrl(join(workspace, 'index.html'))
+    const httpUrl = server.toPreviewUrl(join(workspace, 'index.html'))
 
     expect(frameUrl).toMatch(/^spacecode-preview:\/\/artifact\/[0-9a-f]{32}\/index\.html$/)
     expect(new URL(frameUrl!).pathname).toBe(new URL(httpUrl!).pathname)
@@ -240,7 +242,7 @@ describe('PreviewServer 文件读取边界', () => {
 })
 
 describe('preview:getUrl / preview:getFrameUrl IPC 入口', () => {
-  type GetUrlHandler = (event: unknown, filePath: string, workspaceRoot?: string) => Promise<string | null>
+  type GetUrlHandler = (event: unknown, filePath: string) => Promise<string | null>
 
   let handler: GetUrlHandler
   let frameHandler: GetUrlHandler
@@ -256,12 +258,12 @@ describe('preview:getUrl / preview:getFrameUrl IPC 入口', () => {
     previewServer.stop()
   })
 
-  it('渲染进程传入的项目根成为预览工作区，其内文件可读', async () => {
+  it('登记根固定为产物目录，其内文件可读', async () => {
     const project = join(dir, 'ws-ipc')
     mkdirSync(project)
     writeFileSync(join(project, 'index.html'), '<h1>ipc doc</h1>')
 
-    const url = await handler({}, join(project, 'index.html'), project)
+    const url = await handler({}, join(project, 'index.html'))
     expect(typeof url).toBe('string')
 
     const res = await fetchUrl(url!)
@@ -276,7 +278,7 @@ describe('preview:getUrl / preview:getFrameUrl IPC 入口', () => {
     expect(await handler({}, 42 as unknown as string)).toBeNull()
   })
 
-  it('未带项目根时范围只到文件所在目录', async () => {
+  it('范围固定为文件所在目录，跨目录的编码穿越被拦截', async () => {
     const project = join(dir, 'ws-ipc-narrow')
     const docs = join(project, 'docs')
     mkdirSync(docs, { recursive: true })
@@ -291,15 +293,15 @@ describe('preview:getUrl / preview:getFrameUrl IPC 入口', () => {
     expect(up.body).not.toContain('color:blue')
   })
 
-  it('frame URL 不依赖 HTTP 端口，直接返回专用源并登记工作区', async () => {
+  it('frame URL 不依赖 HTTP 端口，直接返回专用源并登记产物目录', async () => {
     const project = join(dir, 'ws-ipc-frame')
     mkdirSync(project)
     writeFileSync(join(project, 'index.html'), '<h1>frame doc</h1>')
 
-    const url = await frameHandler({}, join(project, 'index.html'), project)
+    const url = await frameHandler({}, join(project, 'index.html'))
 
     expect(url).toMatch(/^spacecode-preview:\/\/artifact\/[0-9a-f]{32}\/index\.html$/)
-    expect(previewServer.toFrameUrl(join(project, 'index.html'), project)).toBe(url)
+    expect(previewServer.toFrameUrl(join(project, 'index.html'))).toBe(url)
   })
 
   it('frame URL 同样拒绝空白路径', async () => {
