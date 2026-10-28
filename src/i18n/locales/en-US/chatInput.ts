@@ -6,6 +6,7 @@ export default {
   addAttachment: 'Add attachment',
   uploadAttachment: 'Upload attachment',
   removeAttachment: 'Remove attachment',
+  pastedText: 'Pasted text',
   refreshModels: 'Refresh model list',
   workspaceFiles: 'Workspace files',
   searchWorkspaceFiles: 'Search files in this project',
