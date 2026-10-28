@@ -52,7 +52,7 @@ export function registerDesignIPCHandlers(
         const output =
           options.format === 'zip'
             ? exportZip(options.filePath, options.workspaceRoot)
-            : await exportPdf(options.filePath, options.workspaceRoot);
+            : await exportPdf(options.filePath);
         shell.showItemInFolder(output);
         return { ok: true, path: output };
       } catch (err) {
