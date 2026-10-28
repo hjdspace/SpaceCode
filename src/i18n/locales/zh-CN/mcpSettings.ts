@@ -97,6 +97,9 @@ export default {
   installFailed: '安装失败',
   installNodejs: '安装 Node.js',
   depInstallHint: '通过系统包管理器自动安装 {command}。',
+  // 预设本地化（启用 uvx/npx 预设时后台一次性安装）
+  localizingPreset: '正在后台本地化，以免每次启动都重新解析包...',
+  localizedPreset: '已本地化，下次会话起不再走包管理器启动',
   // CLI 加载状态
   activeInCli: '已加载',
   activeInCliHint: '此 MCP 服务器会在下次对话时注入 Claude Code。',
