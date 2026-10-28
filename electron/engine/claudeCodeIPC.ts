@@ -25,6 +25,7 @@ import {
   detectBuiltinFromConfig,
   resolveBuiltinMcp,
 } from '../tools/mcpConfigResolver'
+import { localizeBuiltinMcp, type LocalizeSource } from '../tools/builtinMcpInstaller'
 import {
   piMcpJsonPath,
   projectMcpForPi,
@@ -361,6 +362,20 @@ ipcMain.handle('mcp:checkDependency', async (_, command: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     info('McpDependency', `Installing dependency | command=${command}`)
     return installCommand(command, (progress) => {
+      win?.webContents.send('mcp:installProgress', progress)
+    })
+  })
+
+  // ── MCP 预设本地化 ── 把 uvx/npx 形态的内置预设一次性装到持久位置
+  //
+  // 由渲染层在用户启用某个内置预设时后台触发（见 store.toggleServerEnabled）。
+  // 进度复用 mcp:installProgress —— 渲染端只有这一条安装/进度面。
+  // 返回值是状态而不是布尔：调用方要区分「本来就本地直连」「这
+  // 个 key 没有本地化形态」「装失败」，三者的 UI 含义不同。
+  ipcMain.handle('mcp:localizeBuiltin', async (event, key: string, source: LocalizeSource) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    info('McpDependency', `Localizing builtin MCP preset | key=${key} | command=${source?.command || '(none)'}`)
+    return localizeBuiltinMcp(key, source, (progress) => {
       win?.webContents.send('mcp:installProgress', progress)
     })
   })
