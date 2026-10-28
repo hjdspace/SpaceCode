@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as path from 'path'
 import { PiSessionProcess } from '../PiSessionProcess'
 import type { EngineSessionConfig } from '../types'
+import { sessionTempDir } from '../../../session/tempArtifacts'
 import { warn as loggerWarn } from '../../../infra/logger'
 
 /**
@@ -25,7 +26,8 @@ const CWD = 'D:/repo'
 const CLAUDE_DIR = path.join(CWD, '.claude', 'agents')
 const PI_DIR = path.join(CWD, '.pi', 'agents')
 const TMP_DIR = '/tmp'
-const PERSONA_DIR = path.join(TMP_DIR, 'SpaceCode')
+// POSIX 上会话产物按 uid 分目录，目录名不能写死成 /tmp/SpaceCode。
+const PERSONA_DIR = sessionTempDir()
 const EXT_ENTRY = path.resolve(__dirname, '..', '..', '..', 'node_modules', '@tintinweb', 'pi-subagents', 'src', 'index.ts')
 
 const H = vi.hoisted(() => ({
