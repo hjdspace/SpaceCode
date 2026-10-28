@@ -98,6 +98,15 @@ const mcpResolver = vi.hoisted(() => ({
   detectBuiltinFromConfig: vi.fn((): any => null),
   resolveBuiltinMcp: vi.fn((): any => null),
 }))
+const mcpInstaller = vi.hoisted(() => ({
+  localizeBuiltinMcp: vi.fn(
+    async (
+      _key: string,
+      _source: unknown,
+      _onProgress: (p: unknown) => void,
+    ): Promise<any> => ({ status: 'not-applicable' }),
+  ),
+}))
 const piMcp = vi.hoisted(() => ({
   piMcpJsonPath: vi.fn((): string => '/pi/mcp.json'),
   projectMcpForPi: vi.fn((): any => ({ entries: [], skipped: [] })),
@@ -119,6 +128,7 @@ vi.mock('../../tools/mcpProbe', () => mcpProbe)
 vi.mock('../../tools/mcpConfigStore', () => mcpStore)
 vi.mock('../../tools/cuaDriverService', () => cuaDriver)
 vi.mock('../../tools/mcpConfigResolver', () => mcpResolver)
+vi.mock('../../tools/builtinMcpInstaller', () => mcpInstaller)
 vi.mock('../../tools/piMcpProjection', () => piMcp)
 vi.mock('../../ipc/settingsIpc', () => settingsIpc)
 vi.mock('../piInstaller', () => piInstaller)
@@ -158,6 +168,7 @@ beforeEach(() => {
   cuaDriver.getCuaDriverVersion.mockReset().mockResolvedValue(null)
   mcpResolver.detectBuiltinFromConfig.mockReset().mockReturnValue(null)
   mcpResolver.resolveBuiltinMcp.mockReset()
+  mcpInstaller.localizeBuiltinMcp.mockReset().mockResolvedValue({ status: 'not-applicable' })
   piMcp.piMcpJsonPath.mockReset().mockReturnValue('/pi/mcp.json')
   piMcp.projectMcpForPi.mockReset().mockReturnValue({ entries: [], skipped: [] })
   piMcp.readPiForeignServers.mockReset().mockReturnValue([])
@@ -520,6 +531,23 @@ describe('mcp:installDependency', () => {
     const progress = { stage: 'installing', message: 'pip install uv' }
     const progressCb = cli.installCommand.mock.calls[0][1] as (p: unknown) => void
     progressCb(progress)
+    expect(fakeWin.webContents.send).toHaveBeenCalledWith('mcp:installProgress', progress)
+  })
+})
+
+describe('mcp:localizeBuiltin', () => {
+  it('带着面板上那条启动形态去装，进度复用 mcp:installProgress', async () => {
+    mcpInstaller.localizeBuiltinMcp.mockResolvedValue({ status: 'localized' })
+    const fakeWin = { webContents: { send: vi.fn() } }
+    ;(BrowserWindow.fromWebContents as ReturnType<typeof vi.fn>).mockReturnValue(fakeWin)
+    const source = { type: 'stdio', command: 'uvx', args: ['cdp-bridge@latest'] }
+
+    await expect(handler('mcp:localizeBuiltin')({ sender: { id: 1 } }, 'cdp-bridge', source))
+      .resolves.toEqual({ status: 'localized' })
+    expect(mcpInstaller.localizeBuiltinMcp).toHaveBeenCalledWith('cdp-bridge', source, expect.any(Function))
+
+    const progress = { stage: 'downloading', message: 'uv tool install cdp-bridge@0.1.25' }
+    ;(mcpInstaller.localizeBuiltinMcp.mock.calls[0][2] as (p: unknown) => void)(progress)
     expect(fakeWin.webContents.send).toHaveBeenCalledWith('mcp:installProgress', progress)
   })
 })
