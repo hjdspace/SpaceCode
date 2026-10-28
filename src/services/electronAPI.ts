@@ -428,6 +428,7 @@ import { mcp } from './api/mcp'
 import { memory } from './api/memory'
 import { mobile } from './api/mobile'
 import { officecli } from './api/officecli'
+import { paste } from './api/paste'
 import { petApi } from './api/pet'
 import { rtk } from './api/rtk'
 import { session } from './api/session'
@@ -837,6 +838,7 @@ export const api = {
   memory,
   mobile,
   officecli,
+  paste,
   pet: petApi,
   rtk,
   session,

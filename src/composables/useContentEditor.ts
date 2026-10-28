@@ -102,16 +102,16 @@ export function extractDisplayName(path: string): string {
 }
 
 /**
- * 提交时的文件附件 = 编辑器内联 chip + 输入框卡片里上传的文件。
+ * 提交时的文件附件 = 编辑器内联 chip + 输入框卡片里的上传/粘贴文件。
  *
- * 只有 source === 'upload' 的卡片附件需要并入：工作区 chip 同时存在于
+ * 只有 source 为 upload / paste 的卡片附件需要并入：工作区 chip 同时存在于
  * attachedFiles 与 DOM 中，再并一次会重复；而已被删除的 chip 即使还残留
  * 在 attachedFiles 里，也不该继续随消息发出。
  */
 export function mergeComposerFiles(mentions: Attachment[], attachedFiles: Attachment[]): Attachment[] {
   const files = mentions.map(f => ({ ...f }))
   for (const file of attachedFiles) {
-    if (file.source !== 'upload') continue
+    if (file.source !== 'upload' && file.source !== 'paste') continue
     if (files.some(f => f.path === file.path)) continue
     files.push({ ...file })
   }

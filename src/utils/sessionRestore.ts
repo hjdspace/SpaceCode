@@ -1,5 +1,6 @@
-import type { Message } from '@/types'
+import type { Attachment, Message } from '@/types'
 import { projectGenuiCards } from '@/lib/genui/cardProjection'
+import { parseEngineUserPrompt } from '@/shared/promptEnvelope'
 
 /**
  * 把 Claude Code JSONL 格式的历史消息流转换为内部 Message[] 结构。
@@ -21,6 +22,25 @@ import { projectGenuiCards } from '@/lib/genui/cardProjection'
  * 格式中，一次 assistant 回复可能被拆成多行，如 text 行 + tool_use 行）。
  */
 export type RestoredMessage = Omit<Message, 'id' | 'timestamp'> & { id?: string; timestamp?: number }
+
+/** 粘贴长文本落盘的路径特征：<tmp>/SpaceCode[-uid]/pasted/pasted-<uuid>.txt */
+function isPastedTextRef(filePath: string): boolean {
+  return /[/\\]pasted[/\\]pasted-[^/\\]+\.txt$/i.test(filePath)
+}
+
+/**
+ * 引擎正文里的 `@"路径"` 引用还原成附件卡片。
+ * 工作区文件走的是 `@file:"…"` 内联 chip，不会落到这里；
+ * `@"…"` 只由上传附件和粘贴落盘产生，按路径区分来源。
+ */
+function buildPromptFileAttachments(fileRefs: string[]): Attachment[] {
+  return fileRefs.map(filePath => ({
+    name: filePath.split(/[/\\]/).pop() || filePath,
+    path: filePath,
+    isFolder: false,
+    source: isPastedTextRef(filePath) ? 'paste' : 'upload',
+  }))
+}
 
 export function buildMessagesFromHistory(
   rawMessages: any[],
@@ -177,7 +197,11 @@ export function buildMessagesFromHistory(
         entry.toolCall.endTime = ts
       }
 
-      const userText = textParts.join('').trim()
+      // 引擎正文里带着 UI 附件信封（@"路径" + Attachments/Images 说明块），
+      // 历史重建只有这份正文，展示前先剥掉，否则气泡里直接是临时文件路径。
+      const parsedPrompt = parseEngineUserPrompt(textParts.join(''))
+      const userText = parsedPrompt.text
+      const promptAttachments = buildPromptFileAttachments(parsedPrompt.fileRefs)
 
       // 过滤引擎合成的占位/中断消息，与引擎 isNotEmptyMessage 行为一致：
       // 这些文本对模型可见，但不应渲染成用户气泡。否则历史重建后主时间线会多出
@@ -257,7 +281,8 @@ export function buildMessagesFromHistory(
       }
 
       if (!userText && toolResults.length > 0) continue
-      if (!userText) continue
+      // 纯附件消息（只挂了文件、没打字）也要保留，否则重开后卡片消失
+      if (!userText && promptAttachments.length === 0) continue
 
       // ── 自动重试去重 ──
       // 跳过由 resendForRetry 产生的重复用户消息。判定条件：
@@ -265,15 +290,17 @@ export function buildMessagesFromHistory(
       //   且自上一条 user 消息后出现过 API 错误（429 等可恢复错误），
       //   或自上一条 user 消息后没有任何真实助手回复（超时/进程退出后重试）。
       // 这样既清理重试痕迹，又保留用户在收到真实回复后合法地重复发送相同消息的场景。
+      // 纯附件消息正文为空，不参与去重，避免连续两次附件被吞掉。
       if (
+        userText &&
         userText === lastUserText &&
         (sawApiErrorSinceLastUser || !hadRealAssistantSinceLastUser)
       ) {
         continue
       }
 
-      // 提取附件（文件引用 / 图片）
-      const attachments: any[] = []
+      // 提取附件（引擎正文里的文件引用 / 旧版 raw.attachments / 图片）
+      const attachments: Attachment[] = [...promptAttachments]
       const imageAttachments: any[] = []
       if (Array.isArray(raw.attachments)) {
         for (const att of raw.attachments) {
@@ -288,6 +315,7 @@ export function buildMessagesFromHistory(
               data: att.data,
             })
           } else if (att.path || att.name) {
+            if (att.path && attachments.some(existing => existing.path === att.path)) continue
             attachments.push({
               name: att.name || att.path || 'file',
               path: att.path || '',

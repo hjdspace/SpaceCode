@@ -6,6 +6,7 @@ export default {
   addAttachment: '添加附件',
   uploadAttachment: '上传附件',
   removeAttachment: '移除附件',
+  pastedText: '粘贴的文本',
   refreshModels: '刷新模型列表',
   workspaceFiles: '工作区文件',
   searchWorkspaceFiles: '搜索当前项目文件',

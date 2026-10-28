@@ -55,10 +55,10 @@
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <QuoteAttachmentsBar :quotes="attachedQuotes" @remove="removeQuoteAttachment" />
 
-      <!-- 上传的文件附件：卡片位于输入框内、正文上方 -->
-      <div v-if="uploadedAttachments.length" class="composer-file-attachments">
+      <!-- 上传/粘贴的文件附件：卡片位于输入框内、正文上方 -->
+      <div v-if="attachmentCards.length" class="composer-file-attachments">
         <FileAttachmentCard
-          v-for="file in uploadedAttachments"
+          v-for="file in attachmentCards"
           :key="file.path"
           :file="file"
           removable
@@ -377,6 +377,7 @@ export type { ImageAttachment, Attachment, AllAttachments, SendOptions } from '@
 // readCommandChips 把 chip 的 DOM 属性读成提交决策的输入
 import type { CommandChipData } from '@/lib/message-input-logic'
 import { resolveComposerSubmission } from '@/lib/composer-submission'
+import { shouldExternalizePaste, summarizePastedText } from '@/lib/pasteText'
 import type { CommandKind } from '@/lib/constants/commands'
 
 // ── Props & Emits ────────────────────────────────────────────────
@@ -528,8 +529,10 @@ const {
   handleBrowseFiles: handleBrowseFilesBase,
 } = fileAttachments
 
-/** 输入框卡片区只展示上传的文件；工作区文件仍以内联 chip 呈现 */
-const uploadedAttachments = computed(() => attachedFiles.value.filter(f => f.source === 'upload'))
+/** 输入框卡片区展示上传与粘贴的附件；工作区文件仍以内联 chip 呈现 */
+const attachmentCards = computed(() =>
+  attachedFiles.value.filter(f => f.source === 'upload' || f.source === 'paste')
+)
 
 async function handleUploadAttachment() {
   closeAttachmentMenu()
@@ -1159,31 +1162,51 @@ function handleEditorKeydown(event: KeyboardEvent) {
   }
 }
 
-function handleEditorPaste(e: ClipboardEvent) {
+async function handleEditorPaste(e: ClipboardEvent) {
   e.preventDefault()
 
   const items = e.clipboardData?.items
   if (items) {
-    let hasImage = false
-
     for (const item of items) {
       if (item.type.startsWith('image/')) {
-        hasImage = true
         const file = item.getAsFile()
         if (file) {
           handleImageFileFromComposable(file, (image) => insertImageChip(image))
         }
+        // 剪贴板同时带图片和文本时只取图片，与原行为一致
+        return
       }
     }
-
-    if (!hasImage) {
-      const text = e.clipboardData?.getData('text/plain') || ''
-      insertPastedTextWithMarkers(text)
-    }
-  } else {
-    const text = e.clipboardData?.getData('text/plain') || ''
-    insertPastedTextWithMarkers(text)
   }
+
+  const text = e.clipboardData?.getData('text/plain') || ''
+  if (shouldExternalizePaste(text) && await attachPastedText(text)) return
+  insertPastedTextWithMarkers(text)
+}
+
+/**
+ * 长文本粘贴：原文落到临时目录，输入框只挂一张附件卡片。
+ * 写入失败（H5 远程模式没有该 IPC）时返回 false，调用方回退为行内插入，不丢内容。
+ */
+async function attachPastedText(text: string): Promise<boolean> {
+  let saved: Awaited<ReturnType<typeof api.paste.saveText>>
+  try {
+    saved = await api.paste.saveText(text)
+  } catch {
+    return false
+  }
+  if (!saved?.success || !saved.path) return false
+
+  attachedFiles.value.push({
+    name: saved.path.split(/[/\\]/).pop() || 'pasted-text.txt',
+    path: saved.path,
+    isFolder: false,
+    source: 'paste',
+    title: summarizePastedText(text) || undefined,
+    sizeBytes: saved.size,
+  })
+  focusEditor()
+  return true
 }
 
 function handleEditorClick() {

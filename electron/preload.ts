@@ -147,6 +147,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stat: (filePath: string): Promise<FileStat | null> =>
     ipcRenderer.invoke('fs:stat', filePath),
 
+  paste: {
+    saveText: (text: string): Promise<{ success: boolean; path?: string; size?: number; error?: string }> =>
+      ipcRenderer.invoke('paste:saveText', text),
+  },
+
   searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }): Promise<Array<{ name: string; path: string; relativePath: string; isDirectory: boolean; isFile: boolean }>> =>
     ipcRenderer.invoke('fs:searchFiles', dirPath, query, options),
 

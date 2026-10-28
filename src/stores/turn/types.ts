@@ -2,6 +2,8 @@
 // Turn 模块共享的类型、常量与工厂函数。
 // 从 index.ts 抽出，供 timelineAssembler / turnStateMachine / index 共用。
 
+import type { Attachment } from '@/composables/types'
+
 // 单个会话当前进行中的 turn 状态。turnStates 中无此 sessionId 条目 === 该会话 idle。
 export interface TurnState {
   assistantMessageId: string
@@ -61,7 +63,7 @@ export function createSettledTurn(): TurnState {
 export interface PendingMessage {
   id: string
   content: string
-  attachments: { name: string; path: string; isFolder: boolean }[]
+  attachments: Attachment[]
   images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
   displayLabel?: string
   priority: 'now' | 'later'
