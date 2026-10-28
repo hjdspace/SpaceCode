@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   probeServer: vi.fn(),
   checkDependency: vi.fn(),
   installDependency: vi.fn(),
+  localizeBuiltin: vi.fn(),
   getActiveMcpNames: vi.fn(),
   onInstallProgress: vi.fn(),
   getActiveSessions: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock('@/services/electronAPI', () => ({
       probeServer: mocks.probeServer,
       checkDependency: mocks.checkDependency,
       installDependency: mocks.installDependency,
+      localizeBuiltin: mocks.localizeBuiltin,
       getActiveMcpNames: mocks.getActiveMcpNames,
       onInstallProgress: mocks.onInstallProgress,
     },
@@ -126,6 +128,7 @@ beforeEach(() => {
   mocks.probeServer.mockResolvedValue({ status: 'connected', serverInfo: { name: 'x', version: '1' }, tools: [] })
   mocks.checkDependency.mockResolvedValue({ available: true, version: '1.0.0', path: '/usr/bin/x' })
   mocks.installDependency.mockResolvedValue({ success: true })
+  mocks.localizeBuiltin.mockResolvedValue({ status: 'not-applicable' })
   mocks.getActiveMcpNames.mockResolvedValue([])
   mocks.onInstallProgress.mockReturnValue(mocks.unsub)
   mocks.getActiveSessions.mockResolvedValue([])
@@ -639,5 +642,137 @@ describe('mcp saveJsonConfig', () => {
     await expect(store.saveJsonConfig('{not json')).rejects.toThrow()
     expect(store.servers.kept).toBeDefined()
     expect(mocks.updateServers).not.toHaveBeenCalled()
+  })
+})
+
+describe('mcp 内置预设本地化（启用即后台一次性安装）', () => {
+  const builtinCdp = () =>
+    makeServer({
+      name: 'cdp-bridge',
+      _source: 'builtin',
+      type: 'stdio',
+      command: 'uvx',
+      args: ['cdp-bridge@latest'],
+      enabled: false,
+    })
+
+  it('启用内置预设时带着面板上的启动形态触发；禁用与用户自建项不触发', async () => {
+    const store = await loadStore()
+    store.servers = {
+      'cdp-bridge': builtinCdp(),
+      mine: makeServer({ name: 'mine', command: 'npx', args: ['-y', 'x'], enabled: false }),
+    }
+
+    await store.toggleServerEnabled('cdp-bridge', true)
+    expect(mocks.localizeBuiltin).toHaveBeenCalledWith('cdp-bridge', {
+      type: 'stdio',
+      command: 'uvx',
+      args: ['cdp-bridge@latest'],
+    })
+
+    // 用户自建的 npx 条目不归内置预设管，不该被装上机器
+    mocks.localizeBuiltin.mockClear()
+    await store.toggleServerEnabled('mine', true)
+    expect(mocks.localizeBuiltin).not.toHaveBeenCalled()
+
+    // 关掉开关不是授权安装的信号
+    await store.toggleServerEnabled('cdp-bridge', false)
+    expect(mocks.localizeBuiltin).not.toHaveBeenCalled()
+  })
+
+  it('装上后刷新依赖状态并 probe 这一条，标记已本地化；后续启用不再重活', async () => {
+    mocks.localizeBuiltin.mockResolvedValue({ status: 'localized' })
+    const store = await loadStore()
+    store.servers = { 'cdp-bridge': builtinCdp() }
+
+    await store.toggleServerEnabled('cdp-bridge', true)
+    await vi.waitFor(() => {
+      expect(store.localizedPresets['cdp-bridge']).toBe(true)
+      // probeServer 把面板那条配置直接送进 IPC，参数是 config 而不是 key
+      expect(mocks.probeServer).toHaveBeenCalledWith(expect.objectContaining({ command: 'uvx' }))
+    })
+    expect(store.localizingPresets['cdp-bridge']).toBeUndefined()
+
+    mocks.localizeBuiltin.mockClear()
+    await store.toggleServerEnabled('cdp-bridge', false)
+    await store.toggleServerEnabled('cdp-bridge', true)
+    expect(mocks.localizeBuiltin).not.toHaveBeenCalled()
+  })
+
+  it('already-local 只标记，不重复 probe 一遍', async () => {
+    mocks.localizeBuiltin.mockResolvedValue({ status: 'already-local' })
+    const store = await loadStore()
+    store.servers = { 'cdp-bridge': builtinCdp() }
+
+    await store.toggleServerEnabled('cdp-bridge', true)
+    await vi.waitFor(() => expect(store.localizedPresets['cdp-bridge']).toBe(true))
+    expect(mocks.probeServer).not.toHaveBeenCalled()
+  })
+
+  it('装失败保持静默：不写 installError、不 probe、开关状态一个字不改', async () => {
+    // 这条链路是纯增益路径 —— 失败的唯一后果是下次 spawn 继续走钉版本 launcher，
+    // 冒出一条红字反而是在告诉用户一件根本没发生的事。
+    mocks.localizeBuiltin.mockResolvedValue({ status: 'failed', error: 'uv not found' })
+    const store = await loadStore()
+    store.servers = { 'cdp-bridge': builtinCdp() }
+
+    await store.toggleServerEnabled('cdp-bridge', true)
+    await vi.waitFor(() => expect(mocks.localizeBuiltin).toHaveBeenCalledTimes(1))
+
+    expect(store.installError).toBeNull()
+    expect(store.localizedPresets['cdp-bridge']).toBeUndefined()
+    expect(store.servers['cdp-bridge']?.enabled).toBe(true)
+    expect(mocks.probeServer).not.toHaveBeenCalled()
+  })
+
+  it('IPC 抛错也不冒泡到开关', async () => {
+    mocks.localizeBuiltin.mockRejectedValue(new Error('ipc gone'))
+    const store = await loadStore()
+    store.servers = { 'cdp-bridge': builtinCdp() }
+
+    await store.toggleServerEnabled('cdp-bridge', true)
+    await vi.waitFor(() => expect(mocks.localizeBuiltin).toHaveBeenCalledTimes(1))
+
+    expect(store.localizingPresets['cdp-bridge']).toBeUndefined()
+    expect(store.servers['cdp-bridge']?.enabled).toBe(true)
+  })
+
+  it('同一预设并发触发只装一次，结束后释放闸门', async () => {
+    let release: (v: { status: string }) => void = () => {}
+    mocks.localizeBuiltin.mockImplementation(
+      () => new Promise(res => { release = res }),
+    )
+    const store = await loadStore()
+    store.servers = { 'cdp-bridge': builtinCdp() }
+
+    const a = store.localizeBuiltinPreset('cdp-bridge')
+    const b = store.localizeBuiltinPreset('cdp-bridge')
+    expect(store.localizingPresets['cdp-bridge']).toBe(true)
+
+    release({ status: 'localized' })
+    await Promise.all([a, b])
+    expect(mocks.localizeBuiltin).toHaveBeenCalledTimes(1)
+    expect(store.localizingPresets['cdp-bridge']).toBeUndefined()
+
+    // 标记已置位，后续调用直接短路
+    await store.localizeBuiltinPreset('cdp-bridge')
+    expect(mocks.localizeBuiltin).toHaveBeenCalledTimes(1)
+  })
+
+  it('不存在的服务器是 no-op；非内置 key 交给主进程判不适用', async () => {
+    const store = await loadStore()
+    store.servers = { ghost: undefined as never }
+    delete store.servers.ghost
+
+    await store.localizeBuiltinPreset('ghost')
+    expect(mocks.localizeBuiltin).not.toHaveBeenCalled()
+
+    store.servers.mine = makeServer({ name: 'mine', command: 'npx' })
+    await store.localizeBuiltinPreset('mine')
+    expect(mocks.localizeBuiltin).toHaveBeenCalledWith('mine', {
+      type: undefined,
+      command: 'npx',
+      args: [],
+    })
   })
 })
