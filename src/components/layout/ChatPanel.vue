@@ -10,8 +10,13 @@
       <OrchestrationCanvas />
     </div>
 
+    <!-- Factory (AI pipeline) -->
+    <div v-if="factoryMounted" v-show="isFactoryTab" class="factory-wrapper">
+      <FactoryView />
+    </div>
+
     <!-- Chat Content -->
-    <div v-show="!isTerminalTab && !isOrchestrationTab" class="chat-content-wrapper">
+    <div v-show="!isTerminalTab && !isOrchestrationTab && !isFactoryTab" class="chat-content-wrapper">
       <div v-if="!compact" class="chat-header">
         <div class="header-left">
           <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
@@ -329,6 +334,7 @@ import type { Message } from '@/types'
 const WorkAssistantPicker = defineAsyncComponent(() => import('../work/WorkAssistantPicker.vue'))
 const TerminalPanel = defineAsyncComponent(() => import('../terminal/TerminalPanel.vue'))
 const OrchestrationCanvas = defineAsyncComponent(() => import('../orchestration/OrchestrationCanvas.vue'))
+const FactoryView = defineAsyncComponent(() => import('../factory/FactoryView.vue'))
 const RewindDialog = defineAsyncComponent(() => import('../chat/RewindDialog.vue'))
 const CodeRewindConfirmDialog = defineAsyncComponent(() => import('../chat/CodeRewindConfirmDialog.vue'))
 const MessageSelector = defineAsyncComponent(() => import('../chat/MessageSelector.vue'))
@@ -880,6 +886,15 @@ const isOrchestrationTab = computed(() => {
   return appStore.activeCenterTab.startsWith('orchestration-')
 })
 
+// Check if current tab is a factory tab
+const isFactoryTab = computed(() => {
+  if (props.compact) return false
+  if (props.paneTabId) {
+    return props.paneTabId.startsWith('factory-')
+  }
+  return appStore.activeCenterTab.startsWith('factory-')
+})
+
 // Defer xterm and PTY UI until the first terminal visit, then keep it mounted.
 const terminalPanelMounted = ref(isTerminalTab.value)
 watch(isTerminalTab, (active) => {
@@ -892,6 +907,12 @@ watch(isOrchestrationTab, (active) => {
   if (active) orchestrationMounted.value = true
 })
 
+// Defer factory view until first visit, then keep it mounted.
+const factoryMounted = ref(isFactoryTab.value)
+watch(isFactoryTab, (active) => {
+  if (active) factoryMounted.value = true
+})
+
 /** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */
 const hasWorkspaceContext = computed(() =>
   sessionStore.sessions.some((s) => !!(s.workingDirectory && String(s.workingDirectory).trim()))
@@ -901,6 +922,7 @@ const hasWorkspaceContext = computed(() =>
 const showNoProjectWelcome = computed(() => {
   if (isTerminalTab.value) return false
   if (isOrchestrationTab.value) return false
+  if (isFactoryTab.value) return false
   // H5 模式下不显示“无项目”欢迎页 — 手机端通过镜像会话访问，
   // 即使桌面端没有打开项目，也应该显示聊天界面让用户能看到消息
   if (isH5Mode()) return false
@@ -992,9 +1014,10 @@ watch(
     root: (appStore.projectRoot || '').trim(),
     terminal: isTerminalTab.value,
     orchestration: isOrchestrationTab.value,
+    factory: isFactoryTab.value,
   }),
-  ({ has, root, terminal, orchestration }) => {
-    if (terminal || orchestration) return
+  ({ has, root, terminal, orchestration, factory }) => {
+    if (terminal || orchestration || factory) return
     // H5 模式下跳过会话清理 — 手机端会话由桌面端管理，不应自动删除
     if (isH5Mode()) return
     if (!has) {
@@ -1860,6 +1883,13 @@ async function handleRestoreHistorySession(session: any) {
 }
 
 .orchestration-wrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.factory-wrapper {
   flex: 1;
   overflow: hidden;
   display: flex;

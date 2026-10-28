@@ -79,6 +79,18 @@
         <span class="icon-label">{{ t('sidebar.orchestration') }}</span>
       </button>
 
+      <!-- Factory (AI pipeline) Tab -->
+      <button
+        class="icon-btn"
+        :class="{ active: appStore.activeCenterTab.startsWith('factory-') }"
+        @click="handleFactoryClick"
+        :title="t('sidebar.factory')"
+        :aria-label="t('sidebar.factory')"
+      >
+        <FactoryIcon :size="20" />
+        <span class="icon-label">{{ t('sidebar.factory') }}</span>
+      </button>
+
       <!-- Debug/Trace Tab -->
       <button
         class="icon-btn"
@@ -387,6 +399,7 @@ import {
   Package,
   LayoutGrid,
   Workflow,
+  Factory as FactoryIcon,
   Wrench,
   X
 } from 'lucide-vue-next'
@@ -576,6 +589,10 @@ function handleTerminalClick() {
 
 function handleOrchestrationClick() {
   appStore.openOrchestrationTab()
+}
+
+function handleFactoryClick() {
+  appStore.openFactoryTab()
 }
 
 function handleNewTerminal() {

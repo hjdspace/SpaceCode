@@ -71,6 +71,7 @@ import sideTask from './sideTask'
 import onboarding from './onboarding'
 import voiceInput from './voiceInput'
 import genui from './genui'
+import factory from './factory'
 
 export default {
   common,
@@ -146,4 +147,5 @@ export default {
   onboarding,
   voiceInput,
   genui,
+  factory,
 }

@@ -5,6 +5,7 @@ import { updateNamespace } from '@/shared/channels/update'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { memoryChannels } from '@/shared/channels/memory'
 import { voiceNamespace } from '@/shared/channels/voice'
+import { factoryNamespace } from '@/shared/channels/factory'
 import type { EffortLevel } from '@/shared/effort'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
@@ -276,6 +277,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ...createEventBridge(claudeCodeNamespace.events, ipcRenderer, 'claude-code:'),
   } satisfies import('@/shared/channels/claudeCode').ClaudeCodeRendererApi
     & import('@/shared/channels/claudeCode').ClaudeCodeEventApi,
+
+  // Factory（AI 流水线）API — invoke channels 表驱动注册
+  factory: {
+    ...createPreloadBridge(factoryNamespace.channels, ipcRenderer, 'factory:'),
+  } satisfies import('@/shared/channels/factory').FactoryRendererApi,
 
   // Folder selection dialog
   selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> =>

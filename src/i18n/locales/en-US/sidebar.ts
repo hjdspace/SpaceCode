@@ -35,4 +35,5 @@ export default {
   failedCreateConversation: 'Failed to create new conversation. Please try again.',
   failedRemoveProject: 'Failed to remove project. Please try again.',
   orchestration: 'Orchestration',
+  factory: 'Factory',
 }
