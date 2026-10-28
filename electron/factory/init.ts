@@ -7,8 +7,22 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { FACTORY_IGNORE_ENTRIES, FACTORY_PROMPT_KEYS, type FactoryPromptKey } from '@/shared/factory'
+import { FACTORY_DOCKERFILE } from './dockerSandbox'
 
 export const FACTORY_ROOT = '.spacecode/factory'
+
+/**
+ * Docker 沙箱的固定镜像入口。用户可修改内容，但路径固定；
+ * 镜像以 Dockerfile 的哈希作为构建缓存标签。
+ */
+const DOCKERFILE_SKELETON = `# Factory sandbox image (fixed entry: .spacecode/factory/docker/Dockerfile)
+# Runtime mounts only the task worktree plus a read-only package cache.
+FROM node:22
+
+RUN npm install -g @anthropic-ai/claude-code
+
+WORKDIR /workspace
+`
 
 const COMMON_FOOTER = `## Working agreement
 - Source branch: {{SOURCE_BRANCH}}
@@ -99,6 +113,14 @@ export function promptRelativePath(key: FactoryPromptKey): string {
   return `${FACTORY_ROOT}/prompts/${key}.md`
 }
 
+/** 写入缺失的 Dockerfile 骨架；已存在时保持用户修改。 */
+export function writeDockerfileSkeleton(repoRoot: string): void {
+  const path = join(repoRoot, FACTORY_DOCKERFILE)
+  if (existsSync(path)) return
+  mkdirSync(join(repoRoot, FACTORY_DOCKERFILE.replace(/\/[^/]+$/, '')), { recursive: true })
+  writeFileSync(path, DOCKERFILE_SKELETON, 'utf-8')
+}
+
 /** 写入缺失的 prompt 骨架；已存在的文件保持原样。 */
 export function writePromptSkeletons(repoRoot: string): void {
   const dir = join(repoRoot, FACTORY_ROOT, 'prompts')
@@ -114,7 +136,7 @@ export function ensureFactoryLayout(
   options: { tracker: 'local' | 'github-issues' },
 ): void {
   const root = join(repoRoot, FACTORY_ROOT)
-  for (const sub of ['prompts', 'runs', 'logs']) mkdirSync(join(root, sub), { recursive: true })
+  for (const sub of ['prompts', 'runs', 'logs', 'cache']) mkdirSync(join(root, sub), { recursive: true })
   if (options.tracker === 'local') {
     const backlog = join(root, 'backlog.json')
     if (!existsSync(backlog)) writeFileSync(backlog, '[]\n', 'utf-8')

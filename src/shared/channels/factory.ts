@@ -38,6 +38,7 @@ import type {
   FactoryState,
   FactoryTakeoverResult,
   FactoryTaskActionResult,
+  FactoryTaskRetryInput,
   FactoryTaskStartInput,
   FactoryTaskStartResult,
   FactoryWorktreeRevealResult,
@@ -150,7 +151,12 @@ export const factoryNamespace = defineNamespace({
       res: null as unknown as FactoryReturnResult,
     },
     taskRetry: {
-      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      req: [] as unknown as [
+        repoRoot: string,
+        runId: string,
+        taskId: string,
+        input?: FactoryTaskRetryInput,
+      ],
       res: null as unknown as FactoryTaskActionResult,
     },
     taskCommentUpdate: {

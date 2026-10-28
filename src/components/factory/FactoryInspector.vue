@@ -389,6 +389,15 @@
             {{ retrying ? t('factory.actions.retrying') : t('factory.actions.retry') }}
           </button>
           <button
+            v-if="canFallbackLocal"
+            class="action-btn"
+            data-task-retry-local
+            :disabled="retrying"
+            @click="emit('retry-local')"
+          >
+            {{ retrying ? t('factory.actions.retrying') : t('factory.actions.retryLocal') }}
+          </button>
+          <button
             v-if="task.lane === 'mergeable'"
             class="action-btn primary"
             data-task-merge
@@ -519,6 +528,7 @@ const emit = defineEmits<{
   takeover: []
   return: []
   retry: []
+  'retry-local': []
   'comment-accept': [commentId: string]
   'comment-ignore': [commentId: string]
   'comment-confirm-ignore': [commentId: string]
@@ -553,6 +563,14 @@ const canStart = computed(() => {
 const takenOver = computed(() => (props.task ? isTakenOver(props.task) : false))
 const canTakeover = computed(() => (props.task ? canTakeOver(props.task) : false))
 const canRetry = computed(() => (props.task ? canRetryTask(props.task) : false))
+/** Docker 任务失败后只允许用户显式切回本地重试，不做自动降级。 */
+const canFallbackLocal = computed(
+  () =>
+    props.task?.lane === 'blocked' &&
+    props.task.cancelled !== true &&
+    props.task.configSnapshot?.sandbox?.type === 'docker' &&
+    Boolean(props.task.worktree),
+)
 /** 合并已完成但回写失败：只重试评论/关闭，不触碰合并结果。 */
 const canRetryWriteback = computed(
   () =>

@@ -35,7 +35,12 @@ import {
   readFactoryConfig,
   writeFactoryConfigAtomic,
 } from './config'
-import { ensureFactoryGitignore, ensureFactoryLayout, writePromptSkeletons } from './init'
+import {
+  ensureFactoryGitignore,
+  ensureFactoryLayout,
+  writeDockerfileSkeleton,
+  writePromptSkeletons,
+} from './init'
 import { runFactoryPreflight } from './preflight'
 import { checkGhAuth as defaultCheckGhAuth, verifyGithubToken } from './github'
 import { createFactorySecretStore, type FactorySecretStore } from './secrets'
@@ -53,6 +58,7 @@ import { recoverRuns } from './recovery'
 import { updateFactoryConfig } from './configUpdate'
 import { createGithubTrackerService } from './githubTrackerService'
 import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
+import { createDockerSandboxProvider, probeProxyReachable } from './dockerSandbox'
 import { info, warn } from '../infra/logger'
 
 const FACTORY_EVENTS = eventChannels(factoryNamespace.events, 'factory:')
@@ -87,12 +93,23 @@ function pushFactorySession(session: FactoryTakeoverSession): void {
   }
 }
 
+/** Docker 沙箱预检事实；镜像/挂载/代理任一失败都会阻断保存。 */
+export interface FactoryDockerPreflight {
+  available: boolean
+  imageOk: boolean
+  imageDetail?: string
+  mountable: boolean
+  proxyOk?: boolean
+}
+
 export interface FactoryServiceDeps {
   getRepoInfo(root: string): Promise<FactoryRepoInfo>
   getEngineAvailability(engineType: 'claude-code' | 'pi'): Promise<{ available: boolean; reason: string; version: string | null }>
   getModelProfile(root: string): { configured: boolean; model?: string; provider?: string }
   isConfigWritable(root: string): boolean
   isDockerAvailable(): Promise<boolean>
+  /** 可选：完整的 Docker 沙箱预检；缺省时只检查 docker 是否可用。 */
+  dockerPreflight?(root: string, imageName: string): Promise<FactoryDockerPreflight>
   checkGhAuth(): Promise<FactoryGithubAuthResult>
   verifyToken(token: string, repo: string): Promise<FactoryGithubAuthResult>
   verifyScriptMissing(root: string, command: string): boolean
@@ -161,12 +178,35 @@ async function resolveGithubAuth(
 }
 
 export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
+  async function collectDockerFacts(
+    root: string,
+    config: FactoryConfig,
+  ): Promise<FactoryDockerPreflight | null> {
+    if (config.sandbox.type !== 'docker') return null
+    if (deps.dockerPreflight) return deps.dockerPreflight(root, config.sandbox.imageName)
+    return {
+      available: await deps.isDockerAvailable(),
+      imageOk: true,
+      mountable: true,
+    }
+  }
+
+  /** Docker 沙箱依赖固定路径的 Dockerfile；预检前先补骨架，用户改写的内容保持不动。 */
+  function ensureDockerScaffold(root: string, config: FactoryConfig): void {
+    if (config.sandbox.type !== 'docker') return
+    try {
+      writeDockerfileSkeleton(root)
+    } catch (error) {
+      warn('Factory', `Failed to write Dockerfile skeleton: ${String(error)}`)
+    }
+  }
+
   async function collectPreflight(root: string, config: FactoryConfig): Promise<FactoryPreflightResult> {
-    const [repo, engine, githubAuth, dockerAvailable] = await Promise.all([
+    const [repo, engine, githubAuth, docker] = await Promise.all([
       deps.getRepoInfo(root),
       deps.getEngineAvailability(config.agent.engineType),
       resolveGithubAuth(config, deps),
-      config.sandbox.type === 'docker' ? deps.isDockerAvailable() : Promise.resolve(false),
+      collectDockerFacts(root, config),
     ])
     const modelProfile = deps.getModelProfile(root)
     return runFactoryPreflight(config, {
@@ -175,7 +215,15 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
       engineAvailable: engine.available,
       modelProfileConfigured: modelProfile.configured,
       githubAuth,
-      dockerAvailable,
+      dockerAvailable: docker?.available ?? false,
+      ...(docker
+        ? {
+            dockerImageOk: docker.imageOk,
+            ...(docker.imageDetail ? { dockerImageDetail: docker.imageDetail } : {}),
+            dockerMountable: docker.mountable,
+            ...(docker.proxyOk === undefined ? {} : { dockerProxyOk: docker.proxyOk }),
+          }
+        : {}),
       verifyScriptMissing: deps.verifyScriptMissing(root, config.commands.verify),
     })
   }
@@ -225,6 +273,7 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
       baseBranch: repoInfo.baseBranch,
     })
     if (!built.ok) return blockingInvalidDraft()
+    ensureDockerScaffold(root, built.config)
     return collectPreflight(root, built.config)
   }
 
@@ -237,6 +286,7 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
     if (!built.ok) return { ok: false, error: 'invalid-draft' }
 
     // 主进程是最后一道闸门：预检不通过绝不落盘。
+    ensureDockerScaffold(root, built.config)
     const preflight = await collectPreflight(root, built.config)
     if (preflight.blocking) return { ok: false, error: 'preflight-failed', preflight }
 
@@ -320,6 +370,19 @@ function isDockerAvailable(): Promise<boolean> {
   return runCommand('docker', ['version', '--format', '{{.Server.Version}}']).then((r) => r.code === 0)
 }
 
+/** 预检一次性检查：Docker 可用、固定镜像可构建、工作树/缓存可挂载、代理可达。 */
+async function dockerPreflight(root: string, imageName: string): Promise<FactoryDockerPreflight> {
+  const provider = createDockerSandboxProvider({ probeProxy: (url) => probeProxyReachable(url) })
+  const facts = await provider.preflight({ repoRoot: root, imageName })
+  return {
+    available: facts.dockerAvailable,
+    imageOk: facts.image.ok,
+    ...(facts.image.ok ? {} : { imageDetail: facts.image.tail ?? facts.image.reason }),
+    mountable: facts.mountable,
+    ...(facts.proxy ? { proxyOk: facts.proxy.ok } : {}),
+  }
+}
+
 function verifyScriptMissing(root: string, command: string): boolean {
   const match = command.match(/^(?:npm|pnpm|yarn|bun)\s+run\s+([^\s]+)/)
   if (!match) return false
@@ -386,6 +449,7 @@ export function registerFactoryIPCHandlers(): void {
     getModelProfile,
     isConfigWritable,
     isDockerAvailable,
+    dockerPreflight,
     checkGhAuth: () => defaultCheckGhAuth(),
     verifyToken: (token, repo) => verifyGithubToken(token, repo),
     verifyScriptMissing,
@@ -450,8 +514,10 @@ export function registerFactoryIPCHandlers(): void {
         : { ok: false, error: 'run-locked' },
     taskReturn: (root, runId, taskId) =>
       isWritable(root) ? runner.returnTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
-    taskRetry: (root, runId, taskId) =>
-      isWritable(root) ? runner.retryTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
+    taskRetry: (root, runId, taskId, input) =>
+      isWritable(root)
+        ? runner.retryTask(root, runId, taskId, input)
+        : { ok: false, error: 'run-locked' },
     taskCommentUpdate: (root, runId, taskId, input) =>
       isWritable(root)
         ? runner.updateComment(root, runId, taskId, input)

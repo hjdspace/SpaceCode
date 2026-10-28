@@ -20,6 +20,13 @@ export interface FactoryPreflightInput {
   modelProfileConfigured: boolean
   githubAuth: FactoryGithubAuthResult | null
   dockerAvailable: boolean
+  /** Docker 沙箱的镜像可构建性；缺省表示未检查。 */
+  dockerImageOk?: boolean
+  dockerImageDetail?: string
+  /** 工作树根与包缓存是否可写（挂载前置条件）。 */
+  dockerMountable?: boolean
+  /** 代理地址是否能从宿主侧连通；缺省表示未配置代理。 */
+  dockerProxyOk?: boolean
   /** npm run <script> 的目标脚本不存在时为 true。 */
   verifyScriptMissing?: boolean
 }
@@ -105,9 +112,38 @@ export function runFactoryPreflight(config: FactoryConfig, input: FactoryPreflig
   } else if (config.sandbox.type === 'docker') {
     items.push(
       input.dockerAvailable
-        ? { id: 'sandbox', level: 'warn', params: { sandbox: 'docker' } }
+        ? { id: 'sandbox', level: 'warn', params: { sandbox: 'docker', image: config.sandbox.imageName } }
         : { id: 'sandbox', level: 'error', params: { sandbox: 'docker' } },
     )
+    // Docker 可用但镜像/挂载/代理任一不满足都会阻断，避免运行时静默退化成无隔离执行。
+    if (input.dockerAvailable && input.dockerImageOk !== undefined) {
+      items.push(
+        input.dockerImageOk
+          ? { id: 'dockerImage', level: 'ok', params: { image: config.sandbox.imageName } }
+          : {
+              id: 'dockerImage',
+              level: 'error',
+              params: {
+                image: config.sandbox.imageName,
+                ...(input.dockerImageDetail ? { detail: input.dockerImageDetail } : {}),
+              },
+            },
+      )
+    }
+    if (input.dockerAvailable && input.dockerMountable !== undefined) {
+      items.push(
+        input.dockerMountable
+          ? { id: 'dockerMount', level: 'ok' }
+          : { id: 'dockerMount', level: 'error' },
+      )
+    }
+    if (input.dockerAvailable && input.dockerProxyOk !== undefined) {
+      items.push(
+        input.dockerProxyOk
+          ? { id: 'dockerProxy', level: 'ok' }
+          : { id: 'dockerProxy', level: 'error', params: { reason: 'unreachable' } },
+      )
+    }
   } else {
     items.push({ id: 'sandbox', level: 'error', params: { sandbox: 'podman' } })
   }

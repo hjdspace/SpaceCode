@@ -13,6 +13,9 @@ export type SetupStep = 1 | 2 | 3 | 4
 
 export const SETUP_STEPS = ['engine', 'sandbox', 'tracker', 'preflight'] as const
 
+/** Docker 沙箱的默认镜像名；用户可在向导第 2 步改写。 */
+export const DEFAULT_DOCKER_IMAGE = 'spacecode-factory:latest'
+
 export function defaultDraft(context: FactorySetupContextLike): FactorySetupDraft {
   const repo = parseRepoFromRemote(context.repo.remote)
   return {
@@ -39,7 +42,10 @@ export function draftFromConfig(config: FactoryConfig): FactorySetupDraft {
       engineType: config.agent.engineType,
       ...(config.agent.model ? { model: config.agent.model } : {}),
     },
-    sandbox: { type: config.sandbox.type },
+    sandbox:
+      config.sandbox.type === 'docker'
+        ? { type: 'docker', imageName: config.sandbox.imageName }
+        : { type: config.sandbox.type },
     tracker:
       config.tracker.type === 'github-issues'
         ? {
@@ -78,7 +84,13 @@ export function setupStepErrors(
 
   if (step === 2) {
     if (!context.repo.isGitRepo) errors.push('notGitRepo')
-    if ((draft.sandbox?.type ?? 'worktree') !== 'worktree') errors.push('sandboxUnsupported')
+    const sandbox = draft.sandbox ?? { type: 'worktree' }
+    if (sandbox.type === 'podman') {
+      errors.push('sandboxUnsupported')
+    } else if (sandbox.type === 'docker') {
+      if (!context.dockerAvailable) errors.push('dockerUnavailable')
+      if (!(sandbox.imageName ?? '').trim()) errors.push('sandboxImageRequired')
+    }
     return errors
   }
 

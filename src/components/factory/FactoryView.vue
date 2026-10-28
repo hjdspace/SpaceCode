@@ -139,6 +139,7 @@
             @takeover="handleTakeover"
             @return="handleReturn()"
             @retry="handleRetry"
+            @retry-local="handleRetryLocal"
             @reveal="handleReveal"
             @confirm-dirty="handleConfirmDirty"
             @approve="handleApprove"
@@ -358,6 +359,13 @@ function handleRetry(): void {
   const taskId = selectedTaskId()
   if (!root.value || !store.run || !taskId) return
   void store.retryTask(root.value, store.run.id, taskId)
+}
+
+/** 显式回退：用户主动把当前 Docker 任务改回本地 worktree 执行。 */
+function handleRetryLocal(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.retryTask(root.value, store.run.id, taskId, { sandbox: 'worktree' })
 }
 
 function handleCommentAccept(commentId: string): void {

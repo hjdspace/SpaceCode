@@ -27,6 +27,7 @@ export const FACTORY_IGNORE_ENTRIES = [
   '.spacecode/worktrees/',
   '.spacecode/factory/runs/',
   '.spacecode/factory/logs/',
+  '.spacecode/factory/cache/',
 ] as const
 
 export type FactoryPermissionMode = 'default' | 'plan' | 'acceptEdits'
@@ -179,6 +180,9 @@ export interface FactoryPreflightItem {
     | 'trackerLabel'
     | 'verifyCommand'
     | 'sandbox'
+    | 'dockerImage'
+    | 'dockerMount'
+    | 'dockerProxy'
   level: FactoryPreflightLevel
   params?: Record<string, string | number>
 }
@@ -447,6 +451,8 @@ export interface FactoryTaskConfigSnapshot {
   verifyCommand: string
   installCommand?: string
   taskTimeoutSec: number
+  /** 领取时固化的隔离方式；显式切回本地重试会改写为 worktree。 */
+  sandbox?: FactorySandboxConfig
 }
 
 /** 接管标记：记录接管时间与推送到聊天列表的会话。 */
@@ -611,10 +617,16 @@ export type FactoryTaskStartError =
   | 'branch-missing'
   | 'task-busy'
   | 'run-locked'
+  | 'sandbox-unavailable'
 
 export interface FactoryTaskStartInput {
   /** 基础仓库有未提交改动时，用户确认后仍可继续。 */
   confirmDirty?: boolean
+}
+
+/** 显式重试参数：只有用户主动选择才回退本地，失败不会自动切换。 */
+export interface FactoryTaskRetryInput {
+  sandbox?: 'worktree'
 }
 
 export type FactoryTaskStartResult =

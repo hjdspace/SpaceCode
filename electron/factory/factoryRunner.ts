@@ -8,7 +8,10 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import {
   FACTORY_RUNS_PATH,
+  FACTORY_SANDBOX_WORKTREE_ROOT,
   type FactoryConfig,
+  type FactorySandboxConfig,
+  type FactoryTaskRetryInput,
   type FactoryEvent,
   type FactoryEventPush,
   type FactoryRunControlResult,
@@ -55,11 +58,37 @@ import {
 import { appendRawLog, openEventLog, readEvents as readEventLog, type FactoryEventInput } from './events'
 import { runImplementation, type ImplementInput, type ImplementationResult } from './implementer'
 import { runReview, type ReviewInput, type ReviewResult } from './reviewer'
+import type { VerifyFn } from './implementer'
 import { runVerification, type VerifyInput, type VerifyResult } from './verify'
 import { executeMerge, runMergePreflight, type MergeWriteBackPayload } from './merge'
 import type { AgentPort } from './agentEngineGateway'
 
 const LOGS_DIR = '.spacecode/factory/logs'
+
+/**
+ * 容器内执行路径的端口：实现/验证/审查都走同一条容器生命周期，
+ * 上层 `SandboxPort`（任务状态机）完全不变。测试注入假实现即可断言何时创建与关闭。
+ */
+export interface SandboxSession {
+  agent: AgentPort
+  verify: VerifyFn
+  close(): Promise<void>
+}
+
+export interface SandboxFactoryInput {
+  repoRoot: string
+  taskId: string
+  branch: string
+  sandbox: Extract<FactorySandboxConfig, { type: 'docker' }>
+  /** 正在运行的其它任务：回收泄漏容器时排除它们，只清理陈旧容器。 */
+  activeTaskIds?: string[]
+}
+
+export type SandboxFactoryResult =
+  | { ok: true; session: SandboxSession }
+  | { ok: false; error: 'sandbox-unavailable'; detail?: string }
+
+export type SandboxFactory = (input: SandboxFactoryInput) => Promise<SandboxFactoryResult>
 
 export interface FactoryRunnerDeps {
   now?: () => Date
@@ -77,6 +106,8 @@ export interface FactoryRunnerDeps {
   pushSession?: (session: FactoryTakeoverSession) => void
   /** 交回时的验证命令执行器；测试注入假实现。 */
   verify?: (input: VerifyInput) => Promise<VerifyResult>
+  /** Docker 沙箱执行器；默认走 dockerSandbox，测试注入假容器。 */
+  sandboxFactory?: SandboxFactory
 }
 
 export interface FactoryRunner {
@@ -96,8 +127,13 @@ export interface FactoryRunner {
   takeoverTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTakeoverResult>
   /** 交回流水线：先重跑验证，通过进入审查，失败回到修复循环。 */
   returnTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryReturnResult>
-  /** 从当前阶段重试：复用工作树与分支，跳过已完成阶段。 */
-  retryTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
+  /** 从当前阶段重试：复用工作树与分支，跳过已完成阶段；可显式切回本地。 */
+  retryTask(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    input?: FactoryTaskRetryInput,
+  ): Promise<FactoryTaskActionResult>
   approveTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
   requestChanges(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
   fixTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
@@ -158,6 +194,49 @@ async function defaultReveal(path: string): Promise<void> {
   shell.showItemInFolder(path)
 }
 
+/**
+ * 容器执行默认实现：复用桌面设置里的模型凭据（只以环境变量键注入），
+ * 让宿主的 engineGateway 完全退出这条路径。Docker 不可用时明确失败，
+ * 不在这里退回宿主 Agent —— 回退只能由用户显式触发。
+ */
+async function defaultSandboxFactory(input: SandboxFactoryInput): Promise<SandboxFactoryResult> {
+  const [sandboxModule, sessionConfig] = await Promise.all([
+    import('./dockerSandbox'),
+    import('../engine/engineSessionConfig'),
+  ])
+  const engineConfig = sessionConfig.loadEngineSessionConfig(input.repoRoot)
+  const provider = sandboxModule.createDockerSandboxProvider()
+  // 起容器前回收陈旧容器（含本任务的旧容器），避免 --name 冲突；在跑的任务按 id 排除。
+  const activeNames = (input.activeTaskIds ?? []).map(
+    (id) => `${sandboxModule.FACTORY_DOCKER_PREFIX}${id}`,
+  )
+  await provider.reclaim(activeNames)
+  const created = await provider.create({
+    repoRoot: input.repoRoot,
+    taskId: input.taskId,
+    branch: input.branch,
+    imageName: input.sandbox.imageName,
+    engineConfig,
+  })
+  if (!created.ok) {
+    return {
+      ok: false,
+      error: 'sandbox-unavailable',
+      ...(created.detail ? { detail: created.detail } : {}),
+    }
+  }
+  return {
+    ok: true,
+    session: {
+      agent: sandboxModule.createSandboxAgentPort(created.sandbox),
+      verify: sandboxModule.createSandboxVerify(created.sandbox),
+      close: async () => {
+        await created.sandbox.close()
+      },
+    },
+  }
+}
+
 /** 工厂自己的目录不算用户脏改动，避免配置/待办落盘后阻断启动。 */
 function userDirtyLines(status: string): string[] {
   return status
@@ -183,6 +262,7 @@ interface StageRuntime {
   maxIterations: number
   verifyCommand: string
   taskTimeoutSec: number
+  sandbox: FactorySandboxConfig
 }
 
 function cloneStages(
@@ -205,6 +285,7 @@ export function buildTaskConfigSnapshot(config: FactoryConfig): FactoryTaskConfi
     verifyCommand: config.commands.verify,
     ...(config.commands.install ? { installCommand: config.commands.install } : {}),
     taskTimeoutSec: config.limits.taskTimeoutSec,
+    sandbox: config.sandbox,
   }
 }
 
@@ -217,6 +298,7 @@ function stageRuntimeFor(task: FactoryTask, config: FactoryConfig): StageRuntime
       maxIterations: snapshot.maxIterations,
       verifyCommand: snapshot.verifyCommand,
       taskTimeoutSec: snapshot.taskTimeoutSec,
+      sandbox: snapshot.sandbox ?? config.sandbox,
     }
   }
   return {
@@ -225,6 +307,7 @@ function stageRuntimeFor(task: FactoryTask, config: FactoryConfig): StageRuntime
     maxIterations: config.agent.maxIterations,
     verifyCommand: config.commands.verify,
     taskTimeoutSec: config.limits.taskTimeoutSec,
+    sandbox: config.sandbox,
   }
 }
 
@@ -309,7 +392,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     repoRoot: string,
     runId: string,
     taskId: string,
-    stage: 'implement' | 'review',
+    stage: 'implement' | 'review' | 'verify',
   ): Promise<AgentPort | null> {
     try {
       return await (deps.agentFactory ?? defaultAgentFactory)()
@@ -324,6 +407,87 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       })
       return null
     }
+  }
+
+  interface Execution {
+    agent: AgentPort
+    verify?: VerifyFn
+    sandbox?: SandboxSession
+  }
+
+  type ExecutionResult =
+    | { ok: true; execution: Execution }
+    | { ok: false; error: 'agent-error' | 'sandbox-unavailable'; detail?: string }
+
+  /**
+   * 按任务快照选择执行路径：worktree 走宿主 Agent；docker 建独立容器，
+   * 实现、验证、审查共享同一个容器句柄。容器创建失败只记事件并返回错误，
+   * 绝不静默改用宿主 Agent。
+   */
+  async function openExecution(
+    repoRoot: string,
+    runId: string,
+    task: FactoryTask,
+    sandbox: FactorySandboxConfig,
+    stage: 'implement' | 'review' | 'verify',
+  ): Promise<ExecutionResult> {
+    if (sandbox.type !== 'docker') {
+      const agent = await makeAgent(repoRoot, runId, task.id, stage)
+      return agent ? { ok: true, execution: { agent } } : { ok: false, error: 'agent-error' }
+    }
+
+    let result: SandboxFactoryResult
+    try {
+      result = await (deps.sandboxFactory ?? defaultSandboxFactory)({
+        repoRoot,
+        taskId: task.id,
+        branch: task.branch,
+        sandbox,
+        activeTaskIds: [...running.keys()],
+      })
+    } catch (error) {
+      result = {
+        ok: false,
+        error: 'sandbox-unavailable',
+        detail: String((error as Error)?.message ?? error),
+      }
+    }
+    if (!result.ok) {
+      transitionTask(repoRoot, runId, task.id, { lane: 'blocked' }, 'sandbox.unavailable')
+      emit(repoRoot, runId, {
+        taskId: task.id,
+        stage,
+        code: 'sandbox.unavailable',
+        level: 'error',
+        params: {
+          image: sandbox.imageName,
+          ...(result.detail ? { detail: result.detail } : {}),
+        },
+      })
+      return { ok: false, error: 'sandbox-unavailable', ...(result.detail ? { detail: result.detail } : {}) }
+    }
+
+    emit(repoRoot, runId, {
+      taskId: task.id,
+      stage,
+      code: 'sandbox.started',
+      level: 'info',
+      params: { image: sandbox.imageName },
+    })
+    return {
+      ok: true,
+      execution: {
+        agent: result.session.agent,
+        verify: result.session.verify,
+        sandbox: result.session,
+      },
+    }
+  }
+
+  /** 容器随回合收口而销毁，宿主工作树始终保留。 */
+  function closeExecution(execution: Execution | null): void {
+    if (!execution?.sandbox) return
+    void execution.sandbox.close().catch(() => {})
   }
 
   /** 实现验证通过后发起全新审查会话；审查自己负责迁移与事件，这里只管提示词与会话。 */
@@ -493,11 +657,12 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     runtime: StageRuntime,
     promptText: string,
     sessionId: string,
-  ): Promise<boolean> {
-    const agent = await makeAgent(repoRoot, runId, taskId, 'implement')
-    if (!agent) return false
+  ): Promise<FactoryTaskStartError | null> {
     const task = taskOf(repoRoot, runId, taskId)
-    if (!task) return false
+    if (!task) return 'task-not-found'
+    const opened = await openExecution(repoRoot, runId, task, runtime.sandbox, 'implement')
+    if (!opened.ok) return opened.error
+    const execution = opened.execution
     const stageConfig = runtime.stages.implement
     const controller = new AbortController()
     const promise: Promise<void> = runImplementationLoop(
@@ -506,7 +671,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       taskId,
       worktreeAbsolute,
       baseBranch,
-      agent,
+      execution.agent,
       controller,
       config,
       runtime,
@@ -527,7 +692,8 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         verifyCommand: runtime.verifyCommand,
         verifyTimeoutMs: runtime.taskTimeoutSec * 1000,
         deps: {
-          agent,
+          agent: execution.agent,
+          ...(execution.verify ? { verify: execution.verify } : {}),
           emit: (event) => {
             emit(repoRoot, runId, event)
           },
@@ -538,11 +704,12 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         },
       },
     ).finally(() => {
+      closeExecution(execution)
       running.delete(taskId)
       void pumpRun(repoRoot, runId)
     })
     running.set(taskId, { runId, sessionId, controller, promise })
-    return true
+    return null
   }
 
   /** 在既有工作树上开一轮新审查；槽位与实现共用同一个任务键。 */
@@ -554,9 +721,12 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     baseBranch: string,
     config: FactoryConfig,
     runtime: StageRuntime,
-  ): Promise<boolean> {
-    const agent = await makeAgent(repoRoot, runId, taskId, 'review')
-    if (!agent) return false
+  ): Promise<FactoryTaskStartError | null> {
+    const task = taskOf(repoRoot, runId, taskId)
+    if (!task) return 'task-not-found'
+    const opened = await openExecution(repoRoot, runId, task, runtime.sandbox, 'review')
+    if (!opened.ok) return opened.error
+    const execution = opened.execution
     const controller = new AbortController()
     const promise: Promise<void> = startReview(
       repoRoot,
@@ -564,7 +734,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       taskId,
       worktreeAbsolute,
       baseBranch,
-      agent,
+      execution.agent,
       controller,
       config,
       runtime,
@@ -580,11 +750,12 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         })
       })
       .finally(() => {
+        closeExecution(execution)
         running.delete(taskId)
         void pumpRun(repoRoot, runId)
       })
     running.set(taskId, { runId, sessionId: `fac-${runId}-${taskId}-review`, controller, promise })
-    return true
+    return null
   }
 
   function activeTaskIds(repoRoot: string, runId: string): string[] {
@@ -802,14 +973,22 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       })
     }
 
-    const agent = await makeAgent(repoRoot, runId, taskId, 'implement')
-    if (!agent) return { ok: false, error: 'agent-error' }
-
-    const sessionId = `fac-${runId}-${taskId}-impl`
-    const controller = new AbortController()
     const current = taskOf(repoRoot, runId, taskId) ?? task
     // 快照刚写下，这里读到的就是本次领取的配置；修复沿用同一份。
     const runtime = stageRuntimeFor(current, config)
+    // Docker 任务在这里建容器；失败直接 blocked 并返回，绝不自动改用宿主 Agent。
+    const opened = await openExecution(repoRoot, runId, current, runtime.sandbox, 'implement')
+    if (!opened.ok) {
+      return {
+        ok: false,
+        error: opened.error,
+        ...(opened.detail ? { detail: opened.detail } : {}),
+      }
+    }
+    const execution = opened.execution
+
+    const sessionId = `fac-${runId}-${taskId}-impl`
+    const controller = new AbortController()
     const stageConfig = runtime.stages.implement
 
     transitionTask(
@@ -828,7 +1007,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       taskId,
       worktree.absolute,
       baseBranch,
-      agent,
+      execution.agent,
       controller,
       config,
       runtime,
@@ -849,7 +1028,8 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         verifyCommand: runtime.verifyCommand,
         verifyTimeoutMs: runtime.taskTimeoutSec * 1000,
         deps: {
-          agent,
+          agent: execution.agent,
+          ...(execution.verify ? { verify: execution.verify } : {}),
           emit: (event) => {
             emit(repoRoot, runId, event)
           },
@@ -860,6 +1040,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         },
       },
     ).finally(() => {
+      closeExecution(execution)
       running.delete(taskId)
       void pumpRun(repoRoot, runId)
     })
@@ -1073,12 +1254,30 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       if (!existsSync(worktreeAbsolute)) return { ok: false, error: 'worktree-missing' }
 
       const runtime = stageRuntimeFor(task, config)
-      const verify = deps.verify ?? ((input: VerifyInput) => runVerification(input))
-      const result = await verify({
-        command: runtime.verifyCommand,
-        cwd: worktreeAbsolute,
-        timeoutMs: runtime.taskTimeoutSec * 1000,
-      })
+      // 交回时的重跑验证与任务领用同路：Docker 任务仍在容器里验证，宿主只做合并。
+      let result: VerifyResult
+      if (runtime.sandbox.type === 'docker') {
+        const opened = await openExecution(repoRoot, runId, task, runtime.sandbox, 'verify')
+        if (!opened.ok) return { ok: false, error: opened.error }
+        try {
+          const inContainer = opened.execution.verify
+          if (!inContainer) return { ok: false, error: 'sandbox-unavailable' }
+          result = await inContainer({
+            command: runtime.verifyCommand,
+            cwd: worktreeAbsolute,
+            timeoutMs: runtime.taskTimeoutSec * 1000,
+          })
+        } finally {
+          closeExecution(opened.execution)
+        }
+      } else {
+        const verify = deps.verify ?? ((input: VerifyInput) => runVerification(input))
+        result = await verify({
+          command: runtime.verifyCommand,
+          cwd: worktreeAbsolute,
+          timeoutMs: runtime.taskTimeoutSec * 1000,
+        })
+      }
       patchTask(repoRoot, runId, taskId, { tests: toTestRun(result), takeover: null })
 
       if (result.status === 'pass') {
@@ -1098,7 +1297,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           code: 'task.returned.verified',
           level: 'ok',
         })
-        const launched = await launchReviewFlow(
+        const launchError = await launchReviewFlow(
           repoRoot,
           runId,
           taskId,
@@ -1107,10 +1306,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           config,
           runtime,
         )
-        if (!launched) {
-          safeBlock(repoRoot, runId, taskId, 'agent.error')
-          return { ok: false, error: 'agent-error' }
-        }
+        if (launchError) return { ok: false, error: launchError }
         const latest = readRunSnapshot(repoRoot, runId)
         return latest ? { ok: true, snapshot: latest, verified: true } : { ok: false, error: 'task-not-found' }
       }
@@ -1161,7 +1357,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           code: 'task.fix.started',
           level: 'info',
         })
-        const launched = await launchImplementationFlow(
+        const launchError = await launchImplementationFlow(
           repoRoot,
           runId,
           taskId,
@@ -1172,10 +1368,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           prompt.text,
           `fac-${runId}-${taskId}-fix`,
         )
-        if (!launched) {
-          safeBlock(repoRoot, runId, taskId, 'agent.error')
-          return { ok: false, error: 'agent-error' }
-        }
+        if (launchError) return { ok: false, error: launchError }
       } else {
         emit(repoRoot, runId, {
           taskId,
@@ -1190,11 +1383,11 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       return latest ? { ok: true, snapshot: latest, verified: false } : { ok: false, error: 'task-not-found' }
     },
 
-    async retryTask(repoRoot, runId, taskId) {
+    async retryTask(repoRoot, runId, taskId, input = {}) {
       const config = readFactoryConfig(repoRoot)
       if (!config) return { ok: false, error: 'config-missing' }
 
-      const task = taskOf(repoRoot, runId, taskId)
+      let task = taskOf(repoRoot, runId, taskId)
       if (!task) return { ok: false, error: 'task-not-found' }
       if (running.has(taskId)) return { ok: false, error: 'task-busy' }
       if (task.lane !== 'blocked') return { ok: false, error: 'not-queued' }
@@ -1205,6 +1398,23 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       const branch = await git(['rev-parse', '--verify', task.branch], repoRoot)
       if (!branch.ok) {
         return { ok: false, error: 'branch-missing', detail: branch.stderr.trim() }
+      }
+
+      // 显式回退：只有用户主动选择才把当前任务的快照改回 worktree，之后重试沿用本地执行。
+      if (input.sandbox === 'worktree' && task.configSnapshot?.sandbox?.type === 'docker') {
+        const patched = {
+          ...task.configSnapshot,
+          sandbox: { type: 'worktree' as const, root: FACTORY_SANDBOX_WORKTREE_ROOT },
+        }
+        patchTask(repoRoot, runId, taskId, { configSnapshot: patched })
+        task = { ...task, configSnapshot: patched }
+        emit(repoRoot, runId, {
+          taskId,
+          stage: 'implement',
+          code: 'sandbox.fallback',
+          level: 'warn',
+          params: { sandbox: 'worktree' },
+        })
       }
 
       const runtime = stageRuntimeFor(task, config)
@@ -1228,7 +1438,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           code: 'task.retry',
           level: 'info',
         })
-        const launched = await launchReviewFlow(
+        const launchError = await launchReviewFlow(
           repoRoot,
           runId,
           taskId,
@@ -1237,10 +1447,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           config,
           runtime,
         )
-        if (!launched) {
-          safeBlock(repoRoot, runId, taskId, 'agent.error')
-          return { ok: false, error: 'agent-error' }
-        }
+        if (launchError) return { ok: false, error: launchError }
         const latest = readRunSnapshot(repoRoot, runId)
         return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
       }
@@ -1288,7 +1495,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         code: 'task.retry',
         level: 'info',
       })
-      const launched = await launchImplementationFlow(
+      const launchError = await launchImplementationFlow(
         repoRoot,
         runId,
         taskId,
@@ -1299,10 +1506,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         prompt.text,
         `fac-${runId}-${taskId}-retry`,
       )
-      if (!launched) {
-        safeBlock(repoRoot, runId, taskId, 'agent.error')
-        return { ok: false, error: 'agent-error' }
-      }
+      if (launchError) return { ok: false, error: launchError }
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
@@ -1417,9 +1621,6 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         })
       }
 
-      const agent = await makeAgent(repoRoot, runId, taskId, 'implement')
-      if (!agent) return { ok: false, error: 'agent-error' }
-
       const moved = transitionTask(
         repoRoot,
         runId,
@@ -1444,6 +1645,15 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       const current = taskOf(repoRoot, runId, taskId) ?? task
       // 修复沿用任务领取时的快照，不跟随之后保存的配置。
       const runtime = stageRuntimeFor(current, config)
+      const opened = await openExecution(repoRoot, runId, current, runtime.sandbox, 'implement')
+      if (!opened.ok) {
+        return {
+          ok: false,
+          error: opened.error,
+          ...(opened.detail ? { detail: opened.detail } : {}),
+        }
+      }
+      const execution = opened.execution
       const stageConfig = runtime.stages.implement
 
       const promise: Promise<void> = runImplementationLoop(
@@ -1452,7 +1662,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         taskId,
         worktreeAbsolute,
         config.repo.baseBranch,
-        agent,
+        execution.agent,
         controller,
         config,
         runtime,
@@ -1473,7 +1683,8 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           verifyCommand: runtime.verifyCommand,
           verifyTimeoutMs: runtime.taskTimeoutSec * 1000,
           deps: {
-            agent,
+            agent: execution.agent,
+            ...(execution.verify ? { verify: execution.verify } : {}),
             emit: (event) => {
               emit(repoRoot, runId, event)
             },
@@ -1484,6 +1695,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
           },
         },
       ).finally(() => {
+        closeExecution(execution)
         running.delete(taskId)
         void pumpRun(repoRoot, runId)
       })

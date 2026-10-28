@@ -129,4 +129,45 @@ describe('runFactoryPreflight', () => {
     expect(item(dockerOk, 'sandbox')?.level).toBe('warn')
     expect(dockerOk.blocking).toBe(false)
   })
+
+  it('blocks docker when the image, mounts or proxy are not usable', () => {
+    const docker = config({ sandbox: { type: 'docker', imageName: 'img' } })
+
+    const badImage = runFactoryPreflight(
+      docker,
+      input({
+        dockerAvailable: true,
+        dockerImageOk: false,
+        dockerImageDetail: 'npm ERR! build failed',
+        dockerMountable: true,
+        dockerProxyOk: true,
+      }),
+    )
+    expect(item(badImage, 'dockerImage')).toMatchObject({ level: 'error' })
+    expect(item(badImage, 'dockerImage')?.params).toMatchObject({ detail: 'npm ERR! build failed' })
+    expect(badImage.blocking).toBe(true)
+
+    const badMount = runFactoryPreflight(
+      docker,
+      input({ dockerAvailable: true, dockerImageOk: true, dockerMountable: false, dockerProxyOk: true }),
+    )
+    expect(item(badMount, 'dockerMount')?.level).toBe('error')
+    expect(badMount.blocking).toBe(true)
+
+    const badProxy = runFactoryPreflight(
+      docker,
+      input({ dockerAvailable: true, dockerImageOk: true, dockerMountable: true, dockerProxyOk: false }),
+    )
+    expect(item(badProxy, 'dockerProxy')).toMatchObject({ level: 'error', params: { reason: 'unreachable' } })
+    expect(badProxy.blocking).toBe(true)
+
+    const healthy = runFactoryPreflight(
+      docker,
+      input({ dockerAvailable: true, dockerImageOk: true, dockerMountable: true, dockerProxyOk: true }),
+    )
+    expect(healthy.blocking).toBe(false)
+    expect(item(healthy, 'dockerImage')?.level).toBe('ok')
+    expect(item(healthy, 'dockerMount')?.level).toBe('ok')
+    expect(item(healthy, 'dockerProxy')?.level).toBe('ok')
+  })
 })

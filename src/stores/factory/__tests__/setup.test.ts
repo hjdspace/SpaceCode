@@ -52,11 +52,26 @@ describe('setupStepErrors', () => {
     expect(setupStepErrors(1, pi, context())).toContain('engineUnavailable')
   })
 
-  it('step 2 requires a git repository and the worktree sandbox', () => {
+  it('step 2 requires a git repository and gates docker behind availability', () => {
     const draft = defaultDraft(context())
     expect(setupStepErrors(2, draft, context())).toEqual([])
     expect(setupStepErrors(2, draft, context({ repo: { ...context().repo, isGitRepo: false } }))).toContain('notGitRepo')
-    expect(setupStepErrors(2, { ...draft, sandbox: { type: 'docker' } }, context())).toContain('sandboxUnsupported')
+
+    const docker = { ...draft, sandbox: { type: 'docker' as const } }
+    expect(setupStepErrors(2, docker, context({ dockerAvailable: true }))).toContain('sandboxImageRequired')
+    expect(
+      setupStepErrors(2, { ...docker, sandbox: { type: 'docker', imageName: 'spacecode-factory:latest' } }, context()),
+    ).toContain('dockerUnavailable')
+    expect(
+      setupStepErrors(
+        2,
+        { ...docker, sandbox: { type: 'docker', imageName: 'spacecode-factory:latest' } },
+        context({ dockerAvailable: true }),
+      ),
+    ).toEqual([])
+
+    const podman = { ...draft, sandbox: { type: 'podman' as const, imageName: 'x' } }
+    expect(setupStepErrors(2, podman, context({ dockerAvailable: true }))).toContain('sandboxUnsupported')
   })
 
   it('step 3 requires repo/label for github and rejects token without encryption', () => {
@@ -121,6 +136,23 @@ describe('draftFromConfig', () => {
       sandbox: { type: 'worktree' },
       tracker: { type: 'github-issues', repo: 'a/b', label: 'agent', auth: 'token', commentIssue: false, closeIssue: false },
       commands: { verify: 'npm run build' },
+    })
+  })
+
+  it('keeps the docker image name when editing an existing config', () => {
+    const built = buildFactoryConfig(
+      {
+        agent: { engineType: 'claude-code' },
+        sandbox: { type: 'docker', imageName: 'spacecode-factory:latest' },
+        tracker: { type: 'local', mergeMode: 'local' },
+        commands: { verify: 'npm run build' },
+      },
+      { baseBranch: 'main' },
+    )
+    if (!built.ok) throw new Error('fixture invalid')
+    expect(draftFromConfig(built.config).sandbox).toEqual({
+      type: 'docker',
+      imageName: 'spacecode-factory:latest',
     })
   })
 })

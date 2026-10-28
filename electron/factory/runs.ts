@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto'
 import { join } from 'path'
 import {
   FACTORY_RUNS_PATH,
+  FACTORY_SANDBOX_WORKTREE_ROOT,
   type FactoryLane,
   type FactoryPermissionMode,
   type FactoryReviewComment,
@@ -18,6 +19,7 @@ import {
   type FactoryRunCreateResult,
   type FactoryRunSnapshot,
   type FactoryRunStatus,
+  type FactorySandboxConfig,
   type FactoryStageConfig,
   type FactoryStageKey,
   type FactoryTask,
@@ -96,11 +98,32 @@ function parseStages(raw: unknown): Record<FactoryStageKey, FactoryStageConfig> 
   return stages
 }
 
+function parseSandbox(raw: unknown): FactorySandboxConfig | undefined {
+  if (!isRecord(raw)) return undefined
+  if (raw.type === 'worktree') return { type: 'worktree', root: FACTORY_SANDBOX_WORKTREE_ROOT }
+  if (raw.type === 'docker' && typeof raw.imageName === 'string' && raw.imageName.trim()) {
+    return {
+      type: 'docker',
+      imageName: raw.imageName.trim(),
+      worktreeRoot: FACTORY_SANDBOX_WORKTREE_ROOT,
+    }
+  }
+  if (raw.type === 'podman' && typeof raw.imageName === 'string' && raw.imageName.trim()) {
+    return {
+      type: 'podman',
+      imageName: raw.imageName.trim(),
+      worktreeRoot: FACTORY_SANDBOX_WORKTREE_ROOT,
+    }
+  }
+  return undefined
+}
+
 function parseConfigSnapshot(raw: unknown): FactoryTaskConfigSnapshot | undefined {
   if (!isRecord(raw)) return undefined
   const engineType = raw.engineType === 'pi' ? 'pi' : 'claude-code'
   const revision = typeof raw.revision === 'number' && raw.revision > 0 ? raw.revision : 1
   if (typeof raw.verifyCommand !== 'string' || !raw.verifyCommand.trim()) return undefined
+  const sandbox = parseSandbox(raw.sandbox)
   return {
     revision,
     engineType,
@@ -112,6 +135,7 @@ function parseConfigSnapshot(raw: unknown): FactoryTaskConfigSnapshot | undefine
       ? { installCommand: raw.installCommand.trim() }
       : {}),
     taskTimeoutSec: typeof raw.taskTimeoutSec === 'number' && raw.taskTimeoutSec > 0 ? raw.taskTimeoutSec : 3600,
+    ...(sandbox ? { sandbox } : {}),
   }
 }
 

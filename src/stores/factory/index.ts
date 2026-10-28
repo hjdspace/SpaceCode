@@ -41,6 +41,7 @@ import type {
   FactoryStorageState,
   FactoryTask,
   FactoryTaskActionResult,
+  FactoryTaskRetryInput,
   FactoryTaskStartInput,
   FactoryTaskStartResult,
   FactoryTakeoverResult,
@@ -863,11 +864,16 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
-  async function retryTask(root: string, runId: string, taskId: string): Promise<FactoryTaskActionResult> {
+  async function retryTask(
+    root: string,
+    runId: string,
+    taskId: string,
+    input?: FactoryTaskRetryInput,
+  ): Promise<FactoryTaskActionResult> {
     retrying.value = true
     actionError.value = null
     try {
-      const result = await api.factory.taskRetry(root, runId, taskId)
+      const result = await api.factory.taskRetry(root, runId, taskId, input)
       if (result.ok) applySnapshot(result.snapshot)
       else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
       return result

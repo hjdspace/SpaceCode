@@ -11,13 +11,14 @@ import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
 import { createBacklogItem } from '../backlog'
 import { createFactoryRun, readRunSnapshot } from '../runs'
 import { transitionTask } from '../runtime'
-import { createFactoryRunner, type FactoryRunnerDeps } from '../factoryRunner'
+import { createFactoryRunner, type FactoryRunnerDeps, type SandboxSession } from '../factoryRunner'
 import type { GitRunner } from '../worktree'
 import type { AgentPort } from '../agentEngineGateway'
 import type { ImplementInput, ImplementationResult } from '../implementer'
 import type { ReviewInput, ReviewResult } from '../reviewer'
 import type { BuildPromptInput } from '../prompt'
-import type { FactoryReview } from '@/shared/factory'
+import type { FactoryReview, FactorySetupDraft } from '@/shared/factory'
+import { FACTORY_SANDBOX_WORKTREE_ROOT } from '@/shared/factory'
 
 let dir: string
 let runId: string
@@ -37,11 +38,14 @@ function fakeGit(failures: Record<string, string> = {}): { git: GitRunner; calls
   return { git, calls }
 }
 
-function seed(tasks = 1): string[] {
+function seed(
+  tasks = 1,
+  sandbox: NonNullable<FactorySetupDraft['sandbox']> = { type: 'worktree' },
+): string[] {
   const built = buildFactoryConfig(
     {
       agent: { engineType: 'claude-code', model: 'claude-sonnet-4-5' },
-      sandbox: { type: 'worktree' },
+      sandbox,
       tracker: { type: 'local', mergeMode: 'local' },
       commands: { verify: 'npm run test' },
     },
@@ -568,5 +572,115 @@ describe('fix loop', () => {
     seed()
     const runner = createFactoryRunner(deps())
     expect(await runner.fixTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'no-worktree' })
+  })
+})
+
+describe('docker sandbox execution', () => {
+  function containerSession(calls: string[]): SandboxSession {
+    return {
+      agent: agent(),
+      verify: async () => {
+        calls.push('verify')
+        return { status: 'pass', command: 'npm run test', at: '2026-10-29T10:00:00.000Z', detail: '' }
+      },
+      close: async () => {
+        calls.push('close')
+      },
+    }
+  }
+
+  it('runs implementation and review in the container, never the host agent, then closes it', async () => {
+    seed(1, { type: 'docker', imageName: 'spacecode-factory:latest' })
+    const calls: string[] = []
+    const session = containerSession(calls)
+    let hostAgents = 0
+    let seenAgent: AgentPort | null = null
+    let seenVerify = false
+    let sandboxInputs = 0
+
+    const runner = createFactoryRunner(
+      deps({
+        agentFactory: async () => {
+          hostAgents++
+          return agent()
+        },
+        sandboxFactory: async (input) => {
+          sandboxInputs++
+          expect(input.sandbox.imageName).toBe('spacecode-factory:latest')
+          return { ok: true, session }
+        },
+        runImplementation: async (input) => {
+          seenAgent = input.deps.agent
+          seenVerify = typeof input.deps.verify === 'function'
+          return { outcome: 'completed', verified: true, iterations: 1, inputTokens: 1, outputTokens: 1 }
+        },
+        buildReviewPrompt: async () => ({ ok: true, text: 'review prompt', blocked: [] }),
+        runReview: async () => ({ outcome: 'approved' }),
+      }),
+    )
+
+    const result = await runner.startTask(dir, runId, 'bl-1', {})
+    expect(result.ok).toBe(true)
+    await runner.whenIdle(runId)
+
+    expect(hostAgents).toBe(0)
+    expect(seenAgent).toBe(session.agent)
+    expect(seenVerify).toBe(true)
+    expect(sandboxInputs).toBeGreaterThanOrEqual(1)
+    expect(calls).toContain('close')
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('sandbox.started')
+  })
+
+  it('blocks without falling back to the host when the sandbox cannot start', async () => {
+    seed(1, { type: 'docker', imageName: 'spacecode-factory:latest' })
+    let hostAgents = 0
+    const runner = createFactoryRunner(
+      deps({
+        agentFactory: async () => {
+          hostAgents++
+          return agent()
+        },
+        sandboxFactory: async () => ({
+          ok: false,
+          error: 'sandbox-unavailable',
+          detail: 'docker daemon down',
+        }),
+      }),
+    )
+
+    const result = await runner.startTask(dir, runId, 'bl-1', {})
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'sandbox-unavailable',
+      detail: 'docker daemon down',
+    })
+    expect(hostAgents).toBe(0)
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({
+      lane: 'blocked',
+      attention: { reason: 'sandbox.unavailable' },
+    })
+    const codes = runner.readEvents(dir, runId).map((event) => event.code)
+    expect(codes).toContain('sandbox.unavailable')
+    expect(codes).not.toContain('sandbox.fallback')
+  })
+
+  it('falls back to the local worktree only when the retry explicitly asks', async () => {
+    seed(1, { type: 'docker', imageName: 'spacecode-factory:latest' })
+    const runner = createFactoryRunner(
+      deps({
+        sandboxFactory: async () => ({ ok: false, error: 'sandbox-unavailable' }),
+      }),
+    )
+    await runner.startTask(dir, runId, 'bl-1', {})
+    mkdirSync(join(dir, '.spacecode', 'worktrees', 'bl-1'), { recursive: true })
+
+    const retried = await runner.retryTask(dir, runId, 'bl-1', { sandbox: 'worktree' })
+    expect(retried.ok).toBe(true)
+    expect(readRunSnapshot(dir, runId)!.tasks[0].configSnapshot?.sandbox).toEqual({
+      type: 'worktree',
+      root: FACTORY_SANDBOX_WORKTREE_ROOT,
+    })
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('sandbox.fallback')
+    await runner.whenIdle(runId)
   })
 })

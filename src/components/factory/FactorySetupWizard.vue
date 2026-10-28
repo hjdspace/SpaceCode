@@ -63,10 +63,15 @@
               <span class="opt-title">{{ t('factory.sandboxWorktree') }}</span>
               <span class="opt-sub">{{ t('factory.sandboxWorktreeDesc') }}</span>
             </button>
-            <button class="opt-card" disabled>
+            <button
+              class="opt-card"
+              :class="{ selected: sandbox.type === 'docker' }"
+              :disabled="!context?.dockerAvailable"
+              @click="selectSandbox('docker')"
+            >
               <span class="opt-title">
                 {{ t('factory.sandboxDocker') }}
-                <span class="badge">{{ t('factory.comingSoon') }}</span>
+                <span v-if="!context?.dockerAvailable" class="badge">{{ t('factory.dockerMissing') }}</span>
               </span>
               <span class="opt-sub">{{ t('factory.sandboxDockerDesc') }}</span>
             </button>
@@ -78,6 +83,15 @@
               <span class="opt-sub">{{ t('factory.sandboxPodmanDesc') }}</span>
             </button>
           </div>
+          <label v-if="sandbox.type === 'docker'" class="field">
+            <span>{{ t('factory.sandboxImageLabel') }}</span>
+            <input
+              :value="sandbox.imageName ?? ''"
+              :placeholder="t('factory.sandboxImagePlaceholder')"
+              @input="patchSandboxImage(($event.target as HTMLInputElement).value)"
+            />
+            <span class="hint">{{ t('factory.sandboxDockerHint') }}</span>
+          </label>
           <p v-if="context && !context.repo.isGitRepo" class="error-text">{{ t('factory.notGitRepo') }}</p>
         </section>
 
@@ -260,6 +274,7 @@ import { useI18n } from 'vue-i18n'
 import { X, CheckCircle, AlertTriangle, XCircle } from 'lucide-vue-next'
 import type { FactoryEngineType, FactoryPreflightItem, FactorySandboxConfig, FactorySetupDraft } from '@/shared/factory'
 import { useFactoryStore } from '@/stores/factory'
+import { DEFAULT_DOCKER_IMAGE } from '@/stores/factory/setup'
 
 const props = defineProps<{ root: string }>()
 const { t } = useI18n()
@@ -294,8 +309,20 @@ function selectEngine(type: FactoryEngineType): void {
 }
 
 function selectSandbox(type: FactorySandboxConfig['type']): void {
-  if (type !== 'worktree') return
+  if (type === 'podman') return
+  if (type === 'docker') {
+    if (!context.value?.dockerAvailable) return
+    store.draft.sandbox = {
+      type: 'docker',
+      imageName: sandbox.value.imageName ?? DEFAULT_DOCKER_IMAGE,
+    }
+    return
+  }
   store.draft.sandbox = { type: 'worktree' }
+}
+
+function patchSandboxImage(imageName: string): void {
+  store.draft.sandbox = { type: 'docker', imageName }
 }
 
 function setTrackerType(type: 'local' | 'github-issues'): void {
@@ -364,14 +391,20 @@ const itemLabelSuffix: Record<FactoryPreflightItem['id'], string> = {
   trackerLabel: 'TrackerLabel',
   verifyCommand: 'VerifyCommand',
   sandbox: 'Sandbox',
+  dockerImage: 'DockerImage',
+  dockerMount: 'DockerMount',
+  dockerProxy: 'DockerProxy',
 }
 
 function itemDetail(item: FactoryPreflightItem): string {
   const params = item.params
   if (!params) return ''
+  if (typeof params.detail === 'string' && params.detail) return params.detail
   if (typeof params.version === 'string' && params.version) return params.version
   if (typeof params.command === 'string' && params.command) return params.command
   if (typeof params.label === 'string' && params.label) return params.label
+  if (typeof params.image === 'string' && params.image) return params.image
+  if (typeof params.reason === 'string' && params.reason) return params.reason
   return ''
 }
 
