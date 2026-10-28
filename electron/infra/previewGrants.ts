@@ -86,28 +86,46 @@ export type ServeDecision =
 
 export type PreviewGrant = { token: string; root: string; rel: string }
 
+/** H5 远程预览签发的 token 带 TTL 与会话归属；桌面 token 两者都为空、随应用生命周期长期有效。 */
+export type PreviewGrantOptions = { ttlMs?: number; sessionId?: string }
+
+type GrantRecord = {
+  root: string
+  /** `null` = 不按时间过期（桌面） */
+  expiresAt: number | null
+  sessionId?: string
+}
+
 export class PreviewGrants {
-  /** token → 已登记的预览工作区根目录（realpath 后的绝对路径） */
-  private readonly grants = new Map<string, string>()
+  /** token → 已登记的预览目录与有效期 */
+  private readonly grants = new Map<string, GrantRecord>()
 
   /**
-   * 登记文件所属的预览工作区并签发/复用 token。
-   * 登记范围尽量收窄：workspaceRoot 确实包含该文件时用该根（同工作区内的相对
-   * 引用可用），否则只到文件所在目录；文件系统根拒绝登记。
+   * 登记文件所属的预览目录并签发/复用 token。
+   * 范围固定为文件所在目录：不把用户选中的整个项目登记进来。产物脚本在 #63 之后
+   * 真正执行，登记到工作区等于让它 `fetch` 同根下任意白名单类型文件（`.json` /
+   * `.txt` 等）；同目录及其子目录已覆盖常规多文件产物，`../assets` 这类跨目录
+   * 引用需要产品另行决定是否显式放开。
    */
-  register(filePath: string, workspaceRoot?: string): PreviewGrant | null {
+  register(filePath: string, options?: PreviewGrantOptions): PreviewGrant | null {
     const target = canonicalize(resolve(filePath))
-    const root = this.pickGrantRoot(target, workspaceRoot)
+    const root = this.pickGrantRoot(target)
     if (!root) return null
 
-    const token = this.tokenForRoot(root)
-    // 保留目录层级，浏览器里 index.html 的相对子资源才能同源命中同一工作区
+    const token = this.tokenForRoot(root, options)
+    // 保留目录层级，浏览器里 index.html 的相对子资源才能同源命中同一目录
     const rel = relative(root, target).split(sep).map(encodeURIComponent).join('/')
     return { token, root, rel }
   }
 
   rootFor(token: string): string | undefined {
-    return this.grants.get(token)
+    const record = this.grants.get(token)
+    if (!record) return undefined
+    if (record.expiresAt !== null && record.expiresAt <= Date.now()) {
+      this.grants.delete(token)
+      return undefined
+    }
+    return record.root
   }
 
   clear(): void {
@@ -148,24 +166,39 @@ export class PreviewGrants {
     return { serve: filePath, contentType }
   }
 
-  private pickGrantRoot(target: string, workspaceRoot?: string): string | null {
-    const workspace = workspaceRoot?.trim() ? canonicalize(resolve(workspaceRoot)) : null
-    const fileDir = dirname(target)
-    const root = workspace && inside(target, workspace) ? workspace : fileDir
-    if (isFileSystemRoot(root)) {
-      // 宽到文件系统根等于放开整盘 — 退到文件所在目录，那已是最窄可用范围
-      return isFileSystemRoot(fileDir) ? null : fileDir
-    }
-    return root
+  private pickGrantRoot(target: string): string | null {
+    // 目录请求以自身为根：`dirname(目录)` 会把"预览项目根"的可读面抬到项目之外
+    const base = existsSync(target) && statSync(target).isDirectory() ? target : dirname(target)
+    // 宽到文件系统根等于放开整盘：产物直接躺在盘符根时拒绝登记
+    return isFileSystemRoot(base) ? null : base
   }
 
-  private tokenForRoot(root: string): string {
+  /**
+   * token 按「目录 + 会话」复用：同一会话重复取同一个文件不会无限签发新 token；
+   * 不同会话即使目录相同也各拿一份，撤销/过期互不影响。带 TTL 的登记每次复用都续期。
+   */
+  private tokenForRoot(root: string, options?: PreviewGrantOptions): string {
     const wanted = compareForm(root)
-    for (const [token, granted] of this.grants) {
-      if (compareForm(granted) === wanted) return token
+    const sessionId = options?.sessionId
+    const ttlMs = options?.ttlMs && options.ttlMs > 0 ? options.ttlMs : null
+    const now = Date.now()
+
+    for (const [token, record] of this.grants) {
+      if (record.expiresAt !== null && record.expiresAt <= now) {
+        this.grants.delete(token)
+        continue
+      }
+      if (compareForm(record.root) !== wanted || record.sessionId !== sessionId) continue
+      if (ttlMs !== null) record.expiresAt = now + ttlMs
+      return token
     }
+
     const token = randomBytes(16).toString('hex')
-    this.grants.set(token, root)
+    this.grants.set(token, {
+      root,
+      sessionId,
+      expiresAt: ttlMs === null ? null : now + ttlMs,
+    })
     return token
   }
 }
