@@ -781,6 +781,65 @@ describe('buildMessagesFromHistory — user attachments', () => {
   })
 })
 
+describe('buildMessagesFromHistory — 引擎正文里的附件信封', () => {
+  const pastePath = 'C:\\Users\\me\\AppData\\Local\\Temp\\SpaceCode\\pasted\\pasted-1234.txt'
+
+  it('剥掉 @"路径" 与 Attachments 块，并把引用还原成粘贴附件卡片', () => {
+    const messages = buildMessagesFromHistory([
+      {
+        type: 'user',
+        uuid: 'u1',
+        message: {
+          role: 'user',
+          content: `@"${pastePath}" 这个是什么场景\n\nAttachments: [File: pasted-1234.txt]`,
+        },
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].content).toBe('这个是什么场景')
+    expect(messages[0].attachments).toEqual([
+      { name: 'pasted-1234.txt', path: pastePath, isFolder: false, source: 'paste' },
+    ])
+  })
+
+  it('上传文件引用还原为 upload 卡片，Images 说明块一并剥掉', () => {
+    const uploadPath = 'D:\\docs\\spec.md'
+    const messages = buildMessagesFromHistory([
+      {
+        type: 'user',
+        uuid: 'u1',
+        message: {
+          role: 'user',
+          content: `@"${uploadPath}" 看看这个\n\nAttachments: [File: spec.md]\n\nImages: [Image: shot.png]`,
+        },
+      },
+    ])
+
+    expect(messages[0].content).toBe('看看这个')
+    expect(messages[0].attachments).toEqual([
+      { name: 'spec.md', path: uploadPath, isFolder: false, source: 'upload' },
+    ])
+  })
+
+  it('只有附件没有正文的消息也保留，正文为空、卡片仍在', () => {
+    const messages = buildMessagesFromHistory([
+      {
+        type: 'user',
+        uuid: 'u1',
+        message: {
+          role: 'user',
+          content: `@"${pastePath}"\n\nAttachments: [File: pasted-1234.txt]`,
+        },
+      },
+    ])
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].content).toBe('')
+    expect(messages[0].attachments).toHaveLength(1)
+  })
+})
+
 describe('buildMessagesFromHistory — teammate (sidechain) messages', () => {
   it('restores a completed teammate message as a system message', () => {
     const messages = buildMessagesFromHistory([
