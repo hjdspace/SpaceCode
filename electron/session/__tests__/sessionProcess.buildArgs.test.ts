@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as path from 'path'
 import { SessionProcess, type SessionConfig } from '../sessionProcess'
+import { sessionTempDir } from '../tempArtifacts'
 
 /**
  * CLI argument assembly. The order and presence of these flags is the launch
@@ -383,7 +384,8 @@ describe('buildArgs — oversized system prompt goes through a file', () => {
     const args = buildArgs({ systemPrompt: longPrompt }, 'sess-longprompt-1')
     expect(args).not.toContain('--system-prompt')
     const promptPath = flag(args, '--system-prompt-file')!
-    expect(norm(path.dirname(promptPath))).toBe('/tmp/SpaceCode')
+    // 目录名带 uid 后缀（POSIX 上 /tmp 多用户共享），不能在测试里写死。
+    expect(norm(path.dirname(promptPath))).toBe(norm(sessionTempDir()))
     expect(path.basename(promptPath)).toMatch(/^system-prompt-sess-longprompt-1-\d+-[a-z0-9]+\.txt$/)
     expect(fsp.writes.find(w => w.path === promptPath)?.content).toBe(longPrompt)
   })

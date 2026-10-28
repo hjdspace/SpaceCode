@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { join, resolve } from 'path'
+import { join, resolve, win32 } from 'path'
 import { accessSync, constants } from 'fs'
 import { execFileSync } from 'child_process'
 
@@ -155,9 +155,9 @@ describe('findChromeDevtoolsMcpLocal', () => {
     const bin = 'C:\\Program Files\\nodejs'
     process.env.PATH = `C:\\missing;"${bin}"`
     process.env.PATHEXT = '.EXE;.CMD'
-    const node = join(bin, 'node.EXE')
-    const shim = join(bin, 'chrome-devtools-mcp.CMD')
-    const entry = join(bin, 'node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js')
+    const node = win32.join(bin, 'node.EXE')
+    const shim = win32.join(bin, 'chrome-devtools-mcp.CMD')
+    const entry = win32.join(bin, 'node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js')
     fsp.exists = p => [node, shim, entry].includes(p)
     // Windows 不应使用 Unix 的执行权限检查。
     fsp.executable = () => false
@@ -225,17 +225,17 @@ describe('findChromeDevtoolsMcpLocal', () => {
   it('checks the npm global dir on Windows before PATH', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     process.env.APPDATA = 'C:\\Users\\u\\AppData\\Roaming'
-    const shim = join(process.env.APPDATA, 'npm', 'chrome-devtools-mcp.cmd')
-    const jsEntry = join(
+    const shim = win32.join(process.env.APPDATA, 'npm', 'chrome-devtools-mcp.cmd')
+    const jsEntry = win32.join(
       process.env.APPDATA, 'npm', 'node_modules', 'chrome-devtools-mcp',
       'build', 'src', 'bin', 'chrome-devtools-mcp.js',
     )
     const nodeDir = 'C:\\Program Files\\nodejs'
     process.env.PATH = nodeDir
     process.env.PATHEXT = '.exe;.cmd'
-    const node = join(nodeDir, 'node.exe')
-    const pathShim = join(nodeDir, 'chrome-devtools-mcp.cmd')
-    const pathEntry = join(
+    const node = win32.join(nodeDir, 'node.exe')
+    const pathShim = win32.join(nodeDir, 'chrome-devtools-mcp.cmd')
+    const pathEntry = win32.join(
       nodeDir, 'node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js',
     )
     fsp.exists = (p) => [shim, jsEntry, node, pathShim, pathEntry].includes(p)
@@ -254,15 +254,15 @@ describe('findChromeDevtoolsMcpLocal', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     process.env.APPDATA = 'C:\\Users\\u\\AppData\\Roaming'
     const nodeDir = 'D:\\program\\node-v24.18.0-win-x64'
-    const shim = join(nodeDir, 'chrome-devtools-mcp.cmd')
-    const jsEntry = join(
+    const shim = win32.join(nodeDir, 'chrome-devtools-mcp.cmd')
+    const jsEntry = win32.join(
       nodeDir, 'node_modules', 'chrome-devtools-mcp',
       'build', 'src', 'bin', 'chrome-devtools-mcp.js',
     )
     process.env.PATH = nodeDir
     // PATH 只识别 .exe，让此用例覆盖 node 目录兜底，而非直接发现 .cmd。
     process.env.PATHEXT = '.exe'
-    const node = join(nodeDir, 'node.exe')
+    const node = win32.join(nodeDir, 'node.exe')
     fsp.exists = (p) => p === shim || p === jsEntry || p === node
 
     expect(findChromeDevtoolsMcpLocal()).toEqual({

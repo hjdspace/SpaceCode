@@ -20,31 +20,43 @@
  * 解析逻辑刻意与 mcpConfigResolver 分离：这里只负责"找"，不负责"决定"。
  */
 import { accessSync, constants, existsSync, statSync } from 'fs'
-import { join, dirname, extname, isAbsolute, resolve } from 'path'
+import * as nodePath from 'path'
 import { homedir } from 'os'
+
+/**
+ * 按被模拟的平台取 path 语义。
+ *
+ * 非 win32 分支用宿主 path（测试把 platform 改成 linux 时宿主仍是真实平台），
+ * win32 分支显式用 path.win32 —— 否则 Linux CI 上 `C:\Program Files\nodejs` 会被
+ * POSIX 规则当成相对路径，isAbsolute/resolve 直接把 cwd 拼在前面。
+ */
+function pathFor(windows: boolean): typeof nodePath {
+  return windows ? nodePath.win32 : nodePath
+}
 
 /** uv tool 可执行文件安装目录（uv tool install 的默认 bin 目录） */
 function uvToolBinDir(): string {
   // uv 尊重 UV_TOOL_BIN_DIR 覆盖默认位置
   const override = process.env.UV_TOOL_BIN_DIR
   if (override) return override
-  return join(homedir(), '.local', 'bin')
+  return pathFor(process.platform === 'win32').join(homedir(), '.local', 'bin')
 }
 
 function findInPath(binName: string): string | null {
   const windows = process.platform === 'win32'
-  const extensions = windows && !extname(binName)
+  const p = pathFor(windows)
+  const extensions = windows && !nodePath.extname(binName)
     ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
     : ['']
   for (const entry of (process.env.PATH || '').split(windows ? ';' : ':')) {
     const directory = windows ? entry.replace(/^"(.*)"$/, '$1') : entry
     if (!directory) continue
     for (const extension of extensions) {
-      const candidate = join(directory, binName + extension)
+      const candidate = p.join(directory, binName + extension)
       try {
         if (!existsSync(candidate) || !statSync(candidate).isFile()) continue
         if (!windows) accessSync(candidate, constants.X_OK)
-        return isAbsolute(candidate) ? candidate : resolve(candidate)
+        return p.isAbsolute(candidate) ? candidate : p.resolve(candidate)
       } catch {}
     }
   }
@@ -63,15 +75,13 @@ function findInPath(binName: string): string | null {
  */
 export function findCdpBridgeExecutable(): string | null {
   const binName = process.platform === 'win32' ? 'cdp-bridge.exe' : 'cdp-bridge'
-  const wellKnown = join(uvToolBinDir(), binName)
+  const wellKnown = pathFor(process.platform === 'win32').join(uvToolBinDir(), binName)
   if (existsSync(wellKnown)) return wellKnown
   return findInPath(binName)
 }
 
 /** chrome-devtools-mcp 包内 MCP server 的 js 入口（npm 包 bin 字段指向的位置） */
-const CHROME_DEVTOOLS_MCP_JS_ENTRY = join(
-  'build', 'src', 'bin', 'chrome-devtools-mcp.js',
-)
+const CHROME_DEVTOOLS_MCP_JS_ENTRY = ['build', 'src', 'bin', 'chrome-devtools-mcp.js'] as const
 
 /** npm 全局 shim 在 Windows 上是 .cmd，unix 上是无扩展名脚本 */
 function npmShimName(): string {
@@ -90,9 +100,9 @@ function npmShimName(): string {
  */
 function staticNpmBinDirs(): string[] {
   if (process.platform === 'win32') {
-    return process.env.APPDATA ? [join(process.env.APPDATA, 'npm')] : []
+    return process.env.APPDATA ? [pathFor(true).join(process.env.APPDATA, 'npm')] : []
   }
-  return ['/usr/local/bin', join(homedir(), '.npm-global', 'bin')]
+  return ['/usr/local/bin', pathFor(false).join(homedir(), '.npm-global', 'bin')]
 }
 
 /**
@@ -110,36 +120,37 @@ function staticNpmBinDirs(): string[] {
  * `node + js` 更快也更稳。任一环节缺失返回 null（调用方回退钉版本 npx）。
  */
 export function findChromeDevtoolsMcpLocal(): { command: string; args: string[] } | null {
+  const p = pathFor(process.platform === 'win32')
   const shim = npmShimName()
 
   let nodeProbed = false
-  let nodePath: string | null = null
+  let nodeBin: string | null = null
   const resolveNode = (): string | null => {
     if (!nodeProbed) {
       nodeProbed = true
-      nodePath = findInPath('node')
+      nodeBin = findInPath('node')
     }
-    return nodePath
+    return nodeBin
   }
 
   const fromStatic = staticNpmBinDirs()
-    .map(dir => join(dir, shim))
-    .find(p => existsSync(p))
+    .map(dir => p.join(dir, shim))
+    .find(candidate => existsSync(candidate))
   let binPath: string | null = fromStatic ?? findInPath('chrome-devtools-mcp')
 
   if (!binPath) {
     // node 与它自己的全局 shim 同目录（自定义 prefix / 解压版 Node 的常见布局）
     const node = resolveNode()
     if (node) {
-      const nextToNode = join(dirname(node), shim)
+      const nextToNode = p.join(p.dirname(node), shim)
       if (existsSync(nextToNode)) binPath = nextToNode
     }
   }
   if (!binPath) return null
 
   // npm 全局布局：shim 与 node_modules/<pkg> 同目录
-  const jsEntry = join(
-    dirname(binPath), 'node_modules', 'chrome-devtools-mcp', CHROME_DEVTOOLS_MCP_JS_ENTRY,
+  const jsEntry = p.join(
+    p.dirname(binPath), 'node_modules', 'chrome-devtools-mcp', ...CHROME_DEVTOOLS_MCP_JS_ENTRY,
   )
   if (!existsSync(jsEntry)) return null
 

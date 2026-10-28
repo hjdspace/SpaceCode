@@ -36,6 +36,16 @@ function run(command: string, args: string[]): Promise<string> {
 /** 机器上装了什么在一分钟内不会变；再长就会推迟"新装工具立即可用"。 */
 const PROBE_TTL_MS = 60_000
 
+/**
+ * Windows-only 探测一律走 path.win32，而不是宿主 path。
+ *
+ * probeSpawnEnvironment 已经用 platform 挡住非 Windows，运行时两者等价；但测试会在
+ * Linux 宿主上把 platform 改成 win32 来覆盖这些分支，那时宿主 path 是 POSIX 语义，
+ * 会把 `D:\Git\cmd\git.exe` 当成没有分隔符的单个文件名，dirname 得到 '.', 分支就
+ * 被静默跳过（CI 上正是这么红的）。
+ */
+const winPath = path.win32
+
 export interface SpawnEnvironmentSnapshot {
   /**
    * 注册表里的系统 + 用户 PATH、当前进程 PATH、以及未进 PATH 的 Python 安装目录
@@ -154,7 +164,7 @@ function detectPythonPaths(): string[] {
     if (checked.has(key)) return
     checked.add(key)
     try {
-      if (fs.existsSync(path.join(dir, 'python.exe'))) {
+      if (fs.existsSync(winPath.join(dir, 'python.exe'))) {
         found.push(dir)
       }
     } catch { /* ignore */ }
@@ -162,11 +172,11 @@ function detectPythonPaths(): string[] {
 
   // 1. python.org installer: %LOCALAPPDATA%\Programs\Python\Python3XX\
   if (process.env.LOCALAPPDATA) {
-    const pythonDir = path.join(process.env.LOCALAPPDATA, 'Programs', 'Python')
+    const pythonDir = winPath.join(process.env.LOCALAPPDATA, 'Programs', 'Python')
     try {
       for (const entry of fs.readdirSync(pythonDir)) {
         if (/^Python\d+/i.test(entry)) {
-          checkDir(path.join(pythonDir, entry))
+          checkDir(winPath.join(pythonDir, entry))
         }
       }
     } catch { /* directory doesn't exist */ }
@@ -174,15 +184,15 @@ function detectPythonPaths(): string[] {
 
   // 2. Windows Store App Execution Aliases: %LOCALAPPDATA%\Microsoft\WindowsApps\
   if (process.env.LOCALAPPDATA) {
-    checkDir(path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps'))
+    checkDir(winPath.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps'))
   }
 
   // 3. Anaconda / Miniconda
   const condaDirs = [
-    path.join(os.homedir(), 'Anaconda3'),
-    path.join(os.homedir(), 'anaconda3'),
-    path.join(os.homedir(), 'Miniconda3'),
-    path.join(os.homedir(), 'miniconda3'),
+    winPath.join(os.homedir(), 'Anaconda3'),
+    winPath.join(os.homedir(), 'anaconda3'),
+    winPath.join(os.homedir(), 'Miniconda3'),
+    winPath.join(os.homedir(), 'miniconda3'),
     'C:\\ProgramData\\Anaconda3',
     'C:\\ProgramData\\miniconda3',
   ]
@@ -191,11 +201,11 @@ function detectPythonPaths(): string[] {
   }
 
   // 4. pyenv-win: %USERPROFILE%\.pyenv\pyenv-win\versions\<version>\
-  const pyenvDir = process.env.PYENV || path.join(os.homedir(), '.pyenv', 'pyenv-win')
+  const pyenvDir = process.env.PYENV || winPath.join(os.homedir(), '.pyenv', 'pyenv-win')
   try {
-    const versionsDir = path.join(pyenvDir, 'versions')
+    const versionsDir = winPath.join(pyenvDir, 'versions')
     for (const entry of fs.readdirSync(versionsDir)) {
-      checkDir(path.join(versionsDir, entry))
+      checkDir(winPath.join(versionsDir, entry))
     }
   } catch { /* pyenv-win not installed */ }
 
@@ -207,11 +217,11 @@ function prependPythonDirs(currentPath: string | null): string | null {
   const pythonDirs = detectPythonPaths()
   if (pythonDirs.length === 0) return currentPath
   const base = currentPath || process.env.PATH || ''
-  const existingEntries = base.split(path.delimiter)
+  const existingEntries = base.split(winPath.delimiter)
   const newEntries = pythonDirs.filter(p => !existingEntries.some(e => e.toLowerCase() === p.toLowerCase()))
   if (newEntries.length === 0) return currentPath
   debug('SpawnEnvironment', `Detected Python installations not in PATH | dirs=${newEntries.join(';')}`)
-  return [...newEntries, ...existingEntries].join(path.delimiter)
+  return [...newEntries, ...existingEntries].join(winPath.delimiter)
 }
 
 async function findGitBashPath(): Promise<string | null> {
@@ -221,9 +231,9 @@ async function findGitBashPath(): Promise<string | null> {
   const candidates = [
     'C:\\Program Files\\Git\\bin\\bash.exe',
     'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
-    path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Git', 'bin', 'bash.exe'),
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
-    process.env.ProgramW6432 && path.join(process.env.ProgramW6432, 'Git', 'bin', 'bash.exe'),
+    winPath.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Git', 'bin', 'bash.exe'),
+    process.env.LOCALAPPDATA && winPath.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+    process.env.ProgramW6432 && winPath.join(process.env.ProgramW6432, 'Git', 'bin', 'bash.exe'),
   ].filter(Boolean) as string[]
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate
@@ -232,7 +242,7 @@ async function findGitBashPath(): Promise<string | null> {
     const stdout = await run('where', ['git'])
     const gitExe = stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0]
     if (gitExe) {
-      const bashFromGit = path.join(path.dirname(path.dirname(gitExe)), 'bin', 'bash.exe')
+      const bashFromGit = winPath.join(winPath.dirname(winPath.dirname(gitExe)), 'bin', 'bash.exe')
       if (fs.existsSync(bashFromGit)) return bashFromGit
     }
   } catch { /* git not on PATH */ }
