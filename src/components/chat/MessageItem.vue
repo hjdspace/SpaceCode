@@ -23,12 +23,14 @@
           <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
         </div>
         
-        <!-- 上传的文件附件（卡片显示在气泡上方） -->
-        <div v-if="uploadedFileAttachments.length" class="file-attachments">
+        <!-- 上传/粘贴的文件附件（卡片显示在气泡上方） -->
+        <div v-if="fileCardAttachments.length" class="file-attachments">
           <FileAttachmentCard
-            v-for="file in uploadedFileAttachments"
+            v-for="file in fileCardAttachments"
             :key="file.path"
             :file="file"
+            :openable="file.source === 'paste'"
+            @open="openAttachmentInPanel(file)"
           />
         </div>
 
@@ -302,12 +304,19 @@ const renderedUserContent = computed(() =>
   renderContentWithAttachments(resolveUserMessageDisplay(props.message), props.message.imageAttachments)
 )
 
-/** 只有上传的附件以卡片展示；工作区 chip 已经在正文里，不重复成卡片 */
-const uploadedFileAttachments = computed<Attachment[]>(() =>
+/** 上传/粘贴的附件以卡片展示；工作区 chip 已经在正文里，不重复成卡片 */
+const fileCardAttachments = computed<Attachment[]>(() =>
   (props.message.attachments ?? []).filter(
-    (att): att is Attachment => 'isFolder' in att && att.source === 'upload'
+    (att): att is Attachment =>
+      'isFolder' in att && (att.source === 'upload' || att.source === 'paste')
   )
 )
+
+/** 粘贴件在右侧面板打开全文（临时目录里的 .txt） */
+function openAttachmentInPanel(file: Attachment) {
+  if (file.source !== 'paste') return
+  appStore.openFile(file.path)
+}
 
 function formatTime(timestamp: number): string {
   const date = new Date(timestamp)
