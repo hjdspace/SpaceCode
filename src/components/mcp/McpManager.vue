@@ -213,6 +213,16 @@
                     {{ t('mcpSettings.builtinRequirements') }}: {{ entry.preset.requirements }}
                   </p>
 
+                  <!-- 本地化状态：启用这条预设后后台把 launcher 形态换成一次性安装 -->
+                  <p v-if="entry.localizing" class="builtin-req">
+                    <Loader2 :size="12" class="spin" />
+                    {{ t('mcpSettings.localizingPreset') }}
+                  </p>
+                  <p v-else-if="entry.localized" class="builtin-req">
+                    <CheckCircle2 :size="12" />
+                    {{ t('mcpSettings.localizedPreset') }}
+                  </p>
+
                   <!-- 「已安装」只证明 PATH 上有命令；连不上的原因必须显示出来才知道修哪层 -->
                   <p
                     v-if="entry.probe?.status === 'failed' && entry.probe.error"
@@ -575,6 +585,9 @@ const builtinEntries = computed(() => {
       depStatus,
       isInstallingDep: isInstallingThis,
       installProgress: isInstallingThis ? mcpStore.installProgress : null,
+      // 本地化（把 uvx/npx 每次启动的包解析换成一次性安装）
+      localizing: !!mcpStore.localizingPresets[preset.key],
+      localized: !!mcpStore.localizedPresets[preset.key],
       // 这个服务器是否已经写到了下次 CLI spawn 的 --mcp-config（即 Claude Code 真正能调到）
       activeInCli: engineActiveNames.value.includes(preset.key),
     }

@@ -336,8 +336,7 @@ describe('SessionProcess permission routing on the stdout seam', () => {
 /**
  * 引擎在 system/init 里回报它自己认定的权限模式 —— 宿主据此判断"用户意图是否真的落地"，
  * 进程池再决定重试下发或按意图重启（见 claudeCodeProcessPool.permissionMode.test.ts）。
- * waitForInit 是同一条消息驱动的就绪信号：spawn 成功时 CLI 还没开始消费 stdin 上的
- * 控制请求，在此之前发 set_permission_mode 注定等 10s 超时。
+ * waitForInit 也可由 initialize 控制应答就绪，不要求提前发送用户消息。
  */
 describe('SessionProcess permission truth from system/init', () => {
   it('records the engine-reported mode and whether it matches the intent', () => {

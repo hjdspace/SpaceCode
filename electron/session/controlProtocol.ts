@@ -403,7 +403,7 @@ export function buildInitializeRequest(
     agentProgressSummaries?: boolean
   } = {},
   requestId: string = randomUUID(),
-): Record<string, unknown> {
+): { request_id: string } & Record<string, unknown> {
   const inner: Record<string, unknown> = { subtype: 'initialize' }
   if (options.hooks) inner.hooks = options.hooks
   if (options.sdkMcpServers) inner.sdkMcpServers = options.sdkMcpServers
@@ -704,6 +704,7 @@ export class ControlProtocolHandler extends EventEmitter {
   /** Rejects every pending outbound control_request and cancels every open
    * inbound permission prompt. Call from process.on('exit'). */
   rejectAllPending(reason: string): void {
+    this.buffer = ''
     for (const [requestId, pending] of this.pendingControlRequests.entries()) {
       pending.reject(new Error(`Process exited before control_request '${pending.subtype}' (requestId=${requestId}) responded: ${reason}`))
     }

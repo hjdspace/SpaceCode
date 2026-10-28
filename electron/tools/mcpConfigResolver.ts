@@ -63,8 +63,11 @@ export type BuiltinMcpResolution =
 // 要联网解析 @latest（弱网下会吃满 MCP 握手超时）；钉精确版本后，包管理器
 // 缓存命中即可离线启动。升级版本时改这里（预设里的 @latest 只是初始展示值，
 // 运行时永远经过本解析器）。
-const PINNED_CDP_BRIDGE = 'cdp-bridge@0.1.25'
-const PINNED_CHROME_DEVTOOLS_MCP = 'chrome-devtools-mcp@1.12.0'
+//
+// 导出给 builtinMcpInstaller：本地化安装必须装的就是这两个版本，否则
+// 「装了 1.12.0、回退写 1.13.0」两条路径会各跑各的。
+export const PINNED_CDP_BRIDGE = 'cdp-bridge@0.1.25'
+export const PINNED_CHROME_DEVTOOLS_MCP = 'chrome-devtools-mcp@1.12.0'
 
 /** 取命令 basename（兼容 windows 路径）并去掉可执行后缀，用于 uvx/npx 识别 */
 function launcherName(command: string): string {
@@ -73,11 +76,17 @@ function launcherName(command: string): string {
   return base.replace(/\.(exe|cmd|bat)$/, '')
 }
 
-function isUvxLike(command: string | undefined): boolean {
+/**
+ * command 是否还是预设的 uvx / npx 形态。
+ *
+ * 导出给 `builtinMcpInstaller`：用户把内置项的 command 改写成别的形态时
+ * （resolver 报 fallback-original），本地化安装帮不上忙，不该照装不误。
+ */
+export function isUvxLike(command: string | undefined): boolean {
   return !!command && launcherName(command) === 'uvx'
 }
 
-function isNpxLike(command: string | undefined): boolean {
+export function isNpxLike(command: string | undefined): boolean {
   return !!command && launcherName(command) === 'npx'
 }
 
@@ -153,7 +162,20 @@ export function usesPackageManagerLauncher(
   config: Pick<McpProbeConfig, 'type' | 'command' | 'args' | 'url'>,
 ): boolean {
   if (config.type === 'sse' || config.type === 'http') return false
-  return isUvxLike(config.command) || isNpxLike(config.command)
+  if (isUvxLike(config.command) || isNpxLike(config.command)) return true
+  // 穿过 Windows 那层壳：本模块自己就会把 npx 包成 `cmd /c npx …`，判据若只看
+  // command 就会把它当成"不需要 launcher 预算"，反过来把健康的服务器掐死。
+  if (launcherName(config.command || '') === 'cmd') {
+    const wrapped = wrappedCommand(config.args)
+    return !!wrapped && (isUvxLike(wrapped) || isNpxLike(wrapped))
+  }
+  return false
+}
+
+/** `cmd /c <command> …` 里被包起来的那个命令；形态不符时返回 null */
+function wrappedCommand(args: string[] | undefined): string | null {
+  if (!args || args.length < 2 || args[0].toLowerCase() !== '/c') return null
+  return args[1]
 }
 
 /**

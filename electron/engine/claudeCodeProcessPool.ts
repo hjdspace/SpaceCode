@@ -194,7 +194,7 @@ export class ClaudeCodeProcessPool {
    * spawn 参数现在已经是意图（见 sessionProcess.buildArgs），所以这里只处理两种真偏差：
    *  - 意图在进程起来之后才变（pendingPermissionModes：无进程时用户切了模式）；
    *  - 引擎在 system/init 里回报的模式与意图不符（被 settings 闸门降级等）。
-   * 偏差时先发 set_permission_mode（等 system/init 之后再发，避开 CLI 未就绪的 10s 超时），
+   * 偏差时先发 set_permission_mode（等控制协议就绪后再发，避开 CLI 未就绪的 10s 超时），
    * 失败就用意图作为启动参数重启进程 —— 重启不依赖控制请求，等于把"恢复失败还留在
    * bypass"这类失控从根上消掉。同一模式只重启补救一次，避免对确定性拒绝无限循环。
    */
@@ -221,9 +221,12 @@ export class ClaudeCodeProcessPool {
 
     info('ProcessPool', `[${shortSid}] Reconciling permission mode | intent=${intent} | spawnedAs=${proc.config.permissionMode} | engineReports=${proc.reportedPermissionMode ?? '(unknown)'} | context=${context}`)
     if (!proc.isRunning()) return
-    // 等 CLI 真正开始消费 stdin 上的控制请求，否则这次下发注定超时。
-    await proc.waitForInit()
+    const ready = await proc.waitForInit()
     if (!proc.isRunning()) return
+    if (!ready) {
+      await this.restartInPermissionMode(sessionId, proc, intent)
+      return
+    }
 
     if (await this.applyPermissionModeWithRetry(sessionId, proc, intent, context)) {
       this.pendingPermissionModes.delete(sessionId)
@@ -236,7 +239,7 @@ export class ClaudeCodeProcessPool {
 
   /**
    * 下发意图模式，有限次重试。CLI 冷启动（Linux AppImage 等）可能超过 setPermissionMode
-   * 的 10s 超时窗口才开始消费 stdin 控制请求 —— 调用方已先等过 system/init，这里只剩
+   * 的 10s 超时窗口才开始消费 stdin 控制请求 —— 调用方已先等过控制协议就绪，这里只剩
    * 偶发失败；进程已退出则立即放弃。
    */
   private async applyPermissionModeWithRetry(

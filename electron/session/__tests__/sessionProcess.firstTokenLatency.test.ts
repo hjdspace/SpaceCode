@@ -133,6 +133,141 @@ afterEach(() => {
 })
 
 describe('SessionProcess 首 Token 延迟账本', () => {
+  it('首条消息前等待控制协议就绪不应等只能在发送后出现的 system/init', async () => {
+    const proc = makeProc({ warmed: true, permissionMode: 'plan' })
+    await proc.start()
+    const child = cp.calls[0].child
+    child.stdin.write.mockImplementation((line: string) => {
+      const message = JSON.parse(line)
+      if (message.request?.subtype === 'initialize') {
+        setTimeout(() => feed(proc, {
+          type: 'control_response',
+          response: { subtype: 'success', request_id: message.request_id, response: {} },
+        }), 100)
+      }
+    })
+
+    let ready = false
+    const waiting = proc.waitForInit().then((value: boolean) => { ready = value })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(ready).toBe(true)
+    await waiting
+    expect(proc.engineSessionId).toBeNull()
+    expect(proc.reportedPermissionMode).toBeNull()
+    expect(latencyEvents()).toHaveLength(0)
+    proc.kill()
+  })
+
+  it('并发等待只发一次 initialize，握手成功后不再发送', async () => {
+    const proc = makeProc()
+    await proc.start()
+    const child = cp.calls[0].child
+    const first = proc.waitForInit()
+    const second = proc.waitForInit()
+    expect(child.stdin.write).toHaveBeenCalledTimes(1)
+    const request = JSON.parse(child.stdin.write.mock.calls[0][0])
+    feed(proc, { type: 'control_response', response: { subtype: 'success', request_id: request.request_id, response: {} } })
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
+    await expect(proc.waitForInit()).resolves.toBe(true)
+    expect(child.stdin.write).toHaveBeenCalledTimes(1)
+    proc.kill()
+  })
+
+  it('握手超时有界，进程退出后清理控制请求和等待者', async () => {
+    const proc = makeProc()
+    await proc.start()
+    const child = cp.calls[0].child
+    const waiting = proc.waitForInit(100)
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(waiting).resolves.toBe(false)
+    const next = proc.waitForInit()
+    child.emit('exit', 1, null)
+    await expect(next).resolves.toBe(false)
+    await expect(proc.waitForInit()).resolves.toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('initialize 被拒不冒充已就绪，也不改变权限核验结果', async () => {
+    const proc = makeProc({ permissionMode: 'plan' })
+    await proc.start()
+    const waiting = proc.waitForInit()
+    const request = JSON.parse(cp.calls[0].child.stdin.write.mock.calls[0][0])
+    feed(proc, { type: 'control_response', response: { subtype: 'error', request_id: request.request_id, error: 'unsupported' } })
+    await expect(waiting).resolves.toBe(false)
+    expect(proc.permissionModeVerified).toBeNull()
+    expect(proc.currentPermissionMode).toBe('plan')
+    proc.kill()
+  })
+
+  it('恢复进程不能拿旧 engineSessionId 当作新进程已经就绪', async () => {
+    const proc = makeProc()
+    await proc.start()
+    feed(proc, { type: 'system', subtype: 'init', session_id: 'eng-resume' })
+    await expect(proc.waitForInit()).resolves.toBe(true)
+    proc.kill()
+    await proc.start()
+
+    let ready = false
+    const waiting = proc.waitForInit().then((value: boolean) => { ready = value })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(ready).toBe(false)
+    const child = cp.calls[1].child
+    const request = JSON.parse(child.stdin.write.mock.calls[0][0])
+    expect(request.request.subtype).toBe('initialize')
+    feed(proc, { type: 'control_response', response: { subtype: 'success', request_id: request.request_id, response: {} } })
+    await waiting
+    expect(ready).toBe(true)
+    proc.kill()
+  })
+
+  it('旧进程晚到的 stdout、stderr、error 和 exit 不影响重启后的握手', async () => {
+    const proc = makeProc()
+    await proc.start()
+    const oldChild = cp.calls[0].child
+    proc.kill()
+    await proc.start()
+    const child = cp.calls[1].child
+    const waiting = proc.waitForInit()
+    const request = JSON.parse(child.stdin.write.mock.calls[0][0])
+    const onError = vi.fn()
+    const onExit = vi.fn()
+    const onLog = vi.fn()
+    proc.on('error', onError)
+    proc.on('exit', onExit)
+    proc.on('log', onLog)
+
+    oldChild.stdout.emit('data', Buffer.from('{"type":"system","subtype":"init","session_id":"old"}\n'))
+    oldChild.stderr.emit('data', Buffer.from('old error'))
+    oldChild.emit('error', new Error('late old error'))
+    oldChild.emit('exit', 1, null)
+    expect(proc.process).toBe(child)
+    expect(proc.engineSessionId).toBeNull()
+    expect(onError).not.toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    expect(onLog).not.toHaveBeenCalled()
+
+    feed(proc, { type: 'control_response', response: { subtype: 'success', request_id: request.request_id, response: {} } })
+    await expect(waiting).resolves.toBe(true)
+    proc.kill()
+  })
+
+  it('停止时立即清理未完成握手和半截 JSON，避免污染下一次启动', async () => {
+    const proc = makeProc()
+    await proc.start()
+    const waiting = proc.waitForInit()
+    cp.calls[0].child.stdout.emit('data', Buffer.from('{"type":'))
+    proc.kill()
+    await expect(waiting).resolves.toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    await proc.start()
+    const next = proc.waitForInit()
+    const request = JSON.parse(cp.calls[1].child.stdin.write.mock.calls[0][0])
+    feed(proc, { type: 'control_response', response: { subtype: 'success', request_id: request.request_id, response: {} } })
+    await expect(next).resolves.toBe(true)
+    proc.kill()
+  })
+
   it('发送时引擎还没 init：把成本拆成宿主准备 / 拉起 / 引擎 boot / init 之后四段', async () => {
     const proc = makeProc()
     await proc.start()

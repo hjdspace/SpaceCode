@@ -410,6 +410,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 依赖检测 / 一键安装（用于内置 MCP 缺失依赖时的引导）
     checkDependency: (command: string) => ipcRenderer.invoke('mcp:checkDependency', command),
     installDependency: (command: 'uv') => ipcRenderer.invoke('mcp:installDependency', command),
+    // 启用内置预设后把它从 uvx/npx 形态一次性装到持久位置（后台，失败静默）
+    localizeBuiltin: (key: string, source: unknown) => ipcRenderer.invoke('mcp:localizeBuiltin', key, source),
     onInstallProgress: (callback: (progress: any) => void) => {
       const wrapper = (_: any, data: any) => callback(data)
       ipcRenderer.on('mcp:installProgress', wrapper)

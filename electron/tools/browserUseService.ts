@@ -226,8 +226,11 @@ function isPythonVersionValid(version: string): boolean {
 /**
  * 检测系统是否安装了 uv（Astral 的 Python 包管理器）。
  * AGENTS.md 要求优先使用 uv 而非 pip。
+ *
+ * 导出给 `builtinMcpInstaller`：`uv tool install cdp-bridge` 用的就是这同一个
+ * 发现口径（环境变量 → PATH → 已知安装位置），不要另写一份 PATH 扫描。
  */
-function findUv(): string | null {
+export function findUv(): string | null {
   // 1. 环境变量覆盖
   const envUv = process.env.UV_PATH
   if (envUv && existsSync(envUv)) return envUv

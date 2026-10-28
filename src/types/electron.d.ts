@@ -259,6 +259,15 @@ export interface ElectronMcpAPI {
   probeServer: (config: unknown) => Promise<unknown>
   checkDependency: (command: string) => Promise<unknown>
   installDependency: (command: 'uv') => Promise<unknown>
+  /**
+   * 把 uvx/npx 形态的内置预设装到持久位置（启用预设时后台触发）。
+   * source 是面板上那条记录的启动形态；status 见
+   * electron/tools/builtinMcpInstaller 的 LocalizeResult。
+   */
+  localizeBuiltin: (
+    key: string,
+    source: { type?: string; command?: string; args?: string[] },
+  ) => Promise<{ status: 'localized' | 'already-local' | 'not-applicable' | 'failed'; error?: string }>
   onInstallProgress: (callback: (progress: unknown) => void) => () => void
   getActiveMcpNames: () => Promise<string[]>
   getPiState: () => Promise<PiMcpState>

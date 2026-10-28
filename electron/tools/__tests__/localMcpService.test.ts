@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { join } from 'path'
+import { join, resolve } from 'path'
+import { accessSync, constants } from 'fs'
+import { execFileSync } from 'child_process'
 
 /**
  * localMcpService 只做"找"：uv tool / npm global 的固定布局 + PATH 兜底。
@@ -12,41 +14,38 @@ const HOME = vi.hoisted(() => '/home/u')
 
 const fsp = vi.hoisted(() => ({
   exists: (() => false) as (p: string) => boolean,
-}))
-
-const sh = vi.hoisted(() => ({
-  // binName → where/which 返回的路径
-  pathResults: {} as Record<string, string>,
-  // 每次 PATH 探测都记下来：这些是真实的子进程，跑在会话 spawn 前的临界路径上
-  probes: [] as string[],
+  isFile: (() => true) as (p: string) => boolean,
+  executable: (() => true) as (p: string) => boolean,
 }))
 
 vi.mock('fs', () => ({
   existsSync: (p: unknown) => fsp.exists(String(p)),
+  statSync: (p: unknown) => {
+    if (!fsp.exists(String(p))) throw new Error('ENOENT')
+    return { isFile: () => fsp.isFile(String(p)) }
+  },
+  accessSync: vi.fn((p: unknown, mode?: number) => {
+    if (!fsp.exists(String(p))) throw new Error('ENOENT')
+    if (mode === 1 && !fsp.executable(String(p))) throw new Error('EACCES')
+  }),
+  constants: { X_OK: 1 },
 }))
 
 vi.mock('os', () => ({ homedir: () => HOME }))
 
-vi.mock('child_process', () => ({
-  execFileSync: (_cmd: string, args: string[]) => {
-    sh.probes.push(args[0])
-    const found = sh.pathResults[args[0]]
-    if (!found) throw new Error('not found')
-    return found + '\n'
-  },
-}))
+vi.mock('child_process', () => ({ execFileSync: vi.fn() }))
 
 import { findCdpBridgeExecutable, findChromeDevtoolsMcpLocal } from '../localMcpService'
 
 const originalPlatform = process.platform
 const savedEnv: Record<string, string | undefined> = {}
-const ENV_KEYS = ['UV_TOOL_BIN_DIR', 'APPDATA']
+const ENV_KEYS = ['UV_TOOL_BIN_DIR', 'APPDATA', 'PATH', 'PATHEXT']
 
 beforeEach(() => {
   vi.clearAllMocks()
   fsp.exists = () => false
-  sh.pathResults = {}
-  sh.probes = []
+  fsp.isFile = () => true
+  fsp.executable = () => true
   Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
   for (const k of ENV_KEYS) {
     savedEnv[k] = process.env[k]
@@ -60,9 +59,56 @@ afterEach(() => {
     if (savedEnv[k] === undefined) delete process.env[k]
     else process.env[k] = savedEnv[k]
   }
+  expect(execFileSync).not.toHaveBeenCalled()
 })
 
 describe('findCdpBridgeExecutable', () => {
+  it('anchors relative PATH entries to the host directory instead of the future session cwd', () => {
+    process.env.PATH = 'relative-tools'
+    const candidate = join('relative-tools', 'cdp-bridge')
+    fsp.exists = p => p === candidate
+
+    expect(findCdpBridgeExecutable()).toBe(resolve(candidate))
+  })
+
+  it('resolves a PATH executable without spawning which and sees newly installed binaries', () => {
+    process.env.PATH = '/first:/tools'
+    const executable = join('/tools', 'cdp-bridge')
+    expect(findCdpBridgeExecutable()).toBeNull()
+    fsp.exists = p => p === executable
+
+    expect(findCdpBridgeExecutable()).toBe(executable)
+
+    // 成功结果也不能缓存：卸载后下一次解析应立即回退。
+    fsp.exists = () => false
+    expect(findCdpBridgeExecutable()).toBeNull()
+  })
+
+  it('skips directories named like executables on PATH', () => {
+    process.env.PATH = '/first:/tools'
+    const directory = join('/first', 'cdp-bridge')
+    const executable = join('/tools', 'cdp-bridge')
+    fsp.exists = p => p === directory || p === executable
+    fsp.isFile = p => p !== directory
+
+    expect(findCdpBridgeExecutable()).toBe(executable)
+  })
+
+  it('skips non-executable Unix files on PATH', () => {
+    process.env.PATH = '/first:/tools'
+    const notExecutable = join('/first', 'cdp-bridge')
+    const executable = join('/tools', 'cdp-bridge')
+    fsp.exists = p => p === notExecutable || p === executable
+    fsp.executable = p => p !== notExecutable
+
+    expect(findCdpBridgeExecutable()).toBe(executable)
+    expect(accessSync).toHaveBeenCalledWith(notExecutable, constants.X_OK)
+    expect(accessSync).toHaveBeenCalledWith(executable, constants.X_OK)
+
+    fsp.executable = () => false
+    expect(findCdpBridgeExecutable()).toBeNull()
+  })
+
   it('prefers UV_TOOL_BIN_DIR when the executable exists there', () => {
     process.env.UV_TOOL_BIN_DIR = '/custom/tool-bin'
     const expected = join('/custom/tool-bin', 'cdp-bridge')
@@ -79,9 +125,10 @@ describe('findCdpBridgeExecutable', () => {
     expect(findCdpBridgeExecutable()).toBe(wellKnown)
 
     // well-known 缺失时走 PATH 查询
-    fsp.exists = (p) => p === '/usr/bin/cdp-bridge'
-    sh.pathResults['cdp-bridge'] = '/usr/bin/cdp-bridge'
-    expect(findCdpBridgeExecutable()).toBe('/usr/bin/cdp-bridge')
+    process.env.PATH = '/usr/bin'
+    const onPath = join('/usr/bin', 'cdp-bridge')
+    fsp.exists = (p) => p === onPath
+    expect(findCdpBridgeExecutable()).toBe(onPath)
   })
 
   it('looks for cdp-bridge.exe on Windows', () => {
@@ -94,53 +141,81 @@ describe('findCdpBridgeExecutable', () => {
 })
 
 describe('findChromeDevtoolsMcpLocal', () => {
-  const SHIM = '/usr/local/bin/chrome-devtools-mcp'
+  // 使用非静态 npm 目录，确保 PATH 用例确实经过 PATH 扫描。
+  const BIN = '/opt/npm/bin'
+  const SHIM = join(BIN, 'chrome-devtools-mcp')
+  const NODE = join('/usr/bin', 'node')
   const JS_ENTRY = join(
-    '/usr/local/bin', 'node_modules', 'chrome-devtools-mcp',
+    BIN, 'node_modules', 'chrome-devtools-mcp',
     'build', 'src', 'bin', 'chrome-devtools-mcp.js',
   )
 
+  it('finds Windows shims and node on PATH without blocking where processes', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    const bin = 'C:\\Program Files\\nodejs'
+    process.env.PATH = `C:\\missing;"${bin}"`
+    process.env.PATHEXT = '.EXE;.CMD'
+    const node = join(bin, 'node.EXE')
+    const shim = join(bin, 'chrome-devtools-mcp.CMD')
+    const entry = join(bin, 'node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js')
+    fsp.exists = p => [node, shim, entry].includes(p)
+    // Windows 不应使用 Unix 的执行权限检查。
+    fsp.executable = () => false
+
+    expect(findChromeDevtoolsMcpLocal()).toEqual({ command: node, args: [entry] })
+    expect(accessSync).not.toHaveBeenCalled()
+  })
+
   it('upgrades a PATH-discovered shim to node + js entry', () => {
-    sh.pathResults['chrome-devtools-mcp'] = SHIM
-    sh.pathResults['node'] = '/usr/bin/node'
-    fsp.exists = (p) => p === SHIM || p === JS_ENTRY || p === '/usr/bin/node'
+    process.env.PATH = `${BIN}:/usr/bin`
+    fsp.exists = (p) => p === SHIM || p === JS_ENTRY || p === NODE
 
     expect(findChromeDevtoolsMcpLocal()).toEqual({
-      command: '/usr/bin/node',
+      command: NODE,
       args: [JS_ENTRY],
     })
   })
 
+  it('finds a Unix npm global installation outside PATH', () => {
+    process.env.PATH = '/usr/bin'
+    const shim = join('/usr/local/bin', 'chrome-devtools-mcp')
+    const entry = join(
+      '/usr/local/bin', 'node_modules', 'chrome-devtools-mcp',
+      'build', 'src', 'bin', 'chrome-devtools-mcp.js',
+    )
+    fsp.exists = (p) => p === shim || p === entry || p === NODE
+
+    expect(findChromeDevtoolsMcpLocal()).toEqual({ command: NODE, args: [entry] })
+  })
+
   it('returns null when the js entry is missing beside the shim', () => {
-    sh.pathResults['chrome-devtools-mcp'] = SHIM
-    sh.pathResults['node'] = '/usr/bin/node'
-    fsp.exists = (p) => p === SHIM || p === '/usr/bin/node'
+    process.env.PATH = `${BIN}:/usr/bin`
+    fsp.exists = (p) => p === SHIM || p === NODE
 
     expect(findChromeDevtoolsMcpLocal()).toBeNull()
   })
 
   it('returns null when node is not on PATH', () => {
-    sh.pathResults['chrome-devtools-mcp'] = SHIM
+    process.env.PATH = `${BIN}:/usr/bin`
     fsp.exists = (p) => p === SHIM || p === JS_ENTRY
 
     expect(findChromeDevtoolsMcpLocal()).toBeNull()
   })
 
-  it('shim 挨着 node 时，一次解析只起一个 `where node` 子进程', () => {
-    // 兜底分支要靠 node 的位置找 shim，出口又要用 node 当 command —— 同一条答案。
-    // 原先两处各起一次 which/execFile，而它跑在会话 spawn 前的临界路径上。
+  it('finds a shim next to node without spawning a PATH probe', () => {
+    process.env.PATH = '/usr/bin'
     const shimNextToNode = join('/usr/bin', 'chrome-devtools-mcp')
     const jsEntryNextToNode = join(
       '/usr/bin', 'node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js',
     )
-    sh.pathResults['node'] = '/usr/bin/node'
-    fsp.exists = (p) => p === shimNextToNode || p === jsEntryNextToNode || p === '/usr/bin/node'
+    fsp.exists = (p) => p === shimNextToNode || p === jsEntryNextToNode || p === NODE
+    // shim 不可直接执行，PATH 扫描跳过它；node 旁的布局仍可升级为 node + JS。
+    fsp.executable = (p) => p !== shimNextToNode
 
     expect(findChromeDevtoolsMcpLocal()).toEqual({
-      command: '/usr/bin/node',
+      command: NODE,
       args: [jsEntryNextToNode],
     })
-    expect(sh.probes.filter(p => p === 'node')).toHaveLength(1)
   })
 
   it('returns null when nothing is installed', () => {
@@ -155,11 +230,18 @@ describe('findChromeDevtoolsMcpLocal', () => {
       process.env.APPDATA, 'npm', 'node_modules', 'chrome-devtools-mcp',
       'build', 'src', 'bin', 'chrome-devtools-mcp.js',
     )
-    sh.pathResults['node'] = 'C:\\Program Files\\nodejs\\node.exe'
-    fsp.exists = (p) => p === shim || p === jsEntry || p === 'C:\\Program Files\\nodejs\\node.exe'
+    const nodeDir = 'C:\\Program Files\\nodejs'
+    process.env.PATH = nodeDir
+    process.env.PATHEXT = '.exe;.cmd'
+    const node = join(nodeDir, 'node.exe')
+    const pathShim = join(nodeDir, 'chrome-devtools-mcp.cmd')
+    const pathEntry = join(
+      nodeDir, 'node_modules', 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js',
+    )
+    fsp.exists = (p) => [shim, jsEntry, node, pathShim, pathEntry].includes(p)
 
     expect(findChromeDevtoolsMcpLocal()).toEqual({
-      command: 'C:\\Program Files\\nodejs\\node.exe',
+      command: node,
       args: [jsEntry],
     })
   })
@@ -177,11 +259,14 @@ describe('findChromeDevtoolsMcpLocal', () => {
       nodeDir, 'node_modules', 'chrome-devtools-mcp',
       'build', 'src', 'bin', 'chrome-devtools-mcp.js',
     )
-    sh.pathResults['node'] = join(nodeDir, 'node.exe')
-    fsp.exists = (p) => p === shim || p === jsEntry || p === join(nodeDir, 'node.exe')
+    process.env.PATH = nodeDir
+    // PATH 只识别 .exe，让此用例覆盖 node 目录兜底，而非直接发现 .cmd。
+    process.env.PATHEXT = '.exe'
+    const node = join(nodeDir, 'node.exe')
+    fsp.exists = (p) => p === shim || p === jsEntry || p === node
 
     expect(findChromeDevtoolsMcpLocal()).toEqual({
-      command: join(nodeDir, 'node.exe'),
+      command: node,
       args: [jsEntry],
     })
   })
