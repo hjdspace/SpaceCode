@@ -24,6 +24,7 @@ import {
   listDebugFiles, readDebugFile,
   listTraceSessions, readTraceEvents, traceEvent,
 } from '../infra/logger'
+import { savePastedText } from '../session/pastedTextFiles'
 
 export function registerCoreIPCHandlers(terminalManager: TerminalManager): void {
   const TERMINAL_CHANNELS = channelNames(terminalNamespace.channels, 'terminal:')
@@ -597,6 +598,21 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
       return readFileSync(filePath, 'utf-8')
     } catch {
       return null
+    }
+  })
+
+  // ── Pasted Text ────────────────────────────────────────────────
+
+  ipcMain.handle('paste:saveText', async (_event, text: string) => {
+    try {
+      if (typeof text !== 'string' || text.length === 0) {
+        return { success: false, error: 'Invalid pasted text' }
+      }
+      const filePath = savePastedText(text)
+      return { success: true, path: filePath, size: Buffer.byteLength(text, 'utf8') }
+    } catch (err: any) {
+      error('IPC', 'paste:saveText failed', { err })
+      return { success: false, error: err.message }
     }
   })
 
