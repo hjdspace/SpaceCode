@@ -386,7 +386,11 @@ app.whenReady().then(async () => {
   })
 
   // ── GenUI 卡片沙箱承载 ────────────────────────────────────────
-  registerGenuiSandboxProtocol({ resourceRoot: genuiSandboxRoot })
+  // 与预览协议同口径：卡片 iframe 在主窗口的持久化 session 里，不能只挂默认 session
+  registerGenuiSandboxProtocol({
+    resourceRoot: genuiSandboxRoot,
+    hosts: [session.fromPartition(MAIN_WINDOW_PARTITION).protocol],
+  })
   info('Startup', 'GenUI sandbox protocol registered')
 
   if (shouldStartDesktopSandboxHost({ isPackaged: app.isPackaged, nodeEnv: process.env.NODE_ENV })) {
