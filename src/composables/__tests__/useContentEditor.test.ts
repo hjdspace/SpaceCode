@@ -682,6 +682,18 @@ describe('mergeComposerFiles — 纯函数', () => {
     const workspace = { name: 'w.ts', path: '/w.ts', isFolder: false, source: 'workspace' as const }
     expect(mergeComposerFiles([], [workspace])).toEqual([])
   })
+
+  it('粘贴落盘的附件随消息提交，标题与大小一并保留', () => {
+    const pasted = {
+      name: 'pasted-1.txt',
+      path: '/tmp/SpaceCode/pasted/pasted-1.txt',
+      isFolder: false,
+      source: 'paste' as const,
+      title: 'Failed Tests 9',
+      sizeBytes: 14438,
+    }
+    expect(mergeComposerFiles([], [pasted])).toEqual([pasted])
+  })
 })
 
 // ── 粘贴处理 ─────────────────────────────────────────────────────
