@@ -97,6 +97,9 @@ export default {
   installFailed: 'Installation failed',
   installNodejs: 'Install Node.js',
   depInstallHint: 'Installs {command} automatically via your system package manager.',
+  // Preset localization (one-off install when a uvx/npx preset is enabled)
+  localizingPreset: 'Localizing in the background so launches stop resolving the package...',
+  localizedPreset: 'Localized — next sessions skip the package-manager launch',
   // CLI 加载状态
   activeInCli: 'Loaded',
   activeInCliHint: 'This MCP server will be injected into the next Claude Code session.',
