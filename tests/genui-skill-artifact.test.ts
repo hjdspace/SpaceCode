@@ -12,7 +12,8 @@
  * 这里读的是仓库里提交的产物，不是临时目录 —— seed 与打包用的就是这一份。
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { miniMaterialsMeta } from '@opentiny/genui-sdk-materials-vue-opentiny-vue/meta'
@@ -23,6 +24,7 @@ import {
   BUNDLED_SKILLS_RESOURCE_DIR,
   GENUI_SKILL_ARTIFACT_REL_PATH,
   buildGenuiSkillMarkdown,
+  generateGenuiSkill,
 } from '../scripts/genui-skill-build.mts'
 import {
   GENUI_SKILL_ID as ELECTRON_GENUI_SKILL_ID,
@@ -175,5 +177,31 @@ describe('正文写明的输出契约', () => {
     expect(artifact).toContain('## 可用组件')
     expect(artifact).toContain('## this 上下文声明')
     expect(artifact).toContain('## Action 定义')
+  })
+})
+
+describe('产物只在内容变化时重写', () => {
+  it('正文未变时跳过写入，保留 Windows 检出的 CRLF', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'genui-skill-'))
+    for (const pkg of ['@opentiny/genui-sdk-core', '@opentiny/genui-sdk-materials-vue-opentiny-vue']) {
+      const dir = join(root, 'node_modules', pkg)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: '0.0.0' }))
+    }
+
+    const first = await generateGenuiSkill(root)
+    expect(first.written).toBe(true)
+
+    // 模拟 core.autocrlf 的检出结果，并把 mtime 固定到过去，避免依赖文件系统时间分辨率
+    const path = join(root, GENUI_SKILL_ARTIFACT_REL_PATH)
+    writeFileSync(path, first.markdown.replace(/\n/g, '\r\n'))
+    const pinned = new Date('2026-01-01T00:00:00Z')
+    utimesSync(path, pinned, pinned)
+    const mtimeBefore = statSync(path).mtimeMs
+
+    const second = await generateGenuiSkill(root)
+    expect(second.written).toBe(false)
+    expect(statSync(path).mtimeMs).toBe(mtimeBefore)
+    expect(readFileSync(path, 'utf-8')).toContain('\r\n')
   })
 })
