@@ -133,7 +133,8 @@ describe('findCdpBridgeExecutable', () => {
 
   it('looks for cdp-bridge.exe on Windows', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
-    const expected = join(HOME, '.local', 'bin', 'cdp-bridge.exe')
+    // win32 分支的实现用 path.win32，期望值也要用同一套分隔符。
+    const expected = win32.join(HOME, '.local', 'bin', 'cdp-bridge.exe')
     fsp.exists = (p) => p === expected
 
     expect(findCdpBridgeExecutable()).toBe(expected)
