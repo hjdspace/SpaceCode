@@ -86,12 +86,25 @@ describe('协议注册', () => {
     expect(entry.privileges.allowServiceWorkers).toBeFalsy()
   })
 
-  it('ready 之后把同一个处理器挂到该协议上', () => {
-    registerGenuiSandboxProtocol({ resourceRoot: root })
-    const handleCalls = vi.mocked(protocol.handle).mock.calls
-    const call = handleCalls[handleCalls.length - 1]
-    expect(call?.[0]).toBe(GENUI_SANDBOX_SCHEME)
-    expect(typeof call?.[1]).toBe('function')
+  it('ready 之后把同一个处理器挂到传入的每一个 session，而不是默认 session', () => {
+    const first = { handle: vi.fn() }
+    const second = { handle: vi.fn() }
+
+    registerGenuiSandboxProtocol({ resourceRoot: root, hosts: [first, second] })
+
+    expect(first.handle).toHaveBeenCalledWith(GENUI_SANDBOX_SCHEME, expect.any(Function))
+    expect(second.handle).toHaveBeenCalledWith(GENUI_SANDBOX_SCHEME, expect.any(Function))
+    // 主窗口不在默认 session：挂到顶层 protocol 等于打包态打不开卡片
+    expect(vi.mocked(protocol.handle)).not.toHaveBeenCalled()
+  })
+
+  it('多个 session 拿到的是同一个处理器实例', () => {
+    const first = { handle: vi.fn() }
+    const second = { handle: vi.fn() }
+
+    registerGenuiSandboxProtocol({ resourceRoot: root, hosts: [first, second] })
+
+    expect(first.handle.mock.calls[0]?.[1]).toBe(second.handle.mock.calls[0]?.[1])
   })
 })
 
