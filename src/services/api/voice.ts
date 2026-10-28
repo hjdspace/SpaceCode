@@ -43,6 +43,7 @@ const invokeApi = createRendererApi(
       archiveBytes: 0,
       installedBytes: 0,
       archiveName: '',
+      model: { name: '', spec: '', upstreamUrl: '', license: '' },
       sources: [],
     }),
     installModel: (): VoiceInstallResult => ({
