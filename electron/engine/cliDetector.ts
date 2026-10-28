@@ -353,8 +353,12 @@ export async function checkEnvironment(): Promise<EnvironmentCheck> {
  *    或 brew/curl 的「54.3%」抽出来，按 [floor, ceiling] 区间线性映射。
  *
  * @returns 子进程退出码（>0 时 caller 应当抛错）
+ *
+ * 导出给 `builtinMcpInstaller`：把 uvx/npx 预就地本地化跑的是同一类活
+ * （`uv tool install` / `npm install -g`），流式进度与 Windows 下的 spawn
+ * 口径没必要再抄一份。
  */
-function runStreamingInstaller(
+export function runStreamingInstaller(
   command: string,
   args: string[],
   options: {
