@@ -1,147 +1,59 @@
-// @vitest-environment node
 /**
- * 设计产物导出 PDF — 票 08：必须真实产出 .pdf，而不是打开文件夹假装成功。
+ * 设计产物导出 PDF — 票 08。
  *
- * Chromium 打印本身不在单测覆盖范围（Electron 运行时行为），这里钉住的是
- * 可判定的那部分：取哪个 URL、产物落在哪、失败时隐藏窗口是否被回收。
+ * 用一个隐藏的离屏窗口跑真实 Chromium 排版：页面从预览服务器加载（与用户在预览里
+ * 看到的一致，相对 CSS/JS 同源命中产物目录），再 printToPDF 落盘。
+ * 生成页是不可信内容，所以窗口不带 preload、sandbox 打开并拒绝弹窗。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
+import { existsSync, writeFileSync } from 'fs'
+import { basename, dirname, extname, join, resolve } from 'path'
+import { pathToFileURL } from 'url'
+import { BrowserWindow } from 'electron'
+import { previewServer } from '../infra/previewServer'
 
-const state = vi.hoisted(() => {
-  const calls: { loaded: string[]; destroyed: number; printOptions: unknown[]; denied: unknown[] } = {
-    loaded: [],
-    destroyed: 0,
-    printOptions: [],
-    denied: [],
+/** 等 Web 字体就绪，否则中文与自定义字体会打印成回退字形。 */
+async function waitForFonts(contents: BrowserWindow['webContents']): Promise<void> {
+  try {
+    await contents.executeJavaScript('document.fonts.ready.then(() => true)')
+  } catch {
+    // 字体状态取不到就按当前渲染打印
   }
-  return {
-    calls,
-    pdf: Buffer.from('%PDF-1.4\n%%EOF\n'),
-    failLoad: false,
-    emptyPdf: false,
+}
+
+async function renderUrlFor(htmlPath: string): Promise<string> {
+  if (!previewServer.getPort()) await previewServer.start()
+  const url = previewServer.toPreviewUrl(htmlPath)
+  // 预览服务器给不出登记 URL（极端路径）时退回 file://：排版仍由 Chromium 完成
+  return url ?? pathToFileURL(htmlPath).href
+}
+
+/** 渲染 HTML 并写出同名 .pdf 到产物目录，返回产物路径。 */
+export async function exportPdf(htmlPath: string): Promise<string> {
+  const target = resolve(htmlPath)
+  // 先确认产物在盘上：否则预览服务会 404，而 404 页面照样能打印成一份"成功"的 PDF
+  if (!existsSync(target)) throw new Error(`Artifact not found: ${target}`)
+  const url = await renderUrlFor(target)
+  const offscreen = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+  })
+
+  try {
+    offscreen.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    await offscreen.webContents.loadURL(url)
+    await waitForFonts(offscreen.webContents)
+    const pdf = await offscreen.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+    })
+    if (pdf.byteLength === 0) throw new Error('Print to PDF returned an empty document')
+
+    const output = join(dirname(target), `${basename(target, extname(target))}.pdf`)
+    writeFileSync(output, pdf)
+    return output
+  } finally {
+    offscreen.destroy()
   }
-})
-
-vi.mock('electron', () => ({
-  BrowserWindow: class FakeBrowserWindow {
-    webContents = {
-      setWindowOpenHandler: (handler: unknown) => {
-        state.calls.denied.push(handler)
-      },
-      loadURL: async (url: string) => {
-        if (state.failLoad) throw new Error('ERR_CONNECTION_REFUSED')
-        state.calls.loaded.push(url)
-      },
-      executeJavaScript: async () => true,
-      printToPDF: async (options: unknown) => {
-        state.calls.printOptions.push(options)
-        return state.emptyPdf ? Buffer.alloc(0) : state.pdf
-      },
-    }
-    destroy() {
-      state.calls.destroyed++
-    }
-  },
-}))
-
-const preview = vi.hoisted(() => ({ getPort: vi.fn(), start: vi.fn(), toPreviewUrl: vi.fn() }))
-vi.mock('../../infra/previewServer', () => ({ previewServer: preview }))
-
-import { exportPdf } from '../pdfExport'
-
-let dir: string
-let html: string
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'design-export-pdf-'))
-  html = join(dir, 'index.html')
-  writeFileSync(html, '<html><body>design</body></html>')
-  state.calls.loaded.length = 0
-  state.calls.destroyed = 0
-  state.calls.printOptions.length = 0
-  state.calls.denied.length = 0
-  state.failLoad = false
-  state.emptyPdf = false
-  preview.getPort.mockReturnValue(4321)
-  preview.start.mockResolvedValue(4321)
-  preview.toPreviewUrl.mockReturnValue('http://127.0.0.1:4321/TOK/index.html')
-})
-
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
-
-describe('exportPdf', () => {
-  it('在产物旁生成 .pdf，内容就是渲染结果', async () => {
-    const output = await exportPdf(html)
-
-    expect(output).toBe(join(dir, 'index.pdf'))
-    expect(existsSync(output)).toBe(true)
-    expect(readFileSync(output).equals(state.pdf)).toBe(true)
-  })
-
-  it('用预览服务器登记的工作区 URL 渲染，相对资源才命得中', async () => {
-    await exportPdf(html)
-
-    expect(preview.toPreviewUrl).toHaveBeenCalledWith(html)
-    expect(state.calls.loaded).toEqual(['http://127.0.0.1:4321/TOK/index.html'])
-  })
-
-  it('预览服务器未启动时先启动它', async () => {
-    preview.getPort.mockReturnValue(0)
-
-    await exportPdf(html)
-
-    expect(preview.start).toHaveBeenCalledOnce()
-  })
-
-  it('拿不到预览 URL 时退回 file:// 协议', async () => {
-    preview.toPreviewUrl.mockReturnValue(null)
-
-    await exportPdf(html)
-
-    expect(state.calls.loaded).toEqual([expect.stringMatching(/^file:\/\//)])
-  })
-
-  it('保留背景色并按页面自身纸张设置排版', async () => {
-    await exportPdf(html)
-
-    expect(state.calls.printOptions[0]).toMatchObject({ printBackground: true, preferCSSPageSize: true })
-  })
-
-  it('渲染失败时报错并回收隐藏窗口', async () => {
-    state.failLoad = true
-
-    await expect(exportPdf(html)).rejects.toThrow('ERR_CONNECTION_REFUSED')
-    expect(state.calls.destroyed).toBe(1)
-  })
-
-  it('产物不在盘上时直接报错，不去打印 404 页面', async () => {
-    await expect(exportPdf(join(dir, 'gone.html'))).rejects.toThrow(/gone\.html/)
-    expect(state.calls.loaded).toEqual([])
-  })
-
-  it('打印结果为空视为失败，不产出空文件', async () => {
-    state.emptyPdf = true
-
-    await expect(exportPdf(html)).rejects.toThrow(/empty document/)
-    expect(existsSync(join(dir, 'index.pdf'))).toBe(false)
-  })
-
-  it('拒绝产物页面弹出的新窗口', async () => {
-    await exportPdf(html)
-
-    const handler = state.calls.denied[0] as () => unknown
-    expect(typeof handler).toBe('function')
-    expect(handler()).toEqual({ action: 'deny' })
-  })
-
-  it('成功后隐藏窗口被销毁', async () => {
-    await exportPdf(html)
-
-    expect(state.calls.destroyed).toBe(1)
-  })
-})
+}
