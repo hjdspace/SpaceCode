@@ -488,5 +488,33 @@ describe('mcpConfigResolver', () => {
       // 只看 basename，不能因为参数里出现 npx 就误判
       expect(usesPackageManagerLauncher(stdio('node', ['npx-cli.js']))).toBe(false)
     })
+
+    it('sees through the cmd /c wrapper this module itself emits on Windows', () => {
+      // 判据是在解析器覆盖**之后**问的，而 Windows 的 npx 回退形态就是
+      // `cmd /c npx …`。看漏这层壳会把预算从 30s 压到 15s，
+      // 把一个只是慢的 npx 服务器判成 CONNECT_TIMEOUT。
+      expect(usesPackageManagerLauncher(stdio('cmd', ['/c', 'npx', '-y', 'pkg@1']))).toBe(true)
+      expect(usesPackageManagerLauncher(stdio('C:\\Windows\\System32\\cmd.exe', ['/c', 'uvx', 'pkg']))).toBe(true)
+      // 壳里包的是真二进制就不该算
+      expect(usesPackageManagerLauncher(stdio('cmd', ['/c', 'node', 'server.js']))).toBe(false)
+      expect(usesPackageManagerLauncher(stdio('cmd', ['/c']))).toBe(false)
+      expect(usesPackageManagerLauncher(stdio('cmd'))).toBe(false)
+    })
+
+    it('keeps the launcher verdict true for the config resolveBuiltinMcp actually injects on Windows', () => {
+      // 这条是上面那个洞的回归闸：两个函数串起来跑，而不是各测各的。
+      onPlatform('win32', () => {
+        const resolved = resolveBuiltinMcp('chrome-devtools', {
+          command: 'npx',
+          args: ['-y', 'chrome-devtools-mcp@latest'],
+        })
+        expect(resolved.status).toBe('resolved')
+        if (resolved.status !== 'resolved') return
+
+        const injected = stdio(resolved.config.command, resolved.config.args)
+        expect(injected.command).toBe('cmd')
+        expect(usesPackageManagerLauncher(injected)).toBe(true)
+      })
+    })
   })
 })
