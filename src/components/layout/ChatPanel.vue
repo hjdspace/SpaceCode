@@ -1275,11 +1275,13 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   const userTyped = content.trim()
   let messageContent = userTyped
 
-  // 上传的附件用引擎认识的 @"绝对路径" 引用写进正文，模型才能真正读到文件内容；
+  // 上传/粘贴的附件用引擎认识的 @"绝对路径" 引用写进正文，模型才能真正读到文件内容；
   // 展示用的气泡正文不包含这些引用（见下方 displayLabel）。
-  const uploadedFiles = attachments.files.filter(att => att.source === 'upload')
-  if (uploadedFiles.length > 0) {
-    const fileRefs = uploadedFiles.map(att => `@"${att.path}"`).join(' ')
+  const engineReferencedFiles = attachments.files.filter(
+    att => att.source === 'upload' || att.source === 'paste'
+  )
+  if (engineReferencedFiles.length > 0) {
+    const fileRefs = engineReferencedFiles.map(att => `@"${att.path}"`).join(' ')
     messageContent = messageContent ? `${fileRefs} ${messageContent}` : fileRefs
   }
 
