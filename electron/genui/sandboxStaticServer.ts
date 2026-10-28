@@ -10,10 +10,16 @@
  * "开发能看到的东西打包后读不到"这类分裂不会发生。
  *
  * 只读静态资源：不暴露 API、不读引擎、不碰会话数据、不做目录列举。
+ * H5 传入 `preview` 时额外承载 `/__preview/<token>/<rel>`：设计预览必须落在
+ * **第二个源**上（同源 iframe 拿 allow-same-origin 等于交出宿主 DOM），
+ * 该路由的鉴权交给 `previewGrants`，响应形状与桌面协议共用 `previewServe`。
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
+import { sep } from 'node:path'
 import { info } from '../infra/logger'
+import { decodeSegment, type PreviewGrants } from '../infra/previewGrants'
+import { readBridgeOptions, servePreviewResource } from '../infra/previewServe'
 import { resolveSandboxFile, sandboxResponse } from './sandboxFiles'
 
 export type SandboxStaticServer = { port: number; stop: () => Promise<void> }
@@ -38,6 +44,8 @@ export type SandboxStaticServerOptions = {
   port: number
   /** 日志里认得出的宿主名，两个实例同时开着时不再互相冒充。 */
   label: string
+  /** H5 传入后启用 `/__preview/*`；桌面开发期只服务 GenUI 产物，不传。 */
+  preview?: { grants: PreviewGrants }
 }
 
 /** URL 里用的占位 origin，只为把请求目标解析成一个 pathname。 */
@@ -47,7 +55,7 @@ export async function startSandboxStaticServer(
   options: SandboxStaticServerOptions,
 ): Promise<SandboxStaticServer> {
   const httpServer: Server = createServer((req, res) => {
-    void handleRequest(req, res, options.resourceRoot)
+    void handleRequest(req, res, options)
   })
 
   await new Promise<void>((resolveListen, rejectListen) => {
@@ -72,10 +80,42 @@ export async function startSandboxStaticServer(
   }
 }
 
+const PREVIEW_ROUTE_PREFIX = '/__preview/'
+
+/** 返回 true 表示这条请求已被预览路由处理（含拒绝响应）。 */
+function handlePreviewRequest(
+  req: Pick<IncomingMessage, 'method' | 'url'>,
+  res: ServerResponse,
+  url: URL,
+  grants: PreviewGrants,
+): boolean {
+  if (!url.pathname.startsWith(PREVIEW_ROUTE_PREFIX)) return false
+
+  const method = (req.method ?? 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD') {
+    res.writeHead(405, { Allow: 'GET, HEAD' })
+    res.end()
+    return true
+  }
+
+  const [rawToken, ...segments] = url.pathname.slice(PREVIEW_ROUTE_PREFIX.length).split('/')
+  const result = servePreviewResource({
+    grants,
+    token: decodeSegment(rawToken ?? ''),
+    rel: segments.map(decodeSegment).join(sep),
+    bridge: readBridgeOptions(url),
+    method,
+  })
+
+  res.writeHead(result.status, result.headers)
+  res.end(result.body ?? undefined)
+  return true
+}
+
 async function handleRequest(
   req: Pick<IncomingMessage, 'method' | 'url'>,
   res: ServerResponse,
-  resourceRoot: string,
+  options: SandboxStaticServerOptions,
 ): Promise<void> {
   const method = (req.method ?? 'GET').toUpperCase()
   if (method !== 'GET' && method !== 'HEAD') {
@@ -84,16 +124,19 @@ async function handleRequest(
     return
   }
 
-  let pathname = '/'
+  let url: URL
   try {
-    pathname = new URL(req.url ?? '/', PARSE_BASE).pathname
+    url = new URL(req.url ?? '/', PARSE_BASE)
   } catch {
     res.writeHead(400)
     res.end()
     return
   }
+  const pathname = url.pathname
 
-  const decision = resolveSandboxFile({ resourceRoot, pathname })
+  if (options.preview && handlePreviewRequest(req, res, url, options.preview.grants)) return
+
+  const decision = resolveSandboxFile({ resourceRoot: options.resourceRoot, pathname })
   if (!decision.ok) {
     res.writeHead(decision.status)
     res.end()
