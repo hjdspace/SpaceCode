@@ -18,6 +18,7 @@ import {
 } from './engineChildProcess'
 import {
   ControlProtocolHandler,
+  buildInitializeRequest,
   encodeJsonLine,
   type PermissionDecision,
   type PermissionMode,
@@ -248,6 +249,9 @@ export class SessionProcess extends EventEmitter {
   private pendingToolCalls: Set<string> = new Set()
   private isProcessing: boolean = false
   private initWaiters: Array<(ready: boolean) => void> = []
+  private controlReady = false
+  private initializeRequested = false
+  private processGeneration = 0
   /**
    * 冷启动那几十秒到底花在哪一段，只能实测拆分（见 reportFirstTokenLatency）：
    * 宿主准备参数 → 进程拉起 → 引擎 init（含全部 MCP 握手）→ 首 Token。
@@ -391,6 +395,9 @@ export class SessionProcess extends EventEmitter {
 
   async start(): Promise<void> {
     this.status = 'starting'
+    this.processGeneration++
+    this.controlReady = false
+    this.initializeRequested = false
     // 新的启动账本：上一代进程的 init 时戳不能参与这一轮的差值计算。
     this.latencyMarks = { startAt: Date.now() }
     // 创建会话级日志文件
@@ -550,14 +557,11 @@ export class SessionProcess extends EventEmitter {
     })
   }
 
-  /**
-   * 等 CLI 发出 system/init —— 那才是它真正开始消费 stdin 控制请求的时刻。
-   * spawn 成功不等于就绪：在此之前发 set_permission_mode 会干等 10s 超时。
-   * 超时只返回 false，调用方按"未就绪"降级处理，不把启动判失败。
-   */
+  // system/init 只在首条消息后出现；发送前的权限对账必须等 initialize 应答，不能等它。
   waitForInit(timeoutMs = 15_000): Promise<boolean> {
-    if (this.engineSessionId) return Promise.resolve(true)
-    return new Promise<boolean>((resolve) => {
+    if (!this.isRunning()) return Promise.resolve(false)
+    if (this.controlReady) return Promise.resolve(true)
+    const waiting = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
         const idx = this.initWaiters.indexOf(settle)
         if (idx >= 0) this.initWaiters.splice(idx, 1)
@@ -569,6 +573,18 @@ export class SessionProcess extends EventEmitter {
       }
       this.initWaiters.push(settle)
     })
+    if (!this.initializeRequested) {
+      this.initializeRequested = true
+      const proc = this.process
+      void this.controlProtocol.sendControlRequest(buildInitializeRequest()).then(() => {
+        if (this.process !== proc) return
+        this.controlReady = true
+        this.settleInitWaiters(true)
+      }).catch(() => {
+        if (this.process === proc) this.settleInitWaiters(false)
+      })
+    }
+    return waiting
   }
 
   private settleInitWaiters(ready: boolean): void {
@@ -578,8 +594,10 @@ export class SessionProcess extends EventEmitter {
   }
 
   private attachProcessListeners(proc: ChildProcess, artifacts: readonly string[]): void {
+    const generation = this.processGeneration
     proc.on('error', (err) => {
       removeTempFiles(artifacts)
+      if (generation !== this.processGeneration) return
       this.status = 'exited'
       error('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process error | pid=${proc.pid}`, { error: err.message, stack: err.stack })
       traceEvent({
@@ -594,6 +612,7 @@ export class SessionProcess extends EventEmitter {
     })
 
     proc.stdout!.on('data', (data) => {
+      if (generation !== this.processGeneration) return
       const dataStr = data.toString()
       processRaw(this.sessionId, 'stdout', dataStr)
       const { parseErrors } = this.controlProtocol.feedStdoutChunk(dataStr)
@@ -603,6 +622,7 @@ export class SessionProcess extends EventEmitter {
     })
 
     proc.stderr!.on('data', (data) => {
+      if (generation !== this.processGeneration) return
       const dataStr = data.toString()
       this.stderrBuffer += dataStr
       processRaw(this.sessionId, 'stderr', dataStr)
@@ -611,6 +631,7 @@ export class SessionProcess extends EventEmitter {
 
     proc.on('exit', (code, signal) => {
       removeTempFiles(artifacts)
+      if (generation !== this.processGeneration) return
       const stderrTail = this.stderrBuffer.split(/\r?\n/).filter(Boolean).slice(-5).join('\n')
       info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Process exited | code=${code} | signal=${signal} | pid=${this.process?.pid}${stderrTail ? ` | stderr=${stderrTail.slice(0, 200)}` : ''}`)
       traceEvent({
@@ -627,6 +648,7 @@ export class SessionProcess extends EventEmitter {
       // Reject pending outbound control_requests and emit cancellation events
       // for any open inbound permission prompts so the UI can clean up.
       this.controlProtocol.rejectAllPending(`process_exit (code=${code}, signal=${signal})`)
+      this.controlReady = false
       this.settleInitWaiters(false)
       this.emit('exit', { code, signal, stderr: stderrTail })
       this.process = null
@@ -1007,6 +1029,8 @@ export class SessionProcess extends EventEmitter {
     this.liveToolOutput?.dispose()
     this.liveToolOutput = null
     this.status = 'suspended'
+    this.controlProtocol.rejectAllPending('process suspended')
+    this.controlReady = false
     this.settleInitWaiters(false)
     try {
       this.process.kill()
@@ -1021,6 +1045,8 @@ export class SessionProcess extends EventEmitter {
       engineKillTree(this.process, 'SessionProcess')
       this.process = null
     }
+    this.controlProtocol.rejectAllPending('process killed')
+    this.controlReady = false
     this.settleInitWaiters(false)
     this.status = 'exited'
     this.cleanupTempArtifacts()
@@ -1289,6 +1315,7 @@ export class SessionProcess extends EventEmitter {
           `[${this.sessionId.slice(0, 8)}] Engine reports permission mode | mode=${reported} | intent=${this.currentPermissionMode} | matched=${this.permissionModeVerified}`,
         )
       }
+      this.controlReady = !!sid
       this.settleInitWaiters(!!sid)
       if (sid) {
         this.engineSessionId = sid
