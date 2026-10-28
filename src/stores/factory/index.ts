@@ -13,6 +13,7 @@ import type {
   FactoryBacklogResult,
   FactoryBacklogUpdate,
   FactoryConfig,
+  FactoryConfigSaveError,
   FactoryEvent,
   FactoryEventPush,
   FactoryGithubAuthResult,
@@ -29,11 +30,14 @@ import type {
   FactoryPreflightResult,
   FactoryReviewCommentInput,
   FactoryRun,
+  FactoryRunControlResult,
   FactoryRunCreateError,
   FactoryRunSnapshot,
   FactoryRunStopResult,
   FactorySetupContext,
   FactorySetupDraft,
+  FactoryStageConfig,
+  FactoryStageKey,
   FactoryTask,
   FactoryTaskActionResult,
   FactoryTaskStartInput,
@@ -75,6 +79,27 @@ export interface FactoryGithubActionError {
     | 'not-applicable'
   failed?: FactoryGithubClaimFailure[]
   detail?: string
+}
+
+/** 配置弹窗编辑副本：只深克隆会被改动的结构，避免把整份配置扩散成公共工具。 */
+function cloneConfig(input: FactoryConfig): FactoryConfig {
+  return {
+    ...input,
+    repo: { ...input.repo },
+    agent: { ...input.agent },
+    sandbox: { ...input.sandbox },
+    tracker: { ...input.tracker },
+    stages: {
+      plan: { ...input.stages.plan },
+      implement: { ...input.stages.implement },
+      verify: { ...input.stages.verify },
+      review: { ...input.stages.review },
+      merge: { ...input.stages.merge },
+    },
+    commands: { ...input.commands },
+    prompts: { ...input.prompts },
+    limits: { ...input.limits },
+  }
 }
 
 export const useFactoryStore = defineStore('factory', () => {
@@ -122,6 +147,17 @@ export const useFactoryStore = defineStore('factory', () => {
 
   const creatingRun = ref(false)
   const createRunError = ref<FactoryRunError | null>(null)
+
+  // 运行控制：暂停/恢复与配置弹窗；保存时带 revision 做乐观并发
+  const pausing = ref(false)
+  const configOpen = ref(false)
+  const configDraft = ref<FactoryConfig | null>(null)
+  const configSaving = ref(false)
+  const configError = ref<FactoryConfigSaveError['error'] | null>(null)
+  const configFieldErrors = ref<string[]>([])
+  const configConflictRevision = ref<number | null>(null)
+  /** 关闭合并人工闸门时的显式确认；首次保存会收到 confirm-required。 */
+  const configConfirmGateOff = ref(false)
 
   // 实现阶段：事件流按任务缓存，seq 单调去重；动作错误交给检查器展示
   const eventsByTask = ref<Record<string, FactoryEvent[]>>({})
@@ -466,12 +502,119 @@ export const useFactoryStore = defineStore('factory', () => {
         return false
       }
       applySnapshot(result.snapshot)
+      // 新建运行默认待启动；立刻交给调度器，按并发上限自行领取。
+      const started = await api.factory.runResume(root, result.snapshot.run.id)
+      if (started.ok) applySnapshot(started.snapshot)
+      else actionError.value = { code: started.error }
       return true
     } catch {
       createRunError.value = { code: 'create-failed' }
       return false
     } finally {
       creatingRun.value = false
+    }
+  }
+
+  async function pauseRun(root: string, runId: string): Promise<FactoryRunControlResult> {
+    pausing.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.runPause(root, runId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'run-not-found' }
+    } finally {
+      pausing.value = false
+    }
+  }
+
+  async function resumeRun(root: string, runId: string): Promise<FactoryRunControlResult> {
+    pausing.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.runResume(root, runId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'run-not-found' }
+    } finally {
+      pausing.value = false
+    }
+  }
+
+  function openConfig(): void {
+    if (!config.value) return
+    configDraft.value = cloneConfig(config.value)
+    configError.value = null
+    configFieldErrors.value = []
+    configConflictRevision.value = null
+    configConfirmGateOff.value = false
+    configOpen.value = true
+  }
+
+  function closeConfig(): void {
+    configOpen.value = false
+    configDraft.value = null
+    configError.value = null
+    configFieldErrors.value = []
+    configConflictRevision.value = null
+    configConfirmGateOff.value = false
+  }
+
+  function updateStage(key: FactoryStageKey, patch: Partial<FactoryStageConfig>): void {
+    const draftConfig = configDraft.value
+    if (!draftConfig) return
+    draftConfig.stages[key] = { ...draftConfig.stages[key], ...patch }
+  }
+
+  function setConfigConcurrency(value: number): void {
+    const draftConfig = configDraft.value
+    if (!draftConfig) return
+    draftConfig.agent = { ...draftConfig.agent, maxConcurrency: value }
+  }
+
+  function setConfigVerifyCommand(value: string): void {
+    const draftConfig = configDraft.value
+    if (!draftConfig) return
+    draftConfig.commands = { ...draftConfig.commands, verify: value }
+  }
+
+  function setConfigGateConfirm(value: boolean): void {
+    configConfirmGateOff.value = value
+  }
+
+  async function saveConfig(root: string): Promise<boolean> {
+    const draftConfig = configDraft.value
+    if (!draftConfig) return false
+    configSaving.value = true
+    configError.value = null
+    configFieldErrors.value = []
+    configConflictRevision.value = null
+    try {
+      const result = await api.factory.configSave(root, {
+        config: draftConfig,
+        ...(config.value ? { expectedRevision: config.value.revision } : {}),
+        ...(configConfirmGateOff.value ? { confirmGateOff: true } : {}),
+      })
+      if (!result.ok) {
+        configError.value = result.error
+        if (result.error === 'invalid-config') configFieldErrors.value = result.errors
+        if (result.error === 'revision-conflict') configConflictRevision.value = result.current
+        return false
+      }
+      config.value = result.config
+      closeConfig()
+      return true
+    } catch {
+      configError.value = 'write-failed'
+      return false
+    } finally {
+      configSaving.value = false
     }
   }
 
@@ -819,6 +962,14 @@ export const useFactoryStore = defineStore('factory', () => {
     inspectorTab.value = 'overview'
     creatingRun.value = false
     createRunError.value = null
+    pausing.value = false
+    configOpen.value = false
+    configDraft.value = null
+    configSaving.value = false
+    configError.value = null
+    configFieldErrors.value = []
+    configConflictRevision.value = null
+    configConfirmGateOff.value = false
     eventsByTask.value = {}
     runEvents.value = []
     eventsLoading.value = false
@@ -880,6 +1031,14 @@ export const useFactoryStore = defineStore('factory', () => {
     inspectorTab,
     creatingRun,
     createRunError,
+    pausing,
+    configOpen,
+    configDraft,
+    configSaving,
+    configError,
+    configFieldErrors,
+    configConflictRevision,
+    configConfirmGateOff,
     eventsByTask,
     runEvents,
     eventsLoading,
@@ -935,6 +1094,15 @@ export const useFactoryStore = defineStore('factory', () => {
     setGithubLabel,
     loadRun,
     createRun,
+    pauseRun,
+    resumeRun,
+    openConfig,
+    closeConfig,
+    updateStage,
+    setConfigConcurrency,
+    setConfigVerifyCommand,
+    setConfigGateConfirm,
+    saveConfig,
     applyPush,
     subscribeEvents,
     loadEvents,

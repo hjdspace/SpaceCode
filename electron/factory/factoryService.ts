@@ -13,7 +13,9 @@ import { eventChannels } from '@/shared/channelMap'
 import { factoryNamespace } from '@/shared/channels/factory'
 import type {
   FactoryConfig,
+  FactoryConfigSaveResult,
   FactoryEngineOption,
+  FactoryEngineType,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
   FactoryRepoInfo,
@@ -42,8 +44,9 @@ import {
 } from './backlog'
 import { createFactoryRun, readLatestRun, readRunSnapshot } from './runs'
 import { createFactoryRunner } from './factoryRunner'
+import { updateFactoryConfig } from './configUpdate'
 import { createGithubTrackerService } from './githubTrackerService'
-import { loadEngineSessionConfig } from '../engine/engineSessionConfig'
+import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 import { info, warn } from '../infra/logger'
 
 const FACTORY_EVENTS = eventChannels(factoryNamespace.events, 'factory:')
@@ -270,6 +273,27 @@ function verifyScriptMissing(root: string, command: string): boolean {
   }
 }
 
+const CLAUDE_CODE_ALIASES = new Set(['haiku', 'sonnet', 'opus'])
+
+/**
+ * 保存前按引擎解析模型别名：claude-code 只认三个内置别名或设置里的槽位真名，
+ * pi 只认真实模型 id。设置里完全没有模型信息时无法校验，按原值放行。
+ */
+function resolveFactoryModel(
+  root: string,
+  model: string,
+  engineType: FactoryEngineType,
+): string | null {
+  const session = loadEngineSessionConfig(root)
+  const known = [...(session.selectableModels ?? []), ...(session.model ? [session.model] : [])]
+  if (known.length === 0) return model
+  if (engineType === 'claude-code') {
+    if (CLAUDE_CODE_ALIASES.has(model)) return model
+    return known.includes(model) ? resolveEngineModelAlias(model, 'claude-code') : null
+  }
+  return known.includes(model) ? model : null
+}
+
 function getModelProfile(root: string): { configured: boolean; model?: string; provider?: string } {
   // 复用桌面设置解析（gui-settings.json），不再要求用户粘贴第二份模型密钥。
   const config = loadEngineSessionConfig(root)
@@ -350,6 +374,19 @@ export function registerFactoryIPCHandlers(): void {
     mergePreflight: (root, runId, taskId) => runner.mergePreflight(root, runId, taskId),
     mergeExecute: (root, runId, taskId, input) => runner.mergeTask(root, runId, taskId, input),
     runStop: (root, runId) => runner.stopRun(root, runId),
+    runPause: (root, runId) => runner.pauseRun(root, runId),
+    runResume: (root, runId) => runner.resumeRun(root, runId),
+    configSave: (root, input): FactoryConfigSaveResult => {
+      const result = updateFactoryConfig(root, input, {
+        resolveModel: (model, engineType) => resolveFactoryModel(root, model, engineType),
+      })
+      if (result.ok) {
+        runner.recordConfigChange(root, result.config.revision, {
+          maxConcurrency: result.config.agent.maxConcurrency,
+        })
+      }
+      return result
+    },
     taskEvents: (root, runId, taskId) => runner.readEvents(root, runId, taskId),
     worktreeReveal: (root, runId, taskId) => runner.revealWorktree(root, runId, taskId),
   })

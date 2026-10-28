@@ -64,6 +64,39 @@ export function laneCounts(tasks: readonly FactoryTask[]): Record<FactoryLane, n
   return counts
 }
 
+/** 运行头部的 token/花费汇总；`hasCost` 为 false 时只展示 token。 */
+export interface FactoryRunUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  costUsd: number
+  hasCost: boolean
+}
+
+export function runUsage(tasks: readonly FactoryTask[]): FactoryRunUsage {
+  let inputTokens = 0
+  let outputTokens = 0
+  let costUsd = 0
+  let hasCost = false
+  for (const task of tasks) {
+    const usage = task.usage
+    if (!usage) continue
+    inputTokens += usage.inputTokens
+    outputTokens += usage.outputTokens
+    if (typeof usage.costUsd === 'number') {
+      costUsd += usage.costUsd
+      hasCost = true
+    }
+  }
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    costUsd,
+    hasCost,
+  }
+}
+
 export function findTask(tasks: readonly FactoryTask[], id: string | null): FactoryTask | null {
   if (!id) return null
   return tasks.find((task) => task.id === id) ?? null

@@ -123,6 +123,7 @@ export function buildFactoryConfig(
 
   const config: FactoryConfig = {
     version: 1,
+    revision: 1,
     repo: { root: '.', ...(repo.remote ? { remote: repo.remote } : {}), baseBranch },
     template: 'parallel-planner-with-review',
     agent: {
@@ -281,6 +282,10 @@ export function validateFactoryConfig(raw: unknown): FactoryConfigValidationResu
 
   const config: FactoryConfig = {
     version: 1,
+    revision:
+      typeof raw.revision === 'number' && Number.isInteger(raw.revision) && raw.revision > 0
+        ? raw.revision
+        : 1,
     repo: {
       root: '.',
       ...(typeof repo.remote === 'string' && repo.remote.trim() ? { remote: repo.remote.trim() } : {}),

@@ -13,8 +13,12 @@
           <b data-run-concurrency>{{ t('factory.run.concurrency', { running, max: run.maxConcurrency }) }}</b>
         </span>
         <span class="stat">
+          <span class="stat-label">{{ t('factory.run.tokens') }}</span>
+          <b data-run-tokens>{{ t('factory.run.tokenCount', { count: usage.totalTokens }) }}</b>
+        </span>
+        <span v-if="showsSpend" class="stat">
           <span class="stat-label">{{ t('factory.run.spend') }}</span>
-          <b data-run-spend>${{ run.spendUsd.toFixed(2) }}</b>
+          <b data-run-spend>${{ spend.toFixed(2) }}</b>
         </span>
         <span class="stat">
           <span class="stat-label">{{ t('factory.run.elapsed') }}</span>
@@ -25,13 +29,23 @@
       <div class="rh-actions">
         <button
           class="control-btn"
-          data-run-pause
-          :disabled="!canControl"
-          :title="canControl ? t('factory.run.pause') : t('factory.run.disabledHint')"
-          @click="emit('pause')"
+          data-run-config
+          :title="t('factory.run.config')"
+          @click="emit('config')"
         >
-          <Pause :size="13" />
-          {{ t('factory.run.pause') }}
+          <Settings2 :size="13" />
+          {{ t('factory.run.config') }}
+        </button>
+        <button
+          class="control-btn"
+          :data-run-pause="isPaused ? undefined : 'true'"
+          :data-run-resume="isPaused ? 'true' : undefined"
+          :disabled="!canControl || pausing"
+          :title="canControl ? pauseLabelKey : t('factory.run.disabledHint')"
+          @click="togglePause"
+        >
+          <component :is="isPaused ? Play : Pause" :size="13" />
+          {{ t(pauseLabelKey) }}
         </button>
         <button
           class="control-btn danger"
@@ -86,22 +100,42 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Pause, Square } from 'lucide-vue-next'
+import { AlertTriangle, Pause, Play, Settings2, Square } from 'lucide-vue-next'
 import type { FactoryRun, FactoryTask } from '@/shared/factory'
-import { FACTORY_SEGMENTS, formatClock, laneCounts } from '@/stores/factory/board'
+import { FACTORY_SEGMENTS, formatClock, laneCounts, runUsage } from '@/stores/factory/board'
 
 const props = defineProps<{
   run: FactoryRun
   tasks: FactoryTask[]
+  pausing?: boolean
 }>()
 
-const emit = defineEmits<{ pause: []; stop: []; select: [id: string] }>()
+const emit = defineEmits<{
+  pause: []
+  resume: []
+  stop: []
+  config: []
+  select: [id: string]
+}>()
 
 const { t } = useI18n()
 
 const counts = computed(() => laneCounts(props.tasks))
 const running = computed(() => counts.value.implementing + counts.value.reviewing)
 const canControl = computed(() => props.run.status === 'running' || props.run.status === 'paused')
+const isPaused = computed(() => props.run.paused || props.run.status === 'paused')
+const pauseLabelKey = computed(() => (isPaused.value ? 'factory.run.resume' : 'factory.run.pause'))
+
+const usage = computed(() => runUsage(props.tasks))
+const spend = computed(() => (usage.value.hasCost ? usage.value.costUsd : props.run.spendUsd))
+/** 没有单价信息时不显示花费，只保留 token。 */
+const showsSpend = computed(() => usage.value.hasCost || props.run.spendUsd > 0)
+
+function togglePause(): void {
+  if (!canControl.value) return
+  if (isPaused.value) emit('resume')
+  else emit('pause')
+}
 const attention = computed(() => props.tasks.filter((task) => task.lane === 'blocked'))
 
 const statusKey = computed(() => {

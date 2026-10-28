@@ -1,5 +1,5 @@
 /**
- * 运行头部：状态、并发上限、用时与花费占位，以及本票里必然禁用的暂停/停止。
+ * 运行头部：状态、并发、用量统计，以及暂停↔继续与配置入口。
  */
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
@@ -54,24 +54,29 @@ const tasks = [
 ]
 
 describe('FactoryRunHeader', () => {
-  it('shows status, concurrency, elapsed and spend for a pending run', () => {
+  it('shows status, concurrency, elapsed and tokens for a pending run', () => {
     const wrapper = mount(FactoryRunHeader, { props: { run: run(), tasks } })
     expect(wrapper.find('[data-run-status]').text()).toBe('factory.run.status.pending')
     const concurrency = wrapper.find('[data-run-concurrency]').text()
     expect(concurrency).toContain('"running":1')
     expect(concurrency).toContain('"max":4')
     expect(wrapper.find('[data-run-elapsed]').text()).toBe('00:00')
-    expect(wrapper.find('[data-run-spend]').text()).toContain('$0.00')
+    expect(wrapper.find('[data-run-tokens]').text()).toContain('"count":0')
+    // 没有单价信息时不显示花费，只保留 token。
+    expect(wrapper.find('[data-run-spend]').exists()).toBe(false)
   })
 
-  it('keeps pause and stop visible but disabled until the run starts', () => {
+  it('keeps config visible and pause/stop disabled until the run starts', async () => {
     const wrapper = mount(FactoryRunHeader, { props: { run: run(), tasks } })
     expect(wrapper.find('[data-run-pause]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-run-stop]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-run-disabled-hint]').text()).toBe('factory.run.disabledHint')
+
+    await wrapper.find('[data-run-config]').trigger('click')
+    expect(wrapper.emitted('config')).toHaveLength(1)
   })
 
-  it('enables controls once the run is running and formats elapsed time', () => {
+  it('enables controls once the run is running and formats elapsed time', async () => {
     const wrapper = mount(FactoryRunHeader, {
       props: { run: run({ status: 'running', startedAt: '2026-10-28T10:00:00Z', elapsedMs: 90_000 }), tasks },
     })
@@ -79,13 +84,44 @@ describe('FactoryRunHeader', () => {
     expect(wrapper.find('[data-run-stop]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-run-disabled-hint]').exists()).toBe(false)
     expect(wrapper.find('[data-run-elapsed]').text()).toBe('01:30')
+
+    await wrapper.find('[data-run-pause]').trigger('click')
+    expect(wrapper.emitted('pause')).toHaveLength(1)
   })
 
-  it('shows the paused status when the run is paused', () => {
+  it('shows the paused status and switches the control to resume', async () => {
     const wrapper = mount(FactoryRunHeader, {
       props: { run: run({ status: 'running', paused: true }), tasks },
     })
     expect(wrapper.find('[data-run-status]').text()).toBe('factory.run.status.paused')
+    expect(wrapper.find('[data-run-resume]').exists()).toBe(true)
+    expect(wrapper.find('[data-run-pause]').exists()).toBe(false)
+
+    await wrapper.find('[data-run-resume]').trigger('click')
+    expect(wrapper.emitted('resume')).toHaveLength(1)
+  })
+
+  it('sums tokens from tasks and shows spend only when a price exists', () => {
+    const priced = mount(FactoryRunHeader, {
+      props: {
+        run: run({ status: 'running' }),
+        tasks: [
+          task({ id: 'a', usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.12 } }),
+          task({ id: 'b', usage: { inputTokens: 30, outputTokens: 15 } }),
+        ],
+      },
+    })
+    expect(priced.find('[data-run-tokens]').text()).toContain('"count":60')
+    expect(priced.find('[data-run-spend]').text()).toBe('$0.12')
+
+    const unpriced = mount(FactoryRunHeader, {
+      props: {
+        run: run({ status: 'running' }),
+        tasks: [task({ id: 'a', usage: { inputTokens: 10, outputTokens: 5 } })],
+      },
+    })
+    expect(unpriced.find('[data-run-tokens]').text()).toContain('"count":15')
+    expect(unpriced.find('[data-run-spend]').exists()).toBe(false)
   })
 
   it('renders the six pipeline segments with lane counts', () => {

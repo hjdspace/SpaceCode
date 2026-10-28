@@ -10,6 +10,8 @@ import type {
   FactoryBacklogItem,
   FactoryBacklogResult,
   FactoryBacklogUpdate,
+  FactoryConfigSaveInput,
+  FactoryConfigSaveResult,
   FactoryEvent,
   FactoryEventPush,
   FactoryGithubAuthResult,
@@ -23,6 +25,7 @@ import type {
   FactoryMergeResult,
   FactoryPreflightResult,
   FactoryReviewCommentInput,
+  FactoryRunControlResult,
   FactoryRunCreateInput,
   FactoryRunCreateResult,
   FactoryRunSnapshot,
@@ -31,7 +34,9 @@ import type {
   FactorySecretSaveResult,
   FactorySetupContext,
   FactorySetupDraft,
+  FactoryReturnResult,
   FactoryState,
+  FactoryTakeoverResult,
   FactoryTaskActionResult,
   FactoryTaskStartInput,
   FactoryTaskStartResult,
@@ -136,6 +141,18 @@ export const factoryNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
       res: null as unknown as FactoryTaskActionResult,
     },
+    taskTakeover: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTakeoverResult,
+    },
+    taskReturn: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryReturnResult,
+    },
+    taskRetry: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskActionResult,
+    },
     taskCommentUpdate: {
       req: [] as unknown as [
         repoRoot: string,
@@ -161,6 +178,18 @@ export const factoryNamespace = defineNamespace({
     runStop: {
       req: [] as unknown as [repoRoot: string, runId: string],
       res: null as unknown as FactoryRunStopResult,
+    },
+    runPause: {
+      req: [] as unknown as [repoRoot: string, runId: string],
+      res: null as unknown as FactoryRunControlResult,
+    },
+    runResume: {
+      req: [] as unknown as [repoRoot: string, runId: string],
+      res: null as unknown as FactoryRunControlResult,
+    },
+    configSave: {
+      req: [] as unknown as [repoRoot: string, input: FactoryConfigSaveInput],
+      res: null as unknown as FactoryConfigSaveResult,
     },
     taskEvents: {
       req: [] as unknown as [repoRoot: string, runId: string, taskId?: string | null],

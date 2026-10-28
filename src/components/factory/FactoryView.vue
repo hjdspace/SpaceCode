@@ -41,7 +41,11 @@
           v-if="store.run"
           :run="store.run"
           :tasks="store.tasks"
+          :pausing="store.pausing"
           @select="store.selectTask"
+          @pause="handlePauseRun"
+          @resume="handleResumeRun"
+          @config="store.openConfig()"
           @stop="handleStopRun"
         />
         <div v-else class="run-empty">{{ t('factory.run.empty') }}</div>
@@ -150,6 +154,25 @@
       @confirm="handleConfirmMerge"
     />
 
+    <FactoryConfigModal
+      v-if="store.configOpen && store.configDraft"
+      :config="store.configDraft"
+      :total-tokens="usage.totalTokens"
+      :cost-usd="usage.costUsd"
+      :has-cost="usage.hasCost"
+      :saving="store.configSaving"
+      :error="store.configError"
+      :field-errors="store.configFieldErrors"
+      :conflict-revision="store.configConflictRevision"
+      :confirm-gate-off="store.configConfirmGateOff"
+      @close="store.closeConfig()"
+      @save="handleSaveConfig"
+      @update:stage="store.updateStage"
+      @update:concurrency="store.setConfigConcurrency"
+      @update:verify="store.setConfigVerifyCommand"
+      @update:gate-confirm="store.setConfigGateConfirm"
+    />
+
     <FactorySetupWizard v-if="store.wizardOpen && root" :root="root" />
   </div>
 </template>
@@ -160,6 +183,7 @@ import { useI18n } from 'vue-i18n'
 import { Workflow, AlertTriangle, Loader2 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useFactoryStore } from '@/stores/factory'
+import { runUsage } from '@/stores/factory/board'
 import FactorySetupWizard from './FactorySetupWizard.vue'
 import FactoryRunHeader from './FactoryRunHeader.vue'
 import FactoryBoard from './FactoryBoard.vue'
@@ -167,6 +191,7 @@ import FactoryInspector from './FactoryInspector.vue'
 import FactoryBacklogPanel from './FactoryBacklogPanel.vue'
 import FactoryGithubPanel from './FactoryGithubPanel.vue'
 import FactoryMergeDialog from './FactoryMergeDialog.vue'
+import FactoryConfigModal from './FactoryConfigModal.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -181,6 +206,7 @@ const claimedIds = computed(() => {
 })
 
 const isGithubTracker = computed(() => store.config?.tracker.type === 'github-issues')
+const usage = computed(() => runUsage(store.tasks))
 
 async function loadBoard(value: string): Promise<void> {
   if (isGithubTracker.value) {
@@ -319,6 +345,21 @@ function handleCommentConfirmIgnore(commentId: string): void {
 function handleStopRun(): void {
   if (!root.value || !store.run) return
   void store.stopRun(root.value, store.run.id)
+}
+
+function handlePauseRun(): void {
+  if (!root.value || !store.run) return
+  void store.pauseRun(root.value, store.run.id)
+}
+
+function handleResumeRun(): void {
+  if (!root.value || !store.run) return
+  void store.resumeRun(root.value, store.run.id)
+}
+
+function handleSaveConfig(): void {
+  if (!root.value) return
+  void store.saveConfig(root.value)
 }
 
 function handleCreate(input: { title: string; goal: string }): void {

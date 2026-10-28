@@ -31,6 +31,18 @@ export const FACTORY_IGNORE_ENTRIES = [
 
 export type FactoryPermissionMode = 'default' | 'plan' | 'acceptEdits'
 
+/**
+ * 每个阶段允许的权限模式：主进程据此拒绝非法组合，配置弹窗据此只提供合法选项。
+ * 顺序稳定，报错与下拉顺序都依赖它。
+ */
+export const FACTORY_STAGE_PERMISSIONS: Record<FactoryStageKey, readonly FactoryPermissionMode[]> = {
+  plan: ['plan'],
+  implement: ['default', 'acceptEdits'],
+  verify: ['default'],
+  review: ['default', 'acceptEdits'],
+  merge: ['default', 'acceptEdits'],
+}
+
 export interface FactoryRepoConfig {
   /** 恒为相对仓库根的 '.'；运行时再与项目根拼接。 */
   root: '.'
@@ -92,6 +104,8 @@ export interface FactoryLimitsConfig {
 
 export interface FactoryConfig {
   version: 1
+  /** 配置内容版本；每次保存递增，任务领取时把当前值写进配置快照。 */
+  revision: number
   repo: FactoryRepoConfig
   template: 'parallel-planner-with-review'
   agent: FactoryAgentConfig
@@ -102,6 +116,25 @@ export interface FactoryConfig {
   prompts: Record<FactoryPromptKey, string>
   limits: FactoryLimitsConfig
 }
+
+/** 保存配置时的乐观并发与人工闸门确认。 */
+export interface FactoryConfigSaveInput {
+  config: FactoryConfig
+  /** 客户端读到的 revision；与磁盘不一致时拒绝覆盖。 */
+  expectedRevision?: number
+  /** 关闭合并人工闸门必须显式确认。 */
+  confirmGateOff?: boolean
+}
+
+export type FactoryConfigSaveError =
+  | { error: 'invalid-config'; errors: string[] }
+  | { error: 'revision-conflict'; current: number }
+  | { error: 'confirm-required' }
+  | { error: 'write-failed' }
+
+export type FactoryConfigSaveResult =
+  | { ok: true; config: FactoryConfig }
+  | ({ ok: false } & FactoryConfigSaveError)
 
 /**
  * 向导的可序列化草稿。字段全部可选，方便渲染层逐步填写；
@@ -288,10 +321,19 @@ export type FactorySecretSaveResult =
   | { ok: true }
   | { ok: false; reason: 'encryption-unavailable' | 'invalid-token' | 'write-failed' }
 
+/** 运行目录的单写者状态与损坏隔离结果；渲染层据此提示只读/损坏。 */
+export interface FactoryStorageState {
+  /** false 表示另一个窗口或进程持有写锁，当前只能查看。 */
+  writable: boolean
+  /** 已隔离到 `runs/../corrupt/` 的运行或事件文件。 */
+  corrupt: string[]
+}
+
 export interface FactoryState {
   configured: boolean
   config: FactoryConfig | null
   configPath: string
+  storage?: FactoryStorageState
 }
 
 export interface FactorySaveResult {
@@ -391,6 +433,53 @@ export interface FactoryReview {
   raw?: string
 }
 
+/**
+ * 领取时的配置快照：在跑任务只认这份值，之后保存的配置只影响新领取的任务。
+ * revision 与运行里的 configRevision 对齐，便于发现跨版本写入。
+ */
+export interface FactoryTaskConfigSnapshot {
+  revision: number
+  engineType: FactoryEngineType
+  model?: string
+  /** 阶段未设置迭代上限时使用的全局默认。 */
+  maxIterations: number
+  stages: Record<FactoryStageKey, FactoryStageConfig>
+  verifyCommand: string
+  installCommand?: string
+  taskTimeoutSec: number
+}
+
+/** 接管标记：记录接管时间与推送到聊天列表的会话。 */
+export interface FactoryTaskTakeover {
+  at: string
+  sessionId: string
+}
+
+/** 推送到渲染层聊天列表的接管会话（复用 H5 远程消息链路）。 */
+export interface FactoryTakeoverSession {
+  sessionId: string
+  taskId: string
+  projectPath: string
+  title: string
+  content: string
+  model?: string
+  activate: boolean
+}
+
+export type FactoryTakeoverError =
+  | FactoryTaskStartError
+  | 'not-takeover'
+  | 'run-locked'
+
+export type FactoryTakeoverResult =
+  | { ok: true; snapshot: FactoryRunSnapshot; session: FactoryTakeoverSession }
+  | { ok: false; error: FactoryTakeoverError; detail?: string }
+
+/** 交回结果：verified=true 表示已重新验证通过并交给审查。 */
+export type FactoryReturnResult =
+  | { ok: true; snapshot: FactoryRunSnapshot; verified: boolean }
+  | { ok: false; error: FactoryTaskActionError; detail?: string }
+
 /** 任务投影。渲染层只读，所有迁移由主进程写入。 */
 export interface FactoryTask {
   id: string
@@ -399,6 +488,8 @@ export interface FactoryTask {
   issueNumber?: number
   title: string
   goal: string
+  /** 依赖的任务 id；任一未完成时调度器不领取。 */
+  dependsOn?: string[]
   lane: FactoryLane
   /** 0 领取 … 6 完成，对应六步进度条。 */
   stageIdx: number
@@ -407,6 +498,8 @@ export interface FactoryTask {
   /** 相对仓库根的工作树路径（如 `.spacecode/worktrees/<taskId>`）。 */
   worktree: string | null
   model: string
+  /** 领取时固化的阶段配置；修复/重跑沿用，不跟随之后保存的配置。 */
+  configSnapshot?: FactoryTaskConfigSnapshot
   iteration: number
   maxIterations: number
   diff: FactoryTaskDiff
@@ -415,6 +508,11 @@ export interface FactoryTask {
   tests?: FactoryTestRun
   review?: FactoryReview
   cancelled?: boolean
+  /**
+   * 接管中：调度器跳过该任务、不计后台回合；交回时清除。
+   * 随任务持久化，重启恢复会清空，避免误判为仍在接管。
+   */
+  takeover?: FactoryTaskTakeover
   attention?: { reason: string; action: 'fix' | 'merge' | 'retry' }
   /** 合并成功后记录：带入目标分支的提交数。 */
   mergedCommits?: number
@@ -440,6 +538,8 @@ export interface FactoryRun {
   startedAt?: string
   endedAt?: string
   maxConcurrency: number
+  /** 最近一次领取任务时使用的配置版本，用于展示与排查。 */
+  configRevision?: number
   /** 展示位；真实成本由后续阶段的 usage 累计。 */
   spendUsd: number
   elapsedMs: number
@@ -453,6 +553,8 @@ export interface FactoryRunSnapshot {
 export interface FactoryRunCreateInput {
   taskIds: string[]
   concurrency?: number
+  /** 规划产出的任务依赖：taskId → 依赖的 taskId 列表。 */
+  dependencies?: Record<string, string[]>
 }
 
 export type FactoryRunCreateError = 'empty-tasks' | 'missing-tasks' | 'duplicate-tasks'
@@ -503,6 +605,12 @@ export type FactoryTaskStartError =
   | 'confirm-required'
   | 'not-fixable'
   | 'no-worktree'
+  | 'no-slot'
+  | 'dependency-unmet'
+  | 'worktree-missing'
+  | 'branch-missing'
+  | 'task-busy'
+  | 'run-locked'
 
 export interface FactoryTaskStartInput {
   /** 基础仓库有未提交改动时，用户确认后仍可继续。 */
@@ -531,6 +639,11 @@ export interface FactoryReviewCommentInput {
 }
 
 export type FactoryRunStopResult = FactoryTaskActionResult | { ok: false; error: 'run-not-found' }
+
+/** 暂停/恢复：运行不存在或已停止时拒绝。 */
+export type FactoryRunControlResult =
+  | { ok: true; snapshot: FactoryRunSnapshot }
+  | { ok: false; error: 'run-not-found' | 'run-stopped' }
 
 export type FactoryWorktreeRevealResult =
   | { ok: true }

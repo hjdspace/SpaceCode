@@ -70,6 +70,7 @@ export type TaskPatch = Partial<
     | 'branch'
     | 'worktree'
     | 'model'
+    | 'configSnapshot'
     | 'iteration'
     | 'maxIterations'
     | 'diff'
@@ -152,7 +153,12 @@ export function patchTask(
   return { ok: true, snapshot: { run: snapshot.run, tasks } }
 }
 
-export type RunPatch = Partial<Pick<FactoryRun, 'status' | 'paused' | 'startedAt' | 'endedAt' | 'spendUsd' | 'maxConcurrency'>>
+export type RunPatch = Partial<
+  Pick<
+    FactoryRun,
+    'status' | 'paused' | 'startedAt' | 'endedAt' | 'spendUsd' | 'maxConcurrency' | 'configRevision'
+  >
+>
 
 /** 写运行状态；elapsedMs 由 startedAt/endedAt/当前时间派生，页面不自己算。 */
 export function updateRun(

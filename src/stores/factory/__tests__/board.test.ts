@@ -12,6 +12,7 @@ import {
   formatClock,
   formatTimestamp,
   laneCounts,
+  runUsage,
   taskElapsedMs,
   taskStagePercent,
   taskStatus,
@@ -114,6 +115,33 @@ describe('stage rail', () => {
     expect(taskStatus(task({ lane: 'done', stageIdx: 6, cancelled: true }))).toEqual({
       key: 'factory.cardStatus.cancelled',
     })
+  })
+})
+
+describe('run usage', () => {
+  it('sums tokens across tasks and reports no cost without a price', () => {
+    const usage = runUsage([
+      task({ usage: { inputTokens: 10, outputTokens: 5 } }),
+      task({ id: 'b', usage: { inputTokens: 30, outputTokens: 15 } }),
+      task({ id: 'c' }),
+    ])
+    expect(usage).toEqual({
+      inputTokens: 40,
+      outputTokens: 20,
+      totalTokens: 60,
+      costUsd: 0,
+      hasCost: false,
+    })
+  })
+
+  it('sums cost when any task carries a price', () => {
+    const usage = runUsage([
+      task({ usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.12 } }),
+      task({ id: 'b', usage: { inputTokens: 30, outputTokens: 15 } }),
+    ])
+    expect(usage.hasCost).toBe(true)
+    expect(usage.costUsd).toBeCloseTo(0.12)
+    expect(usage.totalTokens).toBe(60)
   })
 })
 

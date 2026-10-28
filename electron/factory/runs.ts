@@ -11,17 +11,21 @@ import { join } from 'path'
 import {
   FACTORY_RUNS_PATH,
   type FactoryLane,
+  type FactoryPermissionMode,
   type FactoryReviewComment,
   type FactoryRun,
   type FactoryRunCreateInput,
   type FactoryRunCreateResult,
   type FactoryRunSnapshot,
   type FactoryRunStatus,
+  type FactoryStageConfig,
+  type FactoryStageKey,
   type FactoryTask,
+  type FactoryTaskConfigSnapshot,
   type FactoryTaskWriteback,
 } from '@/shared/factory'
 import { readBacklog } from './backlog'
-import { readFactoryConfig } from './config'
+import { DEFAULT_STAGES, readFactoryConfig, STAGE_KEYS } from './config'
 import { writeJsonAtomic } from './atomic'
 import { buildBranchName } from './worktree'
 
@@ -63,8 +67,51 @@ function parseRun(raw: unknown): FactoryRun | null {
     ...(typeof raw.startedAt === 'string' ? { startedAt: raw.startedAt } : {}),
     ...(typeof raw.endedAt === 'string' ? { endedAt: raw.endedAt } : {}),
     maxConcurrency: raw.maxConcurrency,
+    ...(typeof raw.configRevision === 'number' && raw.configRevision > 0
+      ? { configRevision: raw.configRevision }
+      : {}),
     spendUsd: typeof raw.spendUsd === 'number' ? raw.spendUsd : 0,
     elapsedMs: typeof raw.elapsedMs === 'number' ? raw.elapsedMs : 0,
+  }
+}
+
+function isPermissionMode(value: unknown): value is FactoryPermissionMode {
+  return value === 'default' || value === 'plan' || value === 'acceptEdits'
+}
+
+function parseStages(raw: unknown): Record<FactoryStageKey, FactoryStageConfig> {
+  const source = isRecord(raw) ? raw : {}
+  const stages = {} as FactoryTaskConfigSnapshot['stages']
+  for (const key of STAGE_KEYS) {
+    const item = isRecord(source[key]) ? source[key] : {}
+    const fallback = DEFAULT_STAGES[key]
+    stages[key] = {
+      enabled: item.enabled !== false,
+      ...(typeof item.model === 'string' && item.model.trim() ? { model: item.model.trim() } : {}),
+      permissionMode: isPermissionMode(item.permissionMode) ? item.permissionMode : fallback.permissionMode,
+      humanGate: item.humanGate === true || (item.humanGate === undefined && fallback.humanGate),
+      ...(typeof item.maxIterations === 'number' ? { maxIterations: item.maxIterations } : {}),
+    }
+  }
+  return stages
+}
+
+function parseConfigSnapshot(raw: unknown): FactoryTaskConfigSnapshot | undefined {
+  if (!isRecord(raw)) return undefined
+  const engineType = raw.engineType === 'pi' ? 'pi' : 'claude-code'
+  const revision = typeof raw.revision === 'number' && raw.revision > 0 ? raw.revision : 1
+  if (typeof raw.verifyCommand !== 'string' || !raw.verifyCommand.trim()) return undefined
+  return {
+    revision,
+    engineType,
+    ...(typeof raw.model === 'string' && raw.model.trim() ? { model: raw.model.trim() } : {}),
+    maxIterations: typeof raw.maxIterations === 'number' && raw.maxIterations > 0 ? raw.maxIterations : 5,
+    stages: parseStages(raw.stages),
+    verifyCommand: raw.verifyCommand.trim(),
+    ...(typeof raw.installCommand === 'string' && raw.installCommand.trim()
+      ? { installCommand: raw.installCommand.trim() }
+      : {}),
+    taskTimeoutSec: typeof raw.taskTimeoutSec === 'number' && raw.taskTimeoutSec > 0 ? raw.taskTimeoutSec : 3600,
   }
 }
 
@@ -161,11 +208,26 @@ function parseTask(raw: unknown): FactoryTask | null {
     ...(typeof raw.issueNumber === 'number' ? { issueNumber: raw.issueNumber } : {}),
     title: typeof raw.title === 'string' ? raw.title : '',
     goal: typeof raw.goal === 'string' ? raw.goal : '',
+    ...(Array.isArray(raw.dependsOn)
+      ? {
+          dependsOn: [
+            ...new Set(
+              raw.dependsOn.filter(
+                (id): id is string =>
+                  typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id) && id !== raw.id,
+              ),
+            ),
+          ],
+        }
+      : {}),
     lane: raw.lane as FactoryLane,
     stageIdx: typeof raw.stageIdx === 'number' ? raw.stageIdx : 0,
     branch: typeof raw.branch === 'string' ? raw.branch : '',
     worktree: typeof raw.worktree === 'string' ? raw.worktree : null,
     model: typeof raw.model === 'string' ? raw.model : '',
+    ...(parseConfigSnapshot(raw.configSnapshot)
+      ? { configSnapshot: parseConfigSnapshot(raw.configSnapshot) }
+      : {}),
     iteration: typeof raw.iteration === 'number' ? raw.iteration : 0,
     maxIterations: typeof raw.maxIterations === 'number' ? raw.maxIterations : 0,
     diff: parseDiff(raw.diff),
@@ -293,6 +355,29 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.floor(value)))
 }
 
+function sanitizeDependencies(
+  raw: unknown,
+  taskIds: readonly string[],
+): Record<string, string[]> {
+  const allowed = new Set(taskIds)
+  const result: Record<string, string[]> = {}
+  if (!isRecord(raw)) return result
+  for (const id of taskIds) {
+    const value = raw[id]
+    if (!Array.isArray(value)) continue
+    const dependsOn = [
+      ...new Set(
+        value.filter(
+          (dependency): dependency is string =>
+            typeof dependency === 'string' && allowed.has(dependency) && dependency !== id,
+        ),
+      ),
+    ]
+    if (dependsOn.length > 0) result[id] = dependsOn
+  }
+  return result
+}
+
 export function createFactoryRun(
   repoRoot: string,
   input: FactoryRunCreateInput,
@@ -324,6 +409,7 @@ export function createFactoryRun(
   const maxConcurrency = clamp(input.concurrency ?? config?.agent.maxConcurrency ?? 4, 1, 20)
   const maxIterations = config?.agent.maxIterations ?? 5
   const model = config?.agent.model ?? ''
+  const dependencies = sanitizeDependencies(input.dependencies, taskIds)
 
   const run: FactoryRun = {
     id: runId,
@@ -331,6 +417,7 @@ export function createFactoryRun(
     paused: false,
     createdAt,
     maxConcurrency,
+    ...(config ? { configRevision: config.revision } : {}),
     spendUsd: 0,
     elapsedMs: 0,
   }
@@ -340,6 +427,7 @@ export function createFactoryRun(
     source: 'local',
     title: item.title,
     goal: item.goal,
+    ...(dependencies[item.id] ? { dependsOn: dependencies[item.id] } : {}),
     lane: 'queued',
     stageIdx: 0,
     branch: buildBranchName({ taskId: item.id }),
@@ -370,6 +458,7 @@ export interface FactoryGithubRunInput {
   runId: string
   tasks: FactoryGithubTaskInput[]
   concurrency?: number
+  dependencies?: Record<string, string[]>
 }
 
 export interface ClaimedIssue {
@@ -425,6 +514,8 @@ export function createGithubRun(
   const maxConcurrency = clamp(input.concurrency ?? config?.agent.maxConcurrency ?? 4, 1, 20)
   const maxIterations = config?.agent.maxIterations ?? 5
   const model = config?.agent.model ?? ''
+  const taskIds = tasks.map((item) => githubTaskId(item.issueNumber))
+  const dependencies = sanitizeDependencies(input.dependencies, taskIds)
 
   const run: FactoryRun = {
     id: runId,
@@ -432,6 +523,7 @@ export function createGithubRun(
     paused: false,
     createdAt,
     maxConcurrency,
+    ...(config ? { configRevision: config.revision } : {}),
     spendUsd: 0,
     elapsedMs: 0,
   }
@@ -445,6 +537,7 @@ export function createGithubRun(
       issueNumber: item.issueNumber,
       title: item.title,
       goal: item.goal,
+      ...(dependencies[taskId] ? { dependsOn: dependencies[taskId] } : {}),
       lane: 'queued' as const,
       stageIdx: 0,
       branch: buildBranchName({ taskId, issueNumber: item.issueNumber, title: item.title }),

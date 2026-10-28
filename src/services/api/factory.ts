@@ -5,6 +5,8 @@ import { factoryNamespace } from '@/shared/channels/factory'
 import type { FactoryRendererApi, FactoryEventApi } from '@/shared/channels/factory'
 import type {
   FactoryBacklogResult,
+  FactoryConfigSaveResult,
+  FactoryRunControlResult,
   FactoryGithubAuthResult,
   FactoryGithubClaimResult,
   FactoryGithubListResult,
@@ -12,11 +14,13 @@ import type {
   FactoryMergePreflightResult,
   FactoryMergeResult,
   FactoryPreflightResult,
+  FactoryReturnResult,
   FactoryRunCreateResult,
   FactorySaveResult,
   FactorySecretSaveResult,
   FactorySetupContext,
   FactoryState,
+  FactoryTakeoverResult,
   FactoryTaskActionResult,
   FactoryTaskStartResult,
   FactoryWorktreeRevealResult,
@@ -46,12 +50,16 @@ const emptyBacklog: FactoryBacklogResult = { ok: true, items: [] }
 const failedRun: FactoryRunCreateResult = { ok: false, error: 'empty-tasks' }
 const failedStart: FactoryTaskStartResult = { ok: false, error: 'task-not-found' }
 const failedAction: FactoryTaskActionResult = { ok: false, error: 'task-not-found' }
+const failedTakeover: FactoryTakeoverResult = { ok: false, error: 'task-not-found' }
+const failedReturn: FactoryReturnResult = { ok: false, error: 'task-not-found' }
 const failedReveal: FactoryWorktreeRevealResult = { ok: false, error: 'task-not-found' }
 const failedMergePreflight: FactoryMergePreflightResult = { ok: false, error: 'task-not-found' }
 const failedMerge: FactoryMergeResult = { ok: false, error: 'task-not-found' }
 const failedIssueList: FactoryGithubListResult = { ok: false, reason: 'unsupported' }
 const failedIssueClaim: FactoryGithubClaimResult = { ok: false, reason: 'config-missing' }
 const failedWritebackRetry: FactoryGithubWritebackRetryResult = { ok: false, reason: 'not-applicable' }
+const failedControl: FactoryRunControlResult = { ok: false, error: 'run-not-found' }
+const failedConfigSave: FactoryConfigSaveResult = { ok: false, error: 'write-failed' }
 
 const invokeApi = createRendererApi(
   factoryNamespace.channels,
@@ -86,10 +94,16 @@ const invokeApi = createRendererApi(
     taskApprove: () => failedAction,
     taskRequestChanges: () => failedAction,
     taskFix: () => failedAction,
+    taskTakeover: () => failedTakeover,
+    taskReturn: () => failedReturn,
+    taskRetry: () => failedAction,
     taskCommentUpdate: () => failedAction,
     mergePreflight: () => failedMergePreflight,
     mergeExecute: () => failedMerge,
     runStop: () => failedAction,
+    runPause: () => failedControl,
+    runResume: () => failedControl,
+    configSave: () => failedConfigSave,
     taskEvents: () => [],
     worktreeReveal: () => failedReveal,
   },

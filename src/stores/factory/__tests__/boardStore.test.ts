@@ -4,7 +4,14 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { FactoryBacklogItem, FactoryEvent, FactoryRunSnapshot } from '@/shared/factory'
+import {
+  FACTORY_BACKLOG_PATH,
+  FACTORY_SANDBOX_WORKTREE_ROOT,
+  type FactoryBacklogItem,
+  type FactoryConfig,
+  type FactoryEvent,
+  type FactoryRunSnapshot,
+} from '@/shared/factory'
 
 const { factoryApi } = vi.hoisted(() => ({
   factoryApi: {
@@ -15,9 +22,12 @@ const { factoryApi } = vi.hoisted(() => ({
     backlogMove: vi.fn(),
     runLatest: vi.fn(),
     runCreate: vi.fn(),
+    runResume: vi.fn(),
+    runPause: vi.fn(),
+    runStop: vi.fn(),
+    configSave: vi.fn(),
     taskStart: vi.fn(),
     taskStop: vi.fn(),
-    runStop: vi.fn(),
     taskEvents: vi.fn(),
     worktreeReveal: vi.fn(),
     onEvent: vi.fn(() => () => {}),
@@ -60,6 +70,34 @@ function snapshot(): FactoryRunSnapshot {
       diff: { additions: 0, deletions: 0 },
       timestamps: { claimedAt: '2026-10-28T10:02:00Z' },
     })),
+  }
+}
+
+function configFixture(): FactoryConfig {
+  return {
+    version: 1,
+    revision: 1,
+    repo: { root: '.', baseBranch: 'main' },
+    template: 'parallel-planner-with-review',
+    agent: { engineType: 'claude-code', model: 'sonnet', maxIterations: 5, maxConcurrency: 4 },
+    sandbox: { type: 'worktree', root: FACTORY_SANDBOX_WORKTREE_ROOT },
+    tracker: { type: 'local', backlogPath: FACTORY_BACKLOG_PATH, mergeMode: 'local' },
+    stages: {
+      plan: { enabled: true, permissionMode: 'plan', humanGate: false },
+      implement: { enabled: true, permissionMode: 'acceptEdits', humanGate: false },
+      verify: { enabled: true, permissionMode: 'default', humanGate: false },
+      review: { enabled: true, permissionMode: 'acceptEdits', humanGate: true },
+      merge: { enabled: true, permissionMode: 'default', humanGate: true },
+    },
+    commands: { verify: 'npm run test' },
+    prompts: {
+      plan: '.spacecode/factory/prompts/plan.md',
+      implement: '.spacecode/factory/prompts/implement.md',
+      review: '.spacecode/factory/prompts/review.md',
+      fix: '.spacecode/factory/prompts/fix.md',
+      'merge-conflict': '.spacecode/factory/prompts/merge-conflict.md',
+    },
+    limits: { taskTimeoutSec: 3600, idleTimeoutSec: 600, keepDoneRuns: 20 },
   }
 }
 
@@ -118,15 +156,29 @@ describe('run and selection', () => {
     expect(store.selectedId).toBe('bl-2')
   })
 
-  it('creates a run from selected backlog tasks', async () => {
+  it('creates a run and immediately hands it to the scheduler', async () => {
     factoryApi.runCreate.mockResolvedValue({ ok: true, snapshot: snapshot() })
+    factoryApi.runResume.mockResolvedValue({
+      ok: true,
+      snapshot: { ...snapshot(), run: { ...snapshot().run, status: 'running' } },
+    })
     const store = useFactoryStore()
     const result = await store.createRun('/repo', ['bl-1', 'bl-2'])
     expect(result).toBe(true)
-    expect(store.run?.id).toBe('run-1')
+    expect(factoryApi.runResume).toHaveBeenCalledWith('/repo', 'run-1')
+    expect(store.run?.status).toBe('running')
     expect(store.selectedId).toBe('bl-1')
     expect(store.createRunError).toBeNull()
     expect(store.creatingRun).toBe(false)
+  })
+
+  it('keeps the created run when the scheduler refuses to start', async () => {
+    factoryApi.runCreate.mockResolvedValue({ ok: true, snapshot: snapshot() })
+    factoryApi.runResume.mockResolvedValue({ ok: false, error: 'run-stopped' })
+    const store = useFactoryStore()
+    await store.createRun('/repo', ['bl-1'])
+    expect(store.run?.id).toBe('run-1')
+    expect(store.actionError).toEqual({ code: 'run-stopped' })
   })
 
   it('surfaces duplicate claims without clobbering the current board', async () => {
@@ -214,5 +266,132 @@ describe('implementation events', () => {
     await store.confirmDirtyStart('/repo', 'run-1', 'bl-1')
     expect(factoryApi.taskStart).toHaveBeenLastCalledWith('/repo', 'run-1', 'bl-1', { confirmDirty: true })
     expect(store.pendingDirtyId).toBeNull()
+  })
+})
+
+describe('run control', () => {
+  it('pauses and resumes through IPC and applies the returned snapshot', async () => {
+    factoryApi.runLatest.mockResolvedValue(snapshot())
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    factoryApi.runPause.mockResolvedValue({
+      ok: true,
+      snapshot: { ...snapshot(), run: { ...snapshot().run, status: 'paused', paused: true } },
+    })
+    expect(await store.pauseRun('/repo', 'run-1')).toMatchObject({ ok: true })
+    expect(store.run?.paused).toBe(true)
+    expect(store.pausing).toBe(false)
+
+    factoryApi.runResume.mockResolvedValue({
+      ok: true,
+      snapshot: { ...snapshot(), run: { ...snapshot().run, status: 'running', paused: false } },
+    })
+    expect(await store.resumeRun('/repo', 'run-1')).toMatchObject({ ok: true })
+    expect(store.run?.status).toBe('running')
+    expect(store.run?.paused).toBe(false)
+  })
+
+  it('keeps control failures as action error codes', async () => {
+    factoryApi.runPause.mockResolvedValue({ ok: false, error: 'run-stopped' })
+    const store = useFactoryStore()
+    expect(await store.pauseRun('/repo', 'run-1')).toMatchObject({ ok: false, error: 'run-stopped' })
+    expect(store.actionError).toEqual({ code: 'run-stopped' })
+    expect(store.pausing).toBe(false)
+  })
+})
+
+describe('config modal', () => {
+  it('opens a deep-cloned draft so edits never touch the live config', () => {
+    const store = useFactoryStore()
+    store.config = configFixture()
+    store.openConfig()
+
+    expect(store.configOpen).toBe(true)
+    store.updateStage('implement', { model: 'opus' })
+    store.setConfigConcurrency(2)
+    store.setConfigVerifyCommand('npm run build')
+
+    expect(store.configDraft?.stages.implement.model).toBe('opus')
+    expect(store.configDraft?.agent.maxConcurrency).toBe(2)
+    expect(store.configDraft?.commands.verify).toBe('npm run build')
+    expect(store.config?.stages.implement.model).toBeUndefined()
+    expect(store.config?.agent.maxConcurrency).toBe(4)
+  })
+
+  it('saves with the current revision and closes on success', async () => {
+    const store = useFactoryStore()
+    store.config = configFixture()
+    store.openConfig()
+    store.setConfigConcurrency(2)
+    store.setConfigVerifyCommand('npm run build')
+
+    const saved = {
+      ...configFixture(),
+      revision: 2,
+      agent: { ...configFixture().agent, maxConcurrency: 2 },
+      commands: { verify: 'npm run build' },
+    }
+    factoryApi.configSave.mockResolvedValue({ ok: true, config: saved })
+
+    expect(await store.saveConfig('/repo')).toBe(true)
+    expect(factoryApi.configSave).toHaveBeenCalledWith(
+      '/repo',
+      expect.objectContaining({ expectedRevision: 1 }),
+    )
+    expect(store.config?.revision).toBe(2)
+    expect(store.configOpen).toBe(false)
+    expect(store.configSaving).toBe(false)
+  })
+
+  it('keeps the modal open and reports field errors for invalid config', async () => {
+    const store = useFactoryStore()
+    store.config = configFixture()
+    store.openConfig()
+    factoryApi.configSave.mockResolvedValue({
+      ok: false,
+      error: 'invalid-config',
+      errors: ['stages.implement.permissionMode'],
+    })
+
+    expect(await store.saveConfig('/repo')).toBe(false)
+    expect(store.configOpen).toBe(true)
+    expect(store.configError).toBe('invalid-config')
+    expect(store.configFieldErrors).toEqual(['stages.implement.permissionMode'])
+    expect(store.configConflictRevision).toBeNull()
+  })
+
+  it('reports a revision conflict with the current revision', async () => {
+    const store = useFactoryStore()
+    store.config = configFixture()
+    store.openConfig()
+    factoryApi.configSave.mockResolvedValue({ ok: false, error: 'revision-conflict', current: 3 })
+
+    expect(await store.saveConfig('/repo')).toBe(false)
+    expect(store.configError).toBe('revision-conflict')
+    expect(store.configConflictRevision).toBe(3)
+    expect(store.configOpen).toBe(true)
+  })
+
+  it('retries turning the merge gate off after explicit confirmation', async () => {
+    const store = useFactoryStore()
+    store.config = configFixture()
+    store.openConfig()
+    store.updateStage('merge', { humanGate: false })
+
+    factoryApi.configSave.mockResolvedValueOnce({ ok: false, error: 'confirm-required' })
+    expect(await store.saveConfig('/repo')).toBe(false)
+    expect(store.configError).toBe('confirm-required')
+
+    store.setConfigGateConfirm(true)
+    factoryApi.configSave.mockResolvedValueOnce({
+      ok: true,
+      config: { ...configFixture(), revision: 2, stages: { ...configFixture().stages, merge: { ...configFixture().stages.merge, humanGate: false } } },
+    })
+    expect(await store.saveConfig('/repo')).toBe(true)
+    expect(factoryApi.configSave).toHaveBeenLastCalledWith(
+      '/repo',
+      expect.objectContaining({ confirmGateOff: true }),
+    )
   })
 })
