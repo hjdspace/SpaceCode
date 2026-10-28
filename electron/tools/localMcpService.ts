@@ -19,10 +19,9 @@
  *
  * 解析逻辑刻意与 mcpConfigResolver 分离：这里只负责"找"，不负责"决定"。
  */
-import { existsSync } from 'fs'
-import { join, dirname } from 'path'
+import { accessSync, constants, existsSync, statSync } from 'fs'
+import { join, dirname, extname, isAbsolute, resolve } from 'path'
 import { homedir } from 'os'
-import { execFileSync } from 'child_process'
 
 /** uv tool 可执行文件安装目录（uv tool install 的默认 bin 目录） */
 function uvToolBinDir(): string {
@@ -32,25 +31,22 @@ function uvToolBinDir(): string {
   return join(homedir(), '.local', 'bin')
 }
 
-/**
- * 在系统 PATH 上查找可执行文件。
- *
- * 用 `where`/`which` 起子进程查询而非扫描 process.env.PATH：Electron 进程
- * 缓存的 PATH 可能不含应用启动后才安装的工具（与 cuaDriverService 同一
- * 理由）。失败返回 null。
- */
 function findInPath(binName: string): string | null {
-  try {
-    const cmd = process.platform === 'win32' ? 'where' : 'which'
-    const result = execFileSync(cmd, [binName], {
-      encoding: 'utf-8',
-      timeout: 5_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    const path = result.trim().split('\n')[0].trim()
-    if (path && existsSync(path)) return path
-  } catch {
-    // not in PATH
+  const windows = process.platform === 'win32'
+  const extensions = windows && !extname(binName)
+    ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+    : ['']
+  for (const entry of (process.env.PATH || '').split(windows ? ';' : ':')) {
+    const directory = windows ? entry.replace(/^"(.*)"$/, '$1') : entry
+    if (!directory) continue
+    for (const extension of extensions) {
+      const candidate = join(directory, binName + extension)
+      try {
+        if (!existsSync(candidate) || !statSync(candidate).isFile()) continue
+        if (!windows) accessSync(candidate, constants.X_OK)
+        return isAbsolute(candidate) ? candidate : resolve(candidate)
+      } catch {}
+    }
   }
   return null
 }
@@ -90,8 +86,7 @@ function npmShimName(): string {
  * 全局 shim（`claude.cmd`、`pi.cmd` …）直接落在 `node.exe` 旁边，
  * `%APPDATA%\npm` 压根不存在。所以 node 所在目录也要当候选。
  *
- * 但 node 目录要靠一次 `where node` 才知道 —— 那是阻塞子进程，跑在会话 spawn
- * 前的热路径上。所以这里只给静态可推的目录，node 目录留到兜底再查。
+ * 静态目录优先，node 所在目录由 PATH 扫描补齐，不启动探测子进程。
  */
 function staticNpmBinDirs(): string[] {
   if (process.platform === 'win32') {
@@ -105,9 +100,8 @@ function staticNpmBinDirs(): string[] {
  *
  * 查找顺序：
  * 1. 平台默认的全局 bin 目录（纯 existsSync，不起子进程）
- * 2. 系统 PATH（`where`/`which` 一次）
- * 3. 都没有才查 node 所在目录（再多一次子进程）—— 覆盖「npm 全局 bin 不在
- *    PATH 上」的少见布局，代价只落在本来就要回退 npx 的慢路径上
+ * 2. 系统 PATH
+ * 3. 都没有才查 node 所在目录，覆盖「npm 全局 bin 不在 PATH 上」的布局
  *
  * 找到 shim 后，推导同目录的
  * `node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`
@@ -118,8 +112,6 @@ function staticNpmBinDirs(): string[] {
 export function findChromeDevtoolsMcpLocal(): { command: string; args: string[] } | null {
   const shim = npmShimName()
 
-  // `where node` 一次解析里最多起一个子进程：兜底分支和最后的入口校验用的是同
-  // 一个答案，原来各查一遍。
   let nodeProbed = false
   let nodePath: string | null = null
   const resolveNode = (): string | null => {
