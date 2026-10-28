@@ -13,14 +13,20 @@ import type {
   FactoryBacklogResult,
   FactoryBacklogUpdate,
   FactoryConfig,
+  FactoryEvent,
+  FactoryEventPush,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
   FactoryRun,
   FactoryRunCreateError,
   FactoryRunSnapshot,
+  FactoryRunStopResult,
   FactorySetupContext,
   FactorySetupDraft,
   FactoryTask,
+  FactoryTaskActionResult,
+  FactoryTaskStartInput,
+  FactoryTaskStartResult,
 } from '@/shared/factory'
 import {
   canAdvance,
@@ -34,6 +40,12 @@ import { findTask, laneCounts as computeLaneCounts, type FactoryInspectorTab } f
 export interface FactoryRunError {
   code: FactoryRunCreateError | 'create-failed'
   params?: Record<string, string | number>
+}
+
+/** 启动/停止类动作的失败码；渲染层用 factory.errors.* 翻译。 */
+export interface FactoryActionError {
+  code: string
+  detail?: string
 }
 
 export const useFactoryStore = defineStore('factory', () => {
@@ -71,8 +83,27 @@ export const useFactoryStore = defineStore('factory', () => {
 
   const creatingRun = ref(false)
   const createRunError = ref<FactoryRunError | null>(null)
+
+  // 实现阶段：事件流按任务缓存，seq 单调去重；动作错误交给检查器展示
+  const eventsByTask = ref<Record<string, FactoryEvent[]>>({})
+  const runEvents = ref<FactoryEvent[]>([])
+  const eventsLoading = ref(false)
+  const eventsError = ref<string | null>(null)
+  const actionError = ref<FactoryActionError | null>(null)
+  const startingId = ref<string | null>(null)
+  const stopping = ref(false)
+  const pendingDirtyId = ref<string | null>(null)
+
+  const seenEventSeqs = new Set<string>()
+  let unsubscribeEvents: (() => void) | null = null
+  let subscribedRoot: string | null = null
+
   const selectedTask = computed(() => findTask(tasks.value, selectedId.value))
   const laneCounts = computed(() => computeLaneCounts(tasks.value))
+  const selectedEvents = computed(() =>
+    selectedId.value ? eventsByTask.value[selectedId.value] ?? [] : [],
+  )
+  const hasCommits = computed(() => (selectedTask.value?.commits?.length ?? 0) > 0)
 
   const boardReady = computed(() => configured.value && config.value !== null)
 
@@ -280,6 +311,129 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
+  /**
+   * 主进程推送：按 seq 去重后把事件并进对应任务，快照只接受当前运行，
+   * 避免切换项目后旧运行的事件覆盖看板。
+   */
+  function applyPush(push: FactoryEventPush): void {
+    const { event, snapshot } = push
+    if (run.value && snapshot.run.id !== run.value.id) return
+
+    const key = `${event.runId}:${event.seq}`
+    if (!seenEventSeqs.has(key)) {
+      seenEventSeqs.add(key)
+      if (event.taskId) {
+        const list = eventsByTask.value[event.taskId] ?? []
+        eventsByTask.value = {
+          ...eventsByTask.value,
+          [event.taskId]: [...list, event].sort((a, b) => a.seq - b.seq),
+        }
+      } else {
+        runEvents.value = [...runEvents.value, event].sort((a, b) => a.seq - b.seq)
+      }
+    }
+
+    applySnapshot(snapshot)
+  }
+
+  /** 订阅主进程事件流；同一项目重复调用不会叠加监听。 */
+  function subscribeEvents(root: string): void {
+    if (subscribedRoot === root && unsubscribeEvents) return
+    unsubscribeEvents?.()
+    subscribedRoot = root
+    unsubscribeEvents = api.factory.onEvent(applyPush)
+  }
+
+  async function loadEvents(root: string, runId: string, taskId: string): Promise<void> {
+    eventsLoading.value = true
+    eventsError.value = null
+    try {
+      const events = await api.factory.taskEvents(root, runId, taskId)
+      eventsByTask.value = { ...eventsByTask.value, [taskId]: events }
+      for (const event of events) seenEventSeqs.add(`${event.runId}:${event.seq}`)
+    } catch {
+      eventsError.value = 'load-failed'
+    } finally {
+      eventsLoading.value = false
+    }
+  }
+
+  async function startTask(
+    root: string,
+    runId: string,
+    taskId: string,
+    input: FactoryTaskStartInput = {},
+  ): Promise<FactoryTaskStartResult> {
+    startingId.value = taskId
+    actionError.value = null
+    pendingDirtyId.value = null
+    try {
+      const result = await api.factory.taskStart(root, runId, taskId, input)
+      if (result.ok) {
+        applySnapshot(result.snapshot)
+        return result
+      }
+      actionError.value = {
+        code: result.error,
+        ...(result.detail ? { detail: result.detail } : {}),
+      }
+      if (result.error === 'dirty-worktree') pendingDirtyId.value = taskId
+      return result
+    } catch {
+      actionError.value = { code: 'git-error' }
+      return { ok: false, error: 'git-error' }
+    } finally {
+      startingId.value = null
+    }
+  }
+
+  function confirmDirtyStart(root: string, runId: string, taskId: string): Promise<FactoryTaskStartResult> {
+    return startTask(root, runId, taskId, { confirmDirty: true })
+  }
+
+  async function stopTask(root: string, runId: string, taskId: string): Promise<FactoryTaskActionResult> {
+    stopping.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskStop(root, runId, taskId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'stop-failed' }
+      return { ok: false, error: 'stop-failed' }
+    } finally {
+      stopping.value = false
+    }
+  }
+
+  async function stopRun(root: string, runId: string): Promise<FactoryRunStopResult> {
+    stopping.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.runStop(root, runId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'stop-failed' }
+      return { ok: false, error: 'stop-failed' }
+    } finally {
+      stopping.value = false
+    }
+  }
+
+  async function revealWorktree(root: string, runId: string, taskId: string): Promise<boolean> {
+    const result = await api.factory.worktreeReveal(root, runId, taskId)
+    if (!result.ok) actionError.value = { code: result.error }
+    return result.ok
+  }
+
+  function clearActionError(): void {
+    actionError.value = null
+    pendingDirtyId.value = null
+  }
+
   function selectTask(id: string | null): void {
     selectedId.value = id
     inspectorTab.value = 'overview'
@@ -320,6 +474,18 @@ export const useFactoryStore = defineStore('factory', () => {
     inspectorTab.value = 'overview'
     creatingRun.value = false
     createRunError.value = null
+    eventsByTask.value = {}
+    runEvents.value = []
+    eventsLoading.value = false
+    eventsError.value = null
+    actionError.value = null
+    startingId.value = null
+    stopping.value = false
+    pendingDirtyId.value = null
+    seenEventSeqs.clear()
+    unsubscribeEvents?.()
+    unsubscribeEvents = null
+    subscribedRoot = null
   }
 
   return {
@@ -349,6 +515,16 @@ export const useFactoryStore = defineStore('factory', () => {
     inspectorTab,
     creatingRun,
     createRunError,
+    eventsByTask,
+    runEvents,
+    eventsLoading,
+    eventsError,
+    actionError,
+    startingId,
+    stopping,
+    pendingDirtyId,
+    selectedEvents,
+    hasCommits,
     selectedTask,
     laneCounts,
     boardReady,
@@ -374,6 +550,15 @@ export const useFactoryStore = defineStore('factory', () => {
     moveBacklogTask,
     loadRun,
     createRun,
+    applyPush,
+    subscribeEvents,
+    loadEvents,
+    startTask,
+    confirmDirtyStart,
+    stopTask,
+    stopRun,
+    revealWorktree,
+    clearActionError,
     selectTask,
     setInspectorTab,
     clearCreateRunError,

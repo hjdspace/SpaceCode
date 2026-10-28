@@ -10,16 +10,23 @@ import type {
   FactoryBacklogItem,
   FactoryBacklogResult,
   FactoryBacklogUpdate,
+  FactoryEvent,
+  FactoryEventPush,
   FactoryGithubAuthResult,
   FactoryPreflightResult,
   FactoryRunCreateInput,
   FactoryRunCreateResult,
   FactoryRunSnapshot,
+  FactoryRunStopResult,
   FactorySaveResult,
   FactorySecretSaveResult,
   FactorySetupContext,
   FactorySetupDraft,
   FactoryState,
+  FactoryTaskActionResult,
+  FactoryTaskStartInput,
+  FactoryTaskStartResult,
+  FactoryWorktreeRevealResult,
 } from '@/shared/factory'
 
 export const factoryNamespace = defineNamespace({
@@ -88,10 +95,37 @@ export const factoryNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as FactoryRunSnapshot | null,
     },
+    taskStart: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string, input?: FactoryTaskStartInput],
+      res: null as unknown as FactoryTaskStartResult,
+    },
+    taskStop: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskActionResult,
+    },
+    runStop: {
+      req: [] as unknown as [repoRoot: string, runId: string],
+      res: null as unknown as FactoryRunStopResult,
+    },
+    taskEvents: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId?: string | null],
+      res: null as unknown as FactoryEvent[],
+    },
+    worktreeReveal: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryWorktreeRevealResult,
+    },
   },
-  events: {},
+  events: {
+    onEvent: {
+      channel: 'event',
+      args: [] as unknown as [push: FactoryEventPush],
+    },
+  },
 })
 
 export type FactoryChannelMap = typeof factoryNamespace.channels
+export type FactoryEventMap = typeof factoryNamespace.events
 export type FactoryRendererApi = import('@/shared/channelMap').DeriveRendererApi<FactoryChannelMap>
+export type FactoryEventApi = import('@/shared/channelMap').DeriveEventApi<FactoryEventMap>
 export type FactoryHandlerMap = import('@/shared/channelMap').DeriveHandler<FactoryChannelMap>

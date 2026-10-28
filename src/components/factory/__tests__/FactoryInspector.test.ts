@@ -106,4 +106,89 @@ describe('FactoryInspector', () => {
     await wrapper.setProps({ tab: 'diff' })
     expect(wrapper.find('[data-inspector-title]').text()).toBe(selected.title)
   })
+
+  it('renders the event stream as level-coloured summaries', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: {
+        task: task(),
+        tab: 'events',
+        events: [
+          {
+            seq: 1,
+            at: '2026-10-28T10:02:00Z',
+            runId: 'run-1',
+            taskId: 'bl-1',
+            stage: 'implement',
+            code: 'task.started',
+            level: 'ok',
+            params: { branch: 'agent/task-bl-1' },
+          },
+          {
+            seq: 2,
+            at: '2026-10-28T10:03:00Z',
+            runId: 'run-1',
+            taskId: 'bl-1',
+            stage: 'implement',
+            code: 'agent.turn',
+            level: 'info',
+            params: { inputTokens: 10, outputTokens: 4 },
+          },
+        ],
+      },
+    })
+
+    const rows = wrapper.findAll('[data-event-code]')
+    expect(rows.map((row) => row.attributes('data-event-code'))).toEqual(['task.started', 'agent.turn'])
+    expect(rows[0].text()).toContain('factory.events.task.started|{"branch":"agent/task-bl-1"}')
+    expect(rows[0].classes()).toContain('ok')
+    expect(rows[1].text()).toContain('factory.events.agent.turn|{"inputTokens":10,"outputTokens":4}')
+  })
+
+  it('shows diff files, commits, and the no-commit empty state', () => {
+    const withCommits = mount(FactoryInspector, {
+      props: {
+        task: task({
+          diff: {
+            additions: 12,
+            deletions: 3,
+            files: [
+              { path: 'src/a.ts', additions: 10, deletions: 1 },
+              { path: 'src/b.ts', additions: 2, deletions: 2 },
+            ],
+          },
+          commits: [{ sha: 'abcdef1234567', message: 'fix: restore session' }],
+        }),
+        tab: 'diff',
+      },
+    })
+
+    expect(withCommits.find('[data-diff-summary]').text()).toContain('+12 −3')
+    expect(withCommits.findAll('[data-diff-files] li')).toHaveLength(2)
+    expect(withCommits.findAll('[data-commit-list] li')).toHaveLength(1)
+    expect(withCommits.text()).toContain('abcdef1')
+    expect(withCommits.text()).toContain('fix: restore session')
+    expect(withCommits.find('[data-empty="commits"]').exists()).toBe(false)
+
+    const withoutCommits = mount(FactoryInspector, { props: { task: task(), tab: 'diff' } })
+    expect(withoutCommits.find('[data-empty="commits"]').exists()).toBe(true)
+  })
+
+  it('offers start, stop, reveal and dirty confirmation actions', async () => {
+    const queued = mount(FactoryInspector, {
+      props: { task: task({ lane: 'queued', stageIdx: 0 }), tab: 'overview', pendingDirty: true },
+    })
+    expect(queued.find('[data-task-start]').exists()).toBe(true)
+    expect(queued.find('[data-task-stop]').exists()).toBe(false)
+    await queued.find('[data-task-start]').trigger('click')
+    await queued.find('[data-task-confirm-dirty]').trigger('click')
+    expect(queued.emitted('start')).toHaveLength(1)
+    expect(queued.emitted('confirm-dirty')).toHaveLength(1)
+
+    const running = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    expect(running.find('[data-task-start]').exists()).toBe(false)
+    await running.find('[data-task-stop]').trigger('click')
+    await running.find('[data-reveal-worktree]').trigger('click')
+    expect(running.emitted('stop')).toHaveLength(1)
+    expect(running.emitted('reveal')).toHaveLength(1)
+  })
 })

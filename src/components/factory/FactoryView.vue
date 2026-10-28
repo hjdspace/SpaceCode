@@ -37,7 +37,13 @@
           </button>
         </header>
 
-        <FactoryRunHeader v-if="store.run" :run="store.run" :tasks="store.tasks" @select="store.selectTask" />
+        <FactoryRunHeader
+          v-if="store.run"
+          :run="store.run"
+          :tasks="store.tasks"
+          @select="store.selectTask"
+          @stop="handleStopRun"
+        />
         <div v-else class="run-empty">{{ t('factory.run.empty') }}</div>
 
         <div class="factory-columns">
@@ -78,7 +84,18 @@
             v-if="store.run"
             :task="store.selectedTask"
             :tab="store.inspectorTab"
+            :events="store.selectedEvents"
+            :events-loading="store.eventsLoading"
+            :events-error="store.eventsError"
+            :action-error="store.actionError"
+            :starting="store.startingId === store.selectedTask?.id"
+            :stopping="store.stopping"
+            :pending-dirty="store.pendingDirtyId === store.selectedTask?.id"
             @select-tab="store.setInspectorTab"
+            @start="handleStart"
+            @stop="handleStopTask"
+            @reveal="handleReveal"
+            @confirm-dirty="handleConfirmDirty"
           />
         </div>
       </div>
@@ -120,6 +137,7 @@ onMounted(async () => {
   if (!root.value) return
   await store.refresh(root.value)
   await loadBoard(root.value)
+  store.subscribeEvents(root.value)
 })
 
 watch(root, async (value, previous) => {
@@ -128,7 +146,52 @@ watch(root, async (value, previous) => {
   if (!value) return
   await store.refresh(value)
   await loadBoard(value)
+  store.subscribeEvents(value)
 })
+
+/** 事件流页签按需拉取：切到页签或换任务时读一次落盘事件，之后靠推送增量。 */
+watch(
+  [() => store.inspectorTab, () => store.selectedId, () => store.run?.id],
+  () => {
+    const selected = store.selectedTask
+    if (!root.value || !store.run || !selected) return
+    if (store.inspectorTab !== 'events') return
+    void store.loadEvents(root.value, store.run.id, selected.id)
+  },
+)
+
+function selectedTaskId(): string | null {
+  return store.selectedTask?.id ?? null
+}
+
+function handleStart(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.startTask(root.value, store.run.id, taskId)
+}
+
+function handleConfirmDirty(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.confirmDirtyStart(root.value, store.run.id, taskId)
+}
+
+function handleStopTask(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.stopTask(root.value, store.run.id, taskId)
+}
+
+function handleReveal(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.revealWorktree(root.value, store.run.id, taskId)
+}
+
+function handleStopRun(): void {
+  if (!root.value || !store.run) return
+  void store.stopRun(root.value, store.run.id)
+}
 
 function handleCreate(input: { title: string; goal: string }): void {
   if (root.value) void store.createBacklogTask(root.value, input)

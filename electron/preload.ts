@@ -278,10 +278,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   } satisfies import('@/shared/channels/claudeCode').ClaudeCodeRendererApi
     & import('@/shared/channels/claudeCode').ClaudeCodeEventApi,
 
-  // Factory（AI 流水线）API — invoke channels 表驱动注册
+  // Factory（AI 流水线）API — invoke channels 与事件订阅均表驱动注册
   factory: {
     ...createPreloadBridge(factoryNamespace.channels, ipcRenderer, 'factory:'),
-  } satisfies import('@/shared/channels/factory').FactoryRendererApi,
+    ...createEventBridge(factoryNamespace.events, ipcRenderer, 'factory:'),
+  } satisfies import('@/shared/channels/factory').FactoryRendererApi
+    & import('@/shared/channels/factory').FactoryEventApi,
 
   // Folder selection dialog
   selectFolder: (): Promise<{ canceled: boolean; filePaths: string[] }> =>

@@ -245,9 +245,28 @@ export interface FactoryBacklogUpdate {
   goal?: string
 }
 
+export interface FactoryDiffFile {
+  path: string
+  additions: number
+  deletions: number
+}
+
 export interface FactoryTaskDiff {
   additions: number
   deletions: number
+  files?: FactoryDiffFile[]
+}
+
+export interface FactoryCommit {
+  sha: string
+  message: string
+}
+
+export interface FactoryTaskUsage {
+  inputTokens: number
+  outputTokens: number
+  /** 只有配置了单价时才有；本票只累计 token。 */
+  costUsd?: number
 }
 
 /** 任务投影。渲染层只读，所有迁移由主进程写入。 */
@@ -261,13 +280,16 @@ export interface FactoryTask {
   lane: FactoryLane
   /** 0 领取 … 6 完成，对应六步进度条。 */
   stageIdx: number
-  /** 领取时生成的分支占位；本票不真正创建分支。 */
+  /** 工作分支；领取时生成，启动后即工作树实际检出的分支。 */
   branch: string
+  /** 相对仓库根的工作树路径（如 `.spacecode/worktrees/<taskId>`）。 */
   worktree: string | null
   model: string
   iteration: number
   maxIterations: number
   diff: FactoryTaskDiff
+  commits?: FactoryCommit[]
+  usage?: FactoryTaskUsage
   cancelled?: boolean
   attention?: { reason: string; action: 'fix' | 'merge' | 'retry' }
   timestamps: {
@@ -308,3 +330,61 @@ export type FactoryRunCreateError = 'empty-tasks' | 'missing-tasks' | 'duplicate
 export type FactoryRunCreateResult =
   | { ok: true; snapshot: FactoryRunSnapshot }
   | { ok: false; error: FactoryRunCreateError; duplicates?: string[]; missing?: string[] }
+
+// ── 事件流、实现阶段与工作树 ────────────────────────────────────
+
+export type FactoryEventLevel = 'info' | 'ok' | 'warn' | 'error'
+
+/** 事件只存「码 + 参数 + 级别」，渲染层按 `factory.events.<code>` 格式化。 */
+export interface FactoryEvent {
+  seq: number
+  at: string
+  runId: string
+  taskId: string | null
+  stage?: FactoryStageKey
+  code: string
+  level: FactoryEventLevel
+  params?: Record<string, string | number>
+}
+
+/** 主进程推送：事件 + 最新投影，渲染层按 seq 去重后增量更新看板。 */
+export interface FactoryEventPush {
+  event: FactoryEvent
+  snapshot: FactoryRunSnapshot
+}
+
+export type FactoryTaskStartError =
+  | 'task-not-found'
+  | 'not-queued'
+  | 'already-running'
+  | 'config-missing'
+  | 'not-git-repo'
+  | 'dirty-worktree'
+  | 'base-branch-missing'
+  | 'branch-in-use'
+  | 'worktree-mismatch'
+  | 'invalid-task-id'
+  | 'path-too-long'
+  | 'permission'
+  | 'git-error'
+  | 'prompt-error'
+  | 'agent-error'
+
+export interface FactoryTaskStartInput {
+  /** 基础仓库有未提交改动时，用户确认后仍可继续。 */
+  confirmDirty?: boolean
+}
+
+export type FactoryTaskStartResult =
+  | { ok: true; snapshot: FactoryRunSnapshot }
+  | { ok: false; error: FactoryTaskStartError; detail?: string }
+
+export type FactoryTaskActionResult =
+  | { ok: true; snapshot: FactoryRunSnapshot }
+  | { ok: false; error: 'task-not-found' | 'not-running' | 'stop-failed' | 'write-failed' }
+
+export type FactoryRunStopResult = FactoryTaskActionResult | { ok: false; error: 'run-not-found' }
+
+export type FactoryWorktreeRevealResult =
+  | { ok: true }
+  | { ok: false; error: 'task-not-found' | 'no-worktree' | 'reveal-failed' }

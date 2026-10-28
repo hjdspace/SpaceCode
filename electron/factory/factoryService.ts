@@ -7,8 +7,9 @@
 import { execFile } from 'child_process'
 import { accessSync, constants, existsSync, mkdirSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { app, ipcMain, safeStorage } from 'electron'
+import { BrowserWindow, app, ipcMain, safeStorage } from 'electron'
 import { registerHandlers } from '@/shared/handlerRegistry'
+import { eventChannels } from '@/shared/channelMap'
 import { factoryNamespace } from '@/shared/channels/factory'
 import type {
   FactoryConfig,
@@ -40,8 +41,18 @@ import {
   updateBacklogItem,
 } from './backlog'
 import { createFactoryRun, readLatestRun, readRunSnapshot } from './runs'
+import { createFactoryRunner } from './factoryRunner'
 import { loadEngineSessionConfig } from '../engine/engineSessionConfig'
 import { info, warn } from '../infra/logger'
+
+const FACTORY_EVENTS = eventChannels(factoryNamespace.events, 'factory:')
+
+/** 事件推送广播到所有窗口；窗口刷新/切换项目都不会中断主进程里的运行。 */
+function broadcastFactoryEvent(push: import('@/shared/factory').FactoryEventPush): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(FACTORY_EVENTS.onEvent, push)
+  }
+}
 
 export interface FactoryServiceDeps {
   getRepoInfo(root: string): Promise<FactoryRepoInfo>
@@ -296,6 +307,9 @@ export function registerFactoryIPCHandlers(): void {
     secrets,
   })
 
+  const runner = createFactoryRunner()
+  runner.onPush(broadcastFactoryEvent)
+
   registerHandlers(ipcMain, factoryNamespace.channels, 'factory:', {
     state: (root) => service.getState(root),
     context: (root) => service.getContext(root),
@@ -313,6 +327,11 @@ export function registerFactoryIPCHandlers(): void {
     runCreate: (root, input) => createFactoryRun(root, input),
     runGet: (root, runId) => readRunSnapshot(root, runId),
     runLatest: (root) => readLatestRun(root),
+    taskStart: (root, runId, taskId, input) => runner.startTask(root, runId, taskId, input),
+    taskStop: (root, runId, taskId) => runner.stopTask(root, runId, taskId),
+    runStop: (root, runId) => runner.stopRun(root, runId),
+    taskEvents: (root, runId, taskId) => runner.readEvents(root, runId, taskId),
+    worktreeReveal: (root, runId, taskId) => runner.revealWorktree(root, runId, taskId),
   })
   info('Factory', 'Factory IPC handlers registered')
 }

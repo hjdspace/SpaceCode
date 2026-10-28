@@ -83,6 +83,19 @@ describe('FactoryBoard', () => {
     expect(blocked.text()).toContain('base 已前进 3 个提交')
   })
 
+  it('shows the relative worktree path once the task starts', () => {
+    const wrapper = mount(FactoryBoard, {
+      props: {
+        tasks: [task({ lane: 'implementing', stageIdx: 2, worktree: '.spacecode/worktrees/bl-1' })],
+        selectedId: null,
+      },
+    })
+    expect(wrapper.find('[data-card-worktree]').text()).toContain('.spacecode/worktrees/bl-1')
+
+    const queued = mount(FactoryBoard, { props: { tasks: [task()], selectedId: null } })
+    expect(queued.find('[data-card-worktree]').exists()).toBe(false)
+  })
+
   it('marks the selected card and emits select on click', async () => {
     const wrapper = mount(FactoryBoard, { props: { tasks, selectedId: 'bl-1' } })
     const card = wrapper.find('[data-task-card="bl-1"]')

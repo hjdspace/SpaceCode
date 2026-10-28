@@ -24,6 +24,11 @@
       <span>{{ task.branch }}</span>
     </div>
 
+    <div v-if="task.worktree" class="card-branch card-worktree" data-card-worktree>
+      <Folder :size="12" />
+      <span>{{ task.worktree }}</span>
+    </div>
+
     <div class="card-progress" data-card-progress>
       <i :style="{ width: `${percent}%` }" />
     </div>
@@ -43,7 +48,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, GitBranch } from 'lucide-vue-next'
+import { AlertTriangle, Folder, GitBranch } from 'lucide-vue-next'
 import type { FactoryTask } from '@/shared/factory'
 import { formatClock, taskElapsedMs, taskStagePercent, taskStatus } from '@/stores/factory/board'
 

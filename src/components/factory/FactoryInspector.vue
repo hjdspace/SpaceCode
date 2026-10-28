@@ -27,6 +27,15 @@
             <code :class="{ pending: !task.worktree }">
               {{ task.worktree || t('factory.inspector.worktreePending') }}
             </code>
+            <button
+              v-if="task.worktree"
+              class="reveal-btn"
+              data-reveal-worktree
+              :title="t('factory.inspector.revealWorktree')"
+              @click="emit('reveal')"
+            >
+              {{ t('factory.inspector.revealWorktree') }}
+            </button>
           </div>
           <div class="meta-row">
             <Cpu :size="12" />
@@ -82,6 +91,10 @@
                 <span>{{ t('factory.inspector.elapsed') }}</span>
                 <b>{{ formatClock(elapsedMs) }}</b>
               </div>
+              <div v-if="task.usage" class="metric" data-inspector-usage>
+                <span>{{ t('factory.inspector.tokens') }}</span>
+                <b>↑{{ task.usage.inputTokens }} ↓{{ task.usage.outputTokens }}</b>
+              </div>
             </div>
           </section>
 
@@ -118,21 +131,104 @@
           </section>
         </template>
 
-        <div v-else-if="tab === 'events'" class="ins-empty" data-empty="events">
-          <Activity :size="22" />
-          <p>{{ t('factory.empty.events') }}</p>
-        </div>
+        <template v-else-if="tab === 'events'">
+          <div v-if="eventsLoading" class="ins-empty" data-events-loading>
+            <Loader2 :size="20" class="spin" />
+            <p>{{ t('factory.loading') }}</p>
+          </div>
+          <div v-else-if="eventsError" class="ins-empty" data-events-error>
+            <AlertTriangle :size="20" />
+            <p>{{ t('factory.events.loadFailed') }}</p>
+          </div>
+          <ol v-else-if="events.length" class="event-list" data-event-list>
+            <li
+              v-for="event in events"
+              :key="event.seq"
+              class="event-row"
+              :class="event.level"
+              :data-event-code="event.code"
+            >
+              <time>{{ formatTimestamp(event.at) }}</time>
+              <span class="ev-text">{{ t(`factory.events.${event.code}`, event.params ?? {}) }}</span>
+            </li>
+          </ol>
+          <div v-else class="ins-empty" data-empty="events">
+            <Activity :size="22" />
+            <p>{{ t('factory.empty.events') }}</p>
+          </div>
+        </template>
 
-        <div v-else-if="tab === 'diff'" class="ins-empty" data-empty="diff">
-          <FileDiff :size="22" />
-          <p>{{ t('factory.empty.diff') }}</p>
-        </div>
+        <template v-else-if="tab === 'diff'">
+          <div class="diff-summary" data-diff-summary>
+            <span>{{ t('factory.inspector.changes') }}</span>
+            <b>+{{ task.diff.additions }} −{{ task.diff.deletions }}</b>
+          </div>
+          <ul v-if="files.length" class="diff-files" data-diff-files>
+            <li v-for="file in files" :key="file.path">
+              <code>{{ file.path }}</code>
+              <b>+{{ file.additions }} −{{ file.deletions }}</b>
+            </li>
+          </ul>
+          <div v-else class="ins-empty" data-empty="diff">
+            <FileDiff :size="22" />
+            <p>{{ t('factory.empty.diff') }}</p>
+          </div>
+          <section v-if="commits.length" class="section">
+            <h4>{{ t('factory.inspector.commits') }}</h4>
+            <ul class="commit-list" data-commit-list>
+              <li v-for="commit in commits" :key="commit.sha">
+                <code>{{ commit.sha.slice(0, 7) }}</code>
+                <span>{{ commit.message }}</span>
+              </li>
+            </ul>
+          </section>
+          <div v-else class="ins-empty commits-empty" data-empty="commits">
+            <p>{{ t('factory.empty.commits') }}</p>
+          </div>
+        </template>
 
         <div v-else class="ins-empty" data-empty="review">
           <ShieldCheck :size="22" />
           <p>{{ t('factory.empty.review') }}</p>
         </div>
       </div>
+
+      <footer class="ins-actions">
+        <p v-if="actionError" class="action-error" data-action-error>
+          {{ actionErrorText }}
+        </p>
+        <div class="action-row">
+          <button
+            v-if="canStart"
+            class="action-btn primary"
+            data-task-start
+            :disabled="starting"
+            @click="emit('start')"
+          >
+            <Play :size="12" />
+            {{ starting ? t('factory.actions.starting') : t('factory.actions.start') }}
+          </button>
+          <button
+            v-if="pendingDirty"
+            class="action-btn warn"
+            data-task-confirm-dirty
+            :disabled="starting"
+            @click="emit('confirm-dirty')"
+          >
+            {{ t('factory.actions.confirmDirty') }}
+          </button>
+          <button
+            v-if="task.lane === 'implementing'"
+            class="action-btn danger"
+            data-task-stop
+            :disabled="stopping"
+            @click="emit('stop')"
+          >
+            <Square :size="12" />
+            {{ stopping ? t('factory.actions.stopping') : t('factory.actions.stop') }}
+          </button>
+        </div>
+      </footer>
     </template>
   </aside>
 </template>
@@ -140,8 +236,23 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Activity, Check, Cpu, FileDiff, Folder, GitBranch, Layers, ShieldCheck, X } from 'lucide-vue-next'
-import type { FactoryTask } from '@/shared/factory'
+import {
+  Activity,
+  AlertTriangle,
+  Check,
+  Cpu,
+  FileDiff,
+  Folder,
+  GitBranch,
+  Layers,
+  Loader2,
+  Play,
+  ShieldCheck,
+  Square,
+  X,
+} from 'lucide-vue-next'
+import type { FactoryEvent, FactoryTask } from '@/shared/factory'
+import type { FactoryActionError } from '@/stores/factory'
 import {
   FACTORY_INSPECTOR_TABS,
   FACTORY_STEPS,
@@ -159,11 +270,33 @@ const props = withDefaults(
     task: FactoryTask | null
     tab: FactoryInspectorTab
     nowMs?: number
+    events?: FactoryEvent[]
+    eventsLoading?: boolean
+    eventsError?: string | null
+    actionError?: FactoryActionError | null
+    starting?: boolean
+    stopping?: boolean
+    pendingDirty?: boolean
   }>(),
-  { nowMs: () => Date.now() },
+  {
+    nowMs: () => Date.now(),
+    events: () => [],
+    eventsLoading: false,
+    eventsError: null,
+    actionError: null,
+    starting: false,
+    stopping: false,
+    pendingDirty: false,
+  },
 )
 
-const emit = defineEmits<{ 'select-tab': [tab: FactoryInspectorTab] }>()
+const emit = defineEmits<{
+  'select-tab': [tab: FactoryInspectorTab]
+  start: []
+  stop: []
+  reveal: []
+  'confirm-dirty': []
+}>()
 
 const { t } = useI18n()
 
@@ -172,6 +305,15 @@ const status = computed<FactoryTaskStatus>(() =>
 )
 const visual = computed(() => (props.task ? stepStates(props.task) : []))
 const elapsedMs = computed(() => (props.task ? taskElapsedMs(props.task, props.nowMs) : 0))
+const files = computed(() => props.task?.diff.files ?? [])
+const commits = computed(() => props.task?.commits ?? [])
+const canStart = computed(() => props.task?.lane === 'queued' || props.task?.lane === 'blocked')
+const actionErrorText = computed(() => {
+  const err = props.actionError
+  if (!err) return ''
+  const params = err.detail ? { detail: err.detail } : {}
+  return t(`factory.errors.${err.code}`, params)
+})
 
 const timestamps = computed(() => {
   const ts = props.task?.timestamps
@@ -434,6 +576,187 @@ const timestamps = computed(() => {
 
   b.muted {
     color: var(--text-disabled);
+  }
+}
+
+.reveal-btn {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent-primary);
+  font-size: var(--text-2xs, 10px);
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.event-row {
+  display: flex;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-glass);
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-secondary);
+
+  time {
+    flex: none;
+    font-family: var(--font-mono);
+    color: var(--text-disabled);
+  }
+
+  &.ok {
+    color: var(--success);
+  }
+
+  &.warn {
+    color: var(--warning);
+  }
+
+  &.error {
+    color: var(--error);
+  }
+}
+
+.ev-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.diff-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-muted);
+
+  b {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+}
+
+.diff-files,
+.commit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: var(--text-2xs, 11px);
+    color: var(--text-muted);
+  }
+
+  code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+  }
+
+  b {
+    flex: none;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+  }
+}
+
+.commit-list li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commits-empty {
+  flex: none;
+  padding: 8px;
+}
+
+.ins-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.action-row {
+  display: flex;
+  gap: 6px;
+}
+
+.action-error {
+  margin: 0;
+  font-size: var(--text-2xs, 11px);
+  color: var(--error);
+  overflow-wrap: anywhere;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-2xs, 11px);
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &.primary:not(:disabled) {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary);
+    color: var(--text-on-accent, #fff);
+  }
+
+  &.warn:not(:disabled) {
+    border-color: var(--warning);
+    color: var(--warning);
+  }
+
+  &.danger:not(:disabled) {
+    border-color: var(--error);
+    color: var(--error);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

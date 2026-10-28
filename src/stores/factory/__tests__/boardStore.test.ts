@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { FactoryBacklogItem, FactoryRunSnapshot } from '@/shared/factory'
+import type { FactoryBacklogItem, FactoryEvent, FactoryRunSnapshot } from '@/shared/factory'
 
 const { factoryApi } = vi.hoisted(() => ({
   factoryApi: {
@@ -15,6 +15,12 @@ const { factoryApi } = vi.hoisted(() => ({
     backlogMove: vi.fn(),
     runLatest: vi.fn(),
     runCreate: vi.fn(),
+    taskStart: vi.fn(),
+    taskStop: vi.fn(),
+    runStop: vi.fn(),
+    taskEvents: vi.fn(),
+    worktreeReveal: vi.fn(),
+    onEvent: vi.fn(() => () => {}),
   },
 }))
 
@@ -140,5 +146,73 @@ describe('run and selection', () => {
     const store = useFactoryStore()
     expect(await store.createRun('/repo', ['bl-9'])).toBe(false)
     expect(store.createRunError).toEqual({ code: 'missing-tasks', params: { ids: 'bl-9' } })
+  })
+})
+
+function event(seq: number, overrides: Partial<FactoryEvent> = {}): FactoryEvent {
+  return {
+    seq,
+    at: '2026-10-28T10:05:00Z',
+    runId: 'run-1',
+    taskId: 'bl-1',
+    stage: 'implement',
+    code: 'agent.turn',
+    level: 'info',
+    ...overrides,
+  }
+}
+
+describe('implementation events', () => {
+  it('appends pushed events by seq and drops duplicates', async () => {
+    factoryApi.runLatest.mockResolvedValue(snapshot())
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    store.applyPush({ event: event(1), snapshot: snapshot() })
+    store.applyPush({ event: event(1), snapshot: snapshot() })
+    store.applyPush({ event: event(2, { code: 'task.started', level: 'ok' }), snapshot: snapshot() })
+
+    expect(store.selectedEvents.map((item) => item.seq)).toEqual([1, 2])
+    expect(store.selectedEvents[1].code).toBe('task.started')
+  })
+
+  it('ignores pushes from another run and keeps run-level events', async () => {
+    factoryApi.runLatest.mockResolvedValue(snapshot())
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    store.applyPush({ event: event(9, { runId: 'run-9' }), snapshot: { ...snapshot(), run: { ...snapshot().run, id: 'run-9' } } })
+    store.applyPush({ event: event(3, { taskId: null, code: 'run.stopped' }), snapshot: snapshot() })
+
+    expect(store.selectedEvents).toHaveLength(0)
+    expect(store.runEvents.map((item) => item.code)).toEqual(['run.stopped'])
+    expect(store.run?.id).toBe('run-1')
+  })
+
+  it('loads persisted events into the selected task', async () => {
+    factoryApi.taskEvents.mockResolvedValue([event(1), event(2)])
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+    await store.loadEvents('/repo', 'run-1', 'bl-1')
+    expect(store.selectedEvents).toHaveLength(2)
+    expect(store.eventsLoading).toBe(false)
+  })
+
+  it('keeps dirty-worktree as a confirmable action error', async () => {
+    factoryApi.runLatest.mockResolvedValue(snapshot())
+    factoryApi.taskStart.mockResolvedValue({ ok: false, error: 'dirty-worktree', detail: '2' })
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    const result = await store.startTask('/repo', 'run-1', 'bl-1')
+    expect(result).toMatchObject({ ok: false, error: 'dirty-worktree' })
+    expect(store.actionError).toEqual({ code: 'dirty-worktree', detail: '2' })
+    expect(store.pendingDirtyId).toBe('bl-1')
+    expect(store.startingId).toBeNull()
+
+    factoryApi.taskStart.mockResolvedValue({ ok: true, snapshot: snapshot() })
+    await store.confirmDirtyStart('/repo', 'run-1', 'bl-1')
+    expect(factoryApi.taskStart).toHaveBeenLastCalledWith('/repo', 'run-1', 'bl-1', { confirmDirty: true })
+    expect(store.pendingDirtyId).toBeNull()
   })
 })

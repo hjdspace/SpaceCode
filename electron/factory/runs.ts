@@ -21,6 +21,7 @@ import {
 import { readBacklog } from './backlog'
 import { readFactoryConfig } from './config'
 import { writeJsonAtomic } from './atomic'
+import { buildBranchName } from './worktree'
 
 export interface FactoryRunDeps {
   now?: () => Date
@@ -34,11 +35,11 @@ export function runDir(repoRoot: string, runId: string): string {
   return join(repoRoot, FACTORY_RUNS_PATH, runId)
 }
 
-function runFilePath(repoRoot: string, runId: string): string {
+export function runFilePath(repoRoot: string, runId: string): string {
   return join(runDir(repoRoot, runId), 'run.json')
 }
 
-function tasksFilePath(repoRoot: string, runId: string): string {
+export function tasksFilePath(repoRoot: string, runId: string): string {
   return join(runDir(repoRoot, runId), 'tasks.json')
 }
 
@@ -65,6 +66,25 @@ function parseRun(raw: unknown): FactoryRun | null {
   }
 }
 
+function parseDiff(raw: unknown): FactoryTask['diff'] {
+  if (!isRecord(raw)) return { additions: 0, deletions: 0 }
+  const files = Array.isArray(raw.files)
+    ? raw.files
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .filter((item) => typeof item.path === 'string')
+        .map((item) => ({
+          path: String(item.path),
+          additions: typeof item.additions === 'number' ? item.additions : 0,
+          deletions: typeof item.deletions === 'number' ? item.deletions : 0,
+        }))
+    : undefined
+  return {
+    additions: typeof raw.additions === 'number' ? raw.additions : 0,
+    deletions: typeof raw.deletions === 'number' ? raw.deletions : 0,
+    ...(files && files.length > 0 ? { files } : {}),
+  }
+}
+
 function parseTask(raw: unknown): FactoryTask | null {
   if (!isRecord(raw)) return null
   if (typeof raw.id !== 'string' || !raw.id) return null
@@ -85,12 +105,29 @@ function parseTask(raw: unknown): FactoryTask | null {
     model: typeof raw.model === 'string' ? raw.model : '',
     iteration: typeof raw.iteration === 'number' ? raw.iteration : 0,
     maxIterations: typeof raw.maxIterations === 'number' ? raw.maxIterations : 0,
-    diff: isRecord(raw.diff)
+    diff: parseDiff(raw.diff),
+    ...(Array.isArray(raw.commits)
       ? {
-          additions: typeof raw.diff.additions === 'number' ? raw.diff.additions : 0,
-          deletions: typeof raw.diff.deletions === 'number' ? raw.diff.deletions : 0,
+          commits: raw.commits
+            .filter((item): item is Record<string, unknown> => isRecord(item))
+            .filter((item) => typeof item.sha === 'string')
+            .map((item) => ({
+              sha: String(item.sha),
+              message: typeof item.message === 'string' ? item.message : '',
+            })),
         }
-      : { additions: 0, deletions: 0 },
+      : {}),
+    ...(isRecord(raw.usage) &&
+    typeof raw.usage.inputTokens === 'number' &&
+    typeof raw.usage.outputTokens === 'number'
+      ? {
+          usage: {
+            inputTokens: raw.usage.inputTokens,
+            outputTokens: raw.usage.outputTokens,
+            ...(typeof raw.usage.costUsd === 'number' ? { costUsd: raw.usage.costUsd } : {}),
+          },
+        }
+      : {}),
     ...(raw.cancelled === true ? { cancelled: true } : {}),
     ...(isRecord(raw.attention) && typeof raw.attention.reason === 'string'
       ? {
@@ -235,7 +272,7 @@ export function createFactoryRun(
     goal: item.goal,
     lane: 'queued',
     stageIdx: 0,
-    branch: `agent/task-${item.id}`,
+    branch: buildBranchName({ taskId: item.id }),
     worktree: null,
     model,
     iteration: 0,

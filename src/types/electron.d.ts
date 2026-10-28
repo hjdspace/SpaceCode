@@ -27,7 +27,7 @@ import type { GitRendererApi } from '@/shared/channels/git'
 import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
 import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
 import type { VoiceRendererApi, VoiceEventApi } from '@/shared/channels/voice'
-import type { FactoryRendererApi } from '@/shared/channels/factory'
+import type { FactoryRendererApi, FactoryEventApi } from '@/shared/channels/factory'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
@@ -124,7 +124,7 @@ export interface ElectronGitAPI extends GitRendererApi {
 export interface ElectronMemoryAPI extends MemoryRendererApi {}
 
 // factory 面从 channel 定义表派生
-export interface ElectronFactoryAPI extends FactoryRendererApi {}
+export interface ElectronFactoryAPI extends FactoryRendererApi, FactoryEventApi {}
 
 // claudeCode 面从 channel 定义表派生（onError 由此变为必选，落实 ADR-0005）
 export interface ElectronClaudeCodeAPI extends ClaudeCodeRendererApi, ClaudeCodeEventApi {}
