@@ -197,6 +197,32 @@ describe('h5ApiClient', () => {
     })
   })
 
+  describe('getPreviewFrameUrl — 服务端签发预览源', () => {
+    beforeEach(() => {
+      setUrl('?token=h5_abc')
+    })
+
+    it('POST /api/preview/grant 并原样返回服务端给的绝对 URL', async () => {
+      const url = 'http://192.168.1.2:6001/__preview/abc123/index.html'
+      fetchMock.mockResolvedValueOnce(makeRes({ ok: true, body: { url } }))
+
+      await expect(mod.h5ApiClient.getPreviewFrameUrl('/w/index.html')).resolves.toBe(url)
+
+      const [requestUrl, init] = fetchMock.mock.calls[0]
+      expect(requestUrl).toBe(`${jsdomOrigin}/api/preview/grant`)
+      expect(init.method).toBe('POST')
+      expect(JSON.parse(init.body)).toEqual({ filePath: '/w/index.html' })
+    })
+
+    it('签发失败或响应缺 url 时返回 null，让预览回退 srcdoc', async () => {
+      fetchMock.mockResolvedValueOnce(makeRes({ ok: false, status: 403, body: { error: 'nope' } }))
+      await expect(mod.h5ApiClient.getPreviewFrameUrl('/w/index.html')).resolves.toBeNull()
+
+      fetchMock.mockResolvedValueOnce(makeRes({ ok: true, body: {} }))
+      await expect(mod.h5ApiClient.getPreviewFrameUrl('/w/index.html')).resolves.toBeNull()
+    })
+  })
+
   describe('URL query 编码', () => {
     beforeEach(() => {
       setUrl('?token=h5_abc')
