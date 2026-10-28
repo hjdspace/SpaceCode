@@ -42,6 +42,7 @@ import {
 } from './backlog'
 import { createFactoryRun, readLatestRun, readRunSnapshot } from './runs'
 import { createFactoryRunner } from './factoryRunner'
+import { createGithubTrackerService } from './githubTrackerService'
 import { loadEngineSessionConfig } from '../engine/engineSessionConfig'
 import { info, warn } from '../infra/logger'
 
@@ -307,7 +308,15 @@ export function registerFactoryIPCHandlers(): void {
     secrets,
   })
 
-  const runner = createFactoryRunner()
+  // GitHub 任务源：gh 与 REST 共用一个 trackerService；合并回写也走它。
+  const githubTracker = createGithubTrackerService({
+    secrets,
+    checkGh: () => defaultCheckGhAuth(),
+  })
+
+  const runner = createFactoryRunner({
+    mergeWriteBack: (payload) => githubTracker.writeBackMerge(payload),
+  })
   runner.onPush(broadcastFactoryEvent)
 
   registerHandlers(ipcMain, factoryNamespace.channels, 'factory:', {
@@ -319,6 +328,10 @@ export function registerFactoryIPCHandlers(): void {
     checkGhAuth: () => service.checkGhAuth(),
     saveGithubToken: (token) => service.saveGithubToken(token),
     clearGithubToken: () => service.clearGithubToken(),
+    githubIssues: (root, input) => githubTracker.listIssues(root, input),
+    githubClaim: (root, input) => githubTracker.claimIssues(root, input),
+    githubRetryWriteback: (root, runId, taskId) =>
+      githubTracker.retryWriteback(root, runId, taskId),
     backlogList: (root) => readBacklog(root),
     backlogCreate: (root, input) => createBacklogItem(root, input),
     backlogUpdate: (root, input) => updateBacklogItem(root, input),

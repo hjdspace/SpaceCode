@@ -47,7 +47,21 @@
         <div v-else class="run-empty">{{ t('factory.run.empty') }}</div>
 
         <div class="factory-columns">
+          <FactoryGithubPanel
+            v-if="isGithubTracker"
+            :label="store.githubLabel"
+            :issues="store.githubIssues"
+            :loading="store.githubIssuesLoading"
+            :error="store.githubIssuesError"
+            :claiming="store.githubClaiming"
+            :claim-error="store.githubClaimError"
+            :run-id="store.run?.id ?? null"
+            @update:label="store.setGithubLabel"
+            @refresh="handleGithubRefresh"
+            @claim="handleGithubClaim"
+          />
           <FactoryBacklogPanel
+            v-else
             :items="store.backlog"
             :loading="store.backlogLoading"
             :error="store.backlogError"
@@ -98,7 +112,10 @@
             :pending-ignore-id="store.pendingIgnoreId"
             :merge-target="store.mergeTarget"
             :merging="store.merging"
+            :retrying-writeback="store.retryingWritebackId === store.selectedTask?.id"
+            :writeback-error="store.writebackError"
             @select-tab="store.setInspectorTab"
+            @retry-writeback="handleRetryWriteback"
             @start="handleStart"
             @stop="handleStopTask"
             @reveal="handleReveal"
@@ -148,6 +165,7 @@ import FactoryRunHeader from './FactoryRunHeader.vue'
 import FactoryBoard from './FactoryBoard.vue'
 import FactoryInspector from './FactoryInspector.vue'
 import FactoryBacklogPanel from './FactoryBacklogPanel.vue'
+import FactoryGithubPanel from './FactoryGithubPanel.vue'
 import FactoryMergeDialog from './FactoryMergeDialog.vue'
 
 const { t } = useI18n()
@@ -162,8 +180,22 @@ const claimedIds = computed(() => {
   return store.tasks.map((task) => task.id)
 })
 
+const isGithubTracker = computed(() => store.config?.tracker.type === 'github-issues')
+
 async function loadBoard(value: string): Promise<void> {
+  if (isGithubTracker.value) {
+    await Promise.all([store.loadGithubIssues(value), store.loadRun(value)])
+    return
+  }
   await Promise.all([store.loadBacklog(value), store.loadRun(value)])
+}
+
+function handleGithubRefresh(): void {
+  if (root.value) void store.loadGithubIssues(root.value)
+}
+
+function handleGithubClaim(numbers: number[]): void {
+  if (root.value) void store.claimGithubIssues(root.value, numbers)
 }
 
 onMounted(async () => {
@@ -201,6 +233,12 @@ function selectedTaskId(): string | null {
 const mergeTask = computed(
   () => store.tasks.find((task) => task.id === store.mergeTaskId) ?? store.selectedTask,
 )
+
+function handleRetryWriteback(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.retryGithubWriteback(root.value, store.run.id, taskId)
+}
 
 function handleOpenMerge(): void {
   const taskId = selectedTaskId()

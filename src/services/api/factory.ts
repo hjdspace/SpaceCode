@@ -6,6 +6,9 @@ import type { FactoryRendererApi, FactoryEventApi } from '@/shared/channels/fact
 import type {
   FactoryBacklogResult,
   FactoryGithubAuthResult,
+  FactoryGithubClaimResult,
+  FactoryGithubListResult,
+  FactoryGithubWritebackRetryResult,
   FactoryMergePreflightResult,
   FactoryMergeResult,
   FactoryPreflightResult,
@@ -46,6 +49,9 @@ const failedAction: FactoryTaskActionResult = { ok: false, error: 'task-not-foun
 const failedReveal: FactoryWorktreeRevealResult = { ok: false, error: 'task-not-found' }
 const failedMergePreflight: FactoryMergePreflightResult = { ok: false, error: 'task-not-found' }
 const failedMerge: FactoryMergeResult = { ok: false, error: 'task-not-found' }
+const failedIssueList: FactoryGithubListResult = { ok: false, reason: 'unsupported' }
+const failedIssueClaim: FactoryGithubClaimResult = { ok: false, reason: 'config-missing' }
+const failedWritebackRetry: FactoryGithubWritebackRetryResult = { ok: false, reason: 'not-applicable' }
 
 const invokeApi = createRendererApi(
   factoryNamespace.channels,
@@ -64,6 +70,9 @@ const invokeApi = createRendererApi(
     checkGhAuth: () => failedAuth,
     saveGithubToken: (): FactorySecretSaveResult => ({ ok: false, reason: 'write-failed' }),
     clearGithubToken: () => ({ ok: false }),
+    githubIssues: () => failedIssueList,
+    githubClaim: () => failedIssueClaim,
+    githubRetryWriteback: () => failedWritebackRetry,
     backlogList: () => [],
     backlogCreate: () => emptyBacklog,
     backlogUpdate: () => emptyBacklog,

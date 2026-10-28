@@ -16,6 +16,12 @@ import type {
   FactoryEvent,
   FactoryEventPush,
   FactoryGithubAuthResult,
+  FactoryGithubClaimFailure,
+  FactoryGithubClaimResult,
+  FactoryGithubFailureReason,
+  FactoryGithubIssue,
+  FactoryGithubListInput,
+  FactoryGithubWritebackRetryResult,
   FactoryMergeExecuteInput,
   FactoryMergeMode,
   FactoryMergePreflight,
@@ -54,6 +60,23 @@ export interface FactoryActionError {
   detail?: string
 }
 
+/** GitHub 操作失败：reason 交给 factory.github.errors.* 翻译。 */
+export interface FactoryGithubActionError {
+  reason:
+    | FactoryGithubFailureReason
+    | 'no-selection'
+    | 'duplicate-issues'
+    | 'all-failed'
+    | 'partial-failed'
+    | 'config-missing'
+    | 'task-not-found'
+    | 'not-github'
+    | 'not-merged'
+    | 'not-applicable'
+  failed?: FactoryGithubClaimFailure[]
+  detail?: string
+}
+
 export const useFactoryStore = defineStore('factory', () => {
   const loading = ref(false)
   const loaded = ref(false)
@@ -83,6 +106,16 @@ export const useFactoryStore = defineStore('factory', () => {
   const tasks = ref<FactoryTask[]>([])
   const runLoading = ref(false)
   const runError = ref<string | null>(null)
+
+  // GitHub 任务源：列表、标签过滤与批量领取
+  const githubIssues = ref<FactoryGithubIssue[]>([])
+  const githubIssuesLoading = ref(false)
+  const githubIssuesError = ref<FactoryGithubActionError | null>(null)
+  const githubLabel = ref('')
+  const githubClaiming = ref(false)
+  const githubClaimError = ref<FactoryGithubActionError | null>(null)
+  const retryingWritebackId = ref<string | null>(null)
+  const writebackError = ref<FactoryGithubActionError | null>(null)
 
   const selectedId = ref<string | null>(null)
   const inspectorTab = ref<FactoryInspectorTab>('overview')
@@ -307,6 +340,95 @@ export const useFactoryStore = defineStore('factory', () => {
 
   function moveBacklogTask(root: string, id: string, direction: 'up' | 'down'): Promise<boolean> {
     return applyBacklogMutation(api.factory.backlogMove(root, id, direction))
+  }
+
+  async function loadGithubIssues(
+    root: string,
+    input: FactoryGithubListInput = {},
+  ): Promise<void> {
+    githubIssuesLoading.value = true
+    githubIssuesError.value = null
+    try {
+      const result = await api.factory.githubIssues(root, {
+        ...(githubLabel.value.trim() ? { label: githubLabel.value.trim() } : {}),
+        ...input,
+      })
+      if (result.ok) {
+        githubIssues.value = result.issues
+      } else {
+        githubIssues.value = []
+        githubIssuesError.value = {
+          reason: result.reason,
+          ...(result.detail ? { detail: result.detail } : {}),
+        }
+      }
+    } catch {
+      githubIssues.value = []
+      githubIssuesError.value = { reason: 'network' }
+    } finally {
+      githubIssuesLoading.value = false
+    }
+  }
+
+  async function claimGithubIssues(root: string, issueNumbers: number[]): Promise<boolean> {
+    githubClaiming.value = true
+    githubClaimError.value = null
+    try {
+      const result: FactoryGithubClaimResult = await api.factory.githubClaim(root, { issueNumbers })
+      if (!result.ok) {
+        githubClaimError.value = {
+          reason: result.reason,
+          ...(result.failed ? { failed: result.failed } : {}),
+          ...(result.detail ? { detail: result.detail } : {}),
+        }
+        return false
+      }
+      applySnapshot(result.snapshot)
+      const claimed = new Set(result.claimed)
+      githubIssues.value = githubIssues.value.map((issue) =>
+        claimed.has(issue.number) ? { ...issue, claimed: true } : issue,
+      )
+      if (result.failed.length > 0) {
+        githubClaimError.value = { reason: 'partial-failed', failed: result.failed }
+      }
+      return true
+    } catch {
+      githubClaimError.value = { reason: 'network' }
+      return false
+    } finally {
+      githubClaiming.value = false
+    }
+  }
+
+  async function retryGithubWriteback(
+    root: string,
+    runId: string,
+    taskId: string,
+  ): Promise<boolean> {
+    retryingWritebackId.value = taskId
+    writebackError.value = null
+    try {
+      const result: FactoryGithubWritebackRetryResult = await api.factory.githubRetryWriteback(
+        root,
+        runId,
+        taskId,
+      )
+      if (result.ok) {
+        applySnapshot(result.snapshot)
+        return true
+      }
+      writebackError.value = { reason: result.reason }
+      return false
+    } catch {
+      writebackError.value = { reason: 'network' }
+      return false
+    } finally {
+      retryingWritebackId.value = null
+    }
+  }
+
+  function setGithubLabel(label: string): void {
+    githubLabel.value = label
   }
 
   function applySnapshot(snapshot: FactoryRunSnapshot | null): void {
@@ -644,12 +766,14 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     pendingDirtyId.value = null
     pendingIgnoreId.value = null
+    writebackError.value = null
   }
 
   function selectTask(id: string | null): void {
     selectedId.value = id
     inspectorTab.value = 'overview'
     pendingIgnoreId.value = null
+    writebackError.value = null
   }
 
   function setInspectorTab(tab: FactoryInspectorTab): void {
@@ -679,6 +803,14 @@ export const useFactoryStore = defineStore('factory', () => {
     backlog.value = []
     backlogLoading.value = false
     backlogError.value = null
+    githubIssues.value = []
+    githubIssuesLoading.value = false
+    githubIssuesError.value = null
+    githubLabel.value = ''
+    githubClaiming.value = false
+    githubClaimError.value = null
+    retryingWritebackId.value = null
+    writebackError.value = null
     run.value = null
     tasks.value = []
     runLoading.value = false
@@ -732,6 +864,14 @@ export const useFactoryStore = defineStore('factory', () => {
     backlog,
     backlogLoading,
     backlogError,
+    githubIssues,
+    githubIssuesLoading,
+    githubIssuesError,
+    githubLabel,
+    githubClaiming,
+    githubClaimError,
+    retryingWritebackId,
+    writebackError,
     run,
     tasks,
     runLoading,
@@ -789,6 +929,10 @@ export const useFactoryStore = defineStore('factory', () => {
     updateBacklogTask,
     deleteBacklogTask,
     moveBacklogTask,
+    loadGithubIssues,
+    claimGithubIssues,
+    retryGithubWriteback,
+    setGithubLabel,
     loadRun,
     createRun,
     applyPush,

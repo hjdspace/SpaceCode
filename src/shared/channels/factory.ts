@@ -13,6 +13,11 @@ import type {
   FactoryEvent,
   FactoryEventPush,
   FactoryGithubAuthResult,
+  FactoryGithubClaimInput,
+  FactoryGithubClaimResult,
+  FactoryGithubListInput,
+  FactoryGithubListResult,
+  FactoryGithubWritebackRetryResult,
   FactoryMergeExecuteInput,
   FactoryMergePreflightResult,
   FactoryMergeResult,
@@ -66,6 +71,18 @@ export const factoryNamespace = defineNamespace({
     clearGithubToken: {
       req: [] as unknown as [],
       res: null as unknown as { ok: boolean },
+    },
+    githubIssues: {
+      req: [] as unknown as [repoRoot: string, input?: FactoryGithubListInput],
+      res: null as unknown as FactoryGithubListResult,
+    },
+    githubClaim: {
+      req: [] as unknown as [repoRoot: string, input: FactoryGithubClaimInput],
+      res: null as unknown as FactoryGithubClaimResult,
+    },
+    githubRetryWriteback: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryGithubWritebackRetryResult,
     },
     backlogList: {
       req: [] as unknown as [repoRoot: string],

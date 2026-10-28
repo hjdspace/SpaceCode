@@ -144,6 +144,40 @@ describe('FactoryInspector', () => {
     expect(rows[1].text()).toContain('factory.events.agent.turn|{"inputTokens":10,"outputTokens":4}')
   })
 
+  it('marks a failed GitHub write-back as retryable without touching the merge', async () => {
+    const failed = task({
+      source: 'github-issues',
+      issueNumber: 42,
+      lane: 'done',
+      writeback: { status: 'failed', at: '2026-10-28T11:00:00Z', attempts: 1, error: 'rate-limit' },
+    })
+    const wrapper = mount(FactoryInspector, {
+      props: { task: failed, tab: 'overview', writebackError: { reason: 'rate-limit' } },
+    })
+
+    expect(wrapper.find('[data-inspector-writeback]').exists()).toBe(true)
+    expect(wrapper.find('[data-writeback-status]').text()).toContain(
+      'factory.github.writeback.failed|{"attempts":1}',
+    )
+    expect(wrapper.find('[data-writeback-error]').text()).toBe('factory.github.errors.rate-limit')
+
+    await wrapper.find('[data-writeback-retry]').trigger('click')
+    expect(wrapper.emitted('retry-writeback')).toHaveLength(1)
+
+    const done = mount(FactoryInspector, {
+      props: {
+        task: task({
+          source: 'github-issues',
+          issueNumber: 42,
+          lane: 'done',
+          writeback: { status: 'done', at: '2026-10-28T11:00:00Z', attempts: 1 },
+        }),
+        tab: 'overview',
+      },
+    })
+    expect(done.find('[data-writeback-retry]').exists()).toBe(false)
+  })
+
   it('shows diff files, commits, and the no-commit empty state', () => {
     const withCommits = mount(FactoryInspector, {
       props: {

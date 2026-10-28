@@ -167,6 +167,95 @@ export interface FactoryGithubAuthResult {
   labelCount?: number
 }
 
+// ── GitHub Issues 任务源 ────────────────────────────────────────
+
+/** 失败原因决定界面给出的修复动作，而不是展示原始堆栈。 */
+export type FactoryGithubFailureReason =
+  | 'not-logged-in'
+  | 'invalid-token'
+  | 'repo-permission'
+  | 'repo-not-found'
+  | 'rate-limit'
+  | 'network'
+  | 'timeout'
+  | 'response-too-large'
+  | 'unsupported'
+  | 'unknown'
+
+export interface FactoryGithubIssue {
+  number: number
+  title: string
+  /** 已按响应大小上限截断的纯文本；不拼进 shell。 */
+  body: string
+  labels: string[]
+  state: 'open' | 'closed'
+  url?: string
+  /** 已存在领取标记（本地未结束运行或远端评论）。 */
+  claimed: boolean
+}
+
+export type FactoryGithubListResult =
+  | { ok: true; issues: FactoryGithubIssue[] }
+  | { ok: false; reason: FactoryGithubFailureReason; detail?: string }
+
+export interface FactoryGithubClaimInput {
+  issueNumbers: number[]
+}
+
+export interface FactoryGithubListInput {
+  label?: string
+  limit?: number
+}
+
+export interface FactoryGithubClaimFailure {
+  number: number
+  reason: FactoryGithubFailureReason | 'already-claimed'
+}
+
+/** 领取成功才会创建运行；失败的 issue 不会进入运行。 */
+export type FactoryGithubClaimResult =
+  | {
+      ok: true
+      snapshot: FactoryRunSnapshot
+      claimed: number[]
+      failed: FactoryGithubClaimFailure[]
+    }
+  | {
+      ok: false
+      reason:
+        | 'no-selection'
+        | 'duplicate-issues'
+        | 'all-failed'
+        | 'config-missing'
+        | FactoryGithubFailureReason
+      failed?: FactoryGithubClaimFailure[]
+      detail?: string
+    }
+
+/** 合并后回写状态；失败不推翻合并，只标记待重试。 */
+export interface FactoryTaskWriteback {
+  status: 'done' | 'failed'
+  at: string
+  attempts: number
+  commented?: boolean
+  closed?: boolean
+  error?: string
+}
+
+export type FactoryGithubWritebackRetryResult =
+  | { ok: true; snapshot: FactoryRunSnapshot }
+  | {
+      ok: false
+      reason:
+        | 'task-not-found'
+        | 'not-github'
+        | 'not-merged'
+        | 'not-applicable'
+        | 'config-missing'
+        | FactoryGithubFailureReason
+    }
+
+
 export interface FactoryRepoInfo {
   isGitRepo: boolean
   root: string
@@ -331,6 +420,8 @@ export interface FactoryTask {
   mergedCommits?: number
   /** 合并成功后记录：目标分支（通常为配置的 baseBranch）。 */
   targetBranch?: string
+  /** 合并后回写 GitHub 的结果；失败时任务仍保持完成，等待重试。 */
+  writeback?: FactoryTaskWriteback
   timestamps: {
     claimedAt?: string
     startedAt?: string

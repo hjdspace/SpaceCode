@@ -5,6 +5,7 @@
  * 「引擎未选 / 仓库不是 Git / 验证命令为空」这类阻断。
  */
 import type { FactoryConfig, FactorySetupContext, FactorySetupDraft } from '@/shared/factory'
+import { isValidRepoSlug, parseRepoFromRemote } from '@/utils/factoryRepo'
 
 export type FactorySetupContextLike = FactorySetupContext
 
@@ -12,14 +13,8 @@ export type SetupStep = 1 | 2 | 3 | 4
 
 export const SETUP_STEPS = ['engine', 'sandbox', 'tracker', 'preflight'] as const
 
-export function repoFromRemote(remote: string | undefined): string | undefined {
-  if (!remote) return undefined
-  const match = remote.match(/[:/]([^/:]+)\/([^/]+?)(?:\.git)?$/)
-  return match ? `${match[1]}/${match[2]}` : undefined
-}
-
 export function defaultDraft(context: FactorySetupContextLike): FactorySetupDraft {
-  const repo = repoFromRemote(context.repo.remote)
+  const repo = parseRepoFromRemote(context.repo.remote)
   return {
     agent: { engineType: 'claude-code' },
     sandbox: { type: 'worktree' },
@@ -90,7 +85,7 @@ export function setupStepErrors(
   if (step === 3) {
     const tracker = draft.tracker
     if (!tracker || tracker.type === 'local') return errors
-    if (!/^[^/\s]+\/[^/\s]+$/.test(tracker.repo ?? '')) errors.push('repoRequired')
+    if (!isValidRepoSlug(tracker.repo ?? '')) errors.push('repoRequired')
     if (!(tracker.label ?? '').trim()) errors.push('labelRequired')
     if ((tracker.auth ?? 'gh') === 'token' && !context.encryptionAvailable) {
       errors.push('encryptionUnavailable')

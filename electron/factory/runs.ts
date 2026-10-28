@@ -18,6 +18,7 @@ import {
   type FactoryRunSnapshot,
   type FactoryRunStatus,
   type FactoryTask,
+  type FactoryTaskWriteback,
 } from '@/shared/factory'
 import { readBacklog } from './backlog'
 import { readFactoryConfig } from './config'
@@ -133,6 +134,20 @@ function parseReview(raw: unknown): FactoryTask['review'] {
   }
 }
 
+function parseWriteback(raw: unknown): FactoryTaskWriteback | undefined {
+  if (!isRecord(raw)) return undefined
+  if (raw.status !== 'done' && raw.status !== 'failed') return undefined
+  if (typeof raw.at !== 'string' || !raw.at) return undefined
+  return {
+    status: raw.status,
+    at: raw.at,
+    attempts: typeof raw.attempts === 'number' ? raw.attempts : 1,
+    ...(raw.commented === true ? { commented: true } : {}),
+    ...(raw.closed === true ? { closed: true } : {}),
+    ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+  }
+}
+
 function parseTask(raw: unknown): FactoryTask | null {
   if (!isRecord(raw)) return null
   if (typeof raw.id !== 'string' || !raw.id) return null
@@ -181,6 +196,7 @@ function parseTask(raw: unknown): FactoryTask | null {
       ? { mergedCommits: raw.mergedCommits }
       : {}),
     ...(typeof raw.targetBranch === 'string' && raw.targetBranch ? { targetBranch: raw.targetBranch } : {}),
+    ...(parseWriteback(raw.writeback) ? { writeback: parseWriteback(raw.writeback) } : {}),
     ...(parseTests(raw.tests) ? { tests: parseTests(raw.tests) } : {}),
     ...(parseReview(raw.review) ? { review: parseReview(raw.review) } : {}),
     ...(isRecord(raw.attention) && typeof raw.attention.reason === 'string'
@@ -339,4 +355,110 @@ export function createFactoryRun(
   writeJsonAtomic(tasksFilePath(repoRoot, runId), tasks)
 
   return { ok: true, snapshot: { run, tasks } }
+}
+
+// ── GitHub Issues 任务源创建运行 ─────────────────────────────────
+
+export interface FactoryGithubTaskInput {
+  issueNumber: number
+  title: string
+  goal: string
+}
+
+export interface FactoryGithubRunInput {
+  /** 领取评论需要先有运行标识，因此由调用方先生成再传入。 */
+  runId: string
+  tasks: FactoryGithubTaskInput[]
+  concurrency?: number
+}
+
+export interface ClaimedIssue {
+  runId: string
+  taskId: string
+}
+
+/** 未结束运行已领取的 GitHub issue；用于导入列表去重与重复领取拦截。 */
+export function claimedGithubIssues(repoRoot: string): Map<number, ClaimedIssue> {
+  const claimed = new Map<number, ClaimedIssue>()
+  for (const run of listRuns(repoRoot)) {
+    if (!isUnfinished(run)) continue
+    for (const task of readTasks(repoRoot, run.id)) {
+      if (task.source === 'github-issues' && typeof task.issueNumber === 'number') {
+        claimed.set(task.issueNumber, { runId: run.id, taskId: task.id })
+      }
+    }
+  }
+  return claimed
+}
+
+export function githubTaskId(issueNumber: number): string {
+  return `issue-${issueNumber}`
+}
+
+/** 只把领取成功的 issue 落成运行；失败的 issue 由调用方单独报告。 */
+export function createGithubRun(
+  repoRoot: string,
+  input: FactoryGithubRunInput,
+  deps: FactoryRunDeps = {},
+): FactoryRunCreateResult {
+  const runId = input.runId.trim()
+  if (!runId) return { ok: false, error: 'missing-tasks' }
+
+  const seen = new Set<number>()
+  const tasks = (input.tasks ?? []).filter((item) => {
+    if (!Number.isInteger(item.issueNumber) || item.issueNumber <= 0) return false
+    if (seen.has(item.issueNumber)) return false
+    seen.add(item.issueNumber)
+    return true
+  })
+  if (tasks.length === 0) return { ok: false, error: 'empty-tasks' }
+
+  const claimed = claimedGithubIssues(repoRoot)
+  const duplicates = tasks.map((item) => item.issueNumber).filter((number) => claimed.has(number))
+  if (duplicates.length > 0) {
+    return { ok: false, error: 'duplicate-tasks', duplicates: duplicates.map(String) }
+  }
+
+  const config = readFactoryConfig(repoRoot)
+  const resolved = { ...defaultDeps(), ...deps }
+  const createdAt = resolved.now().toISOString()
+  const maxConcurrency = clamp(input.concurrency ?? config?.agent.maxConcurrency ?? 4, 1, 20)
+  const maxIterations = config?.agent.maxIterations ?? 5
+  const model = config?.agent.model ?? ''
+
+  const run: FactoryRun = {
+    id: runId,
+    status: 'pending',
+    paused: false,
+    createdAt,
+    maxConcurrency,
+    spendUsd: 0,
+    elapsedMs: 0,
+  }
+
+  const projections: FactoryTask[] = tasks.map((item) => {
+    const taskId = githubTaskId(item.issueNumber)
+    return {
+      id: taskId,
+      runId,
+      source: 'github-issues' as const,
+      issueNumber: item.issueNumber,
+      title: item.title,
+      goal: item.goal,
+      lane: 'queued' as const,
+      stageIdx: 0,
+      branch: buildBranchName({ taskId, issueNumber: item.issueNumber, title: item.title }),
+      worktree: null,
+      model,
+      iteration: 0,
+      maxIterations,
+      diff: { additions: 0, deletions: 0 },
+      timestamps: { claimedAt: createdAt },
+    }
+  })
+
+  writeJsonAtomic(runFilePath(repoRoot, runId), run)
+  writeJsonAtomic(tasksFilePath(repoRoot, runId), projections)
+
+  return { ok: true, snapshot: { run, tasks: projections } }
 }

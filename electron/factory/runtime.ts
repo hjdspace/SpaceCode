@@ -80,6 +80,7 @@ export type TaskPatch = Partial<
     | 'cancelled'
     | 'mergedCommits'
     | 'targetBranch'
+    | 'writeback'
     | 'timestamps'
   >
 >

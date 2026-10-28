@@ -132,6 +132,23 @@
             </div>
           </section>
 
+          <section v-if="task.writeback" class="section" data-inspector-writeback>
+            <h4>{{ t('factory.github.writeback.title') }}</h4>
+            <div class="kv">
+              <span>{{ t('factory.github.writeback.status') }}</span>
+              <b
+                :class="task.writeback.status === 'done' ? 'ok' : 'bad'"
+                data-writeback-status
+              >
+                {{
+                  t(`factory.github.writeback.${task.writeback.status}`, {
+                    attempts: task.writeback.attempts,
+                  })
+                }}
+              </b>
+            </div>
+          </section>
+
           <section v-if="timestamps.length" class="section">
             <h4>{{ t('factory.inspector.timestamps') }}</h4>
             <div v-for="entry in timestamps" :key="entry.key" class="kv">
@@ -278,6 +295,9 @@
         <p v-if="actionError" class="action-error" data-action-error>
           {{ actionErrorText }}
         </p>
+        <p v-if="writebackError" class="action-error" data-writeback-error>
+          {{ t(`factory.github.errors.${writebackError.reason}`) }}
+        </p>
         <div class="action-row">
           <button
             v-if="canStart"
@@ -346,6 +366,15 @@
             <GitMerge :size="12" />
             {{ t('factory.actions.merge', { target: mergeTarget }) }}
           </button>
+          <button
+            v-if="canRetryWriteback"
+            class="action-btn warn"
+            data-writeback-retry
+            :disabled="retryingWriteback"
+            @click="emit('retry-writeback')"
+          >
+            {{ retryingWriteback ? t('factory.github.retrying') : t('factory.github.retryWriteback') }}
+          </button>
         </div>
       </footer>
     </template>
@@ -373,7 +402,7 @@ import {
 } from 'lucide-vue-next'
 import type { FactoryEvent, FactoryTask, FactoryReviewCommentStatus } from '@/shared/factory'
 import { pendingComments } from '@/shared/factoryReview'
-import type { FactoryActionError } from '@/stores/factory'
+import type { FactoryActionError, FactoryGithubActionError } from '@/stores/factory'
 import {
   FACTORY_INSPECTOR_TABS,
   FACTORY_STEPS,
@@ -407,6 +436,9 @@ const props = withDefaults(
     /** 合并目标分支，仅用于按钮文案。 */
     mergeTarget?: string
     merging?: boolean
+    /** GitHub 回写重试：仅合并成功但回写失败时可操作。 */
+    retryingWriteback?: boolean
+    writebackError?: FactoryGithubActionError | null
   }>(),
   {
     nowMs: () => Date.now(),
@@ -424,6 +456,8 @@ const props = withDefaults(
     pendingIgnoreId: null,
     mergeTarget: 'main',
     merging: false,
+    retryingWriteback: false,
+    writebackError: null,
   },
 )
 
@@ -440,6 +474,7 @@ const emit = defineEmits<{
   'comment-ignore': [commentId: string]
   'comment-confirm-ignore': [commentId: string]
   merge: []
+  'retry-writeback': []
 }>()
 
 const { t } = useI18n()
@@ -460,6 +495,13 @@ const canFix = computed(
     (props.task?.lane === 'blocked' || props.task?.lane === 'reviewing'),
 )
 const canStart = computed(() => props.task?.lane === 'queued' || props.task?.lane === 'blocked')
+/** 合并已完成但回写失败：只重试评论/关闭，不触碰合并结果。 */
+const canRetryWriteback = computed(
+  () =>
+    props.task?.source === 'github-issues' &&
+    props.task.lane === 'done' &&
+    props.task.writeback?.status === 'failed',
+)
 
 /** 待处理/已接受的意见还能改；已忽略与已解决不可再操作。 */
 function isCommentActionable(status: FactoryReviewCommentStatus): boolean {
