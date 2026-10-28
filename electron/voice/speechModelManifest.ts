@@ -5,6 +5,8 @@
  * OnlineRecognizer 时会触发原生 abort（见 docs/adr/0014-local-voice-input.md）。
  * 不要按模型族名抓取，也不要在这里接受“更新版本”。
  */
+import type { VoiceModelIdentity } from '@/shared/channels/voice'
+
 export interface SpeechModelFileSpec {
   name: string
   bytes: number
@@ -54,4 +56,12 @@ export const SPEECH_MODEL_MANIFEST: SpeechModelManifest = {
 
 export function expectedInstalledBytes(manifest: SpeechModelManifest = SPEECH_MODEL_MANIFEST): number {
   return manifest.files.reduce((sum, file) => sum + file.bytes, 0)
+}
+
+/** 展示给用户的模型身份；与校验清单分开，避免改文案时碰到哈希语义。 */
+export const SPEECH_MODEL_IDENTITY: VoiceModelIdentity = {
+  name: 'sherpa-onnx X-ASR 480ms streaming zipformer',
+  spec: 'zh-en · streaming · punctuation · int8',
+  upstreamUrl: 'https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-transducer/zipformer-transducer-models.html',
+  license: 'Apache-2.0',
 }
