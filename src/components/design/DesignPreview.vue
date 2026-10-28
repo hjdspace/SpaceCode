@@ -19,13 +19,12 @@
       <!-- 沙箱 Web 预览 iframe -->
       <!--
         allow-scripts：预览本身就是网页，脚本是产品能力。
-        allow-popups：外链新窗口；产物里 anchor target=_blank 仍要能打开，去掉它会让
-        既有外链彻底失效。弹窗已无法冒充预览帧 —— 宿主只接受来自本 iframe.contentWindow
-        且带本实例 nonce 的回传。
         allow-same-origin：只在预览 URL（spacecode-preview://）路径给。它是跨源专用源，
         拿不到宿主 DOM / 存储；module script、字体与同源 fetch 都需要保住这个 origin。
         协议响应头还会下发同一组 CSP sandbox，脚本即使删掉本属性也摘不掉顶层导航禁令。
         srcdoc 回退路径绝不给：那会与宿主同源。
+        不授予 allow-popups：新窗口是钓鱼面。产物里的 target=_blank / 修饰键点击 /
+        中键 / Enter 由注入 shim 捕获后走 od:sandbox:open，外链仍能在系统浏览器打开。
         不授予 allow-downloads：产物导出条在宿主的 DesignFileWorkspace 里，不依赖
         iframe 内下载；留下它只会让不可信页面往磁盘落文件。
       -->
@@ -91,7 +90,7 @@ let servedNavHtml: string | null = null;
  * 必须继续排除。协议响应头的 CSP sandbox 是这两条路径共同的第二道锁。
  */
 const iframeSandbox = computed(() =>
-  props.previewUrl ? 'allow-scripts allow-same-origin allow-popups' : 'allow-scripts allow-popups'
+  props.previewUrl ? 'allow-scripts allow-same-origin' : 'allow-scripts'
 );
 
 // 文件变更监听已移至 DesignFileWorkspace.vue（始终挂载），
