@@ -5,7 +5,7 @@
  * 旧设计是"一律以 --dangerously-skip-permissions 起来、再用控制请求切回用户模式"，
  * 于是恢复失败 = 会话静默留在全放行，而启动照样返回成功、消息照转。现在的契约：
  *  - spawn 参数就是意图，正常情况下根本不需要补发控制请求；
- *  - 意图 ≠ spawn 参数（无进程时先切的模式）才补发，且先等 system/init 就绪；
+ *  - 意图 ≠ spawn 参数（无进程时先切的模式）才补发，且先等控制协议就绪；
  *  - 补发失败就按意图重启进程（--resume 保历史），不做无声放弃；
  *  - 引擎坚持跑在比意图更宽的模式上（bypass）时，转发消息前拦下来。
  */
@@ -81,7 +81,7 @@ describe('spawn 参数即意图', () => {
 })
 
 describe('意图与 spawn 参数不一致（进程不在时先切了模式）', () => {
-  it('等 system/init 就绪后补发，并把意图写回启动参数', async () => {
+  it('等控制协议就绪后补发，并把意图写回启动参数', async () => {
     const pool = new ClaudeCodeProcessPool()
     await pool.setPermissionMode(SID, 'plan')
 
@@ -91,6 +91,26 @@ describe('意图与 spawn 参数不一致（进程不在时先切了模式）', 
     expect(proc.waitForInit).toHaveBeenCalled()
     expect(proc.setPermissionMode).toHaveBeenCalledWith('plan')
     expect(proc.config.permissionMode).toBe('plan')
+  })
+
+  it('控制协议未就绪时直接按意图重启，不额外等待三轮权限请求超时', async () => {
+    const pool = new ClaudeCodeProcessPool()
+    await pool.setPermissionMode(SID, 'plan')
+    const started = pool.startSession(SID, {
+      cwd: '/repo', provider: 'anthropic', permissionMode: 'default',
+    })
+    const proc = lastProc()
+    proc.engineSessionId = null
+    proc.waitForInit.mockResolvedValue(false)
+
+    await started
+
+    expect(proc.setPermissionMode).not.toHaveBeenCalled()
+    expect(proc.kill).toHaveBeenCalledTimes(1)
+    expect(proc.start).toHaveBeenCalledTimes(2)
+    expect(proc.config.permissionMode).toBe('plan')
+    await pool.sendMessage(SID, 'hello')
+    expect(proc.sendMessage).toHaveBeenCalledWith('hello', undefined)
   })
 
   it('前两次超时、第三次成功时共下发 3 次（Linux AppImage 冷启动窗口）', async () => {
