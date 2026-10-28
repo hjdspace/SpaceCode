@@ -156,6 +156,15 @@ export default {
     blocked: '需处理',
     done: '已合并',
     cancelled: '已取消',
+    takeover: '接管中',
+  },
+  storage: {
+    readonly: '另一个窗口或进程正在推进这个运行，当前只能只读查看。',
+    readonlyHint: '只读查看：关闭其他窗口后重新打开才能继续推进。',
+    corrupt: '已隔离损坏的运行数据：{runs}',
+  },
+  attention: {
+    appRestarted: '应用已退出，任务未自动续跑，可从当前阶段重试。',
   },
   cardLocal: '本地',
   modelUnknown: '未配置模型',
@@ -277,6 +286,7 @@ export default {
       'missing-tasks': '这些待办已不存在：{ids}',
       'duplicate-tasks': '这些待办已在未结束的运行中：{ids}',
       'create-failed': '创建运行失败。',
+      'run-locked': '另一个窗口或进程正在写入运行，当前只能只读查看。',
     },
   },
 
@@ -404,6 +414,12 @@ export default {
     ignore: '忽略',
     confirmIgnore: '确认忽略',
     merge: '合并到 {target}',
+    takeover: '接管',
+    takingOver: '接管中…',
+    return: '交回流水线',
+    returning: '交回中…',
+    retry: '从当前阶段重试',
+    retrying: '重试中…',
   },
 
   errors: {
@@ -441,6 +457,11 @@ export default {
     'verify-failed': '复跑验证未通过，合并已中止。',
     'workspace-dirty': '当前工作区有未提交改动，合并已中止。',
     'merge-failed': '合并失败，已回滚或停在可恢复位置。',
+    'not-takeover': '该任务当前没有被接管。',
+    'run-locked': '另一个窗口或进程正在写入运行，当前只能只读查看。',
+    'worktree-missing': '任务工作树不存在，请重新领取。',
+    'branch-missing': '任务分支不存在，请重新领取。',
+    'task-busy': '该任务仍有后台回合在运行，请稍后再试。',
   },
 
   events: {
@@ -458,6 +479,12 @@ export default {
       approved: '已批准，任务进入待合并',
       changes_requested: '已要求修改，任务转阻塞',
       fix: { started: '按 {comments} 条意见开始修复' },
+      takeover: '已接管任务，在聊天中继续',
+      retry: '从当前阶段重试',
+      returned: {
+        verified: '已交回流水线，验证通过并转审查',
+        failed: '已交回流水线，验证未通过并转入修复',
+      },
     },
     worktree: {
       created: '已创建工作树 {path}',

@@ -21,6 +21,7 @@
           :selected="task.id === selectedId"
           :now-ms="nowMs"
           @select="emit('select', $event)"
+          @return="emit('return', $event)"
         />
         <div v-if="!grouped[lane.key].length" class="lane-empty" data-lane-empty>
           {{ t('factory.laneEmpty') }}
@@ -46,7 +47,7 @@ const props = withDefaults(
   { nowMs: () => Date.now() },
 )
 
-const emit = defineEmits<{ select: [id: string] }>()
+const emit = defineEmits<{ select: [id: string]; return: [id: string] }>()
 
 const { t } = useI18n()
 

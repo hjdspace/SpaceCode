@@ -16,8 +16,10 @@ export function clampConcurrency(value: unknown): number {
 export interface DispatchDecision {
   /** 下一个可领取的任务；没有则为 null。 */
   taskId: string | null
-  /** 已在跑（含审查）的任务数。 */
+  /** 已在跑（含审查）的任务数；接管中的任务也占槽位。 */
   active: number
+  /** 其中被人工接管、后台不得推进的任务数。 */
+  takeoverActive: number
   /** 本次运行生效的并发上限。 */
   max: number
   /** 槽位已满时，仍可领取但等待槽位的任务数。 */
@@ -47,8 +49,12 @@ export function dispatchDecision(
   activeTaskIds: readonly string[],
 ): DispatchDecision {
   const max = clampConcurrency(snapshot.run.maxConcurrency)
-  const active = new Set(activeTaskIds).size
-  const base = { active, max, waitingForSlot: 0, blockedByDependency: 0 }
+  // 接管中的任务仍占着实现/审查槽位：后台虽不跑，也不能让别人超发。
+  const takeoverActive = snapshot.tasks.filter(
+    (task) => task.takeover !== undefined && (task.lane === 'implementing' || task.lane === 'reviewing'),
+  ).length
+  const active = new Set(activeTaskIds).size + takeoverActive
+  const base = { active, takeoverActive, max, waitingForSlot: 0, blockedByDependency: 0 }
   if (snapshot.run.status !== 'running' || snapshot.run.paused) {
     return { ...base, taskId: null }
   }

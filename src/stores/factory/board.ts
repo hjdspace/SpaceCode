@@ -107,7 +107,32 @@ export interface FactoryTaskStatus {
   params?: Record<string, number>
 }
 
+/** 接管只在实现中/审查中有意义；标记存在时后台不再推进该任务。 */
+export function isTakenOver(task: FactoryTask): boolean {
+  return task.takeover !== undefined && (task.lane === 'implementing' || task.lane === 'reviewing')
+}
+
+/** 可以发起接管：实现中/审查中、尚未接管、工作树仍在。 */
+export function canTakeOver(task: FactoryTask): boolean {
+  return (
+    (task.lane === 'implementing' || task.lane === 'reviewing') &&
+    !isTakenOver(task) &&
+    Boolean(task.worktree)
+  )
+}
+
+/** 可以交回：必须处于接管中。 */
+export function canReturnTask(task: FactoryTask): boolean {
+  return isTakenOver(task)
+}
+
+/** 可以从当前阶段重试：阻塞且有工作树，复用分支继续跑。 */
+export function canRetryTask(task: FactoryTask): boolean {
+  return task.lane === 'blocked' && task.cancelled !== true && Boolean(task.worktree)
+}
+
 export function taskStatus(task: FactoryTask): FactoryTaskStatus {
+  if (isTakenOver(task)) return { key: 'factory.cardStatus.takeover' }
   switch (task.lane) {
     case 'queued':
       return { key: 'factory.cardStatus.queued' }

@@ -291,7 +291,10 @@
         </template>
       </div>
 
-      <footer class="ins-actions">
+      <footer class="ins-actions" :inert="readonly ? true : undefined">
+        <p v-if="readonly" class="readonly-hint" data-action-readonly>
+          {{ t('factory.storage.readonlyHint') }}
+        </p>
         <p v-if="actionError" class="action-error" data-action-error>
           {{ actionErrorText }}
         </p>
@@ -319,7 +322,7 @@
             {{ t('factory.actions.confirmDirty') }}
           </button>
           <button
-            v-if="task.lane === 'implementing'"
+            v-if="task.lane === 'implementing' && !takenOver"
             class="action-btn danger"
             data-task-stop
             :disabled="stopping"
@@ -329,7 +332,27 @@
             {{ stopping ? t('factory.actions.stopping') : t('factory.actions.stop') }}
           </button>
           <button
-            v-if="task.lane === 'reviewing'"
+            v-if="canTakeover"
+            class="action-btn"
+            data-task-takeover
+            :disabled="takingOver"
+            @click="emit('takeover')"
+          >
+            <Hand :size="12" />
+            {{ takingOver ? t('factory.actions.takingOver') : t('factory.actions.takeover') }}
+          </button>
+          <button
+            v-if="takenOver"
+            class="action-btn primary"
+            data-task-return
+            :disabled="returning"
+            @click="emit('return')"
+          >
+            <CornerUpLeft :size="12" />
+            {{ returning ? t('factory.actions.returning') : t('factory.actions.return') }}
+          </button>
+          <button
+            v-if="task.lane === 'reviewing' && review && !takenOver"
             class="action-btn primary"
             data-task-approve
             :disabled="!eligible || approving"
@@ -340,7 +363,7 @@
             {{ approving ? t('factory.actions.approving') : t('factory.actions.approve') }}
           </button>
           <button
-            v-if="task.lane === 'reviewing' && review"
+            v-if="task.lane === 'reviewing' && review && !takenOver"
             class="action-btn warn"
             data-task-request-changes
             @click="emit('request-changes')"
@@ -355,6 +378,15 @@
             @click="emit('fix')"
           >
             {{ fixing ? t('factory.actions.fixing') : t('factory.actions.fix') }}
+          </button>
+          <button
+            v-if="canRetry"
+            class="action-btn warn"
+            data-task-retry
+            :disabled="retrying"
+            @click="emit('retry')"
+          >
+            {{ retrying ? t('factory.actions.retrying') : t('factory.actions.retry') }}
           </button>
           <button
             v-if="task.lane === 'mergeable'"
@@ -388,11 +420,13 @@ import {
   Activity,
   AlertTriangle,
   Check,
+  CornerUpLeft,
   Cpu,
   FileDiff,
   Folder,
   GitBranch,
   GitMerge,
+  Hand,
   Layers,
   Loader2,
   Play,
@@ -404,6 +438,9 @@ import type { FactoryEvent, FactoryTask, FactoryReviewCommentStatus } from '@/sh
 import { pendingComments } from '@/shared/factoryReview'
 import type { FactoryActionError, FactoryGithubActionError } from '@/stores/factory'
 import {
+  canRetryTask,
+  canTakeOver,
+  isTakenOver,
   FACTORY_INSPECTOR_TABS,
   FACTORY_STEPS,
   formatClock,
@@ -439,6 +476,11 @@ const props = withDefaults(
     /** GitHub 回写重试：仅合并成功但回写失败时可操作。 */
     retryingWriteback?: boolean
     writebackError?: FactoryGithubActionError | null
+    /** 运行目录只读（另一个窗口持锁）：动作区整体禁用。 */
+    readonly?: boolean
+    takingOver?: boolean
+    returning?: boolean
+    retrying?: boolean
   }>(),
   {
     nowMs: () => Date.now(),
@@ -458,6 +500,10 @@ const props = withDefaults(
     merging: false,
     retryingWriteback: false,
     writebackError: null,
+    readonly: false,
+    takingOver: false,
+    returning: false,
+    retrying: false,
   },
 )
 
@@ -470,6 +516,9 @@ const emit = defineEmits<{
   approve: []
   'request-changes': []
   fix: []
+  takeover: []
+  return: []
+  retry: []
   'comment-accept': [commentId: string]
   'comment-ignore': [commentId: string]
   'comment-confirm-ignore': [commentId: string]
@@ -494,7 +543,16 @@ const canFix = computed(
     Boolean(props.task?.worktree) &&
     (props.task?.lane === 'blocked' || props.task?.lane === 'reviewing'),
 )
-const canStart = computed(() => props.task?.lane === 'queued' || props.task?.lane === 'blocked')
+const canStart = computed(() => {
+  const task = props.task
+  if (!task) return false
+  if (task.lane === 'queued') return true
+  // 阻塞任务有工作树时走「从当前阶段重试」，不再从头领取。
+  return task.lane === 'blocked' && !canRetryTask(task)
+})
+const takenOver = computed(() => (props.task ? isTakenOver(props.task) : false))
+const canTakeover = computed(() => (props.task ? canTakeOver(props.task) : false))
+const canRetry = computed(() => (props.task ? canRetryTask(props.task) : false))
 /** 合并已完成但回写失败：只重试评论/关闭，不触碰合并结果。 */
 const canRetryWriteback = computed(
   () =>
@@ -1057,6 +1115,12 @@ const timestamps = computed(() => {
   font-size: var(--text-2xs, 11px);
   color: var(--error);
   overflow-wrap: anywhere;
+}
+
+.readonly-hint {
+  margin: 0;
+  font-size: var(--text-2xs, 11px);
+  color: var(--warning);
 }
 
 .action-btn {

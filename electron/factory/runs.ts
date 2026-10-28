@@ -254,6 +254,12 @@ function parseTask(raw: unknown): FactoryTask | null {
         }
       : {}),
     ...(raw.cancelled === true ? { cancelled: true } : {}),
+    ...(isRecord(raw.takeover) &&
+    typeof raw.takeover.at === 'string' &&
+    typeof raw.takeover.sessionId === 'string' &&
+    raw.takeover.sessionId
+      ? { takeover: { at: raw.takeover.at, sessionId: raw.takeover.sessionId } }
+      : {}),
     ...(typeof raw.mergedCommits === 'number' && Number.isFinite(raw.mergedCommits)
       ? { mergedCommits: raw.mergedCommits }
       : {}),

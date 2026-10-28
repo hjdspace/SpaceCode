@@ -103,6 +103,7 @@ function configFixture(): FactoryConfig {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  localStorage.clear()
   vi.clearAllMocks()
 })
 
@@ -154,6 +155,21 @@ describe('run and selection', () => {
     expect(store.selectedTask?.id).toBe('bl-2')
     store.setInspectorTab('diff')
     expect(store.selectedId).toBe('bl-2')
+  })
+
+  it('restores the persisted selection and ignores a stale id', async () => {
+    factoryApi.runLatest.mockResolvedValue(snapshot())
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    store.selectTask('bl-2')
+    await store.loadRun('/repo')
+    expect(store.selectedId).toBe('bl-2')
+
+    localStorage.setItem('factory:selected:/repo', 'gone')
+    store.reset()
+    await store.loadRun('/repo')
+    expect(store.selectedId).toBe('bl-1')
   })
 
   it('creates a run and immediately hands it to the scheduler', async () => {

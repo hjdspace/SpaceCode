@@ -11,6 +11,7 @@ import type {
   FactoryRunSnapshot,
   FactoryRunStatus,
   FactoryTask,
+  FactoryTaskTakeover,
 } from '@/shared/factory'
 import { readRunSnapshot, runFilePath, tasksFilePath } from './runs'
 import { writeJsonAtomic } from './atomic'
@@ -29,7 +30,7 @@ const ALLOWED: Record<FactoryLane, FactoryLane[]> = {
   implementing: ['implementing', 'blocked', 'reviewing', 'done'],
   reviewing: ['reviewing', 'blocked', 'mergeable', 'implementing', 'done'],
   mergeable: ['mergeable', 'blocked', 'done'],
-  blocked: ['implementing', 'queued', 'done'],
+  blocked: ['implementing', 'reviewing', 'queued', 'done'],
   done: [],
 }
 
@@ -84,7 +85,20 @@ export type TaskPatch = Partial<
     | 'writeback'
     | 'timestamps'
   >
->
+> & {
+  /** null 表示清除接管标记；其余值写入 task.takeover。 */
+  takeover?: FactoryTaskTakeover | null
+}
+
+/** patch 里的 null 代表「删除该字段」，其余值原样合并。 */
+function applyPatch<T extends object>(target: T, patch: object): T {
+  const next: Record<string, unknown> = { ...(target as Record<string, unknown>) }
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete next[key]
+    else next[key] = value
+  }
+  return next as T
+}
 
 export type TransitionResult =
   | { ok: true; snapshot: FactoryRunSnapshot }
@@ -109,8 +123,7 @@ export function transitionTask(
 
   const at = (deps.now ?? (() => new Date()))().toISOString()
   const next: FactoryTask = {
-    ...current,
-    ...patch,
+    ...applyPatch(current, patch),
     lane: to.lane,
     stageIdx: to.lane === 'blocked' ? current.stageIdx : (to.stageIdx ?? stageIndexFor(to.lane)),
   }
@@ -148,7 +161,7 @@ export function patchTask(
   if (index < 0) return { ok: false, error: 'task-not-found' }
 
   const tasks = [...snapshot.tasks]
-  tasks[index] = { ...tasks[index], ...patch }
+  tasks[index] = applyPatch(tasks[index], patch)
   writeJsonAtomic(tasksFilePath(repoRoot, runId), tasks)
   return { ok: true, snapshot: { run: snapshot.run, tasks } }
 }

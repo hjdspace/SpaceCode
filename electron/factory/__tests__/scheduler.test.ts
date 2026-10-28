@@ -119,6 +119,24 @@ describe('dispatchDecision', () => {
     expect(pending.taskId).toBeNull()
   })
 
+  it('counts a taken-over task as occupying a slot', () => {
+    const tasks = [
+      task({
+        id: 'a',
+        lane: 'implementing',
+        takeover: { at: '2026-10-29T10:00:00Z', sessionId: 'fac-run-1-a-takeover' },
+      }),
+      task({ id: 'b' }),
+    ]
+    const decision = dispatchDecision(snapshot(tasks, { maxConcurrency: 1 }), [])
+    expect(decision.takeoverActive).toBe(1)
+    expect(decision.active).toBe(1)
+    expect(decision.taskId).toBeNull()
+
+    const wider = dispatchDecision(snapshot(tasks, { maxConcurrency: 2 }), [])
+    expect(wider.taskId).toBe('b')
+  })
+
   it('does not claim blocked tasks automatically', () => {
     const decision = dispatchDecision(
       snapshot([task({ id: 'a', lane: 'blocked' }), task({ id: 'b' })]),

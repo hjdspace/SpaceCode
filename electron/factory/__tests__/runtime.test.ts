@@ -64,6 +64,8 @@ describe('transition rules', () => {
     expect(canTransition('reviewing', 'mergeable')).toBe(true)
     expect(canTransition('mergeable', 'done')).toBe(true)
     expect(canTransition('blocked', 'implementing')).toBe(true)
+    // 接管交回后验证通过：blocked 也可以直接回到审查阶段重试。
+    expect(canTransition('blocked', 'reviewing')).toBe(true)
 
     expect(canTransition('queued', 'done')).toBe(false)
     expect(canTransition('done', 'implementing')).toBe(false)
@@ -188,6 +190,26 @@ describe('projection patches', () => {
       ok: false,
       error: 'task-not-found',
     })
+  })
+
+  it('sets and clears the takeover marker', () => {
+    const id = taskId()
+    transitionTask(dir, runId, id, { lane: 'implementing', stageIdx: 2 }, 'worktree.ready', {}, { now })
+    const marked = patchTask(
+      dir,
+      runId,
+      id,
+      { takeover: { at: '2026-10-28T10:00:00.000Z', sessionId: 'fac-run-1-bl-1-takeover' } },
+      { now },
+    )
+    expect(marked).toMatchObject({
+      ok: true,
+      snapshot: { tasks: [{ takeover: { sessionId: 'fac-run-1-bl-1-takeover' } }] },
+    })
+
+    const cleared = transitionTask(dir, runId, id, { lane: 'blocked' }, 'stopped', { takeover: null }, { now })
+    expect(cleared).toMatchObject({ ok: true, snapshot: { tasks: [{ lane: 'blocked' }] } })
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).not.toHaveProperty('takeover')
   })
 })
 

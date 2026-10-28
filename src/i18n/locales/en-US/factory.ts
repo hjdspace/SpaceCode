@@ -156,6 +156,15 @@ export default {
     blocked: 'Needs attention',
     done: 'Merged',
     cancelled: 'Cancelled',
+    takeover: 'Taken over',
+  },
+  storage: {
+    readonly: 'Another window or process is driving this run; this view is read-only.',
+    readonlyHint: 'Read-only: close the other window and reopen to drive the run again.',
+    corrupt: 'Quarantined corrupt run data: {runs}',
+  },
+  attention: {
+    appRestarted: 'The app exited, so the task did not resume automatically. Retry from the current stage.',
   },
   cardLocal: 'Local',
   modelUnknown: 'No model configured',
@@ -277,6 +286,7 @@ export default {
       'missing-tasks': 'These backlog items no longer exist: {ids}',
       'duplicate-tasks': 'These backlog items already belong to an unfinished run: {ids}',
       'create-failed': 'Failed to create the run.',
+      'run-locked': 'Another window or process is driving this run; this view is read-only.',
     },
   },
 
@@ -404,6 +414,12 @@ export default {
     ignore: 'Ignore',
     confirmIgnore: 'Confirm ignore',
     merge: 'Merge into {target}',
+    takeover: 'Take over',
+    takingOver: 'Taking over…',
+    return: 'Return to pipeline',
+    returning: 'Returning…',
+    retry: 'Retry from current stage',
+    retrying: 'Retrying…',
   },
 
   errors: {
@@ -441,6 +457,11 @@ export default {
     'verify-failed': 'Verification failed on rerun; the merge was aborted.',
     'workspace-dirty': 'The current workspace has uncommitted changes; the merge was aborted.',
     'merge-failed': 'The merge failed and was rolled back or stopped at a recoverable point.',
+    'not-takeover': 'This task is not currently taken over.',
+    'run-locked': 'Another window or process is driving this run; this view is read-only.',
+    'worktree-missing': 'The task worktree is missing; claim the task again.',
+    'branch-missing': 'The task branch is missing; claim the task again.',
+    'task-busy': 'A background turn is still running for this task. Try again shortly.',
   },
 
   events: {
@@ -458,6 +479,12 @@ export default {
       approved: 'Approved; the task is now mergeable',
       changes_requested: 'Changes requested; the task was blocked',
       fix: { started: 'Fixing {comments} review comments' },
+      takeover: 'Task taken over; continuing in chat',
+      retry: 'Retrying from the current stage',
+      returned: {
+        verified: 'Returned to the pipeline; verification passed and review started',
+        failed: 'Returned to the pipeline; verification failed and the fix loop started',
+      },
     },
     worktree: {
       created: 'Created worktree {path}',

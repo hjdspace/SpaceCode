@@ -478,7 +478,7 @@ export type FactoryTakeoverResult =
 /** 交回结果：verified=true 表示已重新验证通过并交给审查。 */
 export type FactoryReturnResult =
   | { ok: true; snapshot: FactoryRunSnapshot; verified: boolean }
-  | { ok: false; error: FactoryTaskActionError; detail?: string }
+  | { ok: false; error: FactoryTaskActionError | 'not-takeover'; detail?: string }
 
 /** 任务投影。渲染层只读，所有迁移由主进程写入。 */
 export interface FactoryTask {
@@ -557,7 +557,7 @@ export interface FactoryRunCreateInput {
   dependencies?: Record<string, string[]>
 }
 
-export type FactoryRunCreateError = 'empty-tasks' | 'missing-tasks' | 'duplicate-tasks'
+export type FactoryRunCreateError = 'empty-tasks' | 'missing-tasks' | 'duplicate-tasks' | 'run-locked'
 
 export type FactoryRunCreateResult =
   | { ok: true; snapshot: FactoryRunSnapshot }
@@ -640,10 +640,10 @@ export interface FactoryReviewCommentInput {
 
 export type FactoryRunStopResult = FactoryTaskActionResult | { ok: false; error: 'run-not-found' }
 
-/** 暂停/恢复：运行不存在或已停止时拒绝。 */
+/** 暂停/恢复：运行不存在、已停止或当前只读时拒绝。 */
 export type FactoryRunControlResult =
   | { ok: true; snapshot: FactoryRunSnapshot }
-  | { ok: false; error: 'run-not-found' | 'run-stopped' }
+  | { ok: false; error: 'run-not-found' | 'run-stopped' | 'run-locked' }
 
 export type FactoryWorktreeRevealResult =
   | { ok: true }
@@ -721,6 +721,7 @@ export type FactoryMergeError =
   | 'git-error'
   | 'merge-failed'
   | 'write-failed'
+  | 'run-locked'
 
 export type FactoryMergeResult =
   | {

@@ -38,10 +38,13 @@ import type {
   FactorySetupDraft,
   FactoryStageConfig,
   FactoryStageKey,
+  FactoryStorageState,
   FactoryTask,
   FactoryTaskActionResult,
   FactoryTaskStartInput,
   FactoryTaskStartResult,
+  FactoryTakeoverResult,
+  FactoryReturnResult,
 } from '@/shared/factory'
 import { mergeEligibility, type MergeEligibility } from '@/shared/factoryReview'
 import {
@@ -110,6 +113,8 @@ export const useFactoryStore = defineStore('factory', () => {
   const configured = ref(false)
   const config = ref<FactoryConfig | null>(null)
   const configPath = ref('')
+  /** 运行目录的只读/损坏状态；只读时所有推进动作在主进程侧也会被拒绝。 */
+  const storage = ref<FactoryStorageState | null>(null)
   const context = ref<FactorySetupContext | null>(null)
   const preflight = ref<FactoryPreflightResult | null>(null)
 
@@ -168,6 +173,10 @@ export const useFactoryStore = defineStore('factory', () => {
   const startingId = ref<string | null>(null)
   const stopping = ref(false)
   const pendingDirtyId = ref<string | null>(null)
+  // 接管/交回/重试：各自的重入保护，避免重复点击并发调用
+  const takingOver = ref(false)
+  const returning = ref(false)
+  const retrying = ref(false)
 
   // 审查阶段：批准/要求修改/修复与意见处理各自的重入保护
   const approving = ref(false)
@@ -217,6 +226,9 @@ export const useFactoryStore = defineStore('factory', () => {
   )
 
   const boardReady = computed(() => configured.value && config.value !== null)
+  /** 第二个窗口/进程拿不到写锁时为 true；看板只读并给出提示。 */
+  const readonly = computed(() => storage.value !== null && !storage.value.writable)
+  const corruptRuns = computed(() => storage.value?.corrupt ?? [])
 
   const stepErrors = computed(() => {
     if (!context.value) return []
@@ -238,6 +250,7 @@ export const useFactoryStore = defineStore('factory', () => {
       configured.value = state.configured
       config.value = state.config
       configPath.value = state.configPath
+      storage.value = state.storage ?? null
       loaded.value = true
     } catch (err) {
       error.value = String(err)
@@ -467,16 +480,41 @@ export const useFactoryStore = defineStore('factory', () => {
     githubLabel.value = label
   }
 
+  /** 选中项按仓库持久化：重启后恢复上次查看的任务，与事件流保持一致。 */
+  let boardRoot: string | null = null
+  function selectionKey(root: string): string {
+    return `factory:selected:${root}`
+  }
+  function readPersistedSelection(root: string): string | null {
+    try {
+      return typeof localStorage === 'undefined' ? null : localStorage.getItem(selectionKey(root))
+    } catch {
+      return null
+    }
+  }
+  function persistSelection(id: string | null): void {
+    if (!boardRoot || typeof localStorage === 'undefined') return
+    try {
+      if (id) localStorage.setItem(selectionKey(boardRoot), id)
+      else localStorage.removeItem(selectionKey(boardRoot))
+    } catch {
+      // 存储不可用时只是丢失恢复能力，不影响看板本身。
+    }
+  }
+
   function applySnapshot(snapshot: FactoryRunSnapshot | null): void {
     run.value = snapshot?.run ?? null
     tasks.value = snapshot?.tasks ?? []
     if (!findTask(tasks.value, selectedId.value)) {
-      selectedId.value = tasks.value[0]?.id ?? null
+      const persisted = boardRoot ? readPersistedSelection(boardRoot) : null
+      const restored = findTask(tasks.value, persisted)
+      selectedId.value = restored?.id ?? tasks.value[0]?.id ?? null
       inspectorTab.value = 'overview'
     }
   }
 
   async function loadRun(root: string): Promise<void> {
+    boardRoot = root
     runLoading.value = true
     runError.value = null
     try {
@@ -789,6 +827,58 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
+  async function takeoverTask(
+    root: string,
+    runId: string,
+    taskId: string,
+  ): Promise<FactoryTakeoverResult> {
+    takingOver.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskTakeover(root, runId, taskId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      return result
+    } catch {
+      actionError.value = { code: 'agent-error' }
+      return { ok: false, error: 'agent-error' }
+    } finally {
+      takingOver.value = false
+    }
+  }
+
+  async function returnTask(root: string, runId: string, taskId: string): Promise<FactoryReturnResult> {
+    returning.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskReturn(root, runId, taskId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'write-failed' }
+    } finally {
+      returning.value = false
+    }
+  }
+
+  async function retryTask(root: string, runId: string, taskId: string): Promise<FactoryTaskActionResult> {
+    retrying.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskRetry(root, runId, taskId)
+      if (result.ok) applySnapshot(result.snapshot)
+      else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      return result
+    } catch {
+      actionError.value = { code: 'git-error' }
+      return { ok: false, error: 'git-error' }
+    } finally {
+      retrying.value = false
+    }
+  }
+
   async function updateComment(
     root: string,
     runId: string,
@@ -914,6 +1004,7 @@ export const useFactoryStore = defineStore('factory', () => {
 
   function selectTask(id: string | null): void {
     selectedId.value = id
+    persistSelection(id)
     inspectorTab.value = 'overview'
     pendingIgnoreId.value = null
     writebackError.value = null
@@ -934,6 +1025,7 @@ export const useFactoryStore = defineStore('factory', () => {
     configured.value = false
     config.value = null
     configPath.value = ''
+    storage.value = null
     context.value = null
     preflight.value = null
     wizardOpen.value = false
@@ -978,6 +1070,9 @@ export const useFactoryStore = defineStore('factory', () => {
     startingId.value = null
     stopping.value = false
     pendingDirtyId.value = null
+    takingOver.value = false
+    returning.value = false
+    retrying.value = false
     approving.value = false
     fixing.value = false
     updatingComment.value = false
@@ -1003,6 +1098,7 @@ export const useFactoryStore = defineStore('factory', () => {
     configured,
     config,
     configPath,
+    storage,
     context,
     preflight,
     wizardOpen,
@@ -1047,6 +1143,9 @@ export const useFactoryStore = defineStore('factory', () => {
     startingId,
     stopping,
     pendingDirtyId,
+    takingOver,
+    returning,
+    retrying,
     approving,
     fixing,
     updatingComment,
@@ -1068,6 +1167,8 @@ export const useFactoryStore = defineStore('factory', () => {
     selectedEligibility,
     laneCounts,
     boardReady,
+    readonly,
+    corruptRuns,
     stepErrors,
     canGoNext,
     blocking,
@@ -1114,6 +1215,9 @@ export const useFactoryStore = defineStore('factory', () => {
     approveTask,
     requestChanges,
     fixTask,
+    takeoverTask,
+    returnTask,
+    retryTask,
     updateComment,
     acceptComment,
     ignoreComment,

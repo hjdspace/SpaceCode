@@ -35,11 +35,19 @@
 
     <div v-if="task.lane === 'blocked' && task.attention" class="card-alert">
       <AlertTriangle :size="13" />
-      <span>{{ task.attention.reason }}</span>
+      <span>{{ attentionText }}</span>
     </div>
 
     <div class="card-foot">
       <span class="card-model">{{ task.model || t('factory.modelUnknown') }}</span>
+      <button
+        v-if="canReturn"
+        class="card-return"
+        data-card-return
+        @click.stop="emit('return', task.id)"
+      >
+        {{ t('factory.actions.return') }}
+      </button>
       <span class="card-elapsed" data-card-elapsed>{{ formatClock(elapsedMs) }}</span>
     </div>
   </article>
@@ -50,7 +58,13 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle, Folder, GitBranch } from 'lucide-vue-next'
 import type { FactoryTask } from '@/shared/factory'
-import { formatClock, taskElapsedMs, taskStagePercent, taskStatus } from '@/stores/factory/board'
+import {
+  canReturnTask,
+  formatClock,
+  taskElapsedMs,
+  taskStagePercent,
+  taskStatus,
+} from '@/stores/factory/board'
 
 const props = defineProps<{
   task: FactoryTask
@@ -58,13 +72,19 @@ const props = defineProps<{
   nowMs: number
 }>()
 
-const emit = defineEmits<{ select: [id: string] }>()
+const emit = defineEmits<{ select: [id: string]; return: [id: string] }>()
 
 const { t } = useI18n()
 
 const status = computed(() => taskStatus(props.task))
 const percent = computed(() => taskStagePercent(props.task))
 const elapsedMs = computed(() => taskElapsedMs(props.task, props.nowMs))
+const canReturn = computed(() => canReturnTask(props.task))
+/** 目前只有崩溃恢复的 app.restarted 需要翻译，其余保持原始原因码。 */
+const attentionText = computed(() => {
+  const reason = props.task.attention?.reason ?? ''
+  return reason === 'app.restarted' ? t('factory.attention.appRestarted') : reason
+})
 </script>
 
 <style lang="scss" scoped>
@@ -186,5 +206,20 @@ const elapsedMs = computed(() => taskElapsedMs(props.task, props.nowMs))
 
 .card-elapsed {
   font-family: var(--font-mono);
+}
+
+.card-return {
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--accent-primary);
+  font-size: var(--text-2xs, 11px);
+
+  &:hover {
+    background: var(--accent-primary);
+    color: var(--bg-elevated);
+  }
 }
 </style>

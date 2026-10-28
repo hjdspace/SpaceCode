@@ -37,6 +37,15 @@
           </button>
         </header>
 
+        <div v-if="store.readonly" class="storage-banner" data-storage-readonly>
+          <AlertTriangle :size="14" />
+          <span>{{ t('factory.storage.readonly') }}</span>
+        </div>
+        <div v-if="store.corruptRuns.length" class="storage-banner" data-storage-corrupt>
+          <AlertTriangle :size="14" />
+          <span>{{ t('factory.storage.corrupt', { runs: store.corruptRuns.join(', ') }) }}</span>
+        </div>
+
         <FactoryRunHeader
           v-if="store.run"
           :run="store.run"
@@ -94,6 +103,7 @@
               :tasks="store.tasks"
               :selected-id="store.selectedId"
               @select="store.selectTask"
+              @return="handleReturn"
             />
             <div v-else class="board-empty" data-board-empty>{{ t('factory.run.empty') }}</div>
           </div>
@@ -118,10 +128,17 @@
             :merging="store.merging"
             :retrying-writeback="store.retryingWritebackId === store.selectedTask?.id"
             :writeback-error="store.writebackError"
+            :readonly="store.readonly"
+            :taking-over="store.takingOver"
+            :returning="store.returning"
+            :retrying="store.retrying"
             @select-tab="store.setInspectorTab"
             @retry-writeback="handleRetryWriteback"
             @start="handleStart"
             @stop="handleStopTask"
+            @takeover="handleTakeover"
+            @return="handleReturn()"
+            @retry="handleRetry"
             @reveal="handleReveal"
             @confirm-dirty="handleConfirmDirty"
             @approve="handleApprove"
@@ -324,6 +341,25 @@ function handleFix(): void {
   void store.fixTask(root.value, store.run.id, taskId)
 }
 
+function handleTakeover(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.takeoverTask(root.value, store.run.id, taskId)
+}
+
+/** 看板卡片与检查器共用：传入卡片 id，未传时交回当前选中任务。 */
+function handleReturn(taskId?: string): void {
+  const target = taskId ?? selectedTaskId()
+  if (!root.value || !store.run || !target) return
+  void store.returnTask(root.value, store.run.id, target)
+}
+
+function handleRetry(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.retryTask(root.value, store.run.id, taskId)
+}
+
 function handleCommentAccept(commentId: string): void {
   const taskId = selectedTaskId()
   if (!root.value || !store.run || !taskId) return
@@ -481,6 +517,18 @@ function handleCreateRun(ids: string[]): void {
     font-size: 12px;
     color: var(--text-muted);
   }
+}
+
+.storage-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md, 8px);
+  background: var(--warning-glow);
+  color: var(--warning);
+  font-size: var(--text-2xs, 11px);
 }
 
 .run-empty {

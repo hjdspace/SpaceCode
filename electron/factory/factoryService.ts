@@ -10,6 +10,7 @@ import { join } from 'path'
 import { BrowserWindow, app, ipcMain, safeStorage } from 'electron'
 import { registerHandlers } from '@/shared/handlerRegistry'
 import { eventChannels } from '@/shared/channelMap'
+import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { factoryNamespace } from '@/shared/channels/factory'
 import type {
   FactoryConfig,
@@ -24,7 +25,10 @@ import type {
   FactorySetupContext,
   FactorySetupDraft,
   FactoryState,
+  FactoryStorageState,
+  FactoryTakeoverSession,
 } from '@/shared/factory'
+import type { H5RemoteUserMessagePayload } from '../h5/h5Types'
 import {
   buildFactoryConfig,
   factoryConfigPath,
@@ -44,17 +48,42 @@ import {
 } from './backlog'
 import { createFactoryRun, readLatestRun, readRunSnapshot } from './runs'
 import { createFactoryRunner } from './factoryRunner'
+import { acquireRunLock, releaseRunLock } from './lock'
+import { recoverRuns } from './recovery'
 import { updateFactoryConfig } from './configUpdate'
 import { createGithubTrackerService } from './githubTrackerService'
 import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 import { info, warn } from '../infra/logger'
 
 const FACTORY_EVENTS = eventChannels(factoryNamespace.events, 'factory:')
+const ENGINE_EVENTS = eventChannels(claudeCodeNamespace.events, 'claude-code:')
 
 /** 事件推送广播到所有窗口；窗口刷新/切换项目都不会中断主进程里的运行。 */
 function broadcastFactoryEvent(push: import('@/shared/factory').FactoryEventPush): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send(FACTORY_EVENTS.onEvent, push)
+  }
+}
+
+/**
+ * 接管会话走 cron/H5 同一条远程消息通道：渲染层据此在聊天列表里
+ * 创建/选择会话并直接开始回合，工具与权限确认都由现有聊天链路处理。
+ */
+function pushFactorySession(session: FactoryTakeoverSession): void {
+  const payload: H5RemoteUserMessagePayload = {
+    __h5RemoteUserMessage: true,
+    messageId: null,
+    content: session.content,
+    projectPath: session.projectPath,
+    title: session.title,
+    timestamp: Date.now(),
+    activate: session.activate,
+    ...(session.model ? { model: session.model } : {}),
+  }
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(ENGINE_EVENTS.onUser, { sessionId: session.sessionId, data: payload })
+    }
   }
 }
 
@@ -80,6 +109,36 @@ export interface FactoryService {
   checkGhAuth(): Promise<FactoryGithubAuthResult>
   saveGithubToken(token: string): FactorySecretSaveResult
   clearGithubToken(): { ok: boolean }
+}
+
+/**
+ * 每个仓库根只做一次恢复：先抢运行目录写锁，再按是否持锁决定能否修复/清理。
+ * 拿不到锁的窗口保持只读，但照样能读快照与事件。
+ */
+const storageByRoot = new Map<string, FactoryStorageState>()
+
+function ensureStorage(root: string): FactoryStorageState {
+  const cached = storageByRoot.get(root)
+  if (cached) return cached
+
+  const lock = acquireRunLock(root)
+  if (!lock.ok) {
+    warn('Factory', `Run storage locked by pid ${lock.pid}; opening read-only | root=${root}`)
+  }
+  const recovered = recoverRuns(root, { writable: lock.ok })
+  if (recovered.corrupt.length > 0) {
+    warn('Factory', `Quarantined corrupt factory data: ${recovered.corrupt.join(', ')}`)
+  }
+  if (recovered.recovered.length > 0) {
+    info('Factory', `Recovered unfinished runs: ${recovered.recovered.join(', ')}`)
+  }
+  const state: FactoryStorageState = { writable: lock.ok, corrupt: recovered.corrupt }
+  storageByRoot.set(root, state)
+  return state
+}
+
+function isWritable(root: string): boolean {
+  return ensureStorage(root).writable
 }
 
 function blockingInvalidDraft(): FactoryPreflightResult {
@@ -127,6 +186,7 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
       configured: config !== null,
       config,
       configPath: factoryConfigPath(root),
+      storage: ensureStorage(root),
     }
   }
 
@@ -340,8 +400,13 @@ export function registerFactoryIPCHandlers(): void {
 
   const runner = createFactoryRunner({
     mergeWriteBack: (payload) => githubTracker.writeBackMerge(payload),
+    pushSession: pushFactorySession,
   })
   runner.onPush(broadcastFactoryEvent)
+
+  app.once('will-quit', () => {
+    for (const root of storageByRoot.keys()) releaseRunLock(root)
+  })
 
   registerHandlers(ipcMain, factoryNamespace.channels, 'factory:', {
     state: (root) => service.getState(root),
@@ -361,26 +426,52 @@ export function registerFactoryIPCHandlers(): void {
     backlogUpdate: (root, input) => updateBacklogItem(root, input),
     backlogDelete: (root, id) => deleteBacklogItem(root, id),
     backlogMove: (root, id, direction) => moveBacklogItem(root, id, direction),
-    runCreate: (root, input) => createFactoryRun(root, input),
+    runCreate: (root, input) =>
+      isWritable(root) ? createFactoryRun(root, input) : { ok: false, error: 'run-locked' },
     runGet: (root, runId) => readRunSnapshot(root, runId),
     runLatest: (root) => readLatestRun(root),
-    taskStart: (root, runId, taskId, input) => runner.startTask(root, runId, taskId, input),
-    taskStop: (root, runId, taskId) => runner.stopTask(root, runId, taskId),
-    taskApprove: (root, runId, taskId) => runner.approveTask(root, runId, taskId),
-    taskRequestChanges: (root, runId, taskId) => runner.requestChanges(root, runId, taskId),
-    taskFix: (root, runId, taskId) => runner.fixTask(root, runId, taskId),
+    taskStart: (root, runId, taskId, input) =>
+      isWritable(root)
+        ? runner.startTask(root, runId, taskId, input)
+        : { ok: false, error: 'run-locked' },
+    taskStop: (root, runId, taskId) =>
+      isWritable(root) ? runner.stopTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
+    taskApprove: (root, runId, taskId) =>
+      isWritable(root) ? runner.approveTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
+    taskRequestChanges: (root, runId, taskId) =>
+      isWritable(root)
+        ? runner.requestChanges(root, runId, taskId)
+        : { ok: false, error: 'run-locked' },
+    taskFix: (root, runId, taskId) =>
+      isWritable(root) ? runner.fixTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
+    taskTakeover: (root, runId, taskId) =>
+      isWritable(root)
+        ? runner.takeoverTask(root, runId, taskId)
+        : { ok: false, error: 'run-locked' },
+    taskReturn: (root, runId, taskId) =>
+      isWritable(root) ? runner.returnTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
+    taskRetry: (root, runId, taskId) =>
+      isWritable(root) ? runner.retryTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
     taskCommentUpdate: (root, runId, taskId, input) =>
-      runner.updateComment(root, runId, taskId, input),
+      isWritable(root)
+        ? runner.updateComment(root, runId, taskId, input)
+        : { ok: false, error: 'run-locked' },
     mergePreflight: (root, runId, taskId) => runner.mergePreflight(root, runId, taskId),
-    mergeExecute: (root, runId, taskId, input) => runner.mergeTask(root, runId, taskId, input),
-    runStop: (root, runId) => runner.stopRun(root, runId),
-    runPause: (root, runId) => runner.pauseRun(root, runId),
-    runResume: (root, runId) => runner.resumeRun(root, runId),
+    mergeExecute: (root, runId, taskId, input) =>
+      isWritable(root)
+        ? runner.mergeTask(root, runId, taskId, input)
+        : { ok: false, error: 'run-locked' },
+    runStop: (root, runId) =>
+      isWritable(root) ? runner.stopRun(root, runId) : { ok: false, error: 'run-locked' },
+    runPause: (root, runId) =>
+      isWritable(root) ? runner.pauseRun(root, runId) : { ok: false, error: 'run-locked' },
+    runResume: (root, runId) =>
+      isWritable(root) ? runner.resumeRun(root, runId) : { ok: false, error: 'run-locked' },
     configSave: (root, input): FactoryConfigSaveResult => {
       const result = updateFactoryConfig(root, input, {
         resolveModel: (model, engineType) => resolveFactoryModel(root, model, engineType),
       })
-      if (result.ok) {
+      if (result.ok && isWritable(root)) {
         runner.recordConfigChange(root, result.config.revision, {
           maxConcurrency: result.config.agent.maxConcurrency,
         })

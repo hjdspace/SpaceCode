@@ -8,9 +8,13 @@ import {
   FACTORY_LANES,
   FACTORY_SEGMENTS,
   FACTORY_STEPS,
+  canRetryTask,
+  canReturnTask,
+  canTakeOver,
   findTask,
   formatClock,
   formatTimestamp,
+  isTakenOver,
   laneCounts,
   runUsage,
   taskElapsedMs,
@@ -115,6 +119,33 @@ describe('stage rail', () => {
     expect(taskStatus(task({ lane: 'done', stageIdx: 6, cancelled: true }))).toEqual({
       key: 'factory.cardStatus.cancelled',
     })
+  })
+})
+
+describe('takeover projection', () => {
+  const takeover = { at: '2026-10-29T10:00:00Z', sessionId: 'fac-run-1-bl-1-takeover' }
+
+  it('marks a taken-over task and reports the takeover status', () => {
+    const taken = task({ lane: 'implementing', worktree: '.spacecode/worktrees/bl-1', takeover })
+    expect(isTakenOver(taken)).toBe(true)
+    expect(taskStatus(taken)).toEqual({ key: 'factory.cardStatus.takeover' })
+    expect(canReturnTask(taken)).toBe(true)
+    expect(canTakeOver(taken)).toBe(false)
+  })
+
+  it('only offers takeover for running tasks with a worktree', () => {
+    expect(canTakeOver(task({ lane: 'implementing', worktree: '.spacecode/worktrees/bl-1' }))).toBe(true)
+    expect(canTakeOver(task({ lane: 'reviewing', worktree: '.spacecode/worktrees/bl-1' }))).toBe(true)
+    expect(canTakeOver(task({ lane: 'implementing' }))).toBe(false)
+    expect(canTakeOver(task({ lane: 'queued', worktree: '.spacecode/worktrees/bl-1' }))).toBe(false)
+    expect(canTakeOver(task({ lane: 'mergeable', worktree: '.spacecode/worktrees/bl-1' }))).toBe(false)
+    expect(isTakenOver(task({ lane: 'blocked', takeover }))).toBe(false)
+  })
+
+  it('offers retry only for blocked tasks that still have a worktree', () => {
+    expect(canRetryTask(task({ lane: 'blocked', worktree: '.spacecode/worktrees/bl-1' }))).toBe(true)
+    expect(canRetryTask(task({ lane: 'blocked' }))).toBe(false)
+    expect(canRetryTask(task({ lane: 'implementing', worktree: '.spacecode/worktrees/bl-1' }))).toBe(false)
   })
 })
 
