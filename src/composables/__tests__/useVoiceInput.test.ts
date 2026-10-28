@@ -50,6 +50,7 @@ function createFakeModel(initial: VoiceModelStatus['state'] = 'installed') {
       archiveBytes: 100,
       installedBytes: 200,
       archiveName: 'model.tar.bz2',
+      model: { name: '', spec: '', upstreamUrl: '', license: '' },
       sources: [],
     })),
     install,

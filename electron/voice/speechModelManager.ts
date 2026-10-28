@@ -24,6 +24,7 @@ import type {
   VoiceRemoveResult,
 } from '@/shared/channels/voice'
 import {
+  SPEECH_MODEL_IDENTITY,
   SPEECH_MODEL_MANIFEST,
   expectedInstalledBytes,
   type SpeechModelManifest,
@@ -153,6 +154,7 @@ export class SpeechModelManager extends EventEmitter {
       archiveBytes: this.manifest.archiveBytes,
       installedBytes: expectedInstalledBytes(this.manifest),
       archiveName: this.manifest.assetName,
+      model: SPEECH_MODEL_IDENTITY,
       sources: this.resolveSources(),
     }
   }

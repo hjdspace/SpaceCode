@@ -22,6 +22,20 @@
 
       <div class="s-panel-body">
         <div class="status-grid">
+          <div class="status-item model-item">
+            <span class="status-label">{{ $t('voiceInput.modelLabel') }}</span>
+            <div class="model-identity">
+              <div class="model-identity-line">
+                <span class="model-name">{{ modelIdentity?.name || notAvailable }}</span>
+                <span v-if="modelIdentity?.license" class="model-badge">{{ modelIdentity.license }}</span>
+              </div>
+              <div v-if="modelIdentity?.spec" class="model-spec">{{ modelIdentity.spec }}</div>
+              <button v-if="modelIdentity?.upstreamUrl" type="button" class="model-link" @click="openUpstream">
+                <ExternalLink :size="12" />
+                <span>{{ $t('voiceInput.modelUpstream') }}</span>
+              </button>
+            </div>
+          </div>
           <div class="status-item">
             <span class="status-label">{{ $t('voiceInput.stateLabel') }}</span>
             <div class="status-value">
@@ -115,32 +129,52 @@
       <div class="s-panel-header">
         <div class="s-panel-header-left">
           <div class="s-panel-icon link"><LinkIcon :size="14" /></div>
-          <span class="s-panel-title">{{ $t('voiceInput.customUrlTitle') }}</span>
+          <span class="s-panel-title">{{ $t('voiceInput.sourcesTitle') }}</span>
         </div>
       </div>
       <div class="s-panel-body">
-        <div class="s-input-with-action">
-          <input
-            v-model="customUrl"
-            class="s-form-input"
-            type="url"
-            spellcheck="false"
-            :placeholder="$t('voiceInput.customUrlPlaceholder')"
-            :aria-label="$t('voiceInput.customUrl')"
-            @input="onCustomUrlInput"
-          />
-          <button
-            class="s-btn s-btn-secondary"
-            :disabled="!customUrlDirty || savingCustomUrl"
-            @click="saveCustomUrl"
-          >
-            <Check v-if="savedJustNow" :size="14" />
-            <span>{{ savedJustNow ? $t('voiceInput.customUrlSaved') : $t('common.save') }}</span>
-          </button>
+        <div class="source-chain">
+          <template v-for="(source, index) in installInfo?.sources ?? []" :key="source.url">
+            <span v-if="index > 0" class="chain-arrow">→</span>
+            <span class="source-chip" :title="source.url">{{ sourceHost(source) }}</span>
+          </template>
         </div>
-        <p v-if="customUrlError" class="field-error">{{ customUrlError }}</p>
-        <p v-else-if="saveState === 'failed'" class="field-error">{{ $t('voiceInput.customUrlSaveFailed') }}</p>
-        <p class="s-form-hint">{{ $t('voiceInput.customUrlHint') }}</p>
+        <p class="s-form-hint">{{ $t('voiceInput.sourceChainHint') }}</p>
+
+        <button
+          type="button"
+          class="advanced-toggle"
+          :aria-expanded="showAdvanced"
+          @click="showAdvanced = !showAdvanced"
+        >
+          <component :is="showAdvanced ? ChevronDown : ChevronRight" :size="13" />
+          <span>{{ $t('voiceInput.customUrlAdvanced') }}</span>
+        </button>
+
+        <div v-if="showAdvanced" class="advanced-body">
+          <div class="s-input-with-action">
+            <input
+              v-model="customUrl"
+              class="s-form-input"
+              type="url"
+              spellcheck="false"
+              :placeholder="$t('voiceInput.customUrlPlaceholder')"
+              :aria-label="$t('voiceInput.customUrl')"
+              @input="onCustomUrlInput"
+            />
+            <button
+              class="s-btn s-btn-secondary"
+              :disabled="!customUrlDirty || savingCustomUrl"
+              @click="saveCustomUrl"
+            >
+              <Check v-if="savedJustNow" :size="14" />
+              <span>{{ savedJustNow ? $t('voiceInput.customUrlSaved') : $t('common.save') }}</span>
+            </button>
+          </div>
+          <p v-if="customUrlError" class="field-error">{{ customUrlError }}</p>
+          <p v-else-if="saveState === 'failed'" class="field-error">{{ $t('voiceInput.customUrlSaveFailed') }}</p>
+          <p class="s-form-hint">{{ $t('voiceInput.customUrlHint') }}</p>
+        </div>
       </div>
     </div>
 
@@ -169,7 +203,10 @@ import { useI18n } from 'vue-i18n'
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronRight,
   Download,
+  ExternalLink,
   HardDrive,
   Link as LinkIcon,
   Mic,
@@ -187,6 +224,7 @@ import type {
   VoiceModelInstallInfo,
   VoiceModelPhase,
   VoiceModelProgress,
+  VoiceModelSource,
   VoiceModelState,
   VoiceModelStatus,
 } from '@/shared/channels/voice'
@@ -212,6 +250,9 @@ const customUrlError = ref('')
 const savingCustomUrl = ref(false)
 const saveState = ref<'idle' | 'saved' | 'failed'>('idle')
 const savedJustNow = computed(() => saveState.value === 'saved')
+const showAdvanced = ref(false)
+
+const modelIdentity = computed(() => installInfo.value?.model ?? null)
 
 const notAvailable = computed(() => t('voiceInput.notAvailable'))
 const isActive = computed(
@@ -451,6 +492,19 @@ function onCustomUrlInput() {
   saveState.value = 'idle'
 }
 
+function sourceHost(source: VoiceModelSource): string {
+  try {
+    return new URL(source.url).hostname
+  } catch {
+    return source.url
+  }
+}
+
+function openUpstream() {
+  const url = modelIdentity.value?.upstreamUrl
+  if (url) void api.shell.openExternal(url)
+}
+
 async function saveCustomUrl() {
   if (await persistCustomUrl()) {
     saveState.value = 'saved'
@@ -557,6 +611,61 @@ function errorMessage(err: unknown): string {
   flex-direction: column;
   gap: 6px;
   min-width: 120px;
+}
+
+.model-item {
+  flex-basis: 100%;
+}
+
+.model-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.model-identity-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.model-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.model-spec {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.model-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--accent-primary);
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 .status-label {
@@ -722,6 +831,48 @@ function errorMessage(err: unknown): string {
   margin-top: 8px;
   font-size: 12.5px;
   color: var(--error);
+}
+
+.source-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.chain-arrow {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.advanced-body {
+  margin-top: 12px;
 }
 
 .spinning {

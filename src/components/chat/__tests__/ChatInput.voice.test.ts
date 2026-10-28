@@ -68,6 +68,12 @@ const INSTALL_INFO: VoiceModelInstallInfo = {
   archiveBytes: 1024,
   installedBytes: 2048,
   archiveName: 'model.tar.bz2',
+  model: {
+    name: 'sherpa-onnx X-ASR 480ms streaming zipformer',
+    spec: 'zh-en · streaming · punctuation · int8',
+    upstreamUrl: 'https://example.com/upstream',
+    license: 'Apache-2.0',
+  },
   sources: [{ kind: 'github', url: 'https://example.com/model.tar.bz2' }],
 }
 

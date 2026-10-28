@@ -52,11 +52,21 @@ export interface VoiceModelStatus {
   errorCode?: VoiceModelErrorCode
 }
 
+/** 识别模型的身份信息 —— 让用户知道装的是什么，而不只是一个日期版本号。 */
+export interface VoiceModelIdentity {
+  name: string
+  /** 技术规格，如 `zh-en · streaming · punctuation · int8`；两侧语言都保持原文。 */
+  spec: string
+  upstreamUrl: string
+  license: string
+}
+
 export interface VoiceModelInstallInfo {
   version: string
   archiveBytes: number
   installedBytes: number
   archiveName: string
+  model: VoiceModelIdentity
   sources: VoiceModelSource[]
 }
 
