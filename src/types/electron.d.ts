@@ -467,6 +467,9 @@ export interface ElectronAPI {
   readFileAsBase64: (filePath: string) => Promise<string | null>
   writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>
   stat: (filePath: string) => Promise<FileStat | null>
+  paste: {
+    saveText: (text: string) => Promise<{ success: boolean; path?: string; size?: number; error?: string }>
+  }
   searchFiles: (dirPath: string, query: string, options?: { maxResults?: number }) => Promise<FileSearchEntry[]>
   copyFile: (srcPath: string, destPath: string) => Promise<{ success: boolean; error?: string }>
   moveFile: (srcPath: string, destPath: string) => Promise<{ success: boolean; error?: string }>
