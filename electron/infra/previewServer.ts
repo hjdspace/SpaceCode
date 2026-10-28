@@ -15,7 +15,7 @@
  *  - 仅服务白名单静态资源，不做目录列表
  *
  * 安全边界（服务器监听 127.0.0.1，同机任意进程都能连上，所以 URL 本身就是能力凭证）：
- *  - 只有登记过的预览工作区可被读取；URL 首段是一次性随机 token，
+ *  - 只有登记过的产物目录可被读取；URL 首段是一次性随机 token，
  *    未登记的绝对路径请求一律 404，不再退化成"知道端口就能读本机文件"。
  *  - 边界判定与 MIME 白名单在 `previewGrants.ts`，与自定义协议共用。
  *  - 故意不发 Access-Control-Allow-Origin：预览页在 webview 里是顶层文档，
@@ -87,10 +87,10 @@ export class PreviewServer {
    * 将本地文件路径转换为 HTTP 预览 URL（webview 用）。
    * 服务器尚未启动或无法安全登记时返回 null。
    */
-  toPreviewUrl(filePath: string, workspaceRoot?: string): string | null {
+  toPreviewUrl(filePath: string): string | null {
     if (!this.port) return null
 
-    const grant = this.grants.register(filePath, workspaceRoot)
+    const grant = this.grants.register(filePath)
     if (!grant) return null
 
     return `http://127.0.0.1:${this.port}/${grant.token}/${grant.rel}`
@@ -100,8 +100,8 @@ export class PreviewServer {
    * 将本地文件路径转换为设计预览 iframe 的专用源 URL。
    * 不依赖 HTTP 端口：失败原因只有"无法安全登记"。
    */
-  toFrameUrl(filePath: string, workspaceRoot?: string): string | null {
-    const grant = this.grants.register(filePath, workspaceRoot)
+  toFrameUrl(filePath: string): string | null {
+    const grant = this.grants.register(filePath)
     if (!grant) return null
     return buildPreviewFrameUrl(grant.token, grant.rel)
   }
@@ -171,7 +171,7 @@ export const previewServer = new PreviewServer(previewGrants)
 export function registerPreviewServerIPCHandlers() {
   ipcMain.handle(
     'preview:getUrl',
-    async (_event, filePath: string, workspaceRoot?: string) => {
+    async (_event, filePath: string) => {
       if (typeof filePath !== 'string' || filePath.trim() === '') return null
       // 确保服务器已启动
       if (!previewServer.getPort()) {
@@ -182,10 +182,7 @@ export function registerPreviewServerIPCHandlers() {
           return null
         }
       }
-      const url = previewServer.toPreviewUrl(
-        filePath,
-        typeof workspaceRoot === 'string' ? workspaceRoot : undefined,
-      )
+      const url = previewServer.toPreviewUrl(filePath)
       debug('PreviewServer', `getUrl: ${filePath} → ${url}`)
       return url
     },
@@ -193,12 +190,9 @@ export function registerPreviewServerIPCHandlers() {
 
   ipcMain.handle(
     'preview:getFrameUrl',
-    async (_event, filePath: string, workspaceRoot?: string) => {
+    async (_event, filePath: string) => {
       if (typeof filePath !== 'string' || filePath.trim() === '') return null
-      const url = previewServer.toFrameUrl(
-        filePath,
-        typeof workspaceRoot === 'string' ? workspaceRoot : undefined,
-      )
+      const url = previewServer.toFrameUrl(filePath)
       debug('PreviewServer', `getFrameUrl: ${filePath} → ${url}`)
       return url
     },

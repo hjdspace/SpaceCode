@@ -807,16 +807,17 @@ export const api = {
 
   // Preview API — HTTP 预览 URL 给 webview；frame URL 给设计预览 iframe 的专用源
   preview: {
-    getUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> => {
+    getUrl: (filePath: string): Promise<string | null> => {
       if (electronAPI?.preview?.getUrl) {
-        return electronAPI.preview.getUrl(filePath, workspaceRoot)
+        return electronAPI.preview.getUrl(filePath)
       }
       return Promise.resolve(null)
     },
-    getFrameUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> => {
+    getFrameUrl: (filePath: string): Promise<string | null> => {
       if (electronAPI?.preview?.getFrameUrl) {
-        return electronAPI.preview.getFrameUrl(filePath, workspaceRoot)
+        return electronAPI.preview.getFrameUrl(filePath)
       }
+      if (_isH5Mode) return h5ApiClient.getPreviewFrameUrl(filePath)
       return Promise.resolve(null)
     },
   },

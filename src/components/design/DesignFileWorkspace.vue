@@ -88,7 +88,7 @@ watch(activeTabPath, async (p) => {
   const isHtml = isHtmlFile(p)
   const [content, url] = await Promise.all([
     api.readFile(p),
-    isHtml ? api.preview.getFrameUrl(p, designWorkspace.value || undefined) : Promise.resolve(null),
+    isHtml ? api.preview.getFrameUrl(p) : Promise.resolve(null),
   ])
   // 连续切 tab 时慢的那次读取会晚到，不能用它覆盖已经切过去的文件
   if (activeTabPath.value !== p) return

@@ -10,21 +10,14 @@
  *  - `protocol.handle` 只作用于被注册的 session。主窗口跑在
  *    `persist:claude-code-desktop`，不能只注册到默认 session。
  *
- * 处理器本身不碰 electron API（只有注册函数碰），文件闸门与 HTTP 预览服务共用
- * `previewGrants.ts`，于是"协议能读、HTTP 读不到"的分裂不会发生。
+ * 处理器本身不碰 electron API（只有注册函数碰），文件闸门与响应形状都由
+ * `previewServe.ts` 提供，H5 第二端口复用同一份 —— "协议能读、HTTP 读不到"的分裂不会发生。
  */
 import { protocol } from 'electron'
-import { readFileSync } from 'fs'
 import { sep } from 'path'
-import {
-  PREVIEW_CSP,
-  PREVIEW_HOST,
-  PREVIEW_HOST_ORIGIN_PARAM,
-  PREVIEW_NONCE_PARAM,
-  PREVIEW_SCHEME,
-} from '@/shared/previewOrigin'
-import { buildBridgedDocument, stripCspMeta } from '@/shared/previewDocument'
-import { PreviewGrants, REJECT_STATUS, decodeSegment, type ServeDecision } from './previewGrants'
+import { PREVIEW_HOST, PREVIEW_SCHEME } from '@/shared/previewOrigin'
+import { PreviewGrants, decodeSegment } from './previewGrants'
+import { readBridgeOptions, servePreviewResource } from './previewServe'
 import { debug, info, warn } from './logger'
 
 /**
@@ -55,95 +48,43 @@ export type PreviewProtocolHost = {
   handle: (scheme: string, handler: (request: PreviewRequestLike) => Promise<Response>) => void
 }
 
-function emptyResponse(status: number, headers: Record<string, string> = {}): Response {
-  return new Response(null, { status, headers })
-}
-
-function readBridgeOptions(url: URL): { nonce: string; hostOrigin: string } | null {
-  const nonce = url.searchParams.get(PREVIEW_NONCE_PARAM)
-  const hostOrigin = url.searchParams.get(PREVIEW_HOST_ORIGIN_PARAM)
-  if (!nonce || !/^[A-Za-z0-9-]{1,64}$/.test(nonce)) return null
-  if (!isAllowedHostOrigin(hostOrigin)) return null
-  return { nonce, hostOrigin }
-}
-
-/** 宿主 origin 只接受 http(s) 与打包态的 `file://`；其他值不注入桥。 */
-function isAllowedHostOrigin(value: string | null): value is string {
-  if (!value) return false
-  if (value === 'file://') return true
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
 export function createPreviewRequestHandler(options: {
   grants: PreviewGrants
 }): (request: PreviewRequestLike) => Promise<Response> {
   const { grants } = options
 
   return async (request: PreviewRequestLike): Promise<Response> => {
-    const method = (request.method ?? 'GET').toUpperCase()
-    if (method !== 'GET' && method !== 'HEAD') {
-      return emptyResponse(405, { Allow: 'GET, HEAD' })
-    }
-
     let url: URL
     try {
       url = new URL(request.url)
     } catch {
-      return emptyResponse(400)
+      return new Response(null, { status: 400 })
     }
     // 只服务本预览源；其他 host 会串出另一个 origin 的身份
-    if (url.protocol !== `${PREVIEW_SCHEME}:` || url.host !== PREVIEW_HOST) return emptyResponse(404)
+    if (url.protocol !== `${PREVIEW_SCHEME}:` || url.host !== PREVIEW_HOST) {
+      return new Response(null, { status: 404 })
+    }
 
     const [rawToken, ...segments] = url.pathname.slice(1).split('/')
-    const token = decodeSegment(rawToken ?? '')
-    const rel = segments.map(decodeSegment).join(sep)
-    const root = token ? grants.rootFor(token) : undefined
-    const decision: ServeDecision = root
-      ? grants.authorize(root, rel)
-      : { reject: 'no-grant' }
+    const result = servePreviewResource({
+      grants,
+      token: decodeSegment(rawToken ?? ''),
+      rel: segments.map(decodeSegment).join(sep),
+      bridge: readBridgeOptions(url),
+      method: request.method,
+    })
 
-    if ('reject' in decision) {
-      const status = REJECT_STATUS[decision.reject]
-      if (status === 403) {
-        warn('PreviewProtocol', `Rejected ${decision.reject}: ${decision.target ?? url.pathname}`)
+    if (result.reject) {
+      if (result.status === 403) {
+        warn('PreviewProtocol', `Rejected ${result.reject}: ${result.target ?? url.pathname}`)
       } else {
-        debug('PreviewProtocol', `Not served (${decision.reject}): ${url.pathname}`)
+        debug('PreviewProtocol', `Not served (${result.reject}): ${url.pathname}`)
       }
-      return emptyResponse(status)
     }
 
-    let raw: Buffer
-    try {
-      raw = readFileSync(decision.serve)
-    } catch {
-      return emptyResponse(404)
-    }
-
-    const headers: Record<string, string> = {
-      'Content-Type': decision.contentType,
-      'Cache-Control': 'no-cache',
-      'Referrer-Policy': 'no-referrer',
-      'X-Content-Type-Options': 'nosniff',
-    }
-
-    let body: Buffer | null = raw
-    if (decision.contentType.startsWith('text/html')) {
-      // 预览文档的策略由宿主统一给：产物自带的 meta 会被交集执行，必须先移除
-      headers['Content-Security-Policy'] = PREVIEW_CSP
-      const bridge = readBridgeOptions(url)
-      const html = raw.toString('utf-8')
-      body = Buffer.from(bridge ? buildBridgedDocument(html, bridge) : stripCspMeta(html), 'utf-8')
-    }
-
-    headers['Content-Length'] = String(body?.length ?? 0)
-    return new Response(method === 'HEAD' ? null : new Uint8Array(body ?? raw), {
-      status: 200,
-      headers,
+    return new Response(result.body ? new Uint8Array(result.body) : null, {
+      status: result.status,
+      headers: result.headers,
     })
   }
 }

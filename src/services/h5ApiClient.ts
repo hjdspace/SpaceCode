@@ -219,6 +219,19 @@ export const h5ApiClient = {
   readFileAsBase64: (path: string): Promise<string | null> =>
     h5Fetch('/api/fs/read-file-base64', { method: 'POST', body: { path } }),
 
+  /**
+   * 设计预览专用源的 URL。由服务端签发：端口 +1 在反向代理 / 隧道下会算错；
+   * 失败（无权限、第二源未启用）返回 null，让预览落回 srcdoc 而不是空白 iframe。
+   */
+  getPreviewFrameUrl: async (filePath: string): Promise<string | null> => {
+    try {
+      const res = await h5Fetch('/api/preview/grant', { method: 'POST', body: { filePath } })
+      return typeof res?.url === 'string' ? res.url : null
+    } catch {
+      return null
+    }
+  },
+
   stat: (path: string) =>
     h5Fetch('/api/fs/stat', { method: 'POST', body: { path } }),
 

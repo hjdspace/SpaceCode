@@ -35,6 +35,7 @@ const H = vi.hoisted(() => ({
     stat: vi.fn(),
     searchFiles: vi.fn(),
     httpFetch: vi.fn(),
+    getPreviewFrameUrl: vi.fn(),
   },
 }))
 
@@ -338,6 +339,17 @@ describe('api 嵌套命名空间（electronAPI.claudeCode.*）兜底', () => {
     await expect(fresh.api.preview.getFrameUrl('/f')).resolves.toBe(
       'spacecode-preview://artifact/t/index.html',
     )
+  })
+
+  it('preview.getFrameUrl 在 H5 模式委托 h5ApiClient 签发的 URL', async () => {
+    H.h5Flag = true
+    H.h5Mock.getPreviewFrameUrl.mockResolvedValue('http://127.0.0.1:6001/__preview/t/index.html')
+    const { api } = await importFresh()
+
+    await expect(api.preview.getFrameUrl('/w/index.html')).resolves.toBe(
+      'http://127.0.0.1:6001/__preview/t/index.html',
+    )
+    expect(H.h5Mock.getPreviewFrameUrl).toHaveBeenCalledWith('/w/index.html')
   })
 })
 

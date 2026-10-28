@@ -13,6 +13,7 @@ import { H5AuthService } from './h5AuthService'
 import { renderH5Document, resolveH5SandboxBaseUrl } from './h5DocumentPolicy'
 import { startSandboxStaticServer, type SandboxStaticServer } from '../genui/sandboxStaticServer'
 import { resolveSandboxResourceRoot } from '../genui/sandboxRoot'
+import { previewGrants } from '../infra/previewGrants'
 import { newGenuiCspNonce } from '@/shared/genuiSandbox'
 import { engineGateway } from '../engine/engineGateway'
 import { isEffortLevel } from '@/shared/effort'
@@ -60,6 +61,12 @@ const FS_READ_ROUTES = new Set([
   '/api/fs/stat',
   '/api/fs/search-files',
 ])
+
+/**
+ * H5 预览 token 的有效期。桌面 token 随应用生命周期，远端设备上的 URL 会进
+ * 浏览器历史 / 分享链路，必须自己能过期；每次重新签发都续期。
+ */
+const H5_PREVIEW_GRANT_TTL_MS = 2 * 60 * 60 * 1000
 
 export class H5Server {
   private httpServer: ReturnType<typeof createServer> | null = null
@@ -164,6 +171,8 @@ export class H5Server {
         bindHost: '0.0.0.0',
         port: wanted,
         label: 'h5',
+        // 设计预览必须与父页面跨源：同一端口加路径会与宿主同源，allow-same-origin 就失去了意义
+        preview: { grants: previewGrants },
       })
     } catch (err) {
       warn('H5Server', `GenUI sandbox origin :${wanted} unavailable; cards will show a deployment error`, err)
@@ -318,22 +327,29 @@ export class H5Server {
   }
 
   /**
+   * 第二个源对外的基址。卡片 `frame-src`、引导脚本与预览 token URL 都从这里取，
+   * 反向代理 / 隧道下三者因此不可能对不上。
+   */
+  private sandboxBaseUrlFor(authority: string): string | null {
+    if (!this.sandboxServer) return null
+    const settings = this.authService.getSettings()
+    return resolveH5SandboxBaseUrl({
+      requestAuthority: authority,
+      publicBaseUrl: settings.publicBaseUrl ?? null,
+      sandboxPort: settings.sandboxPort ?? null,
+      mainPort: this.port,
+    })
+  }
+
+  /**
    * 文档响应带两份同一个策略：响应头 + 改写后的 CSP meta。
    * 浏览器会同时执行 meta 与响应头里的策略（取交集），构建产物里那条 meta 面向桌面，
    * 留着它就会把第二个源一起拦掉 —— 所以必须真的改，而不是只加头。
    */
   private serveDocument(filePath: string, res: ServerResponse, authority: string): void {
-    const settings = this.authService.getSettings()
     // 第二端口没监听上就不广播它的源：卡片立刻落回"宿主未接入沙箱"，
     // 而不是先亮 5 秒空白 iframe 再换成超时（票 06 第 5 条）
-    const sandboxBaseUrl = this.sandboxServer
-      ? resolveH5SandboxBaseUrl({
-          requestAuthority: authority,
-          publicBaseUrl: settings.publicBaseUrl ?? null,
-          sandboxPort: settings.sandboxPort ?? null,
-          mainPort: this.port,
-        })
-      : null
+    const sandboxBaseUrl = this.sandboxBaseUrlFor(authority)
 
     let html: string
     try {
@@ -717,6 +733,41 @@ export class H5Server {
         // 返回桌面端 GUI 设置 + 当前镜像会话信息
         this.sendJson(res, 200, this.getDesktopConfig())
         return
+
+      // 设计预览 URL 必须由服务端签发：端口推导在反向代理 / 隧道下会算错。
+      // token 带会话归属与 TTL，iframe 只拿 token，不再携带 H5 Authorization。
+      case '/api/preview/grant': {
+        const filePath = body.filePath
+        if (typeof filePath !== 'string' || filePath.trim() === '') {
+          this.sendJson(res, 400, { error: 'filePath required' })
+          return
+        }
+        // 与 /api/fs/* 同口径：远端 token 不能借预览把可读面扩大到任意本机路径
+        if (!this.pathGuard.check(filePath).allowed) {
+          this.sendJson(res, 403, { error: 'Path is outside the registered project roots' })
+          return
+        }
+        const sandboxBaseUrl = this.sandboxBaseUrlFor(req.headers.host || '')
+        if (!sandboxBaseUrl) {
+          this.sendJson(res, 409, { error: 'Preview origin is unavailable' })
+          return
+        }
+        const sessionId = typeof body.sessionId === 'string' && body.sessionId
+          ? body.sessionId
+          : this.mirrorSessionId ?? undefined
+        const grant = previewGrants.register(filePath, {
+          ttlMs: H5_PREVIEW_GRANT_TTL_MS,
+          sessionId,
+        })
+        if (!grant) {
+          this.sendJson(res, 404, { error: 'File cannot be previewed' })
+          return
+        }
+        this.sendJson(res, 200, {
+          url: `${sandboxBaseUrl}/__preview/${grant.token}/${grant.rel}`,
+        })
+        return
+      }
 
       case '/api/http/fetch':
         this.sendJson(res, 200, await this.proxyHttpFetch(

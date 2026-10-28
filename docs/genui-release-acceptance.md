@@ -107,9 +107,10 @@ npm run test           # 收尾全量（CI 也跑一次 test:coverage）
 - **H5 端只有跨 origin，没有进程隔离**：第二端口与主服务同 site，恶意卡片的死循环会拖住同一渲染进程。桌面端由 OOPIF 隔离，H5 明确不做（PRD Out of Scope）。
 - **沙箱源允许 `unsafe-eval`**：卡片协议用 `new Function` 求值 `JSExpression`，这是官方物料的运行前提。该授权只落在 opaque origin 的沙箱源，永不进主文档。
 - **H5 第二端口无鉴权**：它服务的就是构建产物本身，公开可读。不要往 `dist/genui-sandbox/` 放任何私有内容。
-- **DesignPreview 桥的安全债已由 [#62](https://github.com/hjdspace/SpaceCode/issues/62) 收口**：回传带每实例 nonce 并校验 `event.source`，动作走白名单，外链仅放行 `http:` / `https:`（主进程 `shell:openExternal` 同口径兜底）；`sandbox` 去掉 `allow-downloads`，`allow-popups` 的理由与移除路径见 [ADR 0017](adr/0017-design-preview-bridge-hardening.md)。
-  **预览页脚本不执行的问题已由 [#63](https://github.com/hjdspace/SpaceCode/issues/63) / [ADR 0018](adr/0018-design-preview-dedicated-origin.md) 收口**：桌面预览 iframe 改走 `spacecode-preview://artifact` 专用源，inline / external / module 脚本、相对资源与同源 fetch 正常执行；流式更新经 MessageChannel 注入。宿主 `script-src` 仍保持 `'self'`，`frame-src` 只增加这一个精确源。H5 设计预览仍是静态 srcdoc，另行跟踪。
-- **预览登记根可能覆盖整个工作区**：用户在 design 模式选过项目目录时，产物脚本只受 MIME 白名单限制，能读取同一工作区内的白名单类型文件。不要在一个含敏感文件的目录里预览不可信产物；逐文件登记是后续收口方向。
+- **DesignPreview 桥的安全债已由 [#62](https://github.com/hjdspace/SpaceCode/issues/62) / [#64](https://github.com/hjdspace/SpaceCode/issues/64) 收口**：回传带每实例 nonce 并校验 `event.source`，动作走白名单，外链仅放行 `http:` / `https:`（主进程 `shell:openExternal` 同口径兜底）；`sandbox` 去掉 `allow-downloads` 与 `allow-popups`，`target=_blank` / 修饰键 / 中键 / Enter 由注入 shim 捕获后交宿主打开（[ADR 0017](adr/0017-design-preview-bridge-hardening.md) 的移除路径已执行）。
+  **预览页脚本不执行的问题已由 [#63](https://github.com/hjdspace/SpaceCode/issues/63) / [ADR 0018](adr/0018-design-preview-dedicated-origin.md) 收口**：桌面预览 iframe 改走 `spacecode-preview://artifact` 专用源，inline / external / module 脚本、相对资源与同源 fetch 正常执行；流式更新经 MessageChannel 注入。宿主 `script-src` 仍保持 `'self'`，`frame-src` 只增加这一个精确源。
+  **H5 设计预览已由 [#64](https://github.com/hjdspace/SpaceCode/issues/64) 收口**：复用第二端口承载 `/__preview/<token>/<rel>`，URL 由服务端签发，token 带 2h TTL 与会话归属；预览文档使用自己的 CSP，不继承父页面 `script-src 'self'`。
+- **预览登记根是产物所在目录**：同目录及其子目录内的白名单类型文件（`.json` / `.txt` 等）仍可被产物脚本读取。不要把一个含敏感文件的目录当作设计工作区；若要进一步收窄，需要显式的资源清单或 opt-in。
 - **打包 CSP 的 `frame-src` 含本机开发源**、**主窗口无 `setWindowOpenHandler`**：见 §5 末尾两条，均有缓解因素。
 
 ## 7. 本轮执行记录

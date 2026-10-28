@@ -609,10 +609,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Preview API — HTTP URL 给 webview；frame URL 给设计预览 iframe 的专用源
   preview: {
-    getUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> =>
-      ipcRenderer.invoke('preview:getUrl', filePath, workspaceRoot),
-    getFrameUrl: (filePath: string, workspaceRoot?: string): Promise<string | null> =>
-      ipcRenderer.invoke('preview:getFrameUrl', filePath, workspaceRoot),
+    getUrl: (filePath: string): Promise<string | null> =>
+      ipcRenderer.invoke('preview:getUrl', filePath),
+    getFrameUrl: (filePath: string): Promise<string | null> =>
+      ipcRenderer.invoke('preview:getFrameUrl', filePath),
   },
 
   // Design API

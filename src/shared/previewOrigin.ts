@@ -24,10 +24,12 @@ export const PREVIEW_ORIGIN = `${PREVIEW_SCHEME}://${PREVIEW_HOST}`
  *   顶层导航、表单、下载仍然被禁止。
  * - `allow-same-origin` 让文档保住 `spacecode-preview://artifact` 这个跨源 origin：
  *   module script、字体与同源 fetch 都依赖它；它拿不到宿主 DOM / 存储。
+ * - 不给 `allow-popups`：不可信产物不能用新窗口做钓鱼面。外链由注入 shim 的
+ *   捕获阶段拦截改走宿主 `shell.openExternal`（仅 http/https），其余窗口创建被沙箱直接拒绝。
  * - 其余指令一概不写，产物里的 inline / external / eval 由这个源自己承担，
  *   宿主 `script-src 'self'` 不受影响。
  */
-export const PREVIEW_CSP = 'sandbox allow-scripts allow-same-origin allow-popups'
+export const PREVIEW_CSP = 'sandbox allow-scripts allow-same-origin'
 
 /** 宿主构建 iframe URL 时带上的桥参数；主进程据此给文档注入桥。 */
 export const PREVIEW_NONCE_PARAM = '__sp_nonce'

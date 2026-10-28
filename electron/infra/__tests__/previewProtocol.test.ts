@@ -60,7 +60,7 @@ writeFileSync(OUTSIDE, 'outside-secret')
 
 const grants = new PreviewGrants()
 const handler = createPreviewRequestHandler({ grants })
-const grant = grants.register(join(workspace, 'index.html'), workspace)!
+const grant = grants.register(join(workspace, 'index.html'))!
 
 function urlOf(rel: string, params: Record<string, string> = {}): string {
   const url = new URL(`${PREVIEW_ORIGIN}/${grant.token}/${rel}`)

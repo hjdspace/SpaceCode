@@ -104,8 +104,13 @@ function sanitizeTitleInDoc(html: string): string {
 
 /**
  * Bridge 2: 注入沙箱垫片 (Sandbox Shim)
- * 拦截 iframe 内部的 window.open, alert, confirm 行为并用 postMessage 发送到宿主，
- * 避免沙箱由于无 allow-same-origin 导致原生弹窗失效或报错。
+ * 拦截 iframe 内部的 alert / confirm / 外链跳转并用 postMessage 发送到宿主。
+ *
+ * 预览 iframe 不再授予 `allow-popups`：真正的新窗口创建由沙箱拦下，这里的
+ * 捕获阶段拦截只负责保住既有外链体验 —— `target=_blank`、修饰键点击、中键、
+ * 键盘 Enter 都改走 `od:sandbox:open`，由宿主用 `isSafeExternalUrl` 再判一次。
+ * 同源链接留在预览内导航，多页产物不至于被甩到系统浏览器。
+ *
  * 出站消息带 nonce、目标源固定为宿主 origin —— 不再向 `'*'` 广播。
  */
 function injectSandboxShim(html: string, bridge: PreviewBridgeOptions): string {
@@ -114,6 +119,85 @@ function injectSandboxShim(html: string, bridge: PreviewBridgeOptions): string {
     (function() {
       ${bridgeConstants(bridge)}
       ${SEND_TO_HOST}
+
+      function wantsNewWindow(event) {
+        return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+      }
+
+      function isBlankTarget(anchor) {
+        return String(anchor.getAttribute('target') || '').toLowerCase() === '_blank';
+      }
+
+      function findAnchor(event) {
+        var path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        for (var i = 0; i < path.length; i++) {
+          var node = path[i];
+          if (node && node.tagName && String(node.tagName).toLowerCase() === 'a' && node.getAttribute('href')) {
+            return node;
+          }
+        }
+        return null;
+      }
+
+      // 相对 URL 在 opaque origin（srcdoc 回退路径不给 allow-same-origin）里没有可导航的去处
+      function resolveLink(anchor) {
+        var raw = String(anchor.getAttribute('href') || '');
+        var absolute = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw);
+        var url;
+        try {
+          url = new URL(raw, document.baseURI);
+        } catch (e) {
+          return null;
+        }
+        var opaque = !location.origin || location.origin === 'null';
+        return {
+          url: url,
+          sameOrigin: !opaque && url.origin === location.origin,
+          transportable: url.protocol === 'http:' || url.protocol === 'https:',
+          unusable: !absolute && opaque
+        };
+      }
+
+      function handleAnchor(event) {
+        var anchor = findAnchor(event);
+        if (!anchor) return false;
+        event.preventDefault();
+        event.stopPropagation();
+
+        var link = resolveLink(anchor);
+        if (!link || link.unusable) return true;
+        if (link.sameOrigin) {
+          location.assign(link.url.href);
+          return true;
+        }
+        // 非 http(s) 的 scheme 一律丢弃；宿主侧还会再校验一次
+        if (link.transportable) sendToHost({ type: '${PREVIEW_MSG_OPEN}', url: link.url.href });
+        return true;
+      }
+
+      document.addEventListener('click', function(event) {
+        if (event.defaultPrevented) return;
+        var anchor = findAnchor(event);
+        if (!anchor) return;
+        if (!isBlankTarget(anchor) && !wantsNewWindow(event)) return;
+        handleAnchor(event);
+      }, true);
+
+      document.addEventListener('auxclick', function(event) {
+        if (event.defaultPrevented || event.button !== 1) return;
+        handleAnchor(event);
+      }, true);
+
+      // 键盘 Enter 在聚焦链接上可能不派发可拦截的 click；直接覆盖 _blank/修饰键两种新窗口意图
+      document.addEventListener('keydown', function(event) {
+        if (event.defaultPrevented || event.key !== 'Enter') return;
+        var target = event.target;
+        var anchor = target && target.closest ? target.closest('a[href]') : null;
+        if (!anchor) return;
+        if (!isBlankTarget(anchor) && !wantsNewWindow(event)) return;
+        handleAnchor(event);
+      }, true);
+
       window.alert = function(msg) {
         sendToHost({ type: '${PREVIEW_MSG_ALERT}', message: String(msg) });
       };

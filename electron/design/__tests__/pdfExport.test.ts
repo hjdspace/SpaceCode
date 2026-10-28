@@ -76,7 +76,7 @@ afterEach(() => {
 
 describe('exportPdf', () => {
   it('在产物旁生成 .pdf，内容就是渲染结果', async () => {
-    const output = await exportPdf(html, dir)
+    const output = await exportPdf(html)
 
     expect(output).toBe(join(dir, 'index.pdf'))
     expect(existsSync(output)).toBe(true)
@@ -84,16 +84,16 @@ describe('exportPdf', () => {
   })
 
   it('用预览服务器登记的工作区 URL 渲染，相对资源才命得中', async () => {
-    await exportPdf(html, dir)
+    await exportPdf(html)
 
-    expect(preview.toPreviewUrl).toHaveBeenCalledWith(html, dir)
+    expect(preview.toPreviewUrl).toHaveBeenCalledWith(html)
     expect(state.calls.loaded).toEqual(['http://127.0.0.1:4321/TOK/index.html'])
   })
 
   it('预览服务器未启动时先启动它', async () => {
     preview.getPort.mockReturnValue(0)
 
-    await exportPdf(html, dir)
+    await exportPdf(html)
 
     expect(preview.start).toHaveBeenCalledOnce()
   })
@@ -101,13 +101,13 @@ describe('exportPdf', () => {
   it('拿不到预览 URL 时退回 file:// 协议', async () => {
     preview.toPreviewUrl.mockReturnValue(null)
 
-    await exportPdf(html, dir)
+    await exportPdf(html)
 
     expect(state.calls.loaded).toEqual([expect.stringMatching(/^file:\/\//)])
   })
 
   it('保留背景色并按页面自身纸张设置排版', async () => {
-    await exportPdf(html, dir)
+    await exportPdf(html)
 
     expect(state.calls.printOptions[0]).toMatchObject({ printBackground: true, preferCSSPageSize: true })
   })
@@ -115,24 +115,24 @@ describe('exportPdf', () => {
   it('渲染失败时报错并回收隐藏窗口', async () => {
     state.failLoad = true
 
-    await expect(exportPdf(html, dir)).rejects.toThrow('ERR_CONNECTION_REFUSED')
+    await expect(exportPdf(html)).rejects.toThrow('ERR_CONNECTION_REFUSED')
     expect(state.calls.destroyed).toBe(1)
   })
 
   it('产物不在盘上时直接报错，不去打印 404 页面', async () => {
-    await expect(exportPdf(join(dir, 'gone.html'), dir)).rejects.toThrow(/gone\.html/)
+    await expect(exportPdf(join(dir, 'gone.html'))).rejects.toThrow(/gone\.html/)
     expect(state.calls.loaded).toEqual([])
   })
 
   it('打印结果为空视为失败，不产出空文件', async () => {
     state.emptyPdf = true
 
-    await expect(exportPdf(html, dir)).rejects.toThrow(/empty document/)
+    await expect(exportPdf(html)).rejects.toThrow(/empty document/)
     expect(existsSync(join(dir, 'index.pdf'))).toBe(false)
   })
 
   it('拒绝产物页面弹出的新窗口', async () => {
-    await exportPdf(html, dir)
+    await exportPdf(html)
 
     const handler = state.calls.denied[0] as () => unknown
     expect(typeof handler).toBe('function')
@@ -140,7 +140,7 @@ describe('exportPdf', () => {
   })
 
   it('成功后隐藏窗口被销毁', async () => {
-    await exportPdf(html, dir)
+    await exportPdf(html)
 
     expect(state.calls.destroyed).toBe(1)
   })

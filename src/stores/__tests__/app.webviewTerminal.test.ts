@@ -122,7 +122,7 @@ describe('openWebview / openFileInWebview', () => {
     const store = useAppStore()
     probe.api.preview.getUrl.mockResolvedValue('http://127.0.0.1:9527/preview/a.html')
     await store.openFileInWebview('C:\\out\\a.html')
-    expect(probe.api.preview.getUrl).toHaveBeenCalledWith('C:\\out\\a.html', undefined)
+    expect(probe.api.preview.getUrl).toHaveBeenCalledWith('C:\\out\\a.html')
     expect(store.webviewUrl).toBe('http://127.0.0.1:9527/preview/a.html')
   })
 
@@ -137,12 +137,12 @@ describe('openWebview / openFileInWebview', () => {
     expect(store.webviewUrl).toBe('file:///srv/out/b.html')
   })
 
-  it('openFileInWebview：预览服务拿到当前生效工作目录', async () => {
+  it('openFileInWebview：不再把整个项目根交给预览服务', async () => {
     const store = useAppStore()
     store.setProjectRoot('/root')
     probe.api.preview.getUrl.mockResolvedValue(null)
     await store.openFileInWebview('/a.html')
-    expect(probe.api.preview.getUrl).toHaveBeenCalledWith('/a.html', '/root')
+    expect(probe.api.preview.getUrl).toHaveBeenCalledWith('/a.html')
   })
 })
 

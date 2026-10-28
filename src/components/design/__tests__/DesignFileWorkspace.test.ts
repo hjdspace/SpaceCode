@@ -18,7 +18,7 @@ const { onFileChangedSpy, readFileSpy, getFrameUrlSpy, urlFor, fileChangedCallba
     // stores/__tests__/app.panelTabs.test.ts 钉住
     appStoreProbe: { openDesignPreview: vi.fn() },
     readFileSpy: vi.fn().mockResolvedValue('<html><body>mock</body></html>'),
-    getFrameUrlSpy: vi.fn(async (filePath: string, _workspaceRoot?: string): Promise<string | null> =>
+    getFrameUrlSpy: vi.fn(async (filePath: string): Promise<string | null> =>
       urlFor(filePath),
     ),
     urlFor,
@@ -248,7 +248,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     await vi.waitFor(() => {
       expect(previewProps(wrapper)?.previewUrl).toBe('spacecode-preview://artifact/TOKEN/index.html')
     })
-    expect(getFrameUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
+    expect(getFrameUrlSpy).toHaveBeenCalledWith('/workspace/index.html')
   })
 
   it('CSS 变更后活动 HTML 预览自动重载：reloadToken 递增且 URL 不变', async () => {
@@ -341,7 +341,7 @@ describe('DesignFileWorkspace — 多文件设计的相对资源加载', () => {
     mount(DesignFileWorkspace)
 
     await vi.waitFor(() => {
-      expect(getFrameUrlSpy).toHaveBeenCalledWith('/workspace/index.html', '/workspace')
+      expect(getFrameUrlSpy).toHaveBeenCalledWith('/workspace/index.html')
     })
   })
 

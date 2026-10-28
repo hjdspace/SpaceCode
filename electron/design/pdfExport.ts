@@ -2,7 +2,7 @@
  * 设计产物导出 PDF — 票 08。
  *
  * 用一个隐藏的离屏窗口跑真实 Chromium 排版：页面从预览服务器加载（与用户在预览里
- * 看到的一致，相对 CSS/JS 同源命中同一工作区），再 printToPDF 落盘。
+ * 看到的一致，相对 CSS/JS 同源命中产物目录），再 printToPDF 落盘。
  * 生成页是不可信内容，所以窗口不带 preload、sandbox 打开并拒绝弹窗。
  */
 import { existsSync, writeFileSync } from 'fs'
@@ -20,19 +20,19 @@ async function waitForFonts(contents: BrowserWindow['webContents']): Promise<voi
   }
 }
 
-async function renderUrlFor(htmlPath: string, workspaceRoot?: string): Promise<string> {
+async function renderUrlFor(htmlPath: string): Promise<string> {
   if (!previewServer.getPort()) await previewServer.start()
-  const url = previewServer.toPreviewUrl(htmlPath, workspaceRoot)
+  const url = previewServer.toPreviewUrl(htmlPath)
   // 预览服务器给不出登记 URL（极端路径）时退回 file://：排版仍由 Chromium 完成
   return url ?? pathToFileURL(htmlPath).href
 }
 
 /** 渲染 HTML 并写出同名 .pdf 到产物目录，返回产物路径。 */
-export async function exportPdf(htmlPath: string, workspaceRoot?: string): Promise<string> {
+export async function exportPdf(htmlPath: string): Promise<string> {
   const target = resolve(htmlPath)
   // 先确认产物在盘上：否则预览服务会 404，而 404 页面照样能打印成一份"成功"的 PDF
   if (!existsSync(target)) throw new Error(`Artifact not found: ${target}`)
-  const url = await renderUrlFor(target, workspaceRoot)
+  const url = await renderUrlFor(target)
   const offscreen = new BrowserWindow({
     show: false,
     width: 1280,
