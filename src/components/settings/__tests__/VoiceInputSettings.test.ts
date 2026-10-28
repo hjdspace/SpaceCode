@@ -16,8 +16,12 @@ const voiceApiMock = vi.hoisted(() => ({
   cancelInstall: vi.fn(),
 }))
 
+const shellApiMock = vi.hoisted(() => ({
+  openExternal: vi.fn(),
+}))
+
 vi.mock('@/services/electronAPI', () => ({
-  api: { voice: voiceApiMock },
+  api: { voice: voiceApiMock, shell: shellApiMock },
 }))
 
 vi.mock('@/stores/settings', () => ({
@@ -46,6 +50,12 @@ const INSTALL_INFO: VoiceModelInstallInfo = {
   archiveBytes: 300_000_000,
   installedBytes: 500_000_000,
   archiveName: 'model.tar.bz2',
+  model: {
+    name: 'sherpa-onnx X-ASR 480ms streaming zipformer',
+    spec: 'zh-en · streaming · punctuation · int8',
+    upstreamUrl: 'https://example.com/upstream',
+    license: 'Apache-2.0',
+  },
   sources: [{ kind: 'github', url: 'https://github.com/example/model.tar.bz2' }],
 }
 
@@ -160,5 +170,29 @@ describe('VoiceInputSettings — download failure', () => {
     expect(page.find('.error-box').text()).toContain('voiceInput.errorNetwork')
     expect(page.find('.progress-block').exists()).toBe(false)
     expect(page.find('.actions .s-btn-primary').attributes('disabled')).toBeUndefined()
+  })
+})
+
+describe('VoiceInputSettings — model identity and sources', () => {
+  it('names the model, its spec and license instead of only a version date', async () => {
+    const page = await mountPage()
+
+    expect(page.find('.model-name').text()).toBe(INSTALL_INFO.model.name)
+    expect(page.find('.model-spec').text()).toBe(INSTALL_INFO.model.spec)
+    expect(page.find('.model-badge').text()).toBe(INSTALL_INFO.model.license)
+
+    await page.find('.model-link').trigger('click')
+    expect(shellApiMock.openExternal).toHaveBeenCalledWith(INSTALL_INFO.model.upstreamUrl)
+  })
+
+  it('lists the source chain and keeps the custom URL behind an advanced toggle', async () => {
+    const page = await mountPage()
+
+    expect(page.find('.source-chip').text()).toBe('github.com')
+    // 默认不把「填一个 URL」摊给所有人。
+    expect(page.find('.advanced-body').exists()).toBe(false)
+
+    await page.find('.advanced-toggle').trigger('click')
+    expect(page.find('.advanced-body').exists()).toBe(true)
   })
 })
