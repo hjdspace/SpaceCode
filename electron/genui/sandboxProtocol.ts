@@ -33,8 +33,24 @@ export function registerGenuiSandboxScheme(): void {
   protocol.registerSchemesAsPrivileged([{ scheme: GENUI_SANDBOX_SCHEME, privileges: SCHEME_PRIVILEGES }])
 }
 
-export function registerGenuiSandboxProtocol(options: { resourceRoot: string }): void {
-  protocol.handle(GENUI_SANDBOX_SCHEME, createSandboxRequestHandler(options))
+/**
+ * 能挂协议处理器的宿主（主进程传 `Session['protocol']`）。
+ * 顶层 `protocol` 只覆盖默认 session —— 主窗口跑在 `persist:claude-code-desktop`，
+ * 挂错地方在 dev 会被 localhost:5174 掩盖，只在打包态暴露成空白卡片。
+ */
+export type SandboxProtocolHost = {
+  handle: (scheme: string, handler: (request: SandboxRequestLike) => Promise<Response>) => void
+}
+
+/** ready 之后调用；每个实际承载卡片 iframe 的 session 都要挂一次。 */
+export function registerGenuiSandboxProtocol(options: {
+  resourceRoot: string
+  hosts: SandboxProtocolHost[]
+}): void {
+  const handler = createSandboxRequestHandler(options)
+  for (const host of options.hosts) {
+    host.handle(GENUI_SANDBOX_SCHEME, handler)
+  }
 }
 
 function emptyResponse(status: number, headers: Record<string, string> = {}): Response {
