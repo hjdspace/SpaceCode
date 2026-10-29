@@ -4,7 +4,9 @@
  * 因为向导要给出不同的修复动作（换 token、改 Repository access、重试）。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { checkGhAuth, verifyGithubToken, type GithubFetch } from '../github'
+import { EventEmitter } from 'events'
+import type { ChildProcess } from 'child_process'
+import { checkGhAuth, listGithubRepos, startGhWebLogin, verifyGithubToken, type GithubFetch } from '../github'
 
 function response(status: number, body: unknown) {
   return { status, json: async () => body }
@@ -25,6 +27,16 @@ describe('verifyGithubToken', () => {
     const fetchImpl = vi.fn<GithubFetch>().mockResolvedValueOnce(response(401, { message: 'Bad credentials' }))
     const result = await verifyGithubToken('bad', 'hjdspace/SpaceCode', fetchImpl)
     expect(result).toMatchObject({ ok: false, reason: 'invalid-token' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('verifies a token without a repository so the repo list can drive selection', async () => {
+    const fetchImpl = vi.fn<GithubFetch>().mockResolvedValueOnce(response(200, { login: 'hjdspace' }))
+    await expect(verifyGithubToken('ghp_x', '', fetchImpl)).resolves.toMatchObject({
+      ok: true,
+      reason: 'ok',
+      login: 'hjdspace',
+    })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
@@ -65,5 +77,139 @@ describe('checkGhAuth', () => {
   it('treats a missing gh binary as not logged in', async () => {
     const run = vi.fn(async () => ({ code: 'ENOENT' as unknown as number, stdout: '' }))
     expect(await checkGhAuth(run)).toMatchObject({ ok: false, reason: 'gh-not-logged-in' })
+  })
+})
+
+interface FakeGhChild extends EventEmitter {
+  stdout: EventEmitter
+  stderr: EventEmitter
+  stdin: { write: (chunk: string) => void; written: string[] }
+  kill: () => void
+}
+
+function fakeGhChild(): FakeGhChild {
+  const child = new EventEmitter() as FakeGhChild
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  const written: string[] = []
+  child.stdin = {
+    written,
+    write: (chunk: string) => {
+      written.push(chunk)
+    },
+  }
+  child.kill = vi.fn()
+  return child
+}
+
+describe('listGithubRepos', () => {
+  it('lists repos through the gh CLI with the jq projection', async () => {
+    const run = vi.fn(async (_args: string[]) => ({
+      code: 0,
+      stdout: JSON.stringify([
+        { repo: 'hjdspace/SpaceCode', name: 'SpaceCode', private: true, description: 'desktop' },
+        { repo: 'acme/other', name: 'other', private: false },
+      ]),
+    }))
+    await expect(listGithubRepos('gh', null, { run })).resolves.toEqual({
+      ok: true,
+      repos: [
+        { repo: 'hjdspace/SpaceCode', name: 'SpaceCode', private: true, description: 'desktop' },
+        { repo: 'acme/other', name: 'other', private: false },
+      ],
+    })
+    expect(run.mock.calls[0][0].join(' ')).toContain('user/repos')
+  })
+
+  it('reports a not-logged-in gh as such', async () => {
+    const run = vi.fn(async () => ({
+      code: 1,
+      stdout: 'To get started with GitHub CLI, please run: gh auth login',
+    }))
+    await expect(listGithubRepos('gh', null, { run })).resolves.toEqual({ ok: false, reason: 'not-logged-in' })
+  })
+
+  it('lists repos over REST and keeps full_name', async () => {
+    const fetchImpl = vi.fn(async () =>
+      response(200, [{ full_name: 'hjdspace/SpaceCode', name: 'SpaceCode', private: false }]),
+    )
+    await expect(listGithubRepos('token', 'ghp_x', { fetch: fetchImpl as unknown as GithubFetch })).resolves.toEqual({
+      ok: true,
+      repos: [{ repo: 'hjdspace/SpaceCode', name: 'SpaceCode', private: false }],
+    })
+  })
+
+  it('classifies a rejected token and stays offline without a token', async () => {
+    const fetchImpl = vi.fn(async () => response(401, { message: 'Bad credentials' }))
+    await expect(listGithubRepos('token', 'ghp_x', { fetch: fetchImpl as unknown as GithubFetch })).resolves.toEqual({
+      ok: false,
+      reason: 'invalid-token',
+    })
+    await expect(listGithubRepos('token', '')).resolves.toEqual({ ok: false, reason: 'invalid-token' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('startGhWebLogin', () => {
+  it('returns the one-time code gh prints for the browser flow', async () => {
+    const child = fakeGhChild()
+    const spawnImpl = vi.fn(() => child as unknown as ChildProcess)
+    const pending = startGhWebLogin(spawnImpl)
+
+    expect(spawnImpl).toHaveBeenCalledWith([
+      'auth',
+      'login',
+      '--hostname',
+      'github.com',
+      '--git-protocol',
+      'https',
+      '--web',
+    ])
+    child.stderr.emit('data', '! First copy your one-time code: ABCD-1234\n')
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      reason: 'ok',
+      code: 'ABCD-1234',
+      url: 'https://github.com/login/device',
+    })
+  })
+
+  it('parses the code from the non-TTY output of gh 2.x', async () => {
+    const child = fakeGhChild()
+    const pending = startGhWebLogin(() => child as unknown as ChildProcess)
+    child.stderr.emit('data', '\n')
+    child.stderr.emit(
+      'data',
+      '! One-time code (22BD-F4A3) copied to clipboard\n' +
+        'Open this URL to continue in your web browser: https://github.com/login/device\n',
+    )
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      reason: 'ok',
+      code: '22BD-F4A3',
+      url: 'https://github.com/login/device',
+    })
+  })
+
+  it('answers the interactive Enter prompt so gh can open the browser', async () => {
+    const child = fakeGhChild()
+    const pending = startGhWebLogin(() => child as unknown as ChildProcess)
+    child.stderr.emit('data', 'Press Enter to open github.com in your browser...')
+    expect(child.stdin.written).toEqual(['\n'])
+    child.stderr.emit('data', '! First copy your one-time code: WXYZ-9876\n')
+    await pending
+  })
+
+  it('reports a short-lived gh process as a failure with its output', async () => {
+    const child = fakeGhChild()
+    const pending = startGhWebLogin(() => child as unknown as ChildProcess)
+    child.stderr.emit('data', 'could not prompt: not a terminal')
+    child.emit('exit', 1)
+
+    await expect(pending).resolves.toMatchObject({ ok: false, reason: 'unknown' })
+    const result = await pending
+    expect(result.detail).toContain('not a terminal')
   })
 })
