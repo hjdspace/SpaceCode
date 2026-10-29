@@ -29,6 +29,7 @@ const { factoryApi } = vi.hoisted(() => ({
     configSave: vi.fn(),
     taskStart: vi.fn(),
     taskStop: vi.fn(),
+    taskCancel: vi.fn(),
     taskEvents: vi.fn(),
     worktreeReveal: vi.fn(),
     onEvent: vi.fn(() => () => {}),
@@ -180,6 +181,39 @@ describe('run and selection', () => {
     expect(store.selectedId).toBe('bl-1')
   })
 
+  it('collapses the inspector and expands it again on the next pick', async () => {
+    mockRun(snapshot())
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+    expect(store.inspectorOpen).toBe(true)
+
+    store.closeInspector()
+    expect(store.inspectorOpen).toBe(false)
+    // 收起只是不显示检查器，选中项仍在：看板要占满宽度，但重新点开就回到同一个任务。
+    expect(store.selectedId).toBe('bl-1')
+
+    // 迟到的快照不能替用户把检查器重新打开。
+    await store.loadRun('/repo')
+    expect(store.inspectorOpen).toBe(false)
+
+    store.selectTask('bl-2')
+    expect(store.inspectorOpen).toBe(true)
+  })
+
+  it('reopens the inspector for a different run', async () => {
+    mockRun(snapshot())
+    factoryApi.runGet.mockImplementation((_root: string, id: string) =>
+      Promise.resolve(id === 'run-1' ? snapshot() : { ...snapshot(), run: { ...snapshot().run, id } }),
+    )
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+    store.closeInspector()
+
+    await store.selectRun('/repo', 'run-2')
+    expect(store.run?.id).toBe('run-2')
+    expect(store.inspectorOpen).toBe(true)
+  })
+
   it('creates a run and immediately hands it to the scheduler', async () => {
     factoryApi.runCreate.mockResolvedValue({ ok: true, snapshot: snapshot() })
     factoryApi.runResume.mockResolvedValue({
@@ -291,6 +325,60 @@ describe('implementation events', () => {
     await store.confirmDirtyStart('/repo', 'run-1', 'bl-1')
     expect(factoryApi.taskStart).toHaveBeenLastCalledWith('/repo', 'run-1', 'bl-1', { confirmDirty: true })
     expect(store.pendingDirtyId).toBeNull()
+  })
+})
+
+/** 卡片与检查器共用同一条放弃动作：store 只保留一份结果与错误。 */
+describe('abandon', () => {
+  function cancelledSnapshot(): FactoryRunSnapshot {
+    const base = snapshot()
+    return {
+      ...base,
+      tasks: base.tasks.map((task) => ({
+        ...task,
+        lane: 'done' as const,
+        stageIdx: 6,
+        cancelled: true,
+      })),
+    }
+  }
+
+  it('applies the snapshot returned by the cancel action', async () => {
+    mockRun(snapshot())
+    factoryApi.taskCancel.mockResolvedValue({ ok: true, snapshot: cancelledSnapshot() })
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    const result = await store.cancelTask('/repo', 'run-1', 'bl-1')
+    expect(factoryApi.taskCancel).toHaveBeenCalledWith('/repo', 'run-1', 'bl-1')
+    expect(result.ok).toBe(true)
+    expect(store.tasks[0]).toMatchObject({ lane: 'done', cancelled: true })
+    expect(store.actionError).toBeNull()
+    expect(store.cancelling).toBe(false)
+  })
+
+  it('keeps a refusal as an action error without touching the board', async () => {
+    mockRun(snapshot())
+    factoryApi.taskCancel.mockResolvedValue({ ok: false, error: 'not-cancellable' })
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    const result = await store.cancelTask('/repo', 'run-1', 'bl-1')
+    expect(result).toEqual({ ok: false, error: 'not-cancellable' })
+    expect(store.actionError).toEqual({ code: 'not-cancellable' })
+    expect(store.tasks[0].lane).toBe('queued')
+    expect(store.cancelling).toBe(false)
+  })
+
+  it('reports a write failure when the call itself throws', async () => {
+    mockRun(snapshot())
+    factoryApi.taskCancel.mockRejectedValue(new Error('ipc down'))
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    expect(await store.cancelTask('/repo', 'run-1', 'bl-1')).toEqual({ ok: false, error: 'write-failed' })
+    expect(store.actionError).toEqual({ code: 'write-failed' })
+    expect(store.cancelling).toBe(false)
   })
 })
 
