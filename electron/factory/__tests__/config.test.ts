@@ -67,8 +67,20 @@ describe('buildFactoryConfig', () => {
     expect(c.limits.keepDoneRuns).toBe(20)
   })
 
-  it('builds a local tracker without github-only fields', () => {
+  it('applies per-role model overrides from the wizard draft', () => {
     const result = buildFactoryConfig(
+      { ...baseDraft, stages: { plan: { model: 'opus' }, review: { model: 'claude-haiku' } } },
+      { baseBranch: 'main' },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.config.stages.plan.model).toBe('opus')
+    expect(result.config.stages.review.model).toBe('claude-haiku')
+    expect(result.config.stages.implement.model).toBeUndefined()
+    expect(result.config.stages.verify.model).toBeUndefined()
+  })
+
+  it('builds a local tracker without github-only fields', () => {    const result = buildFactoryConfig(
       { ...baseDraft, tracker: { type: 'local', mergeMode: 'local' } },
       { baseBranch: 'main' },
     )
