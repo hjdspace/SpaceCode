@@ -128,6 +128,21 @@ describe('FactoryBoard', () => {
     expect(wrapper.emitted('select')?.[0]).toEqual(['bl-2'])
   })
 
+  it('hands the card action up without deciding what it means', async () => {
+    const wrapper = mountBoard(tasks)
+    await wrapper.find('[data-lane="queued"] [data-card-action="cancel"]').trigger('click')
+    expect(wrapper.emitted('action')?.[0]).toEqual(['bl-1', 'cancel'])
+  })
+
+  it('passes the storage lock and the in-flight action down to every card', () => {
+    const wrapper = mount(FactoryBoard, {
+      props: { tasks, selectedId: null, run: run(), readonly: true, busy: 'cancel' },
+    })
+    expect(wrapper.findAll('[data-card-locked]')).toHaveLength(3)
+    const queued = wrapper.find('[data-lane="queued"]')
+    expect(queued.find('[data-card-action="cancel"]').attributes('disabled')).toBeDefined()
+  })
+
   it('scrolls the requested lane inside the board scroller only', () => {
     const wrapper = mountBoard(tasks)
     const board = wrapper.find('.factory-board').element as HTMLElement

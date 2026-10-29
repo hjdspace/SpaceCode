@@ -4,7 +4,14 @@
  * 六条泳道是投影，不是六份存储；任务只存 `lane + stageIdx`。
  * 组件只渲染这里的结果，i18n key 也由这里给出，避免文案散落在模板里。
  */
-import type { FactoryLane, FactoryRun, FactoryTask, FactoryTaskDiff } from '@/shared/factory'
+import type {
+  FactoryLane,
+  FactoryPermissionMode,
+  FactoryRun,
+  FactoryTask,
+  FactoryTaskDiff,
+} from '@/shared/factory'
+import { pendingComments } from '@/shared/factoryReview'
 
 export interface FactoryLaneMeta {
   key: FactoryLane
@@ -222,6 +229,27 @@ export function stepStates(task: FactoryTask): FactoryStepVisualState[] {
   })
 }
 
+/**
+ * 任务实跑用的权限模式：领取时固化在快照的实现阶段，之后保存的配置只影响新任务。
+ * 快照出现前的历史任务返回 null，界面据此不显示这一行，而不是猜当前配置值。
+ */
+export function taskPermissionMode(task: FactoryTask): FactoryPermissionMode | null {
+  return task.configSnapshot?.stages?.implement?.permissionMode ?? null
+}
+
+/**
+ * 页签后面的数量：Diff 数变更文件，审查数意见条数。零也照样给出，
+ * 概览与事件流没有计数，所以按页签取用可能拿到 undefined。
+ */
+export type FactoryInspectorBadges = Partial<Record<FactoryInspectorTab, number>>
+
+export function inspectorTabBadges(task: FactoryTask): FactoryInspectorBadges {
+  return {
+    diff: task.diff.files?.length ?? 0,
+    review: task.review?.comments.length ?? 0,
+  }
+}
+
 export function taskElapsedMs(task: FactoryTask, nowMs: number): number {
   if (!task.timestamps.startedAt) return 0
   const end = task.timestamps.endedAt ? Date.parse(task.timestamps.endedAt) : nowMs
@@ -273,4 +301,87 @@ export function doneTaskMeta(task: FactoryTask): FactoryTaskStatus | null {
   return time
     ? { key: 'factory.cardMeta.merged', params: { time, commits } }
     : { key: 'factory.cardMeta.finished', params: { commits } }
+}
+
+/** 卡片快捷动作的意图；渲染层把它映射到与检查器底部同一个 store 动作。 */
+export type FactoryCardActionKind =
+  | 'start'
+  | 'cancel'
+  | 'takeover'
+  | 'return'
+  | 'review'
+  | 'merge'
+  | 'fix'
+  | 'retry'
+  | 'view'
+
+export interface FactoryCardAction {
+  kind: FactoryCardActionKind
+  labelKey: string
+  /** primary 是泳道的推进方向，danger 是放弃方向，其余并列；样式由卡片决定。 */
+  variant: 'primary' | 'danger' | 'ghost'
+}
+
+/** 可以放弃/移除：只有还没在跑的队列与阻塞任务，且尚未取消。 */
+export function canCancelTask(task: FactoryTask): boolean {
+  if (task.cancelled === true) return false
+  return task.lane === 'queued' || task.lane === 'blocked'
+}
+
+/** 队列里叫「移除」，阻塞里叫「放弃」：同一条动作两种说法，卡片与检查器共用这一处。 */
+export function cancelLabelKey(task: FactoryTask): string {
+  return task.lane === 'queued' ? 'factory.actions.remove' : 'factory.actions.abandon'
+}
+
+/** 可以把未决意见交回 Agent：与检查器的「让 Agent 修」同一资格。 */
+export function canFixTask(task: FactoryTask): boolean {
+  if (task.cancelled === true) return false
+  if (task.lane !== 'blocked' && task.lane !== 'reviewing') return false
+  if (!task.worktree) return false
+  return pendingComments(task.review).length > 0
+}
+
+function action(
+  kind: FactoryCardActionKind,
+  labelKey: string,
+  variant: FactoryCardAction['variant'],
+): FactoryCardAction {
+  return { kind, labelKey: `factory.actions.${labelKey}`, variant }
+}
+
+function cancelAction(task: FactoryTask): FactoryCardAction {
+  return { kind: 'cancel', labelKey: cancelLabelKey(task), variant: 'danger' }
+}
+
+/**
+ * 卡片按所在泳道直接给出下一步动作。资格判定全部复用检查器那批纯函数，
+ * 避免同一动作在卡片上可点、在检查器里报错。
+ */
+export function cardActions(task: FactoryTask): FactoryCardAction[] {
+  if (task.lane === 'done') return [action('view', 'view', 'ghost')]
+  if (task.cancelled === true) return []
+
+  switch (task.lane) {
+    case 'queued':
+      return [action('start', 'start', 'primary'), cancelAction(task)]
+    case 'implementing':
+      if (canReturnTask(task)) return [action('return', 'return', 'primary')]
+      return canTakeOver(task) ? [action('takeover', 'takeover', 'primary')] : []
+    case 'reviewing': {
+      const items = [action('review', 'review', 'primary')]
+      if (canReturnTask(task)) items.push(action('return', 'return', 'ghost'))
+      else if (canTakeOver(task)) items.push(action('takeover', 'takeover', 'ghost'))
+      return items
+    }
+    case 'mergeable':
+      return [action('merge', 'mergeShort', 'primary')]
+    case 'blocked': {
+      const items: FactoryCardAction[] = []
+      // 有未决意见才谈得上「让 Agent 修」；其余阻塞（停止、验证失败、冲突）走重试。
+      if (canFixTask(task)) items.push(action('fix', 'fix', 'primary'))
+      else if (canRetryTask(task)) items.push(action('retry', 'retryShort', 'primary'))
+      if (canCancelTask(task)) items.push(cancelAction(task))
+      return items
+    }
+  }
 }

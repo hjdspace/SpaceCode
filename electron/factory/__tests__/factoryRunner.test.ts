@@ -4,12 +4,12 @@
  * 停止与事件推送。Agent 与实现循环用假的，Git 也注入，只跨真实文件系统。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
 import { createBacklogItem } from '../backlog'
-import { createFactoryRun, readRunSnapshot } from '../runs'
+import { createFactoryRun, createGithubRun, readRunSnapshot } from '../runs'
 import { transitionTask } from '../runtime'
 import { createFactoryRunner, type FactoryRunnerDeps, type SandboxSession } from '../factoryRunner'
 import type { GitRunner } from '../worktree'
@@ -456,6 +456,113 @@ describe('approve and change requests', () => {
       attention: { reason: 'review.changes_requested', action: 'fix' },
     })
     expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.changes_requested')
+  })
+})
+
+/**
+ * 放弃：把队列/阻塞任务直接落到已完成泳道并标记取消。
+ * 分支与工作树必须原样保留，GitHub 来源也不能被顺手评论或关闭。
+ */
+describe('abandon', () => {
+  it('moves a queued task to done marked cancelled and records the event', async () => {
+    seed()
+    const runner = createFactoryRunner(deps())
+
+    const result = await runner.cancelTask(dir, runId, 'bl-1')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.snapshot.tasks[0]).toMatchObject({
+      lane: 'done',
+      stageIdx: 6,
+      cancelled: true,
+    })
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.cancelled')
+  })
+
+  it('keeps the branch and worktree of a blocked task on disk', async () => {
+    seed()
+    const worktreeDir = join(dir, '.spacecode', 'worktrees', 'bl-1')
+    mkdirSync(worktreeDir, { recursive: true })
+    writeFileSync(join(worktreeDir, 'keep-me.txt'), '产出还在\n')
+    transitionTask(dir, runId, 'bl-1', { lane: 'implementing', stageIdx: 2 }, 'worktree.ready', {
+      worktree: '.spacecode/worktrees/bl-1',
+    })
+    transitionTask(dir, runId, 'bl-1', { lane: 'blocked' }, 'tests.failed', {})
+
+    const runner = createFactoryRunner(deps())
+    expect((await runner.cancelTask(dir, runId, 'bl-1')).ok).toBe(true)
+
+    const task = readRunSnapshot(dir, runId)!.tasks[0]
+    expect(task).toMatchObject({
+      lane: 'done',
+      cancelled: true,
+      worktree: '.spacecode/worktrees/bl-1',
+      branch: 'agent/task-bl-1',
+    })
+    expect(task.attention).toBeUndefined()
+    expect(existsSync(join(worktreeDir, 'keep-me.txt'))).toBe(true)
+  })
+
+  it('refuses a second abandon', async () => {
+    seed()
+    const runner = createFactoryRunner(deps())
+    expect((await runner.cancelTask(dir, runId, 'bl-1')).ok).toBe(true)
+    expect(await runner.cancelTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-cancellable' })
+  })
+
+  it('refuses lanes the run is still advancing', async () => {
+    seed()
+    toReviewing(APPROVED_REVIEW)
+    const runner = createFactoryRunner(deps())
+    expect(await runner.cancelTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-cancellable' })
+  })
+
+  it('refuses to abandon while a background round is still running', async () => {
+    seed()
+    const runner = createFactoryRunner(
+      deps({
+        runImplementation: async (input) => {
+          await new Promise<void>((resolve) => input.signal.addEventListener('abort', () => resolve()))
+          return { outcome: 'stopped', iterations: 1, inputTokens: 0, outputTokens: 0 }
+        },
+      }),
+    )
+    await runner.startTask(dir, runId, 'bl-1', {})
+    expect(await runner.cancelTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'already-running' })
+
+    await runner.stopTask(dir, runId, 'bl-1')
+    expect(await runner.cancelTask(dir, runId, 'bl-1')).toMatchObject({ ok: true })
+  })
+
+  it('reports a missing task without touching the run', async () => {
+    seed()
+    const runner = createFactoryRunner(deps())
+    expect(await runner.cancelTask(dir, runId, 'bl-404')).toEqual({ ok: false, error: 'task-not-found' })
+    expect(readRunSnapshot(dir, runId)!.tasks[0].lane).toBe('queued')
+  })
+
+  it('comments and closes nothing for a GitHub-sourced task', async () => {
+    seed()
+    let writeBackCalls = 0
+    const created = createGithubRun(dir, {
+      runId: 'run-2',
+      tasks: [{ issueNumber: 42, title: '线上回归', goal: '放弃它' }],
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+
+    const runner = createFactoryRunner(deps({ mergeWriteBack: () => { writeBackCalls += 1 } }))
+    const result = await runner.cancelTask(dir, 'run-2', created.snapshot.tasks[0].id)
+    expect(result.ok).toBe(true)
+
+    const task = readRunSnapshot(dir, 'run-2')!.tasks[0]
+    expect(task).toMatchObject({ source: 'github-issues', issueNumber: 42, cancelled: true })
+    expect(task.writeback).toBeUndefined()
+    expect(task.pullRequest).toBeUndefined()
+    expect(writeBackCalls).toBe(0)
+    expect(
+      runner.readEvents(dir, 'run-2').some((event) => event.code.startsWith('github.writeback')),
+    ).toBe(false)
   })
 })
 

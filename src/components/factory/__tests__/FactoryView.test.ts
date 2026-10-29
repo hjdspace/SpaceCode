@@ -25,6 +25,8 @@ const { factoryApi } = vi.hoisted(() => ({
     runList: vi.fn(),
     runGet: vi.fn(),
     taskEvents: vi.fn(),
+    taskCancel: vi.fn(),
+    mergePreflight: vi.fn(),
     runCreate: vi.fn(),
     runResume: vi.fn(),
     runPause: vi.fn(),
@@ -110,21 +112,56 @@ function snapshot(id = 'run-1', status: FactoryRunSnapshot['run']['status'] = 'r
 
 const focusLane = vi.fn()
 
-/** 看板只暴露 focusLane，用来确认创建成功后会滚到队列泳道。 */
+/** 看板只暴露 focusLane，并用 select/action 模拟点卡片；检查器只报收起/展开。 */
 const BoardStub = defineComponent({
   name: 'FactoryBoard',
   props: {
     nowMs: { type: Number, default: 0 },
     run: { type: Object as PropType<FactoryRun | null>, default: null },
+    selectedId: { type: String, default: null },
+    readonly: { type: Boolean, default: false },
+    busy: { type: String, default: null },
   },
-  setup(props, { expose }) {
+  emits: ['select', 'action'],
+  setup(props, { expose, emit }) {
     expose({ focusLane })
     return () =>
-      h('div', {
-        'data-board-stub': '',
-        'data-board-now': String(props.nowMs),
-        'data-board-run': props.run?.id ?? '',
-      })
+      h(
+        'div',
+        {
+          'data-board-stub': '',
+          'data-board-now': String(props.nowMs),
+          'data-board-run': props.run?.id ?? '',
+          'data-board-selected': props.selectedId ?? '',
+          'data-board-readonly': String(props.readonly),
+          'data-board-busy': props.busy ?? '',
+        },
+        [
+          h('button', {
+            'data-board-select': '',
+            onClick: () => emit('select', 'bl-1'),
+          }),
+          h('button', {
+            'data-board-cancel': '',
+            onClick: () => emit('action', 'bl-1', 'cancel'),
+          }),
+          h('button', {
+            'data-board-review': '',
+            onClick: () => emit('action', 'bl-2', 'review'),
+          }),
+        ],
+      )
+  },
+})
+
+const InspectorStub = defineComponent({
+  name: 'FactoryInspector',
+  emits: ['close'],
+  setup(_, { emit }) {
+    return () =>
+      h('div', { 'data-inspector-stub': '' }, [
+        h('button', { 'data-inspector-close': '', onClick: () => emit('close') }),
+      ])
   },
 })
 
@@ -139,7 +176,7 @@ const HeaderStub = defineComponent({
 const stubs = {
   FactoryRunHeader: HeaderStub,
   FactoryBoard: BoardStub,
-  FactoryInspector: true,
+  FactoryInspector: InspectorStub,
   FactoryBacklogPanel: true,
   FactoryGithubPanel: true,
   FactoryMergeDialog: true,
@@ -171,6 +208,51 @@ beforeEach(() => {
   )
   factoryApi.runCreate.mockResolvedValue({ ok: true, snapshot: snapshot('run-2', 'pending') })
   factoryApi.runResume.mockResolvedValue({ ok: true, snapshot: snapshot('run-2', 'running') })
+})
+
+describe('FactoryView card quick actions', () => {
+  it('abandons through the same store action the inspector footer uses', async () => {
+    factoryApi.taskCancel.mockResolvedValue({ ok: true, snapshot: snapshot('run-1') })
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-board-cancel]').trigger('click')
+    await flushPromises()
+
+    expect(factoryApi.taskCancel).toHaveBeenCalledWith(ROOT, 'run-1', 'bl-1')
+    // 成功不改动选中：卡片动作的意义就是不必先选中任务。
+    expect(wrapper.find('[data-board-selected]').attributes('data-board-selected')).toBe('')
+  })
+
+  it('focuses the task when the action is refused so one surface explains why', async () => {
+    factoryApi.taskCancel.mockResolvedValue({ ok: false, error: 'not-cancellable' })
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-board-cancel]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-board-selected]').attributes('data-board-selected')).toBe('bl-1')
+  })
+
+  it('opens the inspector on the review tab for a reviewing card', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-board-review]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-board-selected]').attributes('data-board-selected')).toBe('bl-2')
+  })
+
+  it('hands the storage lock down to the board so cards disable their actions', async () => {
+    factoryApi.state.mockResolvedValue({
+      configured: true,
+      config: configFixture(),
+      configPath: '.spacecode/factory/config.json',
+      storage: { writable: false, corrupt: [] },
+    })
+    const wrapper = await mountView()
+
+    expect(wrapper.find('[data-board-readonly]').attributes('data-board-readonly')).toBe('true')
+  })
 })
 
 describe('FactoryView new run', () => {
@@ -224,6 +306,24 @@ describe('FactoryView new run', () => {
       'factory.run.errors.duplicate-tasks|{"ids":"bl-1"}',
     )
     expect(focusLane).not.toHaveBeenCalled()
+  })
+})
+
+describe('FactoryView inspector column', () => {
+  it('gives the board the full width once the inspector collapses', async () => {
+    const wrapper = await mountView()
+    const columns = wrapper.find('[data-factory-columns]')
+
+    expect(wrapper.find('[data-inspector-stub]').exists()).toBe(true)
+    expect(columns.attributes('data-inspector-collapsed')).toBeUndefined()
+
+    await wrapper.find('[data-inspector-close]').trigger('click')
+    expect(wrapper.find('[data-inspector-stub]').exists()).toBe(false)
+    expect(columns.attributes('data-inspector-collapsed')).toBe('true')
+
+    await wrapper.find('[data-board-select]').trigger('click')
+    expect(wrapper.find('[data-inspector-stub]').exists()).toBe(true)
+    expect(columns.attributes('data-inspector-collapsed')).toBeUndefined()
   })
 })
 

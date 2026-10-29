@@ -21,8 +21,10 @@
           :selected="task.id === selectedId"
           :now-ms="nowMs"
           :run="run"
+          :readonly="readonly"
+          :busy="busy"
           @select="emit('select', $event)"
-          @return="emit('return', $event)"
+          @action="(id, kind) => emit('action', id, kind)"
         />
         <div v-if="!grouped[lane.key].length" class="lane-empty" data-lane-empty>
           {{ t('factory.laneEmpty') }}
@@ -36,7 +38,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { FactoryLane, FactoryRun, FactoryTask } from '@/shared/factory'
-import { FACTORY_LANES, tasksByLane } from '@/stores/factory/board'
+import { FACTORY_LANES, tasksByLane, type FactoryCardActionKind } from '@/stores/factory/board'
 import FactoryCard from './FactoryCard.vue'
 
 const props = withDefaults(
@@ -46,11 +48,18 @@ const props = withDefaults(
     /** 卡片的脉冲跟着运行走：泳道只负责分组，运行态由整块看板共享。 */
     run: FactoryRun | null
     nowMs?: number
+    /** 运行目录只读：整块看板的卡片动作一起禁用，原因由卡片给出。 */
+    readonly?: boolean
+    /** 看板上正在执行中的快捷动作，避免同一动作重复点击。 */
+    busy?: FactoryCardActionKind | null
   }>(),
-  { nowMs: () => Date.now() },
+  { nowMs: () => Date.now(), readonly: false, busy: null },
 )
 
-const emit = defineEmits<{ select: [id: string]; return: [id: string] }>()
+const emit = defineEmits<{
+  select: [id: string]
+  action: [id: string, kind: FactoryCardActionKind]
+}>()
 
 const { t } = useI18n()
 

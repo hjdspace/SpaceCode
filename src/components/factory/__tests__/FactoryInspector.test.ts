@@ -2,8 +2,13 @@
  * 检查器：空态、概览字段、六阶段进度、时间戳、页签空态与切换不丢选中。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import type { FactoryReview, FactoryTask } from '@/shared/factory'
+import { flushPromises, mount } from '@vue/test-utils'
+import type {
+  FactoryPermissionMode,
+  FactoryReview,
+  FactoryTask,
+  FactoryTaskConfigSnapshot,
+} from '@/shared/factory'
 import { formatTimestamp } from '@/stores/factory/board'
 
 vi.mock('vue-i18n', () => ({
@@ -32,6 +37,29 @@ function task(overrides: Partial<FactoryTask> = {}): FactoryTask {
     diff: { additions: 34, deletions: 8 },
     timestamps: { claimedAt: '2026-10-28T10:00:00Z', startedAt: '2026-10-28T10:01:00Z' },
     ...overrides,
+  }
+}
+
+/** 领取时固化的最小快照：只关心实现阶段的权限模式。 */
+function configSnapshot(implement: FactoryPermissionMode): FactoryTaskConfigSnapshot {
+  const stage = (permissionMode: FactoryPermissionMode) => ({
+    enabled: true,
+    permissionMode,
+    humanGate: false,
+  })
+  return {
+    revision: 3,
+    engineType: 'claude-code',
+    maxIterations: 5,
+    stages: {
+      plan: stage('plan'),
+      implement: stage(implement),
+      verify: stage('default'),
+      review: stage('default'),
+      merge: stage('default'),
+    },
+    verifyCommand: 'npm run test',
+    taskTimeoutSec: 3600,
   }
 }
 
@@ -226,6 +254,30 @@ describe('FactoryInspector', () => {
     expect(running.emitted('reveal')).toHaveLength(1)
   })
 
+  it('offers remove on a queued task and abandon on a blocked one', async () => {
+    const queued = mount(FactoryInspector, {
+      props: { task: task({ lane: 'queued', stageIdx: 0, worktree: null }), tab: 'overview' },
+    })
+    expect(queued.find('[data-task-cancel]').text()).toBe('factory.actions.remove')
+    await queued.find('[data-task-cancel]').trigger('click')
+    expect(queued.emitted('cancel')).toHaveLength(1)
+
+    const blocked = mount(FactoryInspector, {
+      props: { task: task({ lane: 'blocked', stageIdx: 2 }), tab: 'overview' },
+    })
+    expect(blocked.find('[data-task-cancel]').text()).toBe('factory.actions.abandon')
+  })
+
+  it('hides abandon once the lane is advancing and while the call is in flight', () => {
+    const running = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    expect(running.find('[data-task-cancel]').exists()).toBe(false)
+
+    const busy = mount(FactoryInspector, {
+      props: { task: task({ lane: 'queued', stageIdx: 0, worktree: null }), tab: 'overview', cancelling: true },
+    })
+    expect(busy.find('[data-task-cancel]').attributes('disabled')).toBeDefined()
+  })
+
   const needsChanges: FactoryReview = {
     verdict: 'needs_changes',
     summary: 'One blocker found',
@@ -325,5 +377,112 @@ describe('FactoryInspector', () => {
       },
     })
     expect(settled.find('[data-task-fix]').exists()).toBe(false)
+  })
+
+  it('collapses the inspector from the header close button', async () => {
+    const wrapper = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    await wrapper.find('[data-inspector-close]').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
+
+    // 空态没有任务可收起，头部整体不存在。
+    expect(
+      mount(FactoryInspector, { props: { task: null, tab: 'overview' } }).find('[data-inspector-close]').exists(),
+    ).toBe(false)
+  })
+
+  it('copies the branch name and shows a transient hint', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+
+    const wrapper = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    expect(wrapper.find('[data-copy-hint]').exists()).toBe(false)
+
+    await wrapper.find('[data-copy-branch]').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith('agent/task-bl-1')
+    expect(wrapper.find('[data-copy-hint]').text()).toBe('factory.inspector.copied')
+  })
+
+  it('drops the copy hint when the selection moves to another branch', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+
+    const wrapper = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    await wrapper.find('[data-copy-branch]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-copy-hint]').exists()).toBe(true)
+
+    await wrapper.setProps({ task: task({ id: 'bl-2', branch: 'agent/task-bl-2' }) })
+    expect(wrapper.find('[data-copy-hint]').exists()).toBe(false)
+  })
+
+  it('shows the permission mode frozen when the task was claimed', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: { task: task({ configSnapshot: configSnapshot('acceptEdits') }), tab: 'overview' },
+    })
+    expect(wrapper.find('[data-inspector-permission]').text()).toBe(
+      'factory.config.permissions.acceptEdits',
+    )
+  })
+
+  it('hides the permission row for tasks claimed before snapshots existed', () => {
+    const wrapper = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    expect(wrapper.find('[data-inspector-permission]').exists()).toBe(false)
+  })
+
+  it('badges the diff and review tabs, zero included', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: {
+        task: task({
+          diff: {
+            additions: 12,
+            deletions: 3,
+            files: [
+              { path: 'src/a.ts', additions: 10, deletions: 1 },
+              { path: 'src/b.ts', additions: 2, deletions: 2 },
+            ],
+          },
+          review: { ...needsChanges, comments: [needsChanges.comments[0]] },
+        }),
+        tab: 'overview',
+      },
+    })
+    expect(wrapper.find('[data-inspector-badge="diff"]').text()).toBe('2')
+    expect(wrapper.find('[data-inspector-badge="review"]').text()).toBe('1')
+
+    const fresh = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    expect(fresh.find('[data-inspector-badge="diff"]').text()).toBe('0')
+    expect(fresh.find('[data-inspector-badge="review"]').text()).toBe('0')
+  })
+
+  it('makes viewing the work tree the primary action of a finished task', async () => {
+    const done = mount(FactoryInspector, {
+      props: { task: task({ lane: 'done', stageIdx: 6 }), tab: 'overview' },
+    })
+    const button = done.find('[data-task-view-worktree]')
+    expect(button.exists()).toBe(true)
+    expect(button.classes()).toContain('primary')
+    await button.trigger('click')
+    expect(done.emitted('reveal')).toHaveLength(1)
+
+    // 其他泳道不抢这条主按钮，动作顺序保持原样。
+    expect(
+      mount(FactoryInspector, { props: { task: task(), tab: 'overview' } }).find(
+        '[data-task-view-worktree]',
+      ).exists(),
+    ).toBe(false)
+  })
+
+  it('keeps a single worktree affordance on a finished task', () => {
+    // 底部主按钮已经是「查看工作树」，元信息行不该再挂一个同义入口。
+    const done = mount(FactoryInspector, {
+      props: { task: task({ lane: 'done', stageIdx: 6 }), tab: 'overview' },
+    })
+    expect(done.find('[data-task-view-worktree]').exists()).toBe(true)
+    expect(done.find('[data-reveal-worktree]').exists()).toBe(false)
+
+    const running = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    expect(running.find('[data-reveal-worktree]').exists()).toBe(true)
   })
 })

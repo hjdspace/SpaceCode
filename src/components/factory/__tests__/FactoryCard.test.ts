@@ -48,9 +48,13 @@ function run(overrides: Partial<FactoryRun> = {}): FactoryRun {
   }
 }
 
-function mountCard(overrides: Partial<FactoryTask> = {}, runValue: FactoryRun | null = run()) {
+function mountCard(
+  overrides: Partial<FactoryTask> = {},
+  runValue: FactoryRun | null = run(),
+  extra: Record<string, unknown> = {},
+) {
   return mount(FactoryCard, {
-    props: { task: task(overrides), selected: false, nowMs: 0, run: runValue },
+    props: { task: task(overrides), selected: false, nowMs: 0, run: runValue, ...extra },
   })
 }
 
@@ -181,15 +185,79 @@ describe('FactoryCard', () => {
     expect(wrapper.find('.status-chip').text()).toBe('factory.cardStatus.cancelled')
   })
 
-  it('still emits select and return through the card', async () => {
+  it('still emits select through the card body', async () => {
+    const wrapper = mountCard({ lane: 'queued' })
+    await wrapper.trigger('click')
+    expect(wrapper.emitted('select')?.[0]).toEqual(['bl-1'])
+  })
+
+  it('lists the lane actions in the card action row', () => {
+    expect(
+      mountCard({ lane: 'queued' }).findAll('[data-card-action]').map((item) => item.attributes('data-card-action')),
+    ).toEqual(['start', 'cancel'])
+
+    const blocked = mountCard({
+      lane: 'blocked',
+      stageIdx: 2,
+      worktree: '.spacecode/worktrees/bl-1',
+    })
+    expect(blocked.findAll('[data-card-action]').map((item) => item.attributes('data-card-action'))).toEqual([
+      'retry',
+      'cancel',
+    ])
+  })
+
+  it('emits the action with the task id without selecting through it', async () => {
+    const wrapper = mountCard({ lane: 'queued' })
+    await wrapper.find('[data-card-action="cancel"]').trigger('click')
+    expect(wrapper.emitted('action')?.[0]).toEqual(['bl-1', 'cancel'])
+    expect(wrapper.emitted('select')).toBeUndefined()
+  })
+
+  it('moves 交回 into the action row once the card is taken over', async () => {
     const wrapper = mountCard({
       lane: 'implementing',
+      stageIdx: 2,
       worktree: '.spacecode/worktrees/bl-1',
       takeover: { at: '2026-10-28T10:00:00Z', sessionId: 'sess-1' },
     })
-    await wrapper.trigger('click')
-    expect(wrapper.emitted('select')?.[0]).toEqual(['bl-1'])
-    await wrapper.find('[data-card-return]').trigger('click')
-    expect(wrapper.emitted('return')?.[0]).toEqual(['bl-1'])
+    expect(wrapper.find('[data-card-return]').exists()).toBe(false)
+    expect(wrapper.find('[data-card-action="return"]').exists()).toBe(true)
+
+    await wrapper.find('[data-card-action="return"]').trigger('click')
+    expect(wrapper.emitted('action')?.[0]).toEqual(['bl-1', 'return'])
+  })
+
+  it('disables every action and names the reason while another window holds the lock', () => {
+    const wrapper = mountCard({ lane: 'queued' }, run(), { readonly: true })
+    const buttons = wrapper.findAll('[data-card-action]')
+    expect(buttons).toHaveLength(2)
+    for (const button of buttons) {
+      expect(button.attributes('disabled')).toBeDefined()
+      expect(button.attributes('title')).toBe('factory.storage.readonlyHint')
+    }
+    expect(wrapper.find('[data-card-locked]').text()).toBe('factory.storage.readonlyBadge')
+  })
+
+  it('keeps the read-only reason on a card that has no action left', () => {
+    const wrapper = mountCard(
+      { lane: 'implementing', stageIdx: 2, cancelled: true },
+      run(),
+      { readonly: true },
+    )
+    expect(wrapper.findAll('[data-card-action]')).toHaveLength(0)
+    expect(wrapper.find('[data-card-locked]').text()).toBe('factory.storage.readonlyBadge')
+  })
+
+  it('disables only the action that is already in flight', () => {
+    const wrapper = mountCard({ lane: 'queued' }, run(), { busy: 'start' })
+    expect(wrapper.find('[data-card-action="start"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-card-action="cancel"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-card-locked]').exists()).toBe(false)
+  })
+
+  it('leaves the action row out when the lane has no next step', () => {
+    const wrapper = mountCard({ lane: 'implementing', stageIdx: 2, cancelled: true })
+    expect(wrapper.find('[data-card-actions]').exists()).toBe(false)
   })
 })

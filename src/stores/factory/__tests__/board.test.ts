@@ -3,22 +3,32 @@
  * 组件只负责渲染这些结果，避免把判定散落在模板里。
  */
 import { describe, it, expect } from 'vitest'
-import type { FactoryReviewCommentStatus, FactoryRun, FactoryTask } from '@/shared/factory'
+import type {
+  FactoryPermissionMode,
+  FactoryReviewCommentStatus,
+  FactoryRun,
+  FactoryTask,
+  FactoryTaskConfigSnapshot,
+} from '@/shared/factory'
 import {
   FACTORY_LANES,
   FACTORY_SEGMENTS,
   FACTORY_STEPS,
   attentionStatus,
   attentionTasks,
+  canCancelTask,
   canRetryTask,
   canReturnTask,
   canTakeOver,
+  cardActions,
   cardDiffstat,
+  cancelLabelKey,
   doneTaskMeta,
   findTask,
   formatClock,
   formatTimeOfDay,
   formatTimestamp,
+  inspectorTabBadges,
   isAttentionTask,
   isCardPulsing,
   isTakenOver,
@@ -27,6 +37,7 @@ import {
   runUsage,
   showsTaskProgress,
   taskElapsedMs,
+  taskPermissionMode,
   taskProgressPercent,
   taskStatus,
   tasksByLane,
@@ -225,6 +236,69 @@ describe('review comments', () => {
   })
 })
 
+describe('inspector meta', () => {
+  const comments = (statuses: FactoryReviewCommentStatus[]) => ({
+    verdict: 'needs_changes' as const,
+    summary: '',
+    comments: statuses.map((status, index) => ({
+      id: `c-${index}`,
+      body: '意见',
+      severity: 'blocker' as const,
+      status,
+    })),
+    at: '2026-10-29T10:00:00Z',
+  })
+
+  const snapshot = (
+    implement: FactoryPermissionMode,
+  ): FactoryTaskConfigSnapshot => ({
+    revision: 3,
+    engineType: 'claude-code',
+    maxIterations: 5,
+    stages: {
+      plan: { enabled: true, permissionMode: 'plan', humanGate: false },
+      implement: { enabled: true, permissionMode: implement, humanGate: false },
+      verify: { enabled: true, permissionMode: 'default', humanGate: false },
+      review: { enabled: true, permissionMode: 'default', humanGate: true },
+      merge: { enabled: true, permissionMode: 'default', humanGate: true },
+    },
+    verifyCommand: 'npm run test',
+    taskTimeoutSec: 3600,
+  })
+
+  it('reads the permission mode frozen when the task was claimed', () => {
+    expect(taskPermissionMode(task({ configSnapshot: snapshot('acceptEdits') }))).toBe('acceptEdits')
+    expect(taskPermissionMode(task({ configSnapshot: snapshot('default') }))).toBe('default')
+  })
+
+  it('reports no permission mode for tasks claimed before snapshots existed', () => {
+    expect(taskPermissionMode(task())).toBeNull()
+  })
+
+  it('badges the diff tab with changed files and the review tab with comments', () => {
+    expect(
+      inspectorTabBadges(
+        task({
+          diff: {
+            additions: 12,
+            deletions: 3,
+            files: [
+              { path: 'src/a.ts', additions: 10, deletions: 1 },
+              { path: 'src/b.ts', additions: 2, deletions: 2 },
+            ],
+          },
+          review: comments(['open', 'resolved']),
+        }),
+      ),
+    ).toEqual({ diff: 2, review: 2 })
+  })
+
+  it('badges zero instead of hiding the count', () => {
+    // 页签数量是「有没有内容」的线索，零也要写出来，否则用户以为页签坏了。
+    expect(inspectorTabBadges(task())).toEqual({ diff: 0, review: 0 })
+  })
+})
+
 describe('card pulse', () => {
   function run(overrides: Partial<FactoryRun> = {}): FactoryRun {
     return {
@@ -399,5 +473,102 @@ describe('elapsed time', () => {
     expect(formatTimeOfDay(undefined)).toBe('')
     expect(formatTimeOfDay(null)).toBe('')
     expect(formatTimeOfDay('not-a-date')).toBe('')
+  })
+})
+
+/** 卡片动作的资格必须与检查器底部同一套判定，否则会出现卡片能点、检查器报错。 */
+describe('card quick actions', () => {
+  const worktree = '.spacecode/worktrees/bl-1'
+  const takeover = { at: '2026-10-29T10:00:00Z', sessionId: 'fac-run-1-bl-1-takeover' }
+  const needsChanges = {
+    verdict: 'needs_changes' as const,
+    summary: '',
+    comments: [{ id: 'c-1', body: '缺少回归测试', severity: 'blocker' as const, status: 'open' as const }],
+    at: '2026-10-29T10:00:00Z',
+  }
+
+  function kindsOf(taskValue: FactoryTask): string[] {
+    return cardActions(taskValue).map((action) => action.kind)
+  }
+
+  it('offers start and remove on a queued card', () => {
+    expect(kindsOf(task())).toEqual(['start', 'cancel'])
+  })
+
+  it('offers takeover on an implementing card', () => {
+    expect(kindsOf(task({ lane: 'implementing', worktree }))).toEqual(['takeover'])
+  })
+
+  it('swaps takeover for return once the card is taken over', () => {
+    expect(kindsOf(task({ lane: 'implementing', worktree, takeover }))).toEqual(['return'])
+    expect(kindsOf(task({ lane: 'reviewing', worktree, takeover }))).toEqual(['review', 'return'])
+  })
+
+  it('offers review and takeover on a reviewing card', () => {
+    expect(kindsOf(task({ lane: 'reviewing', stageIdx: 4, worktree }))).toEqual([
+      'review',
+      'takeover',
+    ])
+  })
+
+  it('hides takeover when the reviewing card has no worktree to edit', () => {
+    expect(kindsOf(task({ lane: 'reviewing', stageIdx: 4 }))).toEqual(['review'])
+  })
+
+  it('offers merge on a mergeable card', () => {
+    expect(kindsOf(task({ lane: 'mergeable', stageIdx: 5, worktree }))).toEqual(['merge'])
+  })
+
+  it('offers the agent fix and abandon on a blocked card that owes comments', () => {
+    expect(kindsOf(task({ lane: 'blocked', stageIdx: 4, worktree, review: needsChanges }))).toEqual([
+      'fix',
+      'cancel',
+    ])
+  })
+
+  it('falls back to retry when the block has nothing to hand the agent', () => {
+    expect(kindsOf(task({ lane: 'blocked', stageIdx: 2, worktree }))).toEqual(['retry', 'cancel'])
+    expect(kindsOf(task({ lane: 'blocked', stageIdx: 2 }))).toEqual(['cancel'])
+  })
+
+  it('offers view on a done card, cancelled or not', () => {
+    expect(kindsOf(task({ lane: 'done', stageIdx: 6 }))).toEqual(['view'])
+    expect(kindsOf(task({ lane: 'done', stageIdx: 6, cancelled: true }))).toEqual(['view'])
+  })
+
+  it('labels the queued removal and the blocked abandon differently', () => {
+    const queued = cardActions(task())
+    const blocked = cardActions(task({ lane: 'blocked', worktree }))
+    expect(queued[1].labelKey).toBe('factory.actions.remove')
+    expect(blocked[1].labelKey).toBe('factory.actions.abandon')
+    expect(cancelLabelKey(task())).toBe('factory.actions.remove')
+    expect(cancelLabelKey(task({ lane: 'blocked' }))).toBe('factory.actions.abandon')
+  })
+
+  it('marks only the forward step of each lane as primary', () => {
+    const queued = cardActions(task())
+    expect(queued.map((action) => action.variant)).toEqual(['primary', 'danger'])
+    expect(cardActions(task({ lane: 'blocked', worktree }))[0].variant).toBe('primary')
+    expect(cardActions(task({ lane: 'mergeable', worktree }))[0].variant).toBe('primary')
+  })
+
+  it('leaves a cancelled task with nothing to advance', () => {
+    expect(cardActions(task({ lane: 'queued', cancelled: true }))).toEqual([])
+  })
+})
+
+describe('canCancelTask', () => {
+  it('allows abandoning queued and blocked tasks only', () => {
+    expect(canCancelTask(task())).toBe(true)
+    expect(canCancelTask(task({ lane: 'blocked', worktree: '.spacecode/worktrees/bl-1' }))).toBe(true)
+    expect(canCancelTask(task({ lane: 'implementing', worktree: '.spacecode/worktrees/bl-1' }))).toBe(false)
+    expect(canCancelTask(task({ lane: 'reviewing', worktree: '.spacecode/worktrees/bl-1' }))).toBe(false)
+    expect(canCancelTask(task({ lane: 'mergeable', worktree: '.spacecode/worktrees/bl-1' }))).toBe(false)
+    expect(canCancelTask(task({ lane: 'done', stageIdx: 6 }))).toBe(false)
+  })
+
+  it('never re-offers abandon for an already cancelled task', () => {
+    expect(canCancelTask(task({ cancelled: true }))).toBe(false)
+    expect(canCancelTask(task({ lane: 'blocked', cancelled: true }))).toBe(false)
   })
 })

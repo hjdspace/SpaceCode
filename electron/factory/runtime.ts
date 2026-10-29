@@ -26,7 +26,8 @@ const STAGE_INDEX: Record<FactoryLane, number> = {
 }
 
 const ALLOWED: Record<FactoryLane, FactoryLane[]> = {
-  queued: ['implementing'],
+  // queued 与 blocked 直接到 done 是「放弃/移除」：落到已完成泳道并标记取消。
+  queued: ['implementing', 'done'],
   implementing: ['implementing', 'blocked', 'reviewing', 'done'],
   reviewing: ['reviewing', 'blocked', 'mergeable', 'implementing', 'done'],
   mergeable: ['mergeable', 'blocked', 'done'],

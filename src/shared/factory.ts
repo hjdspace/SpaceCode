@@ -696,6 +696,7 @@ export type FactoryTaskStartResult =
 export type FactoryTaskActionError =
   | FactoryTaskStartError
   | 'not-running'
+  | 'not-cancellable'
   | 'stop-failed'
   | 'write-failed'
 
