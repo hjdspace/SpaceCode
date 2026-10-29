@@ -104,7 +104,7 @@
         </nav>
       </header>
 
-      <div class="ins-body">
+      <div ref="bodyRef" class="ins-body" data-inspector-body>
         <template v-if="tab === 'overview'">
           <section class="section">
             <h4>{{ t('factory.inspector.goal') }}</h4>
@@ -115,12 +115,16 @@
             <h4>{{ t('factory.inspector.thisRun') }}</h4>
             <div class="metrics">
               <div class="metric">
+                <span>{{ t('factory.inspector.commits') }}</span>
+                <b data-inspector-commits>{{ commits.length }}</b>
+              </div>
+              <div class="metric">
                 <span>{{ t('factory.inspector.changes') }}</span>
-                <b>+{{ task.diff.additions }} −{{ task.diff.deletions }}</b>
+                <b data-inspector-changes>+{{ task.diff.additions }} −{{ task.diff.deletions }}</b>
               </div>
               <div class="metric">
                 <span>{{ t('factory.inspector.elapsed') }}</span>
-                <b>{{ formatClock(elapsedMs) }}</b>
+                <b data-inspector-elapsed>{{ formatClock(elapsedMs) }}</b>
               </div>
               <div v-if="task.usage" class="metric" data-inspector-usage>
                 <span>{{ t('factory.inspector.tokens') }}</span>
@@ -171,6 +175,17 @@
             </div>
           </section>
 
+          <section v-if="review" class="section" data-overview-review>
+            <h4>{{ t('factory.inspector.reviewSummary') }}</h4>
+            <div class="review-conclusion" :class="review.verdict">
+              <component :is="review.verdict === 'approved' ? Check : AlertTriangle" :size="14" />
+              <div>
+                <b data-overview-verdict>{{ t(`factory.review.verdict.${review.verdict}`) }}</b>
+                <p data-overview-summary>{{ review.summary || t('factory.review.summaryEmpty') }}</p>
+              </div>
+            </div>
+          </section>
+
           <section v-if="task.writeback" class="section" data-inspector-writeback>
             <h4>{{ t('factory.github.writeback.title') }}</h4>
             <div class="kv">
@@ -206,16 +221,23 @@
             <AlertTriangle :size="20" />
             <p>{{ t('factory.events.loadFailed') }}</p>
           </div>
-          <ol v-else-if="events.length" class="event-list" data-event-list>
+          <ol v-else-if="events.length || agentLive" class="timeline" data-event-timeline>
             <li
               v-for="event in events"
               :key="event.seq"
-              class="event-row"
+              class="tl-item"
               :class="event.level"
               :data-event-code="event.code"
             >
-              <time>{{ formatTimestamp(event.at) }}</time>
-              <span class="ev-text">{{ t(`factory.events.${event.code}`, event.params ?? {}) }}</span>
+              <span class="tl-dot" data-event-dot />
+              <time class="tl-time" data-event-time>{{ formatTimestamp(event.at) }}</time>
+              <span class="tl-text" data-event-text>{{
+                t(`factory.events.${event.code}`, event.params ?? {})
+              }}</span>
+            </li>
+            <li v-if="agentLive" class="tl-item live" data-agent-live>
+              <span class="tl-dot" data-event-dot />
+              <span class="tl-live"><i class="live-pulse" />{{ t('factory.inspector.agentLive') }}</span>
             </li>
           </ol>
           <div v-else class="ins-empty" data-empty="events">
@@ -295,12 +317,12 @@
                   <p class="rc-body">{{ comment.body }}</p>
                   <div v-if="isCommentActionable(comment.status)" class="rc-actions">
                     <button
-                      class="mini-btn"
+                      class="mini-btn primary"
                       data-comment-accept
                       :disabled="updatingComment"
                       @click="emit('comment-accept', comment.id)"
                     >
-                      {{ t('factory.actions.accept') }}
+                      {{ t('factory.actions.fix') }}
                     </button>
                     <button
                       class="mini-btn"
@@ -480,7 +502,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Activity,
@@ -501,7 +523,12 @@ import {
   Square,
   X,
 } from 'lucide-vue-next'
-import type { FactoryEvent, FactoryTask, FactoryReviewCommentStatus } from '@/shared/factory'
+import type {
+  FactoryEvent,
+  FactoryRun,
+  FactoryTask,
+  FactoryReviewCommentStatus,
+} from '@/shared/factory'
 import type { FactoryActionError, FactoryGithubActionError } from '@/stores/factory'
 import {
   canCancelTask,
@@ -510,6 +537,7 @@ import {
   canRetryTask,
   canTakeOver,
   inspectorTabBadges,
+  isCardPulsing,
   isTakenOver,
   FACTORY_INSPECTOR_TABS,
   FACTORY_STEPS,
@@ -528,6 +556,8 @@ const props = withDefaults(
   defineProps<{
     task: FactoryTask | null
     tab: FactoryInspectorTab
+    /** 当前运行：事件流的活体行要看它是否在推进，没有就当作没在跑。 */
+    run?: FactoryRun | null
     nowMs?: number
     events?: FactoryEvent[]
     eventsLoading?: boolean
@@ -557,6 +587,7 @@ const props = withDefaults(
     cancelling?: boolean
   }>(),
   {
+    run: null,
     nowMs: () => Date.now(),
     events: () => [],
     eventsLoading: false,
@@ -621,6 +652,10 @@ const canViewWorktree = computed(
   () => props.task?.lane === 'done' && Boolean(props.task.worktree),
 )
 const elapsedMs = computed(() => (props.task ? taskElapsedMs(props.task, props.nowMs) : 0))
+/** 活体行与卡片脉冲同一判定：后台真在跑这条任务才谎称「正在执行」。 */
+const agentLive = computed(
+  () => Boolean(props.task && isCardPulsing(props.task, props.run)),
+)
 const files = computed(() => props.task?.diff.files ?? [])
 const commits = computed(() => props.task?.commits ?? [])
 const review = computed(() => props.task?.review ?? null)
@@ -659,6 +694,18 @@ const canRetryWriteback = computed(
 function isCommentActionable(status: FactoryReviewCommentStatus): boolean {
   return status === 'open' || status === 'accepted'
 }
+
+const bodyRef = ref<HTMLElement | null>(null)
+/** 事件流跟着时间走：进页签和新事件都把最新一条推回眼前。 */
+watch(
+  () => [props.tab, props.events.length] as const,
+  async ([tab]) => {
+    if (tab !== 'events') return
+    await nextTick()
+    const body = bodyRef.value
+    if (body) body.scrollTop = body.scrollHeight
+  },
+)
 
 /** 提示按分支名归属：换到别的任务时立刻消失，而不是跟着漂到下一条分支上。 */
 const copiedBranch = ref<string | null>(null)
@@ -1065,6 +1112,38 @@ const timestamps = computed(() => {
   }
 }
 
+.review-conclusion {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-glass);
+  color: var(--text-secondary);
+
+  &.approved {
+    color: var(--success);
+  }
+
+  &.needs_changes {
+    color: var(--warning);
+  }
+
+  b {
+    display: block;
+    font-size: var(--text-xs, 11.5px);
+    font-weight: 600;
+  }
+
+  p {
+    margin: 2px 0 0;
+    font-size: var(--text-2xs, 11px);
+    line-height: 1.55;
+    color: var(--text-secondary);
+  }
+}
+
 .verdict {
   padding: 2px 8px;
   border-radius: var(--radius-full);
@@ -1182,6 +1261,12 @@ const timestamps = computed(() => {
     cursor: not-allowed;
   }
 
+  &.primary:not(:disabled) {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary);
+    color: var(--text-on-accent, #fff);
+  }
+
   &.warn:not(:disabled) {
     border-color: var(--warning);
     color: var(--warning);
@@ -1202,46 +1287,104 @@ const timestamps = computed(() => {
   }
 }
 
-.event-list {
+.timeline {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 11px;
   margin: 0;
-  padding: 0;
+  padding: 0 0 0 18px;
   list-style: none;
+
+  // 竖向连接线贯穿整条时间线，圆点压在它上面。
+  &::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 5px;
+    width: 1px;
+    background: var(--surface-border-strong);
+  }
 }
 
-.event-row {
+.tl-item {
+  position: relative;
   display: flex;
+  align-items: baseline;
   gap: 8px;
-  padding: 5px 7px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-glass);
   font-size: var(--text-2xs, 11px);
-  color: var(--text-secondary);
 
-  time {
-    flex: none;
-    font-family: var(--font-mono);
-    color: var(--text-disabled);
+  &.ok .tl-dot {
+    border-color: var(--success);
+    background: var(--success);
   }
 
-  &.ok {
-    color: var(--success);
+  &.warn .tl-dot {
+    border-color: var(--warning);
+    background: var(--warning);
   }
 
-  &.warn {
-    color: var(--warning);
-  }
-
-  &.error {
-    color: var(--error);
+  &.error .tl-dot {
+    border-color: var(--error);
+    background: var(--error);
   }
 }
 
-.ev-text {
+.tl-dot {
+  position: absolute;
+  top: 0.45em;
+  left: -17px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--surface-border-strong);
+  border-radius: 50%;
+  background: var(--bg-elevated);
+}
+
+.tl-time {
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+}
+
+.tl-text {
   min-width: 0;
+  color: var(--text-secondary);
   overflow-wrap: anywhere;
+}
+
+.tl-item.live .tl-dot {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+}
+
+.tl-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-2xs, 11px);
+  color: var(--accent-primary);
+}
+
+.live-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: live-blink 1.2s infinite;
+}
+
+@keyframes live-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-pulse {
+    animation: none;
+  }
 }
 
 .diff-summary {
