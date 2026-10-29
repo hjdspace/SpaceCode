@@ -9,7 +9,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
 import { createBacklogItem } from '../backlog'
-import { createFactoryRun, readLatestRun, readRunSnapshot, runDir } from '../runs'
+import { createFactoryRun, listRecentRuns, readLatestRun, readRunSnapshot, runDir } from '../runs'
 import type { FactoryBacklogItem } from '@/shared/factory'
 
 let dir: string
@@ -197,6 +197,41 @@ describe('createFactoryRun', () => {
     if (!result.ok) throw new Error('unexpected failure')
     expect(result.snapshot.run.maxConcurrency).toBe(4)
     expect(result.snapshot.tasks[0]).toMatchObject({ model: '', maxIterations: 5 })
+  })
+})
+
+describe('listRecentRuns', () => {
+  beforeEach(seedConfig)
+
+  it('lists runs newest first and includes stopped ones', () => {
+    const backlog = seedBacklog(['一', '二', '三'])
+    const deps = runDeps()
+    const first = createFactoryRun(dir, { taskIds: [backlog[0].id] }, deps)
+    const second = createFactoryRun(dir, { taskIds: [backlog[1].id] }, deps)
+    const third = createFactoryRun(dir, { taskIds: [backlog[2].id] }, deps)
+    if (!first.ok || !second.ok || !third.ok) throw new Error('fixture runs invalid')
+    stopRun(second.snapshot.run.id)
+
+    expect(listRecentRuns(dir).map((run) => run.id)).toEqual(['run-3', 'run-2', 'run-1'])
+    expect(listRecentRuns(dir)[1].status).toBe('stopped')
+  })
+
+  it('caps the list and reports elapsed time from the run timeline', () => {
+    const backlog = seedBacklog(['一', '二', '三'])
+    const deps = runDeps()
+    for (const item of backlog) {
+      const created = createFactoryRun(dir, { taskIds: [item.id] }, deps)
+      if (!created.ok) throw new Error('fixture run invalid')
+    }
+    const startedAt = new Date(Date.now() - 60_000).toISOString()
+    const path = join(runDir(dir, 'run-3'), 'run.json')
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>
+    writeFileSync(path, JSON.stringify({ ...raw, status: 'running', startedAt }), 'utf-8')
+
+    const limited = listRecentRuns(dir, 2)
+    expect(limited.map((run) => run.id)).toEqual(['run-3', 'run-2'])
+    expect(limited[0].elapsedMs).toBeGreaterThanOrEqual(59_000)
+    expect(listRecentRuns(dir, 0)).toEqual([])
   })
 })
 
