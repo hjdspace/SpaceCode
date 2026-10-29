@@ -3,6 +3,7 @@
     <div class="rh-row">
       <div class="rh-title">
         <h2>{{ t('factory.boardTitle') }}</h2>
+        <span v-if="repoLabel" class="repo" data-run-repo>{{ repoLabel }}</span>
         <span class="pill" :class="statusClass" data-run-status>{{ t(statusKey) }}</span>
         <span class="pill run-id">{{ t('factory.run.id', { id: run.id }) }}</span>
       </div>
@@ -52,25 +53,32 @@
           data-run-stop
           :disabled="!canControl"
           :title="canControl ? t('factory.run.stop') : t('factory.run.disabledHint')"
-          @click="emit('stop')"
+          @click="requestStop"
         >
           <Square :size="13" />
           {{ t('factory.run.stop') }}
+        </button>
+        <button class="control-btn primary" data-run-new-run @click="emit('new-run')">
+          <Plus :size="13" />
+          {{ t('factory.run.newRun') }}
         </button>
       </div>
     </div>
 
     <div class="pipeline">
-      <span
+      <button
         v-for="segment in FACTORY_SEGMENTS"
         :key="segment.key"
+        type="button"
         class="pseg"
+        :class="{ flash: flashingLane === segment.key }"
         :data-segment="segment.key"
+        @click="focusSegment(segment.key)"
       >
         <i :style="{ background: segment.color }" />
         <span>{{ t(segment.labelKey) }}</span>
         <b data-segment-count>{{ counts[segment.key] }}</b>
-      </span>
+      </button>
     </div>
 
     <p v-if="!canControl" class="disabled-hint" data-run-disabled-hint>
@@ -87,27 +95,59 @@
           v-for="task in attention"
           :key="task.id"
           class="a-chip"
+          :data-attention-chip="attentionStatus(task).kind"
           @click="emit('select', task.id)"
         >
           <span class="mono">{{ task.id }}</span>
-          <span>{{ t('factory.run.attentionItem') }}</span>
+          <span>{{ t(attentionStatus(task).labelKey) }}</span>
         </button>
+      </div>
+    </div>
+
+    <div
+      v-if="stopConfirmOpen"
+      class="stop-overlay"
+      role="dialog"
+      aria-modal="true"
+      data-stop-confirm
+      @click.self="stopConfirmOpen = false"
+    >
+      <div class="stop-modal">
+        <h3>{{ t('factory.run.stopConfirm.title') }}</h3>
+        <p>{{ t('factory.run.stopConfirm.message') }}</p>
+        <div class="stop-actions">
+          <button type="button" data-stop-cancel @click="stopConfirmOpen = false">
+            {{ t('factory.run.stopConfirm.cancel') }}
+          </button>
+          <button type="button" class="danger" data-stop-confirm-button @click="confirmStop">
+            {{ t('factory.run.stopConfirm.confirm') }}
+          </button>
+        </div>
       </div>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Pause, Play, Settings2, Square } from 'lucide-vue-next'
-import type { FactoryRun, FactoryTask } from '@/shared/factory'
-import { FACTORY_SEGMENTS, formatClock, laneCounts, runUsage } from '@/stores/factory/board'
+import { AlertTriangle, Pause, Play, Plus, Settings2, Square } from 'lucide-vue-next'
+import type { FactoryLane, FactoryRun, FactoryTask } from '@/shared/factory'
+import {
+  FACTORY_SEGMENTS,
+  attentionStatus,
+  attentionTasks,
+  formatClock,
+  laneCounts,
+  runUsage,
+} from '@/stores/factory/board'
 
 const props = defineProps<{
   run: FactoryRun
   tasks: FactoryTask[]
   pausing?: boolean
+  /** 运行头部展示的仓库标识；为空时不占位。 */
+  repoLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -115,7 +155,9 @@ const emit = defineEmits<{
   resume: []
   stop: []
   config: []
+  'new-run': []
   select: [id: string]
+  'focus-lane': [lane: FactoryLane]
 }>()
 
 const { t } = useI18n()
@@ -136,7 +178,40 @@ function togglePause(): void {
   if (isPaused.value) emit('resume')
   else emit('pause')
 }
-const attention = computed(() => props.tasks.filter((task) => task.lane === 'blocked'))
+
+const attention = computed(() => attentionTasks(props.tasks))
+
+const flashingLane = ref<FactoryLane | null>(null)
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+
+function focusSegment(lane: FactoryLane): void {
+  emit('focus-lane', lane)
+  if (flashTimer) clearTimeout(flashTimer)
+  // 先摘掉再挂回，连点同一分段时动画才会重新播放。
+  flashingLane.value = null
+  void nextTick(() => {
+    flashingLane.value = lane
+  })
+  flashTimer = setTimeout(() => {
+    flashingLane.value = null
+  }, 700)
+}
+
+const stopConfirmOpen = ref(false)
+
+function requestStop(): void {
+  if (!canControl.value) return
+  stopConfirmOpen.value = true
+}
+
+function confirmStop(): void {
+  stopConfirmOpen.value = false
+  emit('stop')
+}
+
+onBeforeUnmount(() => {
+  if (flashTimer) clearTimeout(flashTimer)
+})
 
 const statusKey = computed(() => {
   if (props.run.status === 'running' && props.run.paused) return 'factory.run.status.paused'
@@ -177,6 +252,12 @@ const statusClass = computed(() => {
     font-size: var(--text-base, 14px);
     font-weight: 600;
     color: var(--text-primary);
+  }
+
+  .repo {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs, 11px);
+    color: var(--text-muted);
   }
 }
 
@@ -258,6 +339,12 @@ const statusClass = computed(() => {
     color: var(--error);
     border-color: var(--error);
   }
+
+  &.primary:not(:disabled) {
+    border-color: var(--accent-primary);
+    background: var(--accent-primary);
+    color: #fff;
+  }
 }
 
 .pipeline {
@@ -270,11 +357,32 @@ const statusClass = computed(() => {
   align-items: center;
   gap: 5px;
   flex: 1;
+  min-width: 0;
   padding: 4px 8px;
+  border: none;
   border-radius: var(--radius-sm);
   background: var(--surface-glass);
+  font-family: inherit;
   font-size: var(--text-2xs, 11px);
   color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+
+  &:hover {
+    background: var(--surface-glass-hover, var(--bg-tertiary));
+    color: var(--text-secondary);
+  }
+
+  &.flash {
+    animation: segflash 0.7s ease;
+  }
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   i {
     width: 6px;
@@ -329,6 +437,72 @@ const statusClass = computed(() => {
 
   .mono {
     font-family: var(--font-mono);
+  }
+}
+
+@keyframes segflash {
+  0% {
+    background: var(--accent-primary-glow);
+  }
+  100% {
+    background: var(--surface-glass);
+  }
+}
+
+.stop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.stop-modal {
+  width: 90%;
+  max-width: 440px;
+  padding: 20px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-xl);
+
+  h3 {
+    margin: 0 0 10px;
+    font-size: var(--text-base, 14px);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  p {
+    margin: 0 0 18px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+}
+
+.stop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  button {
+    padding: 6px 14px;
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-md, 8px);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+
+    &.danger {
+      border-color: var(--error);
+      background: var(--error);
+      color: #fff;
+    }
   }
 }
 </style>
