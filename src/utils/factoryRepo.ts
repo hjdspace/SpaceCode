@@ -5,6 +5,8 @@
  * 解析失败返回 undefined，界面据此允许手填并用 `isValidRepoSlug` 兜底校验。
  */
 
+import type { FactoryTrackerConfig } from '@/shared/factory'
+
 /** `owner/repo` 形式；拒绝空段、空白与 `..`。 */
 export const REPO_SLUG_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
@@ -23,4 +25,17 @@ export function parseRepoFromRemote(remote: string | undefined | null): string |
 
   const repo = `${match[1]}/${match[2]}`
   return isValidRepoSlug(repo) ? repo : undefined
+}
+
+/** 取绝对路径的最后一段；没有目录名（空串、POSIX 根、盘符根）时返回空串。 */
+export function projectNameFromPath(path: string): string {
+  const segments = path.trim().replace(/[\\/]+$/, '').split(/[\\/]/)
+  const name = segments[segments.length - 1] ?? ''
+  return /^[A-Za-z]:$/.test(name) ? '' : name
+}
+
+/** 运行头部展示的仓库标识：GitHub 用 owner/repo，本地 backlog 用项目目录名。 */
+export function factoryRepoLabel(tracker: FactoryTrackerConfig, projectRoot: string): string {
+  if (tracker.type === 'github-issues') return tracker.repo
+  return projectNameFromPath(projectRoot)
 }
