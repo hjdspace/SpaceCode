@@ -131,6 +131,7 @@
             v-if="store.run && store.inspectorOpen"
             :task="store.selectedTask"
             :tab="store.inspectorTab"
+            :run="store.run"
             :now-ms="nowMs"
             :events="store.selectedEvents"
             :events-loading="store.eventsLoading"

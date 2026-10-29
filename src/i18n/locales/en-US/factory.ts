@@ -266,7 +266,7 @@ export default {
     },
     status: {
       open: 'Open',
-      accepted: 'Accepted',
+      accepted: 'Fixed',
       ignored: 'Ignored',
       resolved: 'Resolved',
     },
@@ -516,6 +516,8 @@ export default {
     copied: 'Copied',
     tokens: 'Tokens',
     commits: 'Commits',
+    reviewSummary: 'Review conclusion',
+    agentLive: 'Agent is working',
     empty: 'Pick a task from the board to see its stages, events, diff and review.',
   },
 
@@ -530,7 +532,6 @@ export default {
     requestChanges: 'Request changes',
     fix: 'Let the agent fix',
     fixing: 'Fixing…',
-    accept: 'Accept',
     ignore: 'Ignore',
     confirmIgnore: 'Confirm ignore',
     merge: 'Merge into {target}',

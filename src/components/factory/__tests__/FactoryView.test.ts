@@ -156,12 +156,17 @@ const BoardStub = defineComponent({
 
 const InspectorStub = defineComponent({
   name: 'FactoryInspector',
+  props: {
+    run: { type: Object as PropType<FactoryRun | null>, default: null },
+  },
   emits: ['close'],
-  setup(_, { emit }) {
+  setup(props, { emit }) {
     return () =>
-      h('div', { 'data-inspector-stub': '' }, [
-        h('button', { 'data-inspector-close': '', onClick: () => emit('close') }),
-      ])
+      h(
+        'div',
+        { 'data-inspector-stub': '', 'data-inspector-run': props.run?.id ?? '' },
+        [h('button', { 'data-inspector-close': '', onClick: () => emit('close') })],
+      )
   },
 })
 
@@ -310,6 +315,11 @@ describe('FactoryView new run', () => {
 })
 
 describe('FactoryView inspector column', () => {
+  it('hands the inspector the run its live agent row reads', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-inspector-stub]').attributes('data-inspector-run')).toBe('run-1')
+  })
+
   it('gives the board the full width once the inspector collapses', async () => {
     const wrapper = await mountView()
     const columns = wrapper.find('[data-factory-columns]')
