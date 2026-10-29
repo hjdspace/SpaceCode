@@ -99,6 +99,17 @@ function buildTracker(draft: FactorySetupDraft['tracker']): FactoryTrackerConfig
   }
 }
 
+function buildStages(
+  overrides: FactorySetupDraft['stages'],
+): Record<FactoryStageKey, FactoryStageConfig> {
+  const stages = {} as Record<FactoryStageKey, FactoryStageConfig>
+  for (const key of STAGE_KEYS) {
+    const model = overrides?.[key]?.model?.trim()
+    stages[key] = { ...DEFAULT_STAGES[key], ...(model ? { model } : {}) }
+  }
+  return stages
+}
+
 export function buildFactoryConfig(
   draft: FactorySetupDraft,
   repo: FactoryRepoMeta,
@@ -133,7 +144,7 @@ export function buildFactoryConfig(
     },
     sandbox: sandbox as FactorySandboxConfig,
     tracker: tracker as FactoryTrackerConfig,
-    stages: DEFAULT_STAGES,
+    stages: buildStages(draft.stages),
     commands: { verify, ...(draft.commands?.install?.trim() ? { install: draft.commands.install.trim() } : {}) },
     prompts: defaultPrompts(),
     limits: DEFAULT_LIMITS,
