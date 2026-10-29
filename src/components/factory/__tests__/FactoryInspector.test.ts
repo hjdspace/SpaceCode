@@ -4,8 +4,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type {
+  FactoryEvent,
   FactoryPermissionMode,
   FactoryReview,
+  FactoryRun,
+  FactoryRunStatus,
   FactoryTask,
   FactoryTaskConfigSnapshot,
 } from '@/shared/factory'
@@ -63,6 +66,29 @@ function configSnapshot(implement: FactoryPermissionMode): FactoryTaskConfigSnap
   }
 }
 
+function run(overrides: Partial<FactoryRun> = {}): FactoryRun {
+  return {
+    id: 'run-1',
+    status: 'running',
+    paused: false,
+    createdAt: '2026-10-28T10:00:00Z',
+    maxConcurrency: 2,
+    spendUsd: 0,
+    elapsedMs: 0,
+    ...overrides,
+  }
+}
+
+/** 事件流用例只关心级别与顺序，参数走最小形状。 */
+function event(
+  code: string,
+  level: 'info' | 'ok' | 'warn' | 'error',
+  at: string,
+  seq: number,
+): FactoryEvent {
+  return { seq, at, runId: 'run-1', taskId: 'bl-1', stage: 'implement', code, level }
+}
+
 describe('FactoryInspector', () => {
   it('shows an empty state without tabs when nothing is selected', () => {
     const wrapper = mount(FactoryInspector, { props: { task: null, tab: 'overview' } })
@@ -95,6 +121,26 @@ describe('FactoryInspector', () => {
       'pending',
       'pending',
     ])
+  })
+
+  it('counts this run in commits, changes and elapsed time', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: {
+        task: task({
+          commits: [
+            { sha: 'abcdef1234567', message: 'fix: restore session' },
+            { sha: '1234567890abcde', message: 'test: cover restore order' },
+          ],
+        }),
+        // 10:01:00 起跑，量到 10:03:30 即两分半。
+        nowMs: Date.parse('2026-10-28T10:03:30Z'),
+        tab: 'overview',
+      },
+    })
+
+    expect(wrapper.find('[data-inspector-commits]').text()).toBe('2')
+    expect(wrapper.find('[data-inspector-changes]').text()).toBe('+34 −8')
+    expect(wrapper.find('[data-inspector-elapsed]').text()).toBe('02:30')
   })
 
   it('falls back to a placeholder before the worktree exists', () => {
@@ -135,7 +181,7 @@ describe('FactoryInspector', () => {
     expect(wrapper.find('[data-inspector-title]').text()).toBe(selected.title)
   })
 
-  it('renders the event stream as level-coloured summaries', () => {
+  it('resolves each event to its own text and level', () => {
     const wrapper = mount(FactoryInspector, {
       props: {
         task: task(),
@@ -170,6 +216,140 @@ describe('FactoryInspector', () => {
     expect(rows[0].text()).toContain('factory.events.task.started|{"branch":"agent/task-bl-1"}')
     expect(rows[0].classes()).toContain('ok')
     expect(rows[1].text()).toContain('factory.events.agent.turn|{"inputTokens":10,"outputTokens":4}')
+  })
+
+  it('lays events on a timeline: dot per level, time left of the text', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: {
+        task: task(),
+        tab: 'events',
+        events: [
+          event('task.started', 'ok', '2026-10-28T10:02:00Z', 1),
+          event('agent.turn', 'warn', '2026-10-28T10:03:00Z', 2),
+          event('agent.error', 'error', '2026-10-28T10:04:00Z', 3),
+        ],
+      },
+    })
+
+    expect(wrapper.find('[data-event-timeline]').exists()).toBe(true)
+    const rows = wrapper.findAll('[data-event-code]')
+    expect(rows).toHaveLength(3)
+    expect(rows.map((row) => row.classes().filter((cls) => cls !== 'tl-item'))).toEqual([
+      ['ok'],
+      ['warn'],
+      ['error'],
+    ])
+
+    for (const row of rows) {
+      const indexOf = (selector: string) =>
+        Array.from(row.element.children).findIndex((child) => child.matches(selector))
+      expect(indexOf('[data-event-dot]')).toBe(0)
+      expect(indexOf('[data-event-time]')).toBe(1)
+      expect(indexOf('[data-event-text]')).toBe(2)
+    }
+    expect(rows[0].find('[data-event-time]').text()).toBe(
+      formatTimestamp('2026-10-28T10:02:00Z'),
+    )
+  })
+
+  it('keeps a live agent row at the end of the timeline while the agent works', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: {
+        task: task(),
+        run: run(),
+        tab: 'events',
+        events: [event('task.started', 'ok', '2026-10-28T10:02:00Z', 1)],
+      },
+    })
+
+    const items = wrapper.findAll('[data-event-timeline] > li')
+    expect(items).toHaveLength(2)
+    expect(items[1].attributes('data-agent-live')).toBeDefined()
+    expect(items[1].text()).toContain('factory.inspector.agentLive')
+  })
+
+  it('replaces the empty hint with the live row before any event lands', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: { task: task(), run: run(), tab: 'events', events: [] },
+    })
+    expect(wrapper.find('[data-empty="events"]').exists()).toBe(false)
+    expect(wrapper.find('[data-agent-live]').exists()).toBe(true)
+  })
+
+  it('hides the live row when the run pauses, stops, or the task leaves implementation', () => {
+    const base = { tab: 'events' as const, events: [] as FactoryEvent[] }
+    expect(
+      mount(FactoryInspector, { props: { ...base, task: task(), run: run({ paused: true }) } }).find(
+        '[data-agent-live]',
+      ).exists(),
+    ).toBe(false)
+    expect(
+      mount(FactoryInspector, {
+        props: { ...base, task: task(), run: run({ status: 'stopped' }) },
+      }).find('[data-agent-live]').exists(),
+    ).toBe(false)
+    expect(
+      mount(FactoryInspector, {
+        props: { ...base, task: task({ lane: 'reviewing' }), run: run() },
+      }).find('[data-agent-live]').exists(),
+    ).toBe(false)
+  })
+
+  it('follows the timeline to the bottom on opening the tab and on every new event', async () => {
+    const wrapper = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    const body = wrapper.find('[data-inspector-body]').element as HTMLElement
+    const setScrollTop = vi.fn()
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, get: () => 800 })
+    Object.defineProperty(body, 'scrollTop', {
+      configurable: true,
+      get: () => 0,
+      set: setScrollTop,
+    })
+
+    await wrapper.setProps({
+      tab: 'events',
+      events: [event('task.started', 'ok', '2026-10-28T10:02:00Z', 1)],
+    })
+    await flushPromises()
+    expect(setScrollTop).toHaveBeenLastCalledWith(800)
+
+    setScrollTop.mockClear()
+    await wrapper.setProps({
+      events: [
+        event('task.started', 'ok', '2026-10-28T10:02:00Z', 1),
+        event('agent.turn', 'info', '2026-10-28T10:03:00Z', 2),
+      ],
+    })
+    await flushPromises()
+    expect(setScrollTop).toHaveBeenLastCalledWith(800)
+
+    // 其他页签不动滚动位置：用户往上翻 Diff 时不该被拽回底部。
+    setScrollTop.mockClear()
+    await wrapper.setProps({ tab: 'diff' })
+    await flushPromises()
+    expect(setScrollTop).not.toHaveBeenCalled()
+  })
+
+  it('gives a loading, failed and empty stream its own identifiable hint', () => {
+    const loaded = [event('task.started', 'ok', '2026-10-28T10:02:00Z', 1)]
+
+    const pending = mount(FactoryInspector, {
+      props: { task: task(), tab: 'events', events: loaded, eventsLoading: true },
+    })
+    expect(pending.find('[data-events-loading]').exists()).toBe(true)
+    expect(pending.find('[data-event-timeline]').exists()).toBe(false)
+
+    const failed = mount(FactoryInspector, {
+      props: { task: task(), tab: 'events', events: loaded, eventsError: 'load-failed' },
+    })
+    expect(failed.find('[data-events-error]').exists()).toBe(true)
+    expect(failed.find('[data-events-loading]').exists()).toBe(false)
+    expect(failed.find('[data-event-timeline]').exists()).toBe(false)
+    expect(failed.text()).toContain('factory.events.loadFailed')
+
+    const empty = mount(FactoryInspector, { props: { task: task(), tab: 'events', events: [] } })
+    expect(empty.find('[data-empty="events"]').exists()).toBe(true)
+    expect(empty.text()).toContain('factory.empty.events')
   })
 
   it('marks a failed GitHub write-back as retryable without touching the merge', async () => {
@@ -327,6 +507,24 @@ describe('FactoryInspector', () => {
     expect(wrapper.emitted('comment-confirm-ignore')?.[0]).toEqual(['c1'])
   })
 
+  it('makes the agent fix the primary comment action and keeps ignore two-stepped', async () => {
+    const wrapper = mount(FactoryInspector, {
+      props: { task: task({ lane: 'reviewing', review: needsChanges }), tab: 'review' },
+    })
+
+    const fix = wrapper.find('[data-comment-accept]')
+    expect(fix.text()).toBe('factory.actions.fix')
+    expect(fix.classes()).toContain('primary')
+    expect(wrapper.find('[data-comment-ignore]').text()).toBe('factory.actions.ignore')
+
+    await wrapper.find('[data-comment-ignore]').trigger('click')
+    expect(wrapper.emitted('comment-ignore')?.[0]).toEqual(['c1'])
+    expect(wrapper.find('[data-comment-confirm-ignore]').exists()).toBe(false)
+
+    await wrapper.setProps({ pendingIgnoreId: 'c1' })
+    expect(wrapper.find('[data-comment-confirm-ignore]').exists()).toBe(true)
+  })
+
   it('keeps verdict and test results visible on the overview tab', () => {
     const wrapper = mount(FactoryInspector, {
       props: {
@@ -340,6 +538,20 @@ describe('FactoryInspector', () => {
     })
     expect(wrapper.find('[data-inspector-tests]').text()).toBe('factory.tests.status.pass')
     expect(wrapper.find('[data-inspector-review]').text()).toBe('factory.review.verdict.needs_changes')
+  })
+
+  it('states the review conclusion on the overview once a review exists', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: { task: task({ lane: 'reviewing', review: needsChanges }), tab: 'overview' },
+    })
+    expect(wrapper.find('[data-overview-verdict]').text()).toBe(
+      'factory.review.verdict.needs_changes',
+    )
+    expect(wrapper.find('[data-overview-summary]').text()).toBe('One blocker found')
+
+    const unreviewed = mount(FactoryInspector, { props: { task: task(), tab: 'overview' } })
+    expect(unreviewed.find('[data-overview-verdict]').exists()).toBe(false)
+    expect(unreviewed.find('[data-overview-summary]').exists()).toBe(false)
   })
 
   it('disables approval until the task is eligible', async () => {
