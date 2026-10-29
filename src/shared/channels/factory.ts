@@ -145,6 +145,10 @@ export const factoryNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
       res: null as unknown as FactoryTaskActionResult,
     },
+    taskCancel: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskActionResult,
+    },
     taskApprove: {
       req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
       res: null as unknown as FactoryTaskActionResult,
