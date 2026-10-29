@@ -4,7 +4,7 @@
  * 六条泳道是投影，不是六份存储；任务只存 `lane + stageIdx`。
  * 组件只渲染这里的结果，i18n key 也由这里给出，避免文案散落在模板里。
  */
-import type { FactoryLane, FactoryTask } from '@/shared/factory'
+import type { FactoryLane, FactoryRun, FactoryTask, FactoryTaskDiff } from '@/shared/factory'
 
 export interface FactoryLaneMeta {
   key: FactoryLane
@@ -104,7 +104,7 @@ export function findTask(tasks: readonly FactoryTask[], id: string | null): Fact
 
 export interface FactoryTaskStatus {
   key: string
-  params?: Record<string, number>
+  params?: Record<string, string | number>
 }
 
 /** 接管只在实现中/审查中有意义；标记存在时后台不再推进该任务。 */
@@ -157,6 +157,12 @@ export function canRetryTask(task: FactoryTask): boolean {
   return task.lane === 'blocked' && task.cancelled !== true && Boolean(task.worktree)
 }
 
+/** 未决意见：accepted / ignored / resolved 都已表过态，不再计入卡片上的条数。 */
+export function openReviewComments(task: FactoryTask): number {
+  if (!task.review) return 0
+  return task.review.comments.filter((comment) => comment.status === 'open').length
+}
+
 export function taskStatus(task: FactoryTask): FactoryTaskStatus {
   if (isTakenOver(task)) return { key: 'factory.cardStatus.takeover' }
   switch (task.lane) {
@@ -167,8 +173,13 @@ export function taskStatus(task: FactoryTask): FactoryTaskStatus {
         key: 'factory.cardStatus.implementing',
         params: { iteration: task.iteration, max: task.maxIterations },
       }
-    case 'reviewing':
-      return { key: 'factory.cardStatus.reviewing' }
+    case 'reviewing': {
+      // 只数还欠着的意见：审查通过且零意见时写「0 条意见」反而是噪声。
+      const pending = openReviewComments(task)
+      return pending > 0
+        ? { key: 'factory.cardStatus.reviewingComments', params: { count: pending } }
+        : { key: 'factory.cardStatus.reviewing' }
+    }
     case 'mergeable':
       return { key: 'factory.cardStatus.mergeable' }
     case 'blocked':
@@ -178,10 +189,27 @@ export function taskStatus(task: FactoryTask): FactoryTaskStatus {
   }
 }
 
-/** 阶段进度按「已进入第几个阶段」计算：领取是 1/6，完成是 6/6。 */
-export function taskStagePercent(task: FactoryTask): number {
-  const index = Math.min(FACTORY_STEPS.length - 1, Math.max(0, task.stageIdx))
-  return Math.round(((index + 1) / FACTORY_STEPS.length) * 100)
+/** 进度条只在跑动中的两个阶段有意义：实现中看迭代，审查中即已到终点。 */
+export function showsTaskProgress(task: FactoryTask): boolean {
+  if (task.cancelled) return false
+  return task.lane === 'implementing' || task.lane === 'reviewing'
+}
+
+/** 实现中按迭代推进（与卡片 chip 的 {iteration}/{max} 同一口径），审查中拉满。 */
+export function taskProgressPercent(task: FactoryTask): number {
+  if (task.lane === 'reviewing') return 100
+  if (task.maxIterations <= 0) return 0
+  return Math.min(100, Math.round((task.iteration / task.maxIterations) * 100))
+}
+
+/**
+ * 运行推进条件与调度器一致（status==='running' 且未 paused）；被接管或已取消的
+ * 实现中任务后台已经不再跑它，脉冲必须跟着停，否则卡片在谎称自己还在动。
+ */
+export function isCardPulsing(task: FactoryTask, run: FactoryRun | null | undefined): boolean {
+  if (!run || run.status !== 'running' || run.paused) return false
+  if (task.cancelled === true || isTakenOver(task)) return false
+  return task.lane === 'implementing'
 }
 
 export function stepStates(task: FactoryTask): FactoryStepVisualState[] {
@@ -203,9 +231,7 @@ export function taskElapsedMs(task: FactoryTask, nowMs: number): number {
 /** 原型用 mm:ss 展示用时；超过一小时继续累计分钟（62:03）而不是进位到小时。 */
 export function formatClock(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  return `${pad2(Math.floor(totalSeconds / 60))}:${pad2(totalSeconds % 60)}`
 }
 
 /** 检查器里的时间戳用本地时区的 MM-DD HH:MM；缺失或非法返回空串。 */
@@ -215,7 +241,36 @@ export function formatTimestamp(iso: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return ''
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${month}-${day} ${hours}:${minutes}`
+  return `${month}-${day} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+/** 卡片脚的合并时间只到分钟（HH:mm）；缺失或非法返回空串。 */
+export function formatTimeOfDay(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/** 卡片脚的变更量；一条都没改时返回 null，由界面占位而不是写「+0 −0」。 */
+export function cardDiffstat(task: FactoryTask): FactoryTaskDiff | null {
+  if (!task.diff.additions && !task.diff.deletions) return null
+  return task.diff
+}
+
+/**
+ * 已完成卡片的脚注：合并时间 + 带入目标分支的提交数。
+ * 提交数沿用回写给 GitHub 的口径（mergedCommits 优先，退回分支提交数）。
+ */
+export function doneTaskMeta(task: FactoryTask): FactoryTaskStatus | null {
+  if (task.lane !== 'done' || task.cancelled) return null
+  const commits = task.mergedCommits ?? task.commits?.length ?? 0
+  const time = formatTimeOfDay(task.timestamps.mergedAt)
+  return time
+    ? { key: 'factory.cardMeta.merged', params: { time, commits } }
+    : { key: 'factory.cardMeta.finished', params: { commits } }
 }
