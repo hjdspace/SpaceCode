@@ -1,410 +1,491 @@
-// @vitest-environment node
 /**
- * GitHub Issues 任务源编排：领取前先写幂等评论、只有成功的 issue 进入运行、
- * 合并回写失败只标记待重试，以及 gh 不可用时回退 REST。
+ * GitHub Issues 任务源编排（spec §8）。
+ *
+ * 把「凭据解析 → 列表 → 领取 → 创建运行 → 合并回写」串起来：
+ * - 鉴权优先 gh，未登录/不可用时回退到主进程内存里的加密 token；
+ * - 领取先写含运行标识的幂等评论，只有评论成功的 issue 才进入运行；
+ * - 合并回写失败只把任务标记为待重试，绝不回滚已完成的合并。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { join } from 'path'
-import { tmpdir } from 'os'
-import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
-import { createGithubTrackerService, type GithubTrackerServiceDeps } from '../githubTrackerService'
-import { createFactorySecretStore, type FactorySecretStore } from '../secrets'
-import { createGithubRun, readRunSnapshot, runDir, tasksFilePath } from '../runs'
-import { readEvents } from '../events'
-import type { FactoryGithubIssue, FactoryTask } from '@/shared/factory'
-import type { GithubTracker } from '../githubTracker'
-import type { GithubFetch } from '../githubClient'
+import {
+  FACTORY_RUNS_PATH,
+  type FactoryConfig,
+  type FactoryGithubAuthResult,
+  type FactoryGithubClaimFailure,
+  type FactoryGithubClaimInput,
+  type FactoryGithubClaimResult,
+  type FactoryGithubFailureReason,
+  type FactoryGithubListInput,
+  type FactoryGithubListResult,
+  type FactoryGithubWritebackRetryResult,
+  type FactoryPrReadyResult,
+  type FactoryTaskWriteback,
+} from '@/shared/factory'
+import { readFactoryConfig } from './config'
+import {
+  claimedGithubIssues,
+  createGithubRun,
+  githubTaskId,
+  readRunSnapshot,
+  type FactoryGithubTaskInput,
+} from './runs'
+import { patchTask } from './runtime'
+import { openEventLog, type FactoryEventInput } from './events'
+import {
+  MAX_ISSUES,
+  createGhApi,
+  createRestApi,
+  type GhRunner,
+  type GithubApi,
+  type GithubFetch,
+} from './githubClient'
+import { buildMergeComment, createGithubTracker, type GithubTracker } from './githubTracker'
+import { checkGhAuth as defaultCheckGhAuth, checkGhWriteAccess, defaultGhRunner, verifyGithubToken } from './github'
+import type { MergeWriteBackPayload } from './merge'
+import type { FactorySecretStore } from './secrets'
 
-let dir: string
+export type GithubTrackerResolveResult =
+  | { ok: true; tracker: GithubTracker }
+  | { ok: false; reason: FactoryGithubFailureReason }
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'factory-github-service-'))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
-
-function seedConfig(options: { auth?: 'gh' | 'token'; commentIssue?: boolean; closeIssue?: boolean } = {}): void {
-  const built = buildFactoryConfig(
-    {
-      agent: { engineType: 'claude-code', model: 'claude-sonnet-4-5' },
-      sandbox: { type: 'worktree' },
-      tracker: {
-        type: 'github-issues',
-        repo: 'hjdspace/SpaceCode',
-        label: 'ready-for-agent',
-        auth: options.auth ?? 'gh',
-        mergeMode: 'local',
-        commentIssue: options.commentIssue ?? true,
-        closeIssue: options.closeIssue ?? true,
-      },
-      commands: { verify: 'npm run test' },
-    },
-    { baseBranch: 'main' },
-  )
-  if (!built.ok) throw new Error('fixture config invalid')
-  writeFactoryConfigAtomic(dir, built.config)
+export interface GithubTrackerServiceDeps {
+  secrets: FactorySecretStore
+  /** gh 优先；未登录或不可用时回退 REST。 */
+  checkGh?: () => Promise<FactoryGithubAuthResult>
+  runGh?: GhRunner
+  fetchImpl?: GithubFetch
+  now?: () => Date
+  genId?: () => string
+  /** 测试与自定义实现用：直接给出 tracker，跳过凭据解析。 */
+  resolveTracker?: (
+    repoRoot: string,
+    config: FactoryConfig,
+    locallyClaimed: number[],
+  ) => Promise<GithubTrackerResolveResult>
+  /** 事件出口；默认写入 runs/<runId>/events.jsonl。 */
+  emit?: (repoRoot: string, runId: string, input: FactoryEventInput) => void
 }
 
-function makeSecrets(token?: string): FactorySecretStore {
-  const store = createFactorySecretStore({
-    filePath: join(dir, 'userData', 'factory-secrets.json'),
-    crypto: {
-      isEncryptionAvailable: () => true,
-      encryptString: (value) => Buffer.from(`enc:${value}`),
-      decryptString: (buffer) => buffer.toString().replace(/^enc:/, ''),
-    },
-  })
-  if (token) store.saveGithubToken(token)
-  return store
+export interface GithubTrackerService {
+  listIssues(repoRoot: string, input?: FactoryGithubListInput): Promise<FactoryGithubListResult>
+  claimIssues(repoRoot: string, input: FactoryGithubClaimInput): Promise<FactoryGithubClaimResult>
+  /** 作为 merge 的 writeBack 钩子；失败时抛出，由 merge 记录事件且不推翻合并。 */
+  writeBackMerge(payload: MergeWriteBackPayload): Promise<void>
+  /** PR 模式：当前凭据能否推送任务分支并创建 PR。 */
+  checkPrReady(repoRoot: string): Promise<FactoryPrReadyResult>
+  retryWriteback(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+  ): Promise<FactoryGithubWritebackRetryResult>
 }
 
-function issue(number: number, overrides: Partial<FactoryGithubIssue> = {}): FactoryGithubIssue {
-  return {
-    number,
-    title: `issue ${number}`,
-    body: `body ${number}`,
-    labels: ['ready-for-agent'],
-    state: 'open',
-    claimed: false,
-    ...overrides,
+interface AttemptResult {
+  ok: boolean
+  reason?: FactoryGithubFailureReason
+  commented: boolean
+  closed: boolean
+}
+
+function eventsPath(repoRoot: string, runId: string): string {
+  return join(repoRoot, FACTORY_RUNS_PATH, runId, 'events.jsonl')
+}
+
+function defaultGenId(): string {
+  return `run-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`
+}
+
+export function createGithubTrackerService(deps: GithubTrackerServiceDeps): GithubTrackerService {
+  const now = deps.now ?? (() => new Date())
+  const genId = deps.genId ?? defaultGenId
+
+  function emitEvent(repoRoot: string, runId: string, input: FactoryEventInput): void {
+    if (deps.emit) {
+      deps.emit(repoRoot, runId, input)
+      return
+    }
+    openEventLog(eventsPath(repoRoot, runId), { runId, now }).append(input)
   }
-}
 
-function makeTracker(overrides: Partial<GithubTracker> = {}): GithubTracker {
-  return {
-    list: vi.fn(async () => ({ ok: true, issues: [] })),
-    claim: vi.fn(async () => ({ ok: true, idempotent: false })),
-    writeBack: vi.fn(async () => ({ ok: true, commented: true, closed: true })),
-    ...overrides,
-  } as unknown as GithubTracker
-}
-
-function makeService(
-  tracker: GithubTracker,
-  overrides: Partial<GithubTrackerServiceDeps> = {},
-): ReturnType<typeof createGithubTrackerService> {
-  return createGithubTrackerService({
-    secrets: makeSecrets(),
-    resolveTracker: async () => ({ ok: true, tracker }),
-    now: () => new Date('2026-10-28T10:00:00.000Z'),
-    genId: () => 'run-gh-1',
-    ...overrides,
-  })
-}
-
-function seedClaimedRun(issueNumber: number, runId = 'run-gh-1'): FactoryTask {
-  const created = createGithubRun(
-    dir,
-    { runId, tasks: [{ issueNumber, title: `issue ${issueNumber}`, goal: `body ${issueNumber}` }] },
-    { now: () => new Date('2026-10-28T09:00:00.000Z') },
-  )
-  if (!created.ok) throw new Error('fixture run invalid')
-  return created.snapshot.tasks[0]
-}
-
-function mergePayload(task: FactoryTask) {
-  return {
-    repoRoot: dir,
-    runId: task.runId,
-    task,
-    mode: 'merge' as const,
-    targetBranch: 'main',
-    mergedCommits: 2,
-    mergedAt: '2026-10-28T11:00:00.000Z',
+  function trackerFor(
+    repoRoot: string,
+    config: FactoryConfig,
+    locallyClaimed: number[],
+  ): Promise<GithubTrackerResolveResult> {
+    if (deps.resolveTracker) return deps.resolveTracker(repoRoot, config, locallyClaimed)
+    return defaultResolve(repoRoot, config, locallyClaimed)
   }
-}
 
-function eventsOf(runId: string) {
-  return readEvents(join(runDir(dir, runId), 'events.jsonl'))
-}
+  async function defaultResolve(
+    repoRoot: string,
+    config: FactoryConfig,
+    locallyClaimed: number[],
+  ): Promise<GithubTrackerResolveResult> {
+    if (config.tracker.type !== 'github-issues') {
+      return { ok: false, reason: 'unsupported' }
+    }
+    const trackerConfig = config.tracker
+    const ghStatus = await (deps.checkGh ?? defaultCheckGhAuth)()
+    const gh = (): GithubTracker =>
+      createGithubTracker({
+        api: createGhApi({ repo: trackerConfig.repo, run: deps.runGh ?? defaultGhRunner }),
+        label: trackerConfig.label,
+        locallyClaimed,
+      })
+    const rest = (token: string): GithubTracker =>
+      createGithubTracker({
+        api: createRestApi({
+          repo: trackerConfig.repo,
+          token,
+          ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
+        }),
+        label: trackerConfig.label,
+        locallyClaimed,
+      })
 
-describe('claimIssues', () => {
-  beforeEach(() => seedConfig())
+    if (trackerConfig.auth === 'gh') {
+      if (ghStatus.ok) return { ok: true, tracker: gh() }
+      const token = deps.secrets.readGithubToken()
+      if (token) return { ok: true, tracker: rest(token) }
+      return { ok: false, reason: 'not-logged-in' }
+    }
 
-  it('only turns successfully claimed issues into queued tasks', async () => {
-    const tracker = makeTracker({
-      list: async () => ({ ok: true, issues: [issue(1), issue(2)] }),
-      claim: async (input) =>
-        input.issueNumber === 1
-          ? { ok: true, idempotent: false }
-          : { ok: false, reason: 'already-claimed', byRun: 'run-old' },
+    const token = deps.secrets.readGithubToken()
+    if (token) return { ok: true, tracker: rest(token) }
+    if (ghStatus.ok) return { ok: true, tracker: gh() }
+    return { ok: false, reason: 'invalid-token' }
+  }
+
+  /** token 路径的写权限来自仓库 permissions.push；gh 路径直接问 API。 */
+  async function tokenReady(token: string, repo: string): Promise<FactoryPrReadyResult> {
+    const result = await verifyGithubToken(token, repo)
+    if (!result.ok) {
+      if (result.reason === 'gh-not-logged-in') return { ok: false, reason: 'not-logged-in' }
+      return { ok: false, reason: result.reason === 'ok' ? 'unknown' : result.reason }
+    }
+    return result.canPush === true ? { ok: true } : { ok: false, reason: 'repo-permission' }
+  }
+
+  async function checkPrReady(repoRoot: string): Promise<FactoryPrReadyResult> {
+    const config = readFactoryConfig(repoRoot)
+    if (!config || config.tracker.type !== 'github-issues') {
+      return { ok: false, reason: 'unsupported' }
+    }
+    const trackerConfig = config.tracker
+    const ghStatus = await (deps.checkGh ?? defaultCheckGhAuth)()
+    const ghCheck = (): Promise<FactoryPrReadyResult> =>
+      checkGhWriteAccess(trackerConfig.repo, deps.runGh ?? defaultGhRunner)
+
+    if (trackerConfig.auth === 'gh') {
+      if (ghStatus.ok) return ghCheck()
+      const token = deps.secrets.readGithubToken()
+      if (token) return tokenReady(token, trackerConfig.repo)
+      return { ok: false, reason: 'not-logged-in' }
+    }
+
+    const token = deps.secrets.readGithubToken()
+    if (token) return tokenReady(token, trackerConfig.repo)
+    if (ghStatus.ok) return ghCheck()
+    return { ok: false, reason: 'invalid-token' }
+  }
+
+  async function listIssues(
+    repoRoot: string,
+    input: FactoryGithubListInput = {},
+  ): Promise<FactoryGithubListResult> {
+    const config = readFactoryConfig(repoRoot)
+    if (!config || config.tracker.type !== 'github-issues') {
+      return { ok: false, reason: 'unsupported' }
+    }
+    const locallyClaimed = [...claimedGithubIssues(repoRoot).keys()]
+    const resolved = await trackerFor(repoRoot, config, locallyClaimed)
+    if (!resolved.ok) return { ok: false, reason: resolved.reason }
+
+    return resolved.tracker.list({
+      label: input.label ?? config.tracker.label,
+      limit: input.limit ?? 20,
     })
-    const service = makeService(tracker)
+  }
 
-    const result = await service.claimIssues(dir, { issueNumbers: [1, 2] })
-    if (!result.ok) throw new Error(`unexpected failure: ${result.reason}`)
+  async function claimIssues(
+    repoRoot: string,
+    input: FactoryGithubClaimInput,
+  ): Promise<FactoryGithubClaimResult> {
+    const config = readFactoryConfig(repoRoot)
+    if (!config || config.tracker.type !== 'github-issues') {
+      return { ok: false, reason: 'config-missing' }
+    }
 
-    expect(result.claimed).toEqual([1])
-    expect(result.failed).toEqual([{ number: 2, reason: 'already-claimed' }])
-    expect(result.snapshot.tasks).toHaveLength(1)
-    expect(result.snapshot.tasks[0]).toMatchObject({
-      id: 'issue-1',
-      source: 'github-issues',
-      issueNumber: 1,
-      title: 'issue 1',
-      goal: 'body 1',
-      lane: 'queued',
-    })
+    const numbers = [
+      ...new Set((input.issueNumbers ?? []).filter((number) => Number.isInteger(number) && number > 0)),
+    ]
+    if (numbers.length === 0) return { ok: false, reason: 'no-selection' }
 
-    const codes = eventsOf('run-gh-1').map((event) => event.code)
-    expect(codes).toContain('github.imported')
-    expect(codes).toContain('github.claimed')
-    expect(codes).toContain('github.claim.failed')
-  })
-
-  it('does not create a run when every claim fails', async () => {
-    const tracker = makeTracker({
-      list: async () => ({ ok: true, issues: [issue(3)] }),
-      claim: async () => ({ ok: false, reason: 'repo-permission' }),
-    })
-    const service = makeService(tracker)
-
-    const result = await service.claimIssues(dir, { issueNumbers: [3] })
-    expect(result).toMatchObject({
-      ok: false,
-      reason: 'all-failed',
-      failed: [{ number: 3, reason: 'repo-permission' }],
-    })
-    expect(existsSync(join(dir, '.spacecode/factory/runs'))).toBe(false)
-  })
-
-  it('rejects a locally claimed issue before writing any comment', async () => {
-    seedClaimedRun(7, 'run-existing')
-    const tracker = makeTracker()
-    const service = makeService(tracker, { genId: () => 'run-gh-2' })
-
-    const result = await service.claimIssues(dir, { issueNumbers: [7] })
-    expect(result).toMatchObject({
-      ok: false,
-      reason: 'duplicate-issues',
-      failed: [{ number: 7, reason: 'already-claimed' }],
-    })
-    expect(tracker.claim).not.toHaveBeenCalled()
-  })
-
-  it('surfaces list failures without creating a run', async () => {
-    const tracker = makeTracker({ list: async () => ({ ok: false, reason: 'rate-limit' }) })
-    const service = makeService(tracker)
-
-    const result = await service.claimIssues(dir, { issueNumbers: [4] })
-    expect(result).toMatchObject({ ok: false, reason: 'rate-limit' })
-    expect(existsSync(runDir(dir, 'run-gh-1'))).toBe(false)
-  })
-
-  it('rejects an empty selection', async () => {
-    const service = makeService(makeTracker())
-    expect(await service.claimIssues(dir, { issueNumbers: [] })).toEqual({
-      ok: false,
-      reason: 'no-selection',
-    })
-  })
-
-  it('applies the requested concurrency to the created run', async () => {
-    const tracker = makeTracker({
-      list: async () => ({ ok: true, issues: [issue(1), issue(2)] }),
-    })
-    const service = makeService(tracker)
-
-    const result = await service.claimIssues(dir, { issueNumbers: [1, 2], concurrency: 2 })
-    if (!result.ok) throw new Error(`unexpected failure: ${result.reason}`)
-    expect(result.snapshot.run.maxConcurrency).toBe(2)
-  })
-})
-
-describe('writeBackMerge', () => {
-  beforeEach(() => seedConfig())
-
-  it('records a successful comment and close on the task', async () => {
-    const task = seedClaimedRun(9)
-    const tracker = makeTracker()
-    const service = makeService(tracker)
-
-    await service.writeBackMerge(mergePayload(task))
-
-    const written = readRunSnapshot(dir, 'run-gh-1')?.tasks[0]
-    expect(written?.writeback).toMatchObject({
-      status: 'done',
-      attempts: 1,
-      commented: true,
-      closed: true,
-    })
-    expect(tracker.writeBack).toHaveBeenCalledTimes(1)
-    const body = (tracker.writeBack as ReturnType<typeof vi.fn>).mock.calls[0][0].body as string
-    expect(body).toContain('agent/issue-9')
-    expect(body).toContain('main')
-    expect(body).toContain('2 个')
-
-    const codes = eventsOf('run-gh-1').map((event) => event.code)
-    expect(codes).toContain('github.writeback.done')
-  })
-
-  it('marks the task failed without undoing the merge when writing back fails', async () => {
-    const task = seedClaimedRun(10)
-    const tracker = makeTracker({
-      writeBack: async () => ({
+    const localClaimed = claimedGithubIssues(repoRoot)
+    const duplicates = numbers.filter((number) => localClaimed.has(number))
+    if (duplicates.length > 0) {
+      return {
         ok: false,
-        reason: 'repo-permission',
-        commented: false,
-        closed: false,
-      }),
-    })
-    const service = makeService(tracker)
-
-    await expect(service.writeBackMerge(mergePayload(task))).rejects.toThrow('repo-permission')
-
-    const written = readRunSnapshot(dir, 'run-gh-1')?.tasks[0]
-    expect(written?.writeback).toMatchObject({
-      status: 'failed',
-      attempts: 1,
-      error: 'repo-permission',
-    })
-    const codes = eventsOf('run-gh-1').map((event) => event.code)
-    expect(codes).toContain('github.writeback.failed')
-  })
-
-  it('skips local tasks that have no issue to write back', async () => {
-    const tracker = makeTracker()
-    const service = makeService(tracker)
-    await service.writeBackMerge({
-      repoRoot: dir,
-      runId: 'run-local',
-      task: { ...seedClaimedRun(11), source: 'local', issueNumber: undefined },
-      mode: 'merge',
-      targetBranch: 'main',
-      mergedCommits: 1,
-      mergedAt: '2026-10-28T11:00:00.000Z',
-    })
-    expect(tracker.writeBack).not.toHaveBeenCalled()
-  })
-})
-
-describe('retryWriteback', () => {
-  beforeEach(() => seedConfig())
-
-  it('retries only the missing half and records the new attempt', async () => {
-    const task = seedClaimedRun(12)
-    const path = tasksFilePath(dir, 'run-gh-1')
-    const raw = JSON.parse(readFileSync(path, 'utf-8')) as Array<Record<string, unknown>>
-    raw[0].lane = 'done'
-    raw[0].timestamps = { mergedAt: '2026-10-28T11:00:00.000Z' }
-    raw[0].writeback = {
-      status: 'failed',
-      at: '2026-10-28T11:01:00.000Z',
-      attempts: 1,
-      commented: true,
+        reason: 'duplicate-issues',
+        failed: duplicates.map((number) => ({ number, reason: 'already-claimed' })),
+      }
     }
-    writeFileSync(path, JSON.stringify(raw), 'utf-8')
 
-    const tracker = makeTracker({
-      writeBack: vi.fn(async () => ({ ok: true, commented: false, closed: true })),
-    })
-    const service = makeService(tracker)
+    const resolved = await trackerFor(repoRoot, config, [...localClaimed.keys()])
+    if (!resolved.ok) return { ok: false, reason: resolved.reason }
 
-    const result = await service.retryWriteback(dir, 'run-gh-1', task.id)
-    expect(result.ok).toBe(true)
-
-    const input = (tracker.writeBack as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
-      comment: boolean
-      close: boolean
+    const listed = await resolved.tracker.list({ label: config.tracker.label, limit: MAX_ISSUES })
+    if (!listed.ok) {
+      return { ok: false, reason: listed.reason, ...(listed.detail ? { detail: listed.detail } : {}) }
     }
-    expect(input.comment).toBe(false)
-    expect(input.close).toBe(true)
+    const byNumber = new Map(listed.issues.map((item) => [item.number, item]))
 
-    const written = readRunSnapshot(dir, 'run-gh-1')?.tasks[0]
-    expect(written?.writeback).toMatchObject({
+    const runId = genId()
+    const claimed: number[] = []
+    const failed: FactoryGithubClaimFailure[] = []
+    const tasks: FactoryGithubTaskInput[] = []
+
+    for (const number of numbers) {
+      const issue = byNumber.get(number)
+      if (!issue) {
+        failed.push({ number, reason: 'unknown' })
+        continue
+      }
+      if (issue.claimed) {
+        failed.push({ number, reason: 'already-claimed' })
+        continue
+      }
+      const outcome = await resolved.tracker.claim({
+        issueNumber: number,
+        runId,
+        taskId: githubTaskId(number),
+      })
+      if (!outcome.ok) {
+        failed.push({ number, reason: outcome.reason })
+        continue
+      }
+      claimed.push(number)
+      tasks.push({ issueNumber: number, title: issue.title, goal: issue.body })
+    }
+
+    if (claimed.length === 0) {
+      return { ok: false, reason: 'all-failed', failed }
+    }
+
+    const created = createGithubRun(
+      repoRoot,
+      {
+        runId,
+        tasks,
+        ...(input.concurrency === undefined ? {} : { concurrency: input.concurrency }),
+      },
+      { now },
+    )
+    if (!created.ok) {
+      if (created.error === 'duplicate-tasks') {
+        return {
+          ok: false,
+          reason: 'duplicate-issues',
+          failed: (created.duplicates ?? []).map((number) => ({
+            number: Number(number),
+            reason: 'already-claimed',
+          })),
+        }
+      }
+      return { ok: false, reason: 'all-failed', failed, detail: created.error }
+    }
+
+    emitEvent(repoRoot, runId, {
+      taskId: null,
+      code: 'github.imported',
+      level: 'ok',
+      params: { count: claimed.length },
+    })
+    for (const number of claimed) {
+      emitEvent(repoRoot, runId, {
+        taskId: githubTaskId(number),
+        code: 'github.claimed',
+        level: 'info',
+        params: { number },
+      })
+    }
+    for (const failure of failed) {
+      emitEvent(repoRoot, runId, {
+        taskId: githubTaskId(failure.number),
+        code: 'github.claim.failed',
+        level: 'warn',
+        params: { number: failure.number, reason: failure.reason },
+      })
+    }
+
+    return { ok: true, snapshot: created.snapshot, claimed, failed }
+  }
+
+  function markWriteback(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    writeback: FactoryTaskWriteback,
+  ): void {
+    patchTask(repoRoot, runId, taskId, { writeback })
+  }
+
+  async function attemptWriteBack(payload: MergeWriteBackPayload): Promise<AttemptResult> {
+    const task = payload.task
+    if (task.source !== 'github-issues' || typeof task.issueNumber !== 'number') {
+      return { ok: true, commented: false, closed: false }
+    }
+
+    const number = task.issueNumber
+    const attempts = (task.writeback?.attempts ?? 0) + 1
+    const at = now().toISOString()
+    const alreadyCommented = task.writeback?.commented === true
+    const alreadyClosed = task.writeback?.closed === true
+    const fail = (reason: FactoryGithubFailureReason): AttemptResult => {
+      markWriteback(payload.repoRoot, payload.runId, task.id, {
+        status: 'failed',
+        at,
+        attempts,
+        ...(alreadyCommented ? { commented: true } : {}),
+        ...(alreadyClosed ? { closed: true } : {}),
+        error: reason,
+      })
+      emitEvent(payload.repoRoot, payload.runId, {
+        taskId: task.id,
+        code: 'github.writeback.failed',
+        level: 'warn',
+        params: { number, reason },
+      })
+      return { ok: false, reason, commented: alreadyCommented, closed: alreadyClosed }
+    }
+
+    const config = readFactoryConfig(payload.repoRoot)
+    if (!config || config.tracker.type !== 'github-issues') {
+      return fail('unsupported')
+    }
+
+    const comment = config.tracker.commentIssue && !alreadyCommented
+    const close = config.tracker.closeIssue && !alreadyClosed
+    if (!comment && !close) {
+      markWriteback(payload.repoRoot, payload.runId, task.id, {
+        status: 'done',
+        at,
+        attempts,
+        ...(alreadyCommented ? { commented: true } : {}),
+        ...(alreadyClosed ? { closed: true } : {}),
+      })
+      emitEvent(payload.repoRoot, payload.runId, {
+        taskId: task.id,
+        code: 'github.writeback.done',
+        level: 'ok',
+        params: { number },
+      })
+      return { ok: true, commented: alreadyCommented, closed: alreadyClosed }
+    }
+
+    const resolved = await trackerFor(payload.repoRoot, config, [])
+    if (!resolved.ok) return fail(resolved.reason)
+
+    const body = buildMergeComment({
+      branch: task.branch,
+      targetBranch: payload.targetBranch,
+      mergedCommits: payload.mergedCommits,
+      mergedAt: payload.mergedAt,
+      mode: payload.mode,
+      ...(task.tests ? { tests: task.tests } : {}),
+      ...(task.review ? { review: task.review } : {}),
+    })
+    const outcome = await resolved.tracker.writeBack({
+      issueNumber: number,
+      body,
+      comment,
+      close,
+    })
+
+    const commented = alreadyCommented || outcome.commented
+    const closed = alreadyClosed || outcome.closed
+    if (!outcome.ok) {
+      const reason = outcome.reason ?? 'unknown'
+      markWriteback(payload.repoRoot, payload.runId, task.id, {
+        status: 'failed',
+        at,
+        attempts,
+        ...(commented ? { commented: true } : {}),
+        ...(closed ? { closed: true } : {}),
+        error: reason,
+      })
+      emitEvent(payload.repoRoot, payload.runId, {
+        taskId: task.id,
+        code: 'github.writeback.failed',
+        level: 'warn',
+        params: { number, reason },
+      })
+      return { ok: false, reason, commented, closed }
+    }
+
+    markWriteback(payload.repoRoot, payload.runId, task.id, {
       status: 'done',
-      attempts: 2,
-      commented: true,
-      closed: true,
+      at,
+      attempts,
+      ...(commented ? { commented: true } : {}),
+      ...(closed ? { closed: true } : {}),
     })
-  })
-
-  it('refuses tasks that are not merged or have nothing to retry', async () => {
-    const task = seedClaimedRun(13)
-    const tracker = makeTracker()
-    const service = makeService(tracker)
-
-    expect(await service.retryWriteback(dir, 'run-gh-1', 'missing')).toMatchObject({
-      ok: false,
-      reason: 'task-not-found',
+    emitEvent(payload.repoRoot, payload.runId, {
+      taskId: task.id,
+      code: 'github.writeback.done',
+      level: 'ok',
+      params: { number },
     })
-    expect(await service.retryWriteback(dir, 'run-gh-1', task.id)).toMatchObject({
-      ok: false,
-      reason: 'not-merged',
+    return { ok: true, commented, closed }
+  }
+
+  async function retryWriteback(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+  ): Promise<FactoryGithubWritebackRetryResult> {
+    const snapshot = readRunSnapshot(repoRoot, runId)
+    const task = snapshot?.tasks.find((item) => item.id === taskId) ?? null
+    if (!task) return { ok: false, reason: 'task-not-found' }
+    if (task.source !== 'github-issues' || typeof task.issueNumber !== 'number') {
+      return { ok: false, reason: 'not-github' }
+    }
+    if (task.lane !== 'done' || !task.timestamps.mergedAt) {
+      return { ok: false, reason: 'not-merged' }
+    }
+    if (task.writeback?.status !== 'failed') {
+      return { ok: false, reason: 'not-applicable' }
+    }
+
+    const config = readFactoryConfig(repoRoot)
+    if (!config || config.tracker.type !== 'github-issues') {
+      return { ok: false, reason: 'config-missing' }
+    }
+
+    const result = await attemptWriteBack({
+      repoRoot,
+      runId,
+      task,
+      mode: 'merge',
+      targetBranch: task.targetBranch ?? config.repo.baseBranch,
+      mergedCommits: task.mergedCommits ?? task.commits?.length ?? 0,
+      mergedAt: task.timestamps.mergedAt,
     })
-  })
-})
+    if (!result.ok) return { ok: false, reason: result.reason ?? 'unknown' }
 
-describe('auth resolution', () => {
-  it('falls back to the REST token when gh is not logged in', async () => {
-    seedConfig({ auth: 'gh' })
-    const fetchImpl = vi.fn<GithubFetch>(async () => ({
-      status: 200,
-      text: async () =>
-        JSON.stringify([
-          {
-            number: 5,
-            title: 'REST issue',
-            body: 'from rest',
-            labels: ['ready-for-agent'],
-            state: 'open',
-          },
-        ]),
-      headers: { get: () => null },
-    }))
-    const service = createGithubTrackerService({
-      secrets: makeSecrets('ghp_test_token'),
-      checkGh: async () => ({ ok: false, reason: 'gh-not-logged-in' }),
-      fetchImpl,
-      now: () => new Date('2026-10-28T10:00:00.000Z'),
-    })
+    const latest = readRunSnapshot(repoRoot, runId)
+    return latest ? { ok: true, snapshot: latest } : { ok: false, reason: 'task-not-found' }
+  }
 
-    const result = await service.listIssues(dir)
-    if (!result.ok) throw new Error(`unexpected failure: ${result.reason}`)
-    expect(result.issues.map((item) => item.number)).toEqual([5])
-    expect(fetchImpl).toHaveBeenCalled()
-    const [, init] = fetchImpl.mock.calls[0]
-    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer ghp_test_token')
-  })
-
-  it('prefers gh when it is authenticated', async () => {
-    seedConfig({ auth: 'gh' })
-    const runGh = vi.fn(async (args: string[]) => ({
-      code: 0,
-      stdout: args.includes('list')
-        ? JSON.stringify([
-            {
-              number: 6,
-              title: 'gh issue',
-              body: 'from gh',
-              labels: ['ready-for-agent'],
-              state: 'OPEN',
-              comments: [],
-            },
-          ])
-        : '',
-    }))
-    const service = createGithubTrackerService({
-      secrets: makeSecrets(),
-      checkGh: async () => ({ ok: true, reason: 'ok' }),
-      runGh,
-      now: () => new Date('2026-10-28T10:00:00.000Z'),
-    })
-
-    const result = await service.listIssues(dir)
-    if (!result.ok) throw new Error('unexpected failure')
-    expect(result.issues.map((item) => item.number)).toEqual([6])
-    expect(runGh).toHaveBeenCalled()
-  })
-
-  it('reports invalid-token when token auth has no stored secret', async () => {
-    seedConfig({ auth: 'token' })
-    const service = createGithubTrackerService({
-      secrets: makeSecrets(),
-      checkGh: async () => ({ ok: false, reason: 'gh-not-logged-in' }),
-    })
-    expect(await service.listIssues(dir)).toMatchObject({ ok: false, reason: 'invalid-token' })
-  })
-})
+  return {
+    listIssues,
+    claimIssues,
+    checkPrReady,
+    async writeBackMerge(payload) {
+      const result = await attemptWriteBack(payload)
+      if (!result.ok) throw new Error(result.reason ?? 'unknown')
+    },
+    retryWriteback,
+  }
+}
