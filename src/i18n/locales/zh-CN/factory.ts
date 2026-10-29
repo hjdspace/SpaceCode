@@ -234,6 +234,7 @@ export default {
   storage: {
     readonly: '另一个窗口或进程正在推进这个运行，当前只能只读查看。',
     readonlyHint: '只读查看：关闭其他窗口后重新打开才能继续推进。',
+    readonlyBadge: '只读',
     corrupt: '已隔离损坏的运行数据：{runs}',
   },
   attention: {
@@ -508,13 +509,16 @@ export default {
     timestamps: '时间戳',
     worktreePending: '未创建',
     revealWorktree: '在文件管理器中显示',
+    close: '收起检查器',
+    copyBranch: '复制分支名',
+    copied: '已复制',
     tokens: 'Token',
     commits: '提交',
     empty: '从看板选择一个任务，查看阶段、事件流、Diff 与审查意见。',
   },
 
   actions: {
-    start: '开始实现',
+    start: '立即开始',
     starting: '启动中…',
     stop: '停止',
     stopping: '停止中…',
@@ -528,6 +532,7 @@ export default {
     ignore: '忽略',
     confirmIgnore: '确认忽略',
     merge: '合并到 {target}',
+    viewWorktree: '查看工作树',
     takeover: '接管',
     takingOver: '接管中…',
     return: '交回流水线',
@@ -535,6 +540,14 @@ export default {
     retry: '从当前阶段重试',
     retryLocal: '切回本地重试',
     retrying: '重试中…',
+    /** 卡片快捷动作用短标签：泳道列窄，长文案会顶穿卡片。 */
+    review: '审查',
+    view: '查看',
+    mergeShort: '合并',
+    retryShort: '重试',
+    remove: '移除',
+    abandon: '放弃',
+    cancelling: '放弃中…',
   },
 
   errors: {
@@ -557,6 +570,7 @@ export default {
     'agent-error': '启动 Agent 失败。',
     'sandbox-unavailable': 'Docker 沙箱不可用，请检查 Docker 与镜像配置后重试；也可显式切回本地。',
     'not-running': '该任务当前没有在运行。',
+    'not-cancellable': '只有队列或阻塞中的任务可以移除或放弃。',
     'stop-failed': '停止任务失败。',
     'run-not-found': '运行不存在。',
     'run-stopped': '运行已停止，无法继续领取。',
@@ -598,6 +612,7 @@ export default {
       iteration: { limit: '达到迭代上限（{iterations} 轮），已转阻塞' },
       approved: '已批准，任务进入待合并',
       changes_requested: '已要求修改，任务转阻塞',
+      cancelled: '任务已放弃，分支与工作树保留',
       fix: { started: '按 {comments} 条意见开始修复' },
       takeover: '已接管任务，在聊天中继续',
       retry: '从当前阶段重试',
