@@ -20,7 +20,8 @@ const { factoryApi } = vi.hoisted(() => ({
     backlogUpdate: vi.fn(),
     backlogDelete: vi.fn(),
     backlogMove: vi.fn(),
-    runLatest: vi.fn(),
+    runList: vi.fn(),
+    runGet: vi.fn(),
     runCreate: vi.fn(),
     runResume: vi.fn(),
     runPause: vi.fn(),
@@ -71,6 +72,13 @@ function snapshot(): FactoryRunSnapshot {
       timestamps: { claimedAt: '2026-10-28T10:02:00Z' },
     })),
   }
+}
+
+/** 页签条只有一个运行：runList 给出摘要，runGet 返回快照。 */
+function mockRun(snap: FactoryRunSnapshot | null): void {
+  factoryApi.runList.mockResolvedValue(snap ? [snap.run] : [])
+  factoryApi.runGet.mockResolvedValue(snap)
+  factoryApi.taskEvents.mockResolvedValue([])
 }
 
 function configFixture(): FactoryConfig {
@@ -133,8 +141,8 @@ describe('backlog', () => {
 })
 
 describe('run and selection', () => {
-  it('loads the latest run and selects the first task', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+  it('loads the open run and selects the first task', async () => {
+    mockRun(snapshot())
     const store = useFactoryStore()
     await store.loadRun('/repo')
     expect(store.run?.id).toBe('run-1')
@@ -145,7 +153,7 @@ describe('run and selection', () => {
   })
 
   it('keeps the selection when switching inspector tabs', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+    mockRun(snapshot())
     const store = useFactoryStore()
     await store.loadRun('/repo')
 
@@ -158,7 +166,7 @@ describe('run and selection', () => {
   })
 
   it('restores the persisted selection and ignores a stale id', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+    mockRun(snapshot())
     const store = useFactoryStore()
     await store.loadRun('/repo')
 
@@ -198,7 +206,7 @@ describe('run and selection', () => {
   })
 
   it('surfaces duplicate claims without clobbering the current board', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+    mockRun(snapshot())
     factoryApi.runCreate.mockResolvedValue({ ok: false, error: 'duplicate-tasks', duplicates: ['bl-1'] })
     const store = useFactoryStore()
     await store.loadRun('/repo')
@@ -232,7 +240,7 @@ function event(seq: number, overrides: Partial<FactoryEvent> = {}): FactoryEvent
 
 describe('implementation events', () => {
   it('appends pushed events by seq and drops duplicates', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+    mockRun(snapshot())
     const store = useFactoryStore()
     await store.loadRun('/repo')
 
@@ -245,7 +253,7 @@ describe('implementation events', () => {
   })
 
   it('ignores pushes from another run and keeps run-level events', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+    mockRun(snapshot())
     const store = useFactoryStore()
     await store.loadRun('/repo')
 
@@ -258,6 +266,7 @@ describe('implementation events', () => {
   })
 
   it('loads persisted events into the selected task', async () => {
+    mockRun(snapshot())
     factoryApi.taskEvents.mockResolvedValue([event(1), event(2)])
     const store = useFactoryStore()
     await store.loadRun('/repo')
@@ -267,7 +276,7 @@ describe('implementation events', () => {
   })
 
   it('keeps dirty-worktree as a confirmable action error', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+    mockRun(snapshot())
     factoryApi.taskStart.mockResolvedValue({ ok: false, error: 'dirty-worktree', detail: '2' })
     const store = useFactoryStore()
     await store.loadRun('/repo')
@@ -287,7 +296,7 @@ describe('implementation events', () => {
 
 describe('run control', () => {
   it('pauses and resumes through IPC and applies the returned snapshot', async () => {
-    factoryApi.runLatest.mockResolvedValue(snapshot())
+    mockRun(snapshot())
     const store = useFactoryStore()
     await store.loadRun('/repo')
 
