@@ -2,6 +2,7 @@
  * 运行头部：状态、并发、用量统计，以及暂停↔继续与配置入口。
  */
 import { describe, it, expect, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import type { FactoryRun, FactoryTask } from '@/shared/factory'
 
@@ -76,6 +77,16 @@ describe('FactoryRunHeader', () => {
     expect(wrapper.emitted('config')).toHaveLength(1)
   })
 
+  it('opens a new-run plan from the header while a run is in progress', async () => {
+    const wrapper = mount(FactoryRunHeader, {
+      props: { run: run({ status: 'running' }), tasks },
+    })
+    const button = wrapper.find('[data-run-new-run]')
+    expect(button.attributes('disabled')).toBeUndefined()
+    await button.trigger('click')
+    expect(wrapper.emitted('new-run')).toHaveLength(1)
+  })
+
   it('enables controls once the run is running and formats elapsed time', async () => {
     const wrapper = mount(FactoryRunHeader, {
       props: { run: run({ status: 'running', startedAt: '2026-10-28T10:00:00Z', elapsedMs: 90_000 }), tasks },
@@ -137,5 +148,90 @@ describe('FactoryRunHeader', () => {
     ])
     expect(wrapper.find('[data-segment="queued"] [data-segment-count]').text()).toBe('2')
     expect(wrapper.find('[data-segment="implementing"] [data-segment-count]').text()).toBe('1')
+  })
+
+  it('shows the owner/repo label and hides it when unknown', () => {
+    const labelled = mount(FactoryRunHeader, {
+      props: { run: run(), tasks, repoLabel: 'hjdspace/SpaceCode' },
+    })
+    expect(labelled.find('[data-run-repo]').text()).toBe('hjdspace/SpaceCode')
+
+    const blank = mount(FactoryRunHeader, { props: { run: run(), tasks } })
+    expect(blank.find('[data-run-repo]').exists()).toBe(false)
+  })
+
+  it('counts blocked and needs-changes tasks, labelling chips by kind', async () => {
+    const review = (verdict: 'approved' | 'needs_changes') => ({
+      verdict,
+      summary: '',
+      comments: [],
+      at: '2026-10-29T10:00:00Z',
+    })
+    const wrapper = mount(FactoryRunHeader, {
+      props: {
+        run: run({ status: 'running' }),
+        tasks: [
+          task({ id: 'bl-blocked', lane: 'blocked', stageIdx: 5 }),
+          task({ id: 'bl-review', lane: 'reviewing', review: review('needs_changes') }),
+          task({ id: 'bl-approved', lane: 'reviewing', review: review('approved') }),
+          task({ id: 'bl-impl', lane: 'implementing' }),
+        ],
+      },
+    })
+
+    expect(wrapper.find('.a-label').text()).toContain('factory.run.attention')
+    expect(wrapper.find('.a-label').text()).toContain('"count":2')
+    const chips = wrapper.findAll('[data-attention-chip]')
+    expect(chips.map((chip) => chip.attributes('data-attention-chip'))).toEqual(['merge', 'review'])
+    expect(chips[0].text()).toContain('factory.run.attentionMerge')
+    expect(chips[1].text()).toContain('factory.run.attentionReview')
+
+    await chips[0].trigger('click')
+    expect(wrapper.emitted('select')).toEqual([['bl-blocked']])
+  })
+
+  it('asks for the lane to be focused when a segment is clicked and flashes it briefly', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(FactoryRunHeader, { props: { run: run(), tasks } })
+      const segment = wrapper.find('[data-segment="reviewing"]')
+      await segment.trigger('click')
+      await nextTick()
+
+      expect(wrapper.emitted('focus-lane')).toEqual([['reviewing']])
+      expect(segment.classes()).toContain('flash')
+
+      vi.advanceTimersByTime(800)
+      await nextTick()
+      expect(wrapper.find('[data-segment="reviewing"]').classes()).not.toContain('flash')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('confirms before stopping and does nothing until the user agrees', async () => {
+    const wrapper = mount(FactoryRunHeader, { props: { run: run({ status: 'running' }), tasks } })
+
+    await wrapper.find('[data-run-stop]').trigger('click')
+    const dialog = wrapper.find('[data-stop-confirm]')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.text()).toContain('factory.run.stopConfirm.message')
+
+    await wrapper.find('[data-stop-cancel]').trigger('click')
+    expect(wrapper.find('[data-stop-confirm]').exists()).toBe(false)
+    expect(wrapper.emitted('stop')).toBeUndefined()
+
+    await wrapper.find('[data-run-stop]').trigger('click')
+    await wrapper.find('[data-stop-confirm-button]').trigger('click')
+    expect(wrapper.emitted('stop')).toHaveLength(1)
+    expect(wrapper.find('[data-stop-confirm]').exists()).toBe(false)
+  })
+
+  it('does not open the stop dialog again for an already stopped run', async () => {
+    const wrapper = mount(FactoryRunHeader, { props: { run: run({ status: 'stopped' }), tasks } })
+
+    await wrapper.find('[data-run-stop]').trigger('click')
+    expect(wrapper.find('[data-stop-confirm]').exists()).toBe(false)
+    expect(wrapper.emitted('stop')).toBeUndefined()
   })
 })
