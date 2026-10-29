@@ -27,6 +27,7 @@ import type {
   FactoryMergeResult,
   FactoryPreflightResult,
   FactoryReviewCommentInput,
+  FactoryRun,
   FactoryRunControlResult,
   FactoryRunCreateInput,
   FactoryRunCreateResult,
@@ -127,6 +128,10 @@ export const factoryNamespace = defineNamespace({
     runGet: {
       req: [] as unknown as [repoRoot: string, runId: string],
       res: null as unknown as FactoryRunSnapshot | null,
+    },
+    runList: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as FactoryRun[],
     },
     runLatest: {
       req: [] as unknown as [repoRoot: string],
