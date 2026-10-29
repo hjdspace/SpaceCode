@@ -221,11 +221,16 @@ export default {
     queued: 'Queued',
     implementing: 'Iteration {iteration}/{max}',
     reviewing: 'Reviewing',
+    reviewingComments: '{count} comments',
     mergeable: 'Awaiting approval',
     blocked: 'Needs attention',
     done: 'Merged',
     cancelled: 'Cancelled',
     takeover: 'Taken over',
+  },
+  cardMeta: {
+    merged: 'Merged at {time} · {commits} commits',
+    finished: 'Done · {commits} commits',
   },
   storage: {
     readonly: 'Another window or process is driving this run; this view is read-only.',
@@ -236,6 +241,7 @@ export default {
     appRestarted: 'The app exited, so the task did not resume automatically. Retry from the current stage.',
   },
   cardLocal: 'Local',
+  cardTakeover: 'Taken over',
   modelUnknown: 'No model configured',
   laneEmpty: 'No tasks',
 
@@ -377,6 +383,12 @@ export default {
       'create-failed': 'Failed to create the run.',
       'run-locked': 'Another window or process is driving this run; this view is read-only.',
     },
+  },
+
+  runTabs: {
+    label: 'Pipeline #{id}',
+    close: 'Close tab',
+    new: 'New run',
   },
 
   newRun: {
