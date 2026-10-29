@@ -8,12 +8,15 @@ import {
   FACTORY_LANES,
   FACTORY_SEGMENTS,
   FACTORY_STEPS,
+  attentionStatus,
+  attentionTasks,
   canRetryTask,
   canReturnTask,
   canTakeOver,
   findTask,
   formatClock,
   formatTimestamp,
+  isAttentionTask,
   isTakenOver,
   laneCounts,
   runUsage,
@@ -92,6 +95,42 @@ describe('grouping', () => {
     expect(findTask(tasks, 'a')?.id).toBe('a')
     expect(findTask(tasks, 'gone')).toBeNull()
     expect(findTask(tasks, null)).toBeNull()
+  })
+})
+
+describe('attention projection', () => {
+  const review = (verdict: 'approved' | 'needs_changes') => ({
+    verdict,
+    summary: '',
+    comments: [],
+    at: '2026-10-29T10:00:00Z',
+  })
+
+  it('covers blocked tasks and reviews that need changes', () => {
+    const blocked = task({ id: 'blocked', lane: 'blocked', stageIdx: 5 })
+    const needsChanges = task({ id: 'review', lane: 'reviewing', review: review('needs_changes') })
+    const approved = task({ id: 'approved', lane: 'reviewing', review: review('approved') })
+    const implementing = task({ id: 'impl', lane: 'implementing' })
+
+    expect(isAttentionTask(blocked)).toBe(true)
+    expect(isAttentionTask(needsChanges)).toBe(true)
+    expect(isAttentionTask(approved)).toBe(false)
+    expect(isAttentionTask(implementing)).toBe(false)
+    expect(attentionTasks([blocked, needsChanges, approved, implementing]).map((item) => item.id)).toEqual([
+      'blocked',
+      'review',
+    ])
+  })
+
+  it('labels blocked tasks as merge/conflict and needs-changes reviews as review', () => {
+    expect(attentionStatus(task({ lane: 'blocked' }))).toEqual({
+      kind: 'merge',
+      labelKey: 'factory.run.attentionMerge',
+    })
+    expect(attentionStatus(task({ lane: 'reviewing', review: review('needs_changes') }))).toEqual({
+      kind: 'review',
+      labelKey: 'factory.run.attentionReview',
+    })
   })
 })
 

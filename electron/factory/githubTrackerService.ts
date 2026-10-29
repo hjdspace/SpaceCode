@@ -273,7 +273,15 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
       return { ok: false, reason: 'all-failed', failed }
     }
 
-    const created = createGithubRun(repoRoot, { runId, tasks }, { now })
+    const created = createGithubRun(
+      repoRoot,
+      {
+        runId,
+        tasks,
+        ...(input.concurrency === undefined ? {} : { concurrency: input.concurrency }),
+      },
+      { now },
+    )
     if (!created.ok) {
       if (created.error === 'duplicate-tasks') {
         return {

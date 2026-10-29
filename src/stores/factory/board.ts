@@ -126,6 +126,32 @@ export function canReturnTask(task: FactoryTask): boolean {
   return isTakenOver(task)
 }
 
+export type FactoryAttentionKind = 'merge' | 'review'
+
+export interface FactoryAttentionStatus {
+  kind: FactoryAttentionKind
+  labelKey: string
+}
+
+/** 「需你处理」口径：阻塞任务，以及审查结论为需要修改的任务。 */
+export function isAttentionTask(task: FactoryTask): boolean {
+  return (
+    task.lane === 'blocked' ||
+    (task.lane === 'reviewing' && task.review?.verdict === 'needs_changes')
+  )
+}
+
+export function attentionTasks(tasks: readonly FactoryTask[]): FactoryTask[] {
+  return tasks.filter(isAttentionTask)
+}
+
+/** chip 文案按介入类型区分：阻塞是合并/冲突，审查中是审查意见。只对需处理任务调用。 */
+export function attentionStatus(task: FactoryTask): FactoryAttentionStatus {
+  return task.lane === 'blocked'
+    ? { kind: 'merge', labelKey: 'factory.run.attentionMerge' }
+    : { kind: 'review', labelKey: 'factory.run.attentionReview' }
+}
+
 /** 可以从当前阶段重试：阻塞且有工作树，复用分支继续跑。 */
 export function canRetryTask(task: FactoryTask): boolean {
   return task.lane === 'blocked' && task.cancelled !== true && Boolean(task.worktree)

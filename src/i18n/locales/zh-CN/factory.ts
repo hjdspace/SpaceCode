@@ -355,9 +355,18 @@ export default {
     resume: '继续',
     stop: '停止',
     config: '配置',
+    newRun: '新建运行',
     disabledHint: '运行开始后可用',
     attention: '需你处理 {count}',
-    attentionItem: '合并冲突',
+    attentionMerge: '合并/冲突待处理',
+    attentionReview: '审查待处理',
+    stopConfirm: {
+      title: '停止本次运行？',
+      message:
+        '运行中的任务会转为阻塞；工作树与分支会保留；已完成的提交不会回滚。停止后可在任务详情里从阶段重试。',
+      confirm: '停止运行',
+      cancel: '取消',
+    },
     empty: '还没有运行。从左侧待办勾选任务，创建一次运行。',
     loadFailed: '读取运行失败。',
     errors: {
@@ -367,6 +376,20 @@ export default {
       'create-failed': '创建运行失败。',
       'run-locked': '另一个窗口或进程正在写入运行，当前只能只读查看。',
     },
+  },
+
+  newRun: {
+    title: '新建运行',
+    subtitle: '选择本次要领取的任务；已被未结束运行领取的任务会跳过并说明原因。',
+    loading: '正在刷新可领取任务…',
+    skipClaimed: '已被未结束的运行领取',
+    skipNote: '已被未结束运行领取的任务本轮跳过。',
+    concurrency: '并发上限',
+    verify: '验证命令',
+    verifyEmpty: '未配置',
+    selected: '已选择 {count} 项',
+    confirm: '开始运行',
+    creating: '创建中…',
   },
 
   config: {

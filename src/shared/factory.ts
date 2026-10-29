@@ -255,6 +255,8 @@ export type FactoryGithubReposResult =
 
 export interface FactoryGithubClaimInput {
   issueNumbers: number[]
+  /** 本次运行的并发上限；不传时沿用配置值。 */
+  concurrency?: number
 }
 
 export interface FactoryGithubListInput {

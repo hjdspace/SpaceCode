@@ -356,9 +356,18 @@ export default {
     resume: 'Resume',
     stop: 'Stop',
     config: 'Config',
+    newRun: 'New run',
     disabledHint: 'Available once the run starts',
     attention: 'Needs you {count}',
-    attentionItem: 'Merge conflict',
+    attentionMerge: 'Merge/conflict',
+    attentionReview: 'Review needs changes',
+    stopConfirm: {
+      title: 'Stop this run?',
+      message:
+        'Running tasks become blocked, worktrees and branches are kept, and completed commits are not rolled back. You can retry from the current stage afterwards.',
+      confirm: 'Stop run',
+      cancel: 'Cancel',
+    },
     empty: 'No run yet. Pick backlog tasks on the left to start one.',
     loadFailed: 'Failed to load the run.',
     errors: {
@@ -368,6 +377,21 @@ export default {
       'create-failed': 'Failed to create the run.',
       'run-locked': 'Another window or process is driving this run; this view is read-only.',
     },
+  },
+
+  newRun: {
+    title: 'New run',
+    subtitle:
+      'Pick the tasks to claim this round; tasks held by an unfinished run are skipped with a reason.',
+    loading: 'Refreshing claimable tasks…',
+    skipClaimed: 'Held by an unfinished run',
+    skipNote: 'Tasks already held by an unfinished run are skipped this round.',
+    concurrency: 'Concurrency',
+    verify: 'Verify command',
+    verifyEmpty: 'Not configured',
+    selected: '{count} selected',
+    confirm: 'Start run',
+    creating: 'Creating…',
   },
 
   config: {

@@ -200,6 +200,17 @@ describe('claimIssues', () => {
       reason: 'no-selection',
     })
   })
+
+  it('applies the requested concurrency to the created run', async () => {
+    const tracker = makeTracker({
+      list: async () => ({ ok: true, issues: [issue(1), issue(2)] }),
+    })
+    const service = makeService(tracker)
+
+    const result = await service.claimIssues(dir, { issueNumbers: [1, 2], concurrency: 2 })
+    if (!result.ok) throw new Error(`unexpected failure: ${result.reason}`)
+    expect(result.snapshot.run.maxConcurrency).toBe(2)
+  })
 })
 
 describe('writeBackMerge', () => {

@@ -526,11 +526,18 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
-  async function claimGithubIssues(root: string, issueNumbers: number[]): Promise<boolean> {
+  async function claimGithubIssues(
+    root: string,
+    issueNumbers: number[],
+    concurrency?: number,
+  ): Promise<boolean> {
     githubClaiming.value = true
     githubClaimError.value = null
     try {
-      const result: FactoryGithubClaimResult = await api.factory.githubClaim(root, { issueNumbers })
+      const result: FactoryGithubClaimResult = await api.factory.githubClaim(root, {
+        issueNumbers,
+        ...(concurrency === undefined ? {} : { concurrency }),
+      })
       if (!result.ok) {
         githubClaimError.value = {
           reason: result.reason,
@@ -1132,8 +1139,10 @@ export const useFactoryStore = defineStore('factory', () => {
     inspectorTab.value = tab
   }
 
-  function clearCreateRunError(): void {
+  /** 新建运行的两个入口（本地创建 / GitHub 领取）共用同一份旧错误清理。 */
+  function clearNewRunErrors(): void {
     createRunError.value = null
+    githubClaimError.value = null
   }
 
   function reset(): void {
@@ -1367,7 +1376,7 @@ export const useFactoryStore = defineStore('factory', () => {
     clearActionError,
     selectTask,
     setInspectorTab,
-    clearCreateRunError,
+    clearNewRunErrors,
     reset,
   }
 })
