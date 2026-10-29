@@ -83,3 +83,8 @@ _temp/
 resources/cua-driver/CuaDriver.app/
 
 .scratch/
+.spacecode/worktrees/
+.spacecode/factory/runs/
+.spacecode/factory/logs/
+.spacecode/factory/cache/
+.spacecode/factory/corrupt/
