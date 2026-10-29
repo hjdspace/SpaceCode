@@ -51,11 +51,14 @@
           :run="store.run"
           :tasks="store.tasks"
           :pausing="store.pausing"
+          :repo-label="repoLabel"
           @select="store.selectTask"
           @pause="handlePauseRun"
           @resume="handleResumeRun"
           @config="store.openConfig()"
           @stop="handleStopRun"
+          @new-run="handleOpenNewRun"
+          @focus-lane="handleFocusLane"
         />
         <div v-else class="run-empty">{{ t('factory.run.empty') }}</div>
 
@@ -100,6 +103,7 @@
             </div>
             <FactoryBoard
               v-else-if="store.run"
+              ref="boardRef"
               :tasks="store.tasks"
               :selected-id="store.selectedId"
               @select="store.selectTask"
@@ -193,17 +197,33 @@
       @update:merge-mode="store.setConfigMergeMode"
     />
 
+    <FactoryNewRunModal
+      v-if="newRunOpen"
+      :source="isGithubTracker ? 'github-issues' : 'local'"
+      :candidates="newRunCandidates"
+      :verify-command="newRunVerifyCommand"
+      :default-concurrency="newRunDefaultConcurrency"
+      :creating="isGithubTracker ? store.githubClaiming : store.creatingRun"
+      :loading="isGithubTracker ? store.githubIssuesLoading : store.backlogLoading"
+      :error="newRunError"
+      @close="newRunOpen = false"
+      @create="handleCreateNewRun"
+    />
+
     <FactorySetupWizard v-if="store.wizardOpen && root" :root="root" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Workflow, AlertTriangle, Loader2 } from 'lucide-vue-next'
+import type { FactoryLane } from '@/shared/factory'
 import { useAppStore } from '@/stores/app'
 import { useFactoryStore } from '@/stores/factory'
 import { runUsage } from '@/stores/factory/board'
+import { backlogCandidates, githubCandidates } from '@/stores/factory/newRun'
+import { factoryRepoLabel } from '@/utils/factoryRepo'
 import FactorySetupWizard from './FactorySetupWizard.vue'
 import FactoryRunHeader from './FactoryRunHeader.vue'
 import FactoryBoard from './FactoryBoard.vue'
@@ -212,12 +232,24 @@ import FactoryBacklogPanel from './FactoryBacklogPanel.vue'
 import FactoryGithubPanel from './FactoryGithubPanel.vue'
 import FactoryMergeDialog from './FactoryMergeDialog.vue'
 import FactoryConfigModal from './FactoryConfigModal.vue'
+import FactoryNewRunModal from './FactoryNewRunModal.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useFactoryStore()
 
 const root = computed(() => (appStore.projectRoot || '').trim())
+
+const boardRef = ref<InstanceType<typeof FactoryBoard> | null>(null)
+
+/** GitHub 任务源显示 owner/repo；本地 backlog 显示项目目录名，避免头部留白。 */
+const repoLabel = computed(() =>
+  store.config ? factoryRepoLabel(store.config.tracker, root.value) : '',
+)
+
+function handleFocusLane(lane: FactoryLane): void {
+  boardRef.value?.focusLane(lane)
+}
 
 /** 未结束的运行仍占着这些待办；停止后才能重新领取。 */
 const claimedIds = computed(() => {
@@ -230,6 +262,45 @@ const deliveryMode = computed<'local' | 'pr'>(() =>
   store.config?.tracker.type === 'github-issues' ? store.config.tracker.mergeMode : 'local',
 )
 const usage = computed(() => runUsage(store.tasks))
+
+const newRunOpen = ref(false)
+const newRunCandidates = computed(() =>
+  isGithubTracker.value
+    ? githubCandidates(store.githubIssues)
+    : backlogCandidates(store.backlog, claimedIds.value),
+)
+const newRunVerifyCommand = computed(() => store.config?.commands.verify ?? '')
+const newRunDefaultConcurrency = computed(() => store.config?.agent.maxConcurrency ?? 4)
+const newRunError = computed(() =>
+  isGithubTracker.value ? store.githubClaimError : store.createRunError,
+)
+
+/** 打开前刷新一次来源列表，避免弹窗还展示已经领取或被删除的任务。 */
+async function handleOpenNewRun(): Promise<void> {
+  if (!root.value) return
+  store.clearNewRunErrors()
+  newRunOpen.value = true
+  await loadBoard(root.value)
+}
+
+async function handleCreateNewRun(input: { ids: string[]; concurrency: number }): Promise<void> {
+  const value = root.value
+  if (!value) return
+  let ok: boolean
+  if (isGithubTracker.value) {
+    ok = await store.claimGithubIssues(value, input.ids.map(Number), input.concurrency)
+    // 领取只落一条 pending 运行；与本地创建口径一致，确认后直接交给调度器。
+    if (ok && store.run) await store.resumeRun(value, store.run.id)
+  } else {
+    ok = await store.createRun(value, input.ids, input.concurrency)
+  }
+  if (!ok) return
+
+  newRunOpen.value = false
+  await loadBoard(value)
+  await nextTick()
+  boardRef.value?.focusLane('queued')
+}
 
 async function loadBoard(value: string): Promise<void> {
   if (isGithubTracker.value) {
@@ -256,6 +327,7 @@ onMounted(async () => {
 
 watch(root, async (value, previous) => {
   if (value === previous) return
+  newRunOpen.value = false
   store.reset()
   if (!value) return
   await store.refresh(value)
