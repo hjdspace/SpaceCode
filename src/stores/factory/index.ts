@@ -172,6 +172,8 @@ export const useFactoryStore = defineStore('factory', () => {
 
   const selectedId = ref<string | null>(null)
   const inspectorTab = ref<FactoryInspectorTab>('overview')
+  /** 收起只影响展示：选中项保留，重新选任务即展开。 */
+  const inspectorOpen = ref(true)
 
   const creatingRun = ref(false)
   const createRunError = ref<FactoryRunError | null>(null)
@@ -195,6 +197,7 @@ export const useFactoryStore = defineStore('factory', () => {
   const actionError = ref<FactoryActionError | null>(null)
   const startingId = ref<string | null>(null)
   const stopping = ref(false)
+  const cancelling = ref(false)
   const pendingDirtyId = ref<string | null>(null)
   // 接管/交回/重试：各自的重入保护，避免重复点击并发调用
   const takingOver = ref(false)
@@ -652,6 +655,7 @@ export const useFactoryStore = defineStore('factory', () => {
   function clearRunScopedState(): void {
     selectedId.value = null
     inspectorTab.value = 'overview'
+    inspectorOpen.value = true
     actionError.value = null
     pendingDirtyId.value = null
     pendingIgnoreId.value = null
@@ -1004,6 +1008,23 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
+  /** 放弃/移除：卡片与检查器底部都走这一条，结果与错误只有一份。 */
+  async function cancelTask(root: string, runId: string, taskId: string): Promise<FactoryTaskActionResult> {
+    cancelling.value = true
+    actionError.value = null
+    try {
+      const result = await api.factory.taskCancel(root, runId, taskId)
+      if (result.ok) applyActionSnapshot(result.snapshot)
+      else actionError.value = { code: result.error }
+      return result
+    } catch {
+      actionError.value = { code: 'write-failed' }
+      return { ok: false, error: 'write-failed' }
+    } finally {
+      cancelling.value = false
+    }
+  }
+
   async function stopRun(root: string, runId: string): Promise<FactoryRunStopResult> {
     stopping.value = true
     actionError.value = null
@@ -1263,8 +1284,13 @@ export const useFactoryStore = defineStore('factory', () => {
     selectedId.value = id
     persistSelection(id)
     inspectorTab.value = 'overview'
+    if (id) inspectorOpen.value = true
     pendingIgnoreId.value = null
     writebackError.value = null
+  }
+
+  function closeInspector(): void {
+    inspectorOpen.value = false
   }
 
   function setInspectorTab(tab: FactoryInspectorTab): void {
@@ -1321,6 +1347,7 @@ export const useFactoryStore = defineStore('factory', () => {
     runError.value = null
     selectedId.value = null
     inspectorTab.value = 'overview'
+    inspectorOpen.value = true
     creatingRun.value = false
     createRunError.value = null
     pausing.value = false
@@ -1338,6 +1365,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     startingId.value = null
     stopping.value = false
+    cancelling.value = false
     pendingDirtyId.value = null
     takingOver.value = false
     returning.value = false
@@ -1402,6 +1430,7 @@ export const useFactoryStore = defineStore('factory', () => {
     runError,
     selectedId,
     inspectorTab,
+    inspectorOpen,
     creatingRun,
     createRunError,
     pausing,
@@ -1419,6 +1448,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError,
     startingId,
     stopping,
+    cancelling,
     pendingDirtyId,
     takingOver,
     returning,
@@ -1492,6 +1522,7 @@ export const useFactoryStore = defineStore('factory', () => {
     startTask,
     confirmDirtyStart,
     stopTask,
+    cancelTask,
     stopRun,
     revealWorktree,
     approveTask,
@@ -1513,6 +1544,7 @@ export const useFactoryStore = defineStore('factory', () => {
     clearActionError,
     selectTask,
     setInspectorTab,
+    closeInspector,
     clearNewRunErrors,
     reset,
   }
