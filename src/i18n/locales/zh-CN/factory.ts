@@ -265,7 +265,7 @@ export default {
     },
     status: {
       open: '待处理',
-      accepted: '已接受',
+      accepted: '已修复',
       ignored: '已忽略',
       resolved: '已解决',
     },
@@ -514,6 +514,8 @@ export default {
     copied: '已复制',
     tokens: 'Token',
     commits: '提交',
+    reviewSummary: '审查结论',
+    agentLive: 'Agent 正在执行',
     empty: '从看板选择一个任务，查看阶段、事件流、Diff 与审查意见。',
   },
 
@@ -528,7 +530,6 @@ export default {
     requestChanges: '要求修改',
     fix: '让 Agent 修',
     fixing: '修复中…',
-    accept: '接受',
     ignore: '忽略',
     confirmIgnore: '确认忽略',
     merge: '合并到 {target}',
