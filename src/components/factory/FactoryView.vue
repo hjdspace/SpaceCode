@@ -37,6 +37,14 @@
           </button>
         </header>
 
+        <FactoryRunTabs
+          :runs="store.runTabs"
+          :active-id="store.run?.id ?? null"
+          @select="handleSelectRunTab"
+          @close="handleCloseRunTab"
+          @new-run="handleOpenNewRun"
+        />
+
         <div v-if="store.readonly" class="storage-banner" data-storage-readonly>
           <AlertTriangle :size="14" />
           <span>{{ t('factory.storage.readonly') }}</span>
@@ -60,7 +68,6 @@
           @new-run="handleOpenNewRun"
           @focus-lane="handleFocusLane"
         />
-        <div v-else class="run-empty">{{ t('factory.run.empty') }}</div>
 
         <div class="factory-columns">
           <FactoryGithubPanel
@@ -106,6 +113,8 @@
               ref="boardRef"
               :tasks="store.tasks"
               :selected-id="store.selectedId"
+              :run="store.run"
+              :now-ms="nowMs"
               @select="store.selectTask"
               @return="handleReturn"
             />
@@ -116,6 +125,7 @@
             v-if="store.run"
             :task="store.selectedTask"
             :tab="store.inspectorTab"
+            :now-ms="nowMs"
             :events="store.selectedEvents"
             :events-loading="store.eventsLoading"
             :events-error="store.eventsError"
@@ -215,7 +225,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Workflow, AlertTriangle, Loader2 } from 'lucide-vue-next'
 import type { FactoryLane } from '@/shared/factory'
@@ -225,6 +235,7 @@ import { runUsage } from '@/stores/factory/board'
 import { backlogCandidates, githubCandidates } from '@/stores/factory/newRun'
 import { factoryRepoLabel } from '@/utils/factoryRepo'
 import FactorySetupWizard from './FactorySetupWizard.vue'
+import FactoryRunTabs from './FactoryRunTabs.vue'
 import FactoryRunHeader from './FactoryRunHeader.vue'
 import FactoryBoard from './FactoryBoard.vue'
 import FactoryInspector from './FactoryInspector.vue'
@@ -241,6 +252,19 @@ const store = useFactoryStore()
 const root = computed(() => (appStore.projectRoot || '').trim())
 
 const boardRef = ref<InstanceType<typeof FactoryBoard> | null>(null)
+
+/**
+ * 运行中的任务用时按各自的运行时间线继续走：只改 nowMs，卡片与检查器
+ * 从 task.timestamps.startedAt 重新折算，切换页签后回到该运行的进度。
+ */
+const nowMs = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | null = null
+
+function startClock(): void {
+  clock = setInterval(() => {
+    if (store.run?.status === 'running' && !store.run.paused) nowMs.value = Date.now()
+  }, 1000)
+}
 
 /** GitHub 任务源显示 owner/repo；本地 backlog 显示项目目录名，避免头部留白。 */
 const repoLabel = computed(() =>
@@ -280,7 +304,17 @@ async function handleOpenNewRun(): Promise<void> {
   if (!root.value) return
   store.clearNewRunErrors()
   newRunOpen.value = true
-  await loadBoard(root.value)
+  await loadSources(root.value)
+}
+
+function handleSelectRunTab(runId: string): void {
+  if (!root.value) return
+  void store.selectRun(root.value, runId)
+}
+
+function handleCloseRunTab(runId: string): void {
+  if (!root.value) return
+  void store.closeRun(root.value, runId)
 }
 
 async function handleCreateNewRun(input: { ids: string[]; concurrency: number }): Promise<void> {
@@ -297,17 +331,23 @@ async function handleCreateNewRun(input: { ids: string[]; concurrency: number })
   if (!ok) return
 
   newRunOpen.value = false
-  await loadBoard(value)
+  // store 已把新运行挂进页签并选中；这里只刷新待办/GitHub 列表，
+  // 不再重读运行列表，避免把刚创建的页签覆盖掉。
+  await loadSources(value)
   await nextTick()
   boardRef.value?.focusLane('queued')
 }
 
-async function loadBoard(value: string): Promise<void> {
+async function loadSources(value: string): Promise<void> {
   if (isGithubTracker.value) {
-    await Promise.all([store.loadGithubIssues(value), store.loadRun(value)])
+    await store.loadGithubIssues(value)
     return
   }
-  await Promise.all([store.loadBacklog(value), store.loadRun(value)])
+  await store.loadBacklog(value)
+}
+
+async function loadBoard(value: string): Promise<void> {
+  await Promise.all([loadSources(value), store.loadRun(value)])
 }
 
 function handleGithubRefresh(): void {
@@ -319,10 +359,16 @@ function handleGithubClaim(numbers: number[]): void {
 }
 
 onMounted(async () => {
+  startClock()
   if (!root.value) return
   await store.refresh(root.value)
   await loadBoard(root.value)
   store.subscribeEvents(root.value)
+})
+
+onBeforeUnmount(() => {
+  if (clock) clearInterval(clock)
+  clock = null
 })
 
 watch(root, async (value, previous) => {
@@ -616,14 +662,6 @@ function handleCreateRun(ids: string[]): void {
   font-size: var(--text-2xs, 11px);
 }
 
-.run-empty {
-  padding: 10px 14px;
-  border: 1px dashed var(--surface-border);
-  border-radius: var(--radius-lg, 12px);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 .factory-columns {
   display: grid;
   grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(260px, 320px);
@@ -639,8 +677,8 @@ function handleCreateRun(ids: string[]): void {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  @include scrollbar-overlay;
+  /* 纵向滚动交给每条泳道的卡片区，整列不再一起滚。 */
+  overflow: hidden;
 }
 
 .state-inline {

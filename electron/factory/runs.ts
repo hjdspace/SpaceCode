@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto'
 import { join } from 'path'
 import {
   FACTORY_RUNS_PATH,
+  FACTORY_RUN_TAB_LIMIT,
   FACTORY_SANDBOX_WORKTREE_ROOT,
   type FactoryLane,
   type FactoryPermissionMode,
@@ -383,6 +384,15 @@ export function readRunSnapshot(repoRoot: string, runId: string): FactoryRunSnap
   const run = readRunFile(repoRoot, runId)
   if (!run) return null
   return { run: withElapsed(run), tasks: readTasks(repoRoot, runId) }
+}
+
+/** 页签条用的最近运行：创建时间倒序（新的在前），最多 limit 条。 */
+export function listRecentRuns(repoRoot: string, limit = FACTORY_RUN_TAB_LIMIT): FactoryRun[] {
+  if (limit <= 0) return []
+  return listRuns(repoRoot)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+    .slice(0, limit)
+    .map(withElapsed)
 }
 
 /** 窗口刷新后重新挂上看板：取创建时间最新的运行。 */

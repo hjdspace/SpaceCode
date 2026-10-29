@@ -3,7 +3,7 @@
  * 创建失败时保留弹窗并展示可读错误。走真实 store（只 mock IPC），子组件按需打桩。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, type PropType } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import {
@@ -11,6 +11,7 @@ import {
   FACTORY_SANDBOX_WORKTREE_ROOT,
   type FactoryBacklogItem,
   type FactoryConfig,
+  type FactoryRun,
   type FactoryRunSnapshot,
   type FactorySetupContext,
 } from '@/shared/factory'
@@ -21,7 +22,9 @@ const { factoryApi } = vi.hoisted(() => ({
     context: vi.fn(),
     backlogList: vi.fn(),
     githubIssues: vi.fn(),
-    runLatest: vi.fn(),
+    runList: vi.fn(),
+    runGet: vi.fn(),
+    taskEvents: vi.fn(),
     runCreate: vi.fn(),
     runResume: vi.fn(),
     runPause: vi.fn(),
@@ -110,9 +113,18 @@ const focusLane = vi.fn()
 /** 看板只暴露 focusLane，用来确认创建成功后会滚到队列泳道。 */
 const BoardStub = defineComponent({
   name: 'FactoryBoard',
-  setup(_, { expose }) {
+  props: {
+    nowMs: { type: Number, default: 0 },
+    run: { type: Object as PropType<FactoryRun | null>, default: null },
+  },
+  setup(props, { expose }) {
     expose({ focusLane })
-    return () => h('div', { 'data-board-stub': '' })
+    return () =>
+      h('div', {
+        'data-board-stub': '',
+        'data-board-now': String(props.nowMs),
+        'data-board-run': props.run?.id ?? '',
+      })
   },
 })
 
@@ -124,21 +136,19 @@ const HeaderStub = defineComponent({
   },
 })
 
+const stubs = {
+  FactoryRunHeader: HeaderStub,
+  FactoryBoard: BoardStub,
+  FactoryInspector: true,
+  FactoryBacklogPanel: true,
+  FactoryGithubPanel: true,
+  FactoryMergeDialog: true,
+  FactoryConfigModal: true,
+  FactorySetupWizard: true,
+}
+
 async function mountView() {
-  const wrapper = mount(FactoryView, {
-    global: {
-      stubs: {
-        FactoryRunHeader: HeaderStub,
-        FactoryBoard: BoardStub,
-        FactoryInspector: true,
-        FactoryBacklogPanel: true,
-        FactoryGithubPanel: true,
-        FactoryMergeDialog: true,
-        FactoryConfigModal: true,
-        FactorySetupWizard: true,
-      },
-    },
-  })
+  const wrapper = mount(FactoryView, { global: { stubs } })
   await flushPromises()
   return wrapper
 }
@@ -154,7 +164,11 @@ beforeEach(() => {
   })
   factoryApi.context.mockResolvedValue(context)
   factoryApi.backlogList.mockResolvedValue(backlog)
-  factoryApi.runLatest.mockResolvedValue(snapshot())
+  factoryApi.taskEvents.mockResolvedValue([])
+  factoryApi.runList.mockResolvedValue([snapshot('run-1').run])
+  factoryApi.runGet.mockImplementation((_root: string, id: string) =>
+    Promise.resolve(snapshot(id)),
+  )
   factoryApi.runCreate.mockResolvedValue({ ok: true, snapshot: snapshot('run-2', 'pending') })
   factoryApi.runResume.mockResolvedValue({ ok: true, snapshot: snapshot('run-2', 'running') })
 })
@@ -184,6 +198,11 @@ describe('FactoryView new run', () => {
     // 挂载、打开弹窗、创建成功各刷新一次来源列表。
     expect(factoryApi.backlogList).toHaveBeenCalledTimes(3)
     expect(focusLane).toHaveBeenCalledWith('queued')
+
+    // 新运行直接出现在页签条并成为当前页签，不需要再读一次运行列表。
+    const tab = wrapper.find('[data-run-tab="run-2"]')
+    expect(tab.exists()).toBe(true)
+    expect(tab.attributes('data-run-tab-active')).toBe('true')
   })
 
   it('keeps the plan open and shows a readable error when creation fails', async () => {
@@ -205,5 +224,69 @@ describe('FactoryView new run', () => {
       'factory.run.errors.duplicate-tasks|{"ids":"bl-1"}',
     )
     expect(focusLane).not.toHaveBeenCalled()
+  })
+})
+
+describe('FactoryView run tabs', () => {
+  it('renders recent runs and loads the picked run when a tab is clicked', async () => {
+    factoryApi.runList.mockResolvedValue([
+      snapshot('run-2').run,
+      snapshot('run-1', 'stopped').run,
+    ])
+    const wrapper = await mountView()
+
+    expect(wrapper.findAll('[data-run-tab]')).toHaveLength(2)
+    expect(wrapper.find('[data-run-tab="run-2"]').attributes('data-run-tab-active')).toBe('true')
+
+    await wrapper.find('[data-run-tab="run-1"] .tab-main').trigger('click')
+    await flushPromises()
+
+    expect(factoryApi.runGet).toHaveBeenLastCalledWith(ROOT, 'run-1')
+    expect(wrapper.find('[data-run-tab="run-1"]').attributes('data-run-tab-active')).toBe('true')
+  })
+
+  it('returns to the empty board after the last tab closes and keeps the add entry', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-run-tab="run-1"]').exists()).toBe(true)
+
+    await wrapper.find('[data-run-tab-close="run-1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-run-tab]')).toHaveLength(0)
+    expect(wrapper.find('[data-run-tab-add]').exists()).toBe(true)
+    expect(wrapper.find('[data-board-empty]').exists()).toBe(true)
+    expect(wrapper.find('[data-header-new-run]').exists()).toBe(false)
+  })
+
+  it('opens the new-run plan from the tab strip add entry', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-run-tab-add]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-new-run-modal]').exists()).toBe(true)
+  })
+
+  it('hands the active run to the board so cards follow its state', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.find('[data-board-run]').attributes('data-board-run')).toBe('run-1')
+  })
+
+  it('ticks task timers while the active run is running', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(FactoryView, { global: { stubs } })
+      await vi.advanceTimersByTimeAsync(0)
+
+      const before = Number(wrapper.find('[data-board-now]').attributes('data-board-now'))
+      await vi.advanceTimersByTimeAsync(1000)
+      const after = Number(wrapper.find('[data-board-now]').attributes('data-board-now'))
+
+      expect(after - before).toBe(1000)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

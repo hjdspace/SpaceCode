@@ -23,6 +23,8 @@ export const FACTORY_PROMPT_KEYS: readonly FactoryPromptKey[] = [
 export const FACTORY_SANDBOX_WORKTREE_ROOT = '.spacecode/worktrees' as const
 export const FACTORY_BACKLOG_PATH = '.spacecode/factory/backlog.json' as const
 export const FACTORY_RUNS_PATH = '.spacecode/factory/runs' as const
+/** 页签条最多展示的最近运行数；主进程列表与渲染层新增页签共用同一上限。 */
+export const FACTORY_RUN_TAB_LIMIT = 20
 export const FACTORY_IGNORE_ENTRIES = [
   '.spacecode/worktrees/',
   '.spacecode/factory/runs/',

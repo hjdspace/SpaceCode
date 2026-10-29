@@ -49,6 +49,7 @@ import type {
   FactoryTakeoverResult,
   FactoryReturnResult,
 } from '@/shared/factory'
+import { FACTORY_RUN_TAB_LIMIT } from '@/shared/factory'
 import { mergeEligibility, type MergeEligibility } from '@/shared/factoryReview'
 import {
   canAdvance,
@@ -154,6 +155,8 @@ export const useFactoryStore = defineStore('factory', () => {
 
   const run = ref<FactoryRun | null>(null)
   const tasks = ref<FactoryTask[]>([])
+  /** 页签条：最近打开的运行，创建时间倒序。关闭只从视图移除，不删磁盘。 */
+  const runTabs = ref<FactoryRun[]>([])
   const runLoading = ref(false)
   const runError = ref<string | null>(null)
 
@@ -218,12 +221,22 @@ export const useFactoryStore = defineStore('factory', () => {
   const seenEventSeqs = new Set<string>()
   let unsubscribeEvents: (() => void) | null = null
   let subscribedRoot: string | null = null
+  /** 切页签的请求令牌：慢返回的旧快照不能覆盖新选中的运行。 */
+  let runRequest = 0
+
+  /** 事件缓存按「运行 + 任务」隔离：同一条待办可能被多次运行领取。 */
+  function eventKey(runId: string, taskId: string): string {
+    return `${runId}:${taskId}`
+  }
 
   const selectedTask = computed(() => findTask(tasks.value, selectedId.value))
   const laneCounts = computed(() => computeLaneCounts(tasks.value))
-  const selectedEvents = computed(() =>
-    selectedId.value ? eventsByTask.value[selectedId.value] ?? [] : [],
-  )
+  const selectedEvents = computed(() => {
+    const runId = run.value?.id
+    const taskId = selectedId.value
+    if (!runId || !taskId) return []
+    return eventsByTask.value[eventKey(runId, taskId)] ?? []
+  })
   const hasCommits = computed(() => (selectedTask.value?.commits?.length ?? 0) > 0)
   /** 批准按钮的资格：测试通过 + 审查通过 + 无未决阻塞意见。 */
   const selectedEligibility = computed<MergeEligibility>(() =>
@@ -546,6 +559,7 @@ export const useFactoryStore = defineStore('factory', () => {
         }
         return false
       }
+      upsertRunTab(result.snapshot.run)
       applySnapshot(result.snapshot)
       const claimed = new Set(result.claimed)
       githubIssues.value = githubIssues.value.map((issue) =>
@@ -577,7 +591,7 @@ export const useFactoryStore = defineStore('factory', () => {
         taskId,
       )
       if (result.ok) {
-        applySnapshot(result.snapshot)
+        applyActionSnapshot(result.snapshot)
         return true
       }
       writebackError.value = { reason: result.reason }
@@ -616,15 +630,72 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
+  function mergeRunTab(list: FactoryRun[], next: FactoryRun): FactoryRun[] {
+    return list.map((item) => (item.id === next.id ? { ...item, ...next } : item))
+  }
+
+  /** 页签摘要跟随运行快照更新；不在页签条里的运行不会被推送拉进来。 */
+  function syncRunTab(next: FactoryRun): void {
+    if (!runTabs.value.some((item) => item.id === next.id)) return
+    runTabs.value = mergeRunTab(runTabs.value, next)
+  }
+
+  function upsertRunTab(next: FactoryRun): void {
+    if (!runTabs.value.some((item) => item.id === next.id)) {
+      runTabs.value = [next, ...runTabs.value].slice(0, FACTORY_RUN_TAB_LIMIT)
+      return
+    }
+    runTabs.value = mergeRunTab(runTabs.value, next)
+  }
+
+  /** 选中项、检查器与合并弹窗都属于某一次运行；切运行前先整体复位。 */
+  function clearRunScopedState(): void {
+    selectedId.value = null
+    inspectorTab.value = 'overview'
+    actionError.value = null
+    pendingDirtyId.value = null
+    pendingIgnoreId.value = null
+    writebackError.value = null
+    startingId.value = null
+    retryingWritebackId.value = null
+    updatingComment.value = false
+    eventsError.value = null
+    runEvents.value = []
+    mergeOpen.value = false
+    mergeTaskId.value = null
+    mergePreflight.value = null
+    mergeError.value = null
+  }
+
   function applySnapshot(snapshot: FactoryRunSnapshot | null): void {
+    const previousRunId = run.value?.id ?? null
+    const nextRunId = snapshot?.run.id ?? null
+    // 同一条待办可能出现在多个运行里：换了运行就重新选，不能沿用旧选中项。
+    const switched = previousRunId !== null && nextRunId !== previousRunId
+    if (switched) clearRunScopedState()
+
     run.value = snapshot?.run ?? null
     tasks.value = snapshot?.tasks ?? []
-    if (!findTask(tasks.value, selectedId.value)) {
-      const persisted = boardRoot ? readPersistedSelection(boardRoot) : null
+    if (run.value) syncRunTab(run.value)
+
+    if (switched || !findTask(tasks.value, selectedId.value)) {
+      const persisted = !switched && boardRoot ? readPersistedSelection(boardRoot) : null
       const restored = findTask(tasks.value, persisted)
       selectedId.value = restored?.id ?? tasks.value[0]?.id ?? null
       inspectorTab.value = 'overview'
     }
+  }
+
+  /**
+   * 动作回包只更新发起动作的那个运行；用户已切到别的页签时，
+   * 迟到的快照最多刷新旧页签摘要，不能把看板切回去。
+   */
+  function applyActionSnapshot(snapshot: FactoryRunSnapshot): void {
+    if (!run.value || snapshot.run.id !== run.value.id) {
+      syncRunTab(snapshot.run)
+      return
+    }
+    applySnapshot(snapshot)
   }
 
   async function loadRun(root: string): Promise<void> {
@@ -632,12 +703,68 @@ export const useFactoryStore = defineStore('factory', () => {
     runLoading.value = true
     runError.value = null
     try {
-      applySnapshot(await api.factory.runLatest(root))
+      const summaries = await api.factory.runList(root)
+      runTabs.value = summaries
+      const activeId = run.value?.id ?? null
+      const keep =
+        activeId && summaries.some((item) => item.id === activeId)
+          ? activeId
+          : summaries[0]?.id ?? null
+      if (!keep) {
+        runRequest += 1
+        applySnapshot(null)
+        return
+      }
+      const activeSummary = summaries.find((item) => item.id === keep)
+      if (keep === activeId && activeSummary && run.value) {
+        // 列表只刷新摘要；当前运行的快照由 IPC 推送与动作回包保持最新。
+        run.value = { ...run.value, ...activeSummary }
+        syncRunTab(run.value)
+        return
+      }
+      await selectRun(root, keep)
     } catch {
       runError.value = 'load-failed'
     } finally {
       runLoading.value = false
     }
+  }
+
+  /** 页签切换：读对应运行的快照，并预热选中任务的事件流。 */
+  async function selectRun(root: string, runId: string): Promise<void> {
+    if (!runId || run.value?.id === runId) return
+    const token = ++runRequest
+    runLoading.value = true
+    runError.value = null
+    try {
+      const snapshot = await api.factory.runGet(root, runId)
+      if (token !== runRequest) return
+      if (!snapshot) {
+        runError.value = 'load-failed'
+        return
+      }
+      applySnapshot(snapshot)
+      const taskId = selectedId.value
+      if (taskId) await loadEvents(root, snapshot.run.id, taskId)
+    } catch {
+      if (token === runRequest) runError.value = 'load-failed'
+    } finally {
+      if (token === runRequest) runLoading.value = false
+    }
+  }
+
+  /** 关闭页签只从视图移除；当前页签被关时切到相邻页签，全关则回到空态。 */
+  async function closeRun(root: string, runId: string): Promise<void> {
+    const index = runTabs.value.findIndex((item) => item.id === runId)
+    if (index < 0) return
+    const remaining = runTabs.value.filter((item) => item.id !== runId)
+    runTabs.value = remaining
+    if (run.value?.id !== runId) return
+
+    runRequest += 1
+    applySnapshot(null)
+    const next = remaining[index] ?? remaining[index - 1] ?? null
+    if (next) await selectRun(root, next.id)
   }
 
   async function createRun(root: string, taskIds: string[], concurrency?: number): Promise<boolean> {
@@ -653,11 +780,14 @@ export const useFactoryStore = defineStore('factory', () => {
         createRunError.value = { code: result.error, ...(ids ? { params: { ids } } : {}) }
         return false
       }
+      upsertRunTab(result.snapshot.run)
       applySnapshot(result.snapshot)
       // 新建运行默认待启动；立刻交给调度器，按并发上限自行领取。
       const started = await api.factory.runResume(root, result.snapshot.run.id)
-      if (started.ok) applySnapshot(started.snapshot)
-      else actionError.value = { code: started.error }
+      if (started.ok) {
+        upsertRunTab(started.snapshot.run)
+        applyActionSnapshot(started.snapshot)
+      } else actionError.value = { code: started.error }
       return true
     } catch {
       createRunError.value = { code: 'create-failed' }
@@ -672,7 +802,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.runPause(root, runId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error }
       return result
     } catch {
@@ -688,7 +818,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.runResume(root, runId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error }
       return result
     } catch {
@@ -777,28 +907,30 @@ export const useFactoryStore = defineStore('factory', () => {
   }
 
   /**
-   * 主进程推送：按 seq 去重后把事件并进对应任务，快照只接受当前运行，
-   * 避免切换项目后旧运行的事件覆盖看板。
+   * 主进程推送：事件按「运行 + 任务」缓存并按 seq 去重；页签摘要跟随更新，
+   * 但只有当前运行的快照会覆盖看板，避免后台运行串改选中项。
    */
   function applyPush(push: FactoryEventPush): void {
     const { event, snapshot } = push
-    if (run.value && snapshot.run.id !== run.value.id) return
+    const open = runTabs.value.some((item) => item.id === event.runId)
+    if (open) syncRunTab(snapshot.run)
 
     const key = `${event.runId}:${event.seq}`
-    if (!seenEventSeqs.has(key)) {
+    if (open && !seenEventSeqs.has(key)) {
       seenEventSeqs.add(key)
       if (event.taskId) {
-        const list = eventsByTask.value[event.taskId] ?? []
+        const cacheKey = eventKey(event.runId, event.taskId)
+        const list = eventsByTask.value[cacheKey] ?? []
         eventsByTask.value = {
           ...eventsByTask.value,
-          [event.taskId]: [...list, event].sort((a, b) => a.seq - b.seq),
+          [cacheKey]: [...list, event].sort((a, b) => a.seq - b.seq),
         }
-      } else {
+      } else if (event.runId === run.value?.id) {
         runEvents.value = [...runEvents.value, event].sort((a, b) => a.seq - b.seq)
       }
     }
 
-    applySnapshot(snapshot)
+    if (run.value && snapshot.run.id === run.value.id) applySnapshot(snapshot)
   }
 
   /** 订阅主进程事件流；同一项目重复调用不会叠加监听。 */
@@ -814,7 +946,7 @@ export const useFactoryStore = defineStore('factory', () => {
     eventsError.value = null
     try {
       const events = await api.factory.taskEvents(root, runId, taskId)
-      eventsByTask.value = { ...eventsByTask.value, [taskId]: events }
+      eventsByTask.value = { ...eventsByTask.value, [eventKey(runId, taskId)]: events }
       for (const event of events) seenEventSeqs.add(`${event.runId}:${event.seq}`)
     } catch {
       eventsError.value = 'load-failed'
@@ -835,7 +967,7 @@ export const useFactoryStore = defineStore('factory', () => {
     try {
       const result = await api.factory.taskStart(root, runId, taskId, input)
       if (result.ok) {
-        applySnapshot(result.snapshot)
+        applyActionSnapshot(result.snapshot)
         return result
       }
       actionError.value = {
@@ -861,7 +993,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskStop(root, runId, taskId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error }
       return result
     } catch {
@@ -877,7 +1009,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.runStop(root, runId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error }
       return result
     } catch {
@@ -903,7 +1035,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskApprove(root, runId, taskId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error }
       return result
     } catch {
@@ -922,7 +1054,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskRequestChanges(root, runId, taskId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error }
       return result
     } catch {
@@ -936,7 +1068,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskFix(root, runId, taskId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error }
       return result
     } catch {
@@ -956,7 +1088,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskTakeover(root, runId, taskId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
       return result
     } catch {
@@ -972,7 +1104,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskReturn(root, runId, taskId)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
       return result
     } catch {
@@ -993,7 +1125,7 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskRetry(root, runId, taskId, input)
-      if (result.ok) applySnapshot(result.snapshot)
+      if (result.ok) applyActionSnapshot(result.snapshot)
       else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
       return result
     } catch {
@@ -1015,7 +1147,7 @@ export const useFactoryStore = defineStore('factory', () => {
     try {
       const result = await api.factory.taskCommentUpdate(root, runId, taskId, input)
       if (result.ok) {
-        applySnapshot(result.snapshot)
+        applyActionSnapshot(result.snapshot)
         pendingIgnoreId.value = null
       } else {
         actionError.value = { code: result.error }
@@ -1104,7 +1236,7 @@ export const useFactoryStore = defineStore('factory', () => {
       }
       const result = await api.factory.mergeExecute(root, runId, taskId, input)
       if (result.ok) {
-        applySnapshot(result.snapshot)
+        applyActionSnapshot(result.snapshot)
         mergeOpen.value = false
         mergeConfirmed.value = false
         return result
@@ -1183,6 +1315,8 @@ export const useFactoryStore = defineStore('factory', () => {
     writebackError.value = null
     run.value = null
     tasks.value = []
+    runTabs.value = []
+    runRequest += 1
     runLoading.value = false
     runError.value = null
     selectedId.value = null
@@ -1263,6 +1397,7 @@ export const useFactoryStore = defineStore('factory', () => {
     writebackError,
     run,
     tasks,
+    runTabs,
     runLoading,
     runError,
     selectedId,
@@ -1338,6 +1473,8 @@ export const useFactoryStore = defineStore('factory', () => {
     retryGithubWriteback,
     setGithubLabel,
     loadRun,
+    selectRun,
+    closeRun,
     createRun,
     pauseRun,
     resumeRun,

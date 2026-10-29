@@ -55,7 +55,7 @@ import {
   readBacklog,
   updateBacklogItem,
 } from './backlog'
-import { createFactoryRun, readLatestRun, readRunSnapshot } from './runs'
+import { createFactoryRun, listRecentRuns, readLatestRun, readRunSnapshot } from './runs'
 import { createFactoryRunner } from './factoryRunner'
 import { acquireRunLock, releaseRunLock } from './lock'
 import { recoverRuns } from './recovery'
@@ -556,6 +556,7 @@ export function registerFactoryIPCHandlers(): void {
     runCreate: (root, input) =>
       isWritable(root) ? createFactoryRun(root, input) : { ok: false, error: 'run-locked' },
     runGet: (root, runId) => readRunSnapshot(root, runId),
+    runList: (root) => listRecentRuns(root),
     runLatest: (root) => readLatestRun(root),
     taskStart: (root, runId, taskId, input) =>
       isWritable(root)
