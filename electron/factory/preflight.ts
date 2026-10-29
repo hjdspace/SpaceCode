@@ -49,7 +49,11 @@ export function runFactoryPreflight(config: FactoryConfig, input: FactoryPreflig
 
   items.push(
     input.repo.dirty
-      ? { id: 'gitDirty', level: 'warn' }
+      ? {
+          id: 'gitDirty',
+          level: 'warn',
+          ...(input.repo.dirtyFiles ? { params: { files: input.repo.dirtyFiles } } : {}),
+        }
       : { id: 'gitDirty', level: 'ok' },
   )
 
