@@ -1,5 +1,5 @@
 <template>
-  <div class="factory-board">
+  <div ref="boardEl" class="factory-board">
     <section
       v-for="lane in FACTORY_LANES"
       :key="lane.key"
@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { FactoryLane, FactoryTask } from '@/shared/factory'
 import { FACTORY_LANES, tasksByLane } from '@/stores/factory/board'
@@ -51,11 +51,30 @@ const emit = defineEmits<{ select: [id: string]; return: [id: string] }>()
 
 const { t } = useI18n()
 
+const boardEl = ref<HTMLElement | null>(null)
+
 const grouped = computed<Record<FactoryLane, FactoryTask[]>>(() => {
   const lanes = {} as Record<FactoryLane, FactoryTask[]>
   for (const lane of FACTORY_LANES) lanes[lane.key] = tasksByLane(props.tasks, lane.key)
   return lanes
 })
+
+/**
+ * 运行头部点分段时把对应泳道横向滚进视野。
+ * 只滚看板自己的容器：用 scrollIntoView 会连带滚动外层 overflow 容器，挤走左右两栏。
+ */
+function focusLane(lane: FactoryLane): void {
+  const board = boardEl.value
+  const laneEl = board?.querySelector<HTMLElement>(`[data-lane="${lane}"]`)
+  if (!board || !laneEl) return
+  const left =
+    board.scrollLeft +
+    laneEl.getBoundingClientRect().left -
+    board.getBoundingClientRect().left
+  board.scrollTo({ left, behavior: 'smooth' })
+}
+
+defineExpose({ focusLane })
 </script>
 
 <style lang="scss" scoped>
