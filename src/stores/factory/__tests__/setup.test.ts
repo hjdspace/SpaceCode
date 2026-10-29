@@ -20,6 +20,7 @@ function context(overrides: Partial<FactorySetupContextLike> = {}): FactorySetup
       { engineType: 'pi', available: false, reason: 'not-found', version: null, exposed: true },
     ],
     modelProfile: { configured: true, model: 'claude-sonnet-4-5' },
+    models: { selectable: ['claude-sonnet-4-5'], default: 'claude-sonnet-4-5' },
     dockerAvailable: false,
     encryptionAvailable: true,
     ghLoggedIn: false,
@@ -139,8 +140,25 @@ describe('draftFromConfig', () => {
     })
   })
 
-  it('keeps the docker image name when editing an existing config', () => {
+  it('round-trips per-role models so the edit flow keeps them', () => {
     const built = buildFactoryConfig(
+      {
+        agent: { engineType: 'claude-code' },
+        stages: { plan: { model: 'opus' }, implement: { model: 'sonnet' } },
+        sandbox: { type: 'worktree' },
+        tracker: { type: 'local', mergeMode: 'local' },
+        commands: { verify: 'npm run build' },
+      },
+      { baseBranch: 'main' },
+    )
+    if (!built.ok) throw new Error('fixture invalid')
+    expect(draftFromConfig(built.config).stages).toEqual({
+      plan: { model: 'opus' },
+      implement: { model: 'sonnet' },
+    })
+  })
+
+  it('keeps the docker image name when editing an existing config', () => {    const built = buildFactoryConfig(
       {
         agent: { engineType: 'claude-code' },
         sandbox: { type: 'docker', imageName: 'spacecode-factory:latest' },
