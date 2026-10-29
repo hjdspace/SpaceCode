@@ -3,7 +3,7 @@
  * 组件只负责渲染这些结果，避免把判定散落在模板里。
  */
 import { describe, it, expect } from 'vitest'
-import type { FactoryTask } from '@/shared/factory'
+import type { FactoryReviewCommentStatus, FactoryRun, FactoryTask } from '@/shared/factory'
 import {
   FACTORY_LANES,
   FACTORY_SEGMENTS,
@@ -13,15 +13,21 @@ import {
   canRetryTask,
   canReturnTask,
   canTakeOver,
+  cardDiffstat,
+  doneTaskMeta,
   findTask,
   formatClock,
+  formatTimeOfDay,
   formatTimestamp,
   isAttentionTask,
+  isCardPulsing,
   isTakenOver,
   laneCounts,
+  openReviewComments,
   runUsage,
+  showsTaskProgress,
   taskElapsedMs,
-  taskStagePercent,
+  taskProgressPercent,
   taskStatus,
   tasksByLane,
 } from '../board'
@@ -136,7 +142,6 @@ describe('attention projection', () => {
 
 describe('stage rail', () => {
   it('marks the claim stage active for a queued task', () => {
-    expect(taskStagePercent(task())).toBe(17)
     expect(taskStatus(task())).toEqual({ key: 'factory.cardStatus.queued' })
   })
 
@@ -145,12 +150,10 @@ describe('stage rail', () => {
       key: 'factory.cardStatus.implementing',
       params: { iteration: 2, max: 5 },
     })
-    expect(taskStagePercent(task({ lane: 'implementing', stageIdx: 2 }))).toBe(50)
   })
 
   it('highlights blocked tasks at the stuck stage', () => {
     expect(taskStatus(task({ lane: 'blocked', stageIdx: 5 }))).toEqual({ key: 'factory.cardStatus.blocked' })
-    expect(taskStagePercent(task({ lane: 'blocked', stageIdx: 5 }))).toBe(100)
   })
 
   it('shows merged or cancelled for done tasks', () => {
@@ -158,6 +161,155 @@ describe('stage rail', () => {
     expect(taskStatus(task({ lane: 'done', stageIdx: 6, cancelled: true }))).toEqual({
       key: 'factory.cardStatus.cancelled',
     })
+  })
+})
+
+describe('card progress', () => {
+  it('only draws the bar while implementing or reviewing', () => {
+    expect(showsTaskProgress(task({ lane: 'queued' }))).toBe(false)
+    expect(showsTaskProgress(task({ lane: 'implementing' }))).toBe(true)
+    expect(showsTaskProgress(task({ lane: 'reviewing' }))).toBe(true)
+    expect(showsTaskProgress(task({ lane: 'mergeable' }))).toBe(false)
+    expect(showsTaskProgress(task({ lane: 'blocked' }))).toBe(false)
+    expect(showsTaskProgress(task({ lane: 'done' }))).toBe(false)
+  })
+
+  it('drops the bar once the task is cancelled', () => {
+    expect(showsTaskProgress(task({ lane: 'implementing', cancelled: true }))).toBe(false)
+    expect(showsTaskProgress(task({ lane: 'reviewing', cancelled: true }))).toBe(false)
+  })
+
+  it('walks by iteration while implementing and reads full once in review', () => {
+    expect(taskProgressPercent(task({ lane: 'implementing', iteration: 0, maxIterations: 5 }))).toBe(0)
+    expect(taskProgressPercent(task({ lane: 'implementing', iteration: 2, maxIterations: 5 }))).toBe(40)
+    expect(taskProgressPercent(task({ lane: 'implementing', iteration: 6, maxIterations: 5 }))).toBe(100)
+    expect(taskProgressPercent(task({ lane: 'reviewing' }))).toBe(100)
+  })
+
+  it('tolerates a snapshot without an iteration limit', () => {
+    expect(taskProgressPercent(task({ lane: 'implementing', maxIterations: 0 }))).toBe(0)
+  })
+})
+
+describe('review comments', () => {
+  const review = (statuses: FactoryReviewCommentStatus[]) => ({
+    verdict: 'needs_changes' as const,
+    summary: '',
+    comments: statuses.map((status, index) => ({
+      id: `c-${index}`,
+      body: '意见',
+      severity: 'blocker' as const,
+      status,
+    })),
+    at: '2026-10-29T10:00:00Z',
+  })
+
+  it('counts only the comments still waiting for a decision', () => {
+    expect(openReviewComments(task({ lane: 'reviewing', review: review(['open', 'open', 'accepted', 'ignored', 'resolved']) }))).toBe(2)
+    expect(openReviewComments(task())).toBe(0)
+  })
+
+  it('puts the pending count on the reviewing chip', () => {
+    expect(taskStatus(task({ lane: 'reviewing', review: review(['open', 'accepted']) }))).toEqual({
+      key: 'factory.cardStatus.reviewingComments',
+      params: { count: 1 },
+    })
+  })
+
+  it('keeps a plain reviewing text while nothing is pending', () => {
+    // 结论已落地但一条未决意见都没有时，不能写成「0 条意见」。
+    expect(taskStatus(task({ lane: 'reviewing' }))).toEqual({ key: 'factory.cardStatus.reviewing' })
+    expect(taskStatus(task({ lane: 'reviewing', review: review([]) }))).toEqual({
+      key: 'factory.cardStatus.reviewing',
+    })
+  })
+})
+
+describe('card pulse', () => {
+  function run(overrides: Partial<FactoryRun> = {}): FactoryRun {
+    return {
+      id: 'run-1',
+      status: 'running',
+      paused: false,
+      createdAt: '2026-10-29T10:00:00Z',
+      maxConcurrency: 4,
+      spendUsd: 0,
+      elapsedMs: 0,
+      ...overrides,
+    }
+  }
+
+  it('pulses only an implementing task in a run that is still advancing', () => {
+    expect(isCardPulsing(task({ lane: 'implementing' }), run())).toBe(true)
+    expect(isCardPulsing(task({ lane: 'queued' }), run())).toBe(false)
+    expect(isCardPulsing(task({ lane: 'reviewing' }), run())).toBe(false)
+    expect(isCardPulsing(task({ lane: 'done' }), run())).toBe(false)
+  })
+
+  it('stops as soon as the run is paused, pending, stopped or missing', () => {
+    const item = task({ lane: 'implementing' })
+    expect(isCardPulsing(item, run({ paused: true }))).toBe(false)
+    expect(isCardPulsing(item, run({ status: 'paused' }))).toBe(false)
+    expect(isCardPulsing(item, run({ status: 'pending' }))).toBe(false)
+    expect(isCardPulsing(item, run({ status: 'stopped' }))).toBe(false)
+    expect(isCardPulsing(item, null)).toBe(false)
+  })
+
+  it('stops on an implementing task the background no longer drives', () => {
+    expect(isCardPulsing(task({ lane: 'implementing', cancelled: true }), run())).toBe(false)
+    expect(
+      isCardPulsing(
+        task({
+          lane: 'implementing',
+          worktree: '.spacecode/worktrees/bl-1',
+          takeover: { at: '2026-10-29T10:00:00Z', sessionId: 'sess-1' },
+        }),
+        run(),
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('card diffstat', () => {
+  it('reports the change counts once anything moved', () => {
+    expect(cardDiffstat(task({ diff: { additions: 86, deletions: 12 } }))).toEqual({ additions: 86, deletions: 12 })
+    expect(cardDiffstat(task({ diff: { additions: 0, deletions: 3 } }))).toEqual({ additions: 0, deletions: 3 })
+  })
+
+  it('returns null for a task without changes', () => {
+    expect(cardDiffstat(task())).toBeNull()
+  })
+})
+
+describe('merged card meta', () => {
+  it('reads merge time and the commits carried into the target branch', () => {
+    expect(
+      doneTaskMeta(task({ lane: 'done', stageIdx: 6, mergedCommits: 3, timestamps: { mergedAt: '2026-10-29T03:58:00' } })),
+    ).toEqual({ key: 'factory.cardMeta.merged', params: { time: '03:58', commits: 3 } })
+  })
+
+  it('counts the task commits when the merge did not record a number', () => {
+    const meta = doneTaskMeta(
+      task({
+        lane: 'done',
+        mergedCommits: undefined,
+        commits: [{ sha: 'a3f91c2', message: 'fix: 恢复顺序' }],
+        timestamps: { mergedAt: '2026-10-29T03:58:00' },
+      }),
+    )
+    expect(meta?.params).toMatchObject({ commits: 1 })
+  })
+
+  it('keeps the commit count without a time for runs saved before mergedAt existed', () => {
+    expect(doneTaskMeta(task({ lane: 'done', mergedCommits: 2 }))).toEqual({
+      key: 'factory.cardMeta.finished',
+      params: { commits: 2 },
+    })
+  })
+
+  it('never claims a merge for a cancelled or still-running task', () => {
+    expect(doneTaskMeta(task({ lane: 'done', cancelled: true, mergedCommits: 3 }))).toBeNull()
+    expect(doneTaskMeta(task({ lane: 'mergeable', mergedCommits: 3 }))).toBeNull()
   })
 })
 
@@ -240,5 +392,12 @@ describe('elapsed time', () => {
     expect(formatTimestamp(null)).toBe('')
     expect(formatTimestamp('not-a-date')).toBe('')
     expect(formatTimestamp('2026-10-28T10:05:00')).toBe('10-28 10:05')
+  })
+
+  it('formats only the time of day for the card foot', () => {
+    expect(formatTimeOfDay('2026-10-28T10:05:00')).toBe('10:05')
+    expect(formatTimeOfDay(undefined)).toBe('')
+    expect(formatTimeOfDay(null)).toBe('')
+    expect(formatTimeOfDay('not-a-date')).toBe('')
   })
 })
