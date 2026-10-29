@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { warn } from '../infra/logger'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import { resolveModelAliasForEngine } from '@/utils/engineModel'
+import type { FactoryModelTier } from '@/shared/factory'
 import { isEffortLevel } from '@/shared/effort'
 import type { EngineSessionConfig, EngineType } from './engines/types'
 
@@ -118,6 +119,25 @@ export function loadEngineSessionConfig(cwd: string): EngineSessionConfig {
   if (typeof settings.rtkEnabled === 'boolean') config.rtkEnabled = settings.rtkEnabled
 
   return config
+}
+
+/**
+ * 当前 provider 的槽位 → 真实模型名映射。
+ * 界面用它给模型打档位标记，而不是把 haiku/sonnet/opus 这些档位名当成模型选项。
+ */
+export function loadModelTiers(): Record<string, FactoryModelTier> {
+  const settings = readPersistedGuiSettings()
+  if (!settings) return {}
+  const providerConfig = activeProviderConfig(settings)
+  const tiers: Record<string, FactoryModelTier> = {}
+  const assign = (model: string | undefined, tier: FactoryModelTier): void => {
+    const trimmed = model?.trim()
+    if (trimmed) tiers[trimmed] = tier
+  }
+  assign(providerConfig?.haikuModel, 'haiku')
+  assign(providerConfig?.sonnetModel, 'sonnet')
+  assign(providerConfig?.opusModel, 'opus')
+  return tiers
 }
 
 /**
