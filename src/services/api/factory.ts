@@ -95,6 +95,7 @@ const invokeApi = createRendererApi(
     backlogMove: () => emptyBacklog,
     runCreate: () => failedRun,
     runGet: () => null,
+    runList: () => [],
     runLatest: () => null,
     taskStart: () => failedStart,
     taskStop: () => failedAction,
