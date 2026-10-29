@@ -16,6 +16,7 @@ import type {
   FactoryConfigSaveError,
   FactoryEvent,
   FactoryEventPush,
+  FactoryGhLoginResult,
   FactoryGithubAuthResult,
   FactoryGithubClaimFailure,
   FactoryGithubClaimResult,
@@ -27,6 +28,7 @@ import type {
   FactoryMergeMode,
   FactoryMergePreflight,
   FactoryMergeResult,
+  FactoryGithubRepo,
   FactoryPreflightResult,
   FactoryReviewCommentInput,
   FactoryRun,
@@ -106,6 +108,14 @@ function cloneConfig(input: FactoryConfig): FactoryConfig {
   }
 }
 
+/**
+ * 送进 IPC 前必须剥掉 Vue 的响应式 Proxy：上下文桥的结构化克隆遇到 Proxy
+ * 会直接抛 “An object could not be cloned”。草稿与配置都只包含可 JSON 化的值。
+ */
+function toPlain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 export const useFactoryStore = defineStore('factory', () => {
   const loading = ref(false)
   const loaded = ref(false)
@@ -118,15 +128,24 @@ export const useFactoryStore = defineStore('factory', () => {
   const storage = ref<FactoryStorageState | null>(null)
   const context = ref<FactorySetupContext | null>(null)
   const preflight = ref<FactoryPreflightResult | null>(null)
+  const preflightRunning = ref(false)
+  const preflightError = ref<string | null>(null)
 
   const wizardOpen = ref(false)
   const step = ref<SetupStep>(1)
   const draft = ref<FactorySetupDraft>({})
   const saving = ref(false)
   const saveError = ref<string | null>(null)
+  /** GitHub 仓库下拉（按当前鉴权方式拉取）；失败时退回手填。 */
+  const githubRepos = ref<FactoryGithubRepo[]>([])
+  const githubReposLoading = ref(false)
+  const githubReposError = ref<FactoryGithubFailureReason | null>(null)
 
   const tokenTesting = ref(false)
   const tokenResult = ref<FactoryGithubAuthResult | null>(null)
+  const ghChecking = ref(false)
+  const ghLogin = ref<{ running: boolean; code?: string; url?: string; error?: string }>({ running: false })
+  let ghLoginPoll: ReturnType<typeof setInterval> | null = null
 
   // 看板：本地待办 + 当前运行投影 + 检查器选中
   const backlog = ref<FactoryBacklogItem[]>([])
@@ -276,6 +295,8 @@ export const useFactoryStore = defineStore('factory', () => {
     saveError.value = null
     tokenResult.value = null
     preflight.value = null
+    preflightError.value = null
+    ghLogin.value = { running: false }
     step.value = 1
     if (!context.value) await loadContext(root)
     const ctx = context.value
@@ -287,10 +308,41 @@ export const useFactoryStore = defineStore('factory', () => {
   function closeWizard(): void {
     wizardOpen.value = false
     saveError.value = null
+    stopGhLoginPolling()
+    ghLogin.value = { running: false }
   }
 
   async function runPreflight(root: string): Promise<void> {
-    preflight.value = await api.factory.preflight(root, draft.value)
+    preflightRunning.value = true
+    preflightError.value = null
+    try {
+      preflight.value = await api.factory.preflight(root, toPlain(draft.value))
+    } catch (err) {
+      preflight.value = null
+      preflightError.value = String(err)
+    } finally {
+      preflightRunning.value = false
+    }
+  }
+
+  /** 按当前鉴权方式拉取 GitHub 仓库；token 为空时由主进程回退到已保存的凭据。 */
+  async function loadGithubRepos(source: 'gh' | 'token', token?: string): Promise<void> {
+    githubReposLoading.value = true
+    try {
+      const result = await api.factory.githubRepos(source, token)
+      if (result.ok) {
+        githubRepos.value = result.repos
+        githubReposError.value = null
+      } else {
+        githubRepos.value = []
+        githubReposError.value = result.reason
+      }
+    } catch {
+      githubRepos.value = []
+      githubReposError.value = 'network'
+    } finally {
+      githubReposLoading.value = false
+    }
   }
 
   async function next(root: string): Promise<void> {
@@ -309,7 +361,7 @@ export const useFactoryStore = defineStore('factory', () => {
     saving.value = true
     saveError.value = null
     try {
-      const result = await api.factory.save(root, draft.value)
+      const result = await api.factory.save(root, toPlain(draft.value))
       if (!result.ok) {
         saveError.value = result.error ?? 'write-failed'
         if (result.preflight) preflight.value = result.preflight
@@ -327,7 +379,10 @@ export const useFactoryStore = defineStore('factory', () => {
     tokenTesting.value = true
     try {
       tokenResult.value = await api.factory.testGithubToken(root, token, repo)
-      if (tokenResult.value.ok) await storeToken(token)
+      if (!tokenResult.value.ok) return
+      await storeToken(token)
+      // token 有效即可列出它可访问的仓库，向导仓库下拉不再依赖已打开项目。
+      await loadGithubRepos('token', token)
     } finally {
       tokenTesting.value = false
     }
@@ -342,10 +397,61 @@ export const useFactoryStore = defineStore('factory', () => {
     return true
   }
 
-  async function checkGhAuth(): Promise<boolean> {
-    const result = await api.factory.checkGhAuth()
-    if (context.value) context.value = { ...context.value, ghLoggedIn: result.ok }
-    return result.ok
+  async function checkGhAuth(options: { quiet?: boolean } = {}): Promise<boolean> {
+    if (!options.quiet) ghChecking.value = true
+    try {
+      const result = await api.factory.checkGhAuth()
+      if (context.value) context.value = { ...context.value, ghLoggedIn: result.ok }
+      if (result.ok) {
+        stopGhLoginPolling()
+        ghLogin.value = { running: false }
+      }
+      return result.ok
+    } catch {
+      return false
+    } finally {
+      if (!options.quiet) ghChecking.value = false
+    }
+  }
+
+  function stopGhLoginPolling(): void {
+    if (ghLoginPoll) clearInterval(ghLoginPoll)
+    ghLoginPoll = null
+  }
+
+  /**
+   * 发起 `gh auth login --web`：主进程返回浏览器里要输入的一次性代码，
+   * 之后每 3 秒检查一次登录状态，授权完成即收尾。
+   */
+  async function startGhLogin(): Promise<void> {
+    if (ghLogin.value.running) return
+    ghLogin.value = { running: true }
+    let result: FactoryGhLoginResult
+    try {
+      result = await api.factory.startGhLogin()
+    } catch {
+      ghLogin.value = { running: false, error: 'unknown' }
+      return
+    }
+    if (!result.ok) {
+      ghLogin.value = { running: false, error: result.reason }
+      return
+    }
+    ghLogin.value = {
+      running: true,
+      ...(result.code ? { code: result.code } : {}),
+      ...(result.url ? { url: result.url } : {}),
+    }
+    stopGhLoginPolling()
+    const startedAt = Date.now()
+    ghLoginPoll = setInterval(async () => {
+      if (Date.now() - startedAt > 5 * 60_000) {
+        stopGhLoginPolling()
+        ghLogin.value = { running: false, error: 'timeout' }
+        return
+      }
+      if (await checkGhAuth({ quiet: true })) return
+    }, 3000)
   }
 
   async function loadBacklog(root: string): Promise<void> {
@@ -642,7 +748,7 @@ export const useFactoryStore = defineStore('factory', () => {
     configConflictRevision.value = null
     try {
       const result = await api.factory.configSave(root, {
-        config: draftConfig,
+        config: toPlain(draftConfig),
         ...(config.value ? { expectedRevision: config.value.revision } : {}),
         ...(configConfirmGateOff.value ? { confirmGateOff: true } : {}),
       })
@@ -1040,13 +1146,21 @@ export const useFactoryStore = defineStore('factory', () => {
     storage.value = null
     context.value = null
     preflight.value = null
+    preflightRunning.value = false
+    preflightError.value = null
     wizardOpen.value = false
     step.value = 1
     draft.value = {}
     saving.value = false
     saveError.value = null
+    githubRepos.value = []
+    githubReposLoading.value = false
+    githubReposError.value = null
     tokenTesting.value = false
     tokenResult.value = null
+    ghChecking.value = false
+    stopGhLoginPolling()
+    ghLogin.value = { running: false }
     backlog.value = []
     backlogLoading.value = false
     backlogError.value = null
@@ -1113,13 +1227,20 @@ export const useFactoryStore = defineStore('factory', () => {
     storage,
     context,
     preflight,
+    preflightRunning,
+    preflightError,
     wizardOpen,
     step,
     draft,
     saving,
     saveError,
+    githubRepos,
+    githubReposLoading,
+    githubReposError,
     tokenTesting,
     tokenResult,
+    ghChecking,
+    ghLogin,
     backlog,
     backlogLoading,
     backlogError,
@@ -1190,12 +1311,14 @@ export const useFactoryStore = defineStore('factory', () => {
     openWizard,
     closeWizard,
     runPreflight,
+    loadGithubRepos,
     next,
     back,
     save,
     testToken,
     storeToken,
     checkGhAuth,
+    startGhLogin,
     loadBacklog,
     createBacklogTask,
     updateBacklogTask,
