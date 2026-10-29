@@ -1,197 +1,268 @@
+// @vitest-environment node
 /**
- * 任务与运行状态迁移的唯一写入点（spec §4.5）。
- *
- * 任何阶段都只能通过这里改 `lane`；非法迁移直接拒绝且不落盘。任务补丁
- * （iteration/diff/commits/usage）也走同一份 tasks.json 原子写，避免多处
- * 读改写互相覆盖。
+ * 运行时：任务迁移只能走 transitionTask 一处，非法迁移被拒绝且不落盘；
+ * 投影补丁（diff/commits/usage）与运行状态写回同一份快照。
  */
-import type {
-  FactoryLane,
-  FactoryRun,
-  FactoryRunSnapshot,
-  FactoryRunStatus,
-  FactoryTask,
-  FactoryTaskTakeover,
-} from '@/shared/factory'
-import { readRunSnapshot, runFilePath, tasksFilePath } from './runs'
-import { writeJsonAtomic } from './atomic'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
+import { createBacklogItem } from '../backlog'
+import { createFactoryRun, readRunSnapshot } from '../runs'
+import {
+  canTransition,
+  patchTask,
+  stageIndexFor,
+  transitionTask,
+  updateRun,
+} from '../runtime'
 
-const STAGE_INDEX: Record<FactoryLane, number> = {
-  queued: 0,
-  implementing: 1,
-  reviewing: 4,
-  mergeable: 5,
-  blocked: 0,
-  done: 6,
+let dir: string
+let runId: string
+
+function taskId(): string {
+  return readRunSnapshot(dir, runId)!.tasks[0].id
 }
 
-const ALLOWED: Record<FactoryLane, FactoryLane[]> = {
-  queued: ['implementing'],
-  implementing: ['implementing', 'blocked', 'reviewing', 'done'],
-  reviewing: ['reviewing', 'blocked', 'mergeable', 'implementing', 'done'],
-  mergeable: ['mergeable', 'blocked', 'done'],
-  blocked: ['implementing', 'reviewing', 'queued', 'done'],
-  done: [],
-}
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'factory-runtime-'))
+  const built = buildFactoryConfig(
+    {
+      agent: { engineType: 'claude-code' },
+      sandbox: { type: 'worktree' },
+      tracker: { type: 'local', mergeMode: 'local' },
+      commands: { verify: 'npm run test' },
+    },
+    { baseBranch: 'main' },
+  )
+  if (!built.ok) throw new Error('fixture config invalid')
+  writeFactoryConfigAtomic(dir, built.config)
+  const backlog = createBacklogItem(dir, { title: '任务' }, { genId: () => 'bl-1' })
+  if (!backlog.ok) throw new Error('fixture backlog invalid')
+  const created = createFactoryRun(dir, { taskIds: ['bl-1'] }, { genId: () => 'run-1' })
+  if (!created.ok) throw new Error('fixture run invalid')
+  runId = created.snapshot.run.id
+})
 
-export interface RuntimeDeps {
-  now?: () => Date
-}
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true })
+})
 
-export function stageIndexFor(lane: FactoryLane): number {
-  return STAGE_INDEX[lane]
-}
+describe('transition rules', () => {
+  it('maps lanes to the six-step progress indexes', () => {
+    expect(stageIndexFor('queued')).toBe(0)
+    expect(stageIndexFor('implementing')).toBe(1)
+    expect(stageIndexFor('reviewing')).toBe(4)
+    expect(stageIndexFor('mergeable')).toBe(5)
+    expect(stageIndexFor('done')).toBe(6)
+  })
 
-export function canTransition(from: FactoryLane, to: FactoryLane): boolean {
-  return ALLOWED[from].includes(to)
-}
+  it('allows the documented pipeline edges only', () => {
+    expect(canTransition('queued', 'implementing')).toBe(true)
+    expect(canTransition('implementing', 'reviewing')).toBe(true)
+    expect(canTransition('reviewing', 'mergeable')).toBe(true)
+    expect(canTransition('mergeable', 'done')).toBe(true)
+    expect(canTransition('blocked', 'implementing')).toBe(true)
+    // 接管交回后验证通过：blocked 也可以直接回到审查阶段重试。
+    expect(canTransition('blocked', 'reviewing')).toBe(true)
+    // 队列任务可以被直接移除，阻塞任务可以被放弃：两条都落进已完成泳道。
+    expect(canTransition('queued', 'done')).toBe(true)
+    expect(canTransition('blocked', 'done')).toBe(true)
 
-function attentionAction(reason: string): 'fix' | 'merge' | 'retry' {
-  if (reason.startsWith('merge') || reason.startsWith('pr')) return 'merge'
-  if (
-    reason === 'stopped' ||
-    reason === 'app.restarted' ||
-    reason === 'iteration.limit' ||
-    reason === 'tests.failed' ||
-    reason === 'tests.timeout'
-  ) {
-    return 'retry'
-  }
-  return 'fix'
-}
+    expect(canTransition('queued', 'mergeable')).toBe(false)
+    expect(canTransition('done', 'implementing')).toBe(false)
+    expect(canTransition('mergeable', 'reviewing')).toBe(false)
+  })
+})
 
-export interface TransitionTarget {
-  lane: FactoryLane
-  stageIdx?: number
-}
+describe('transitionTask', () => {
+  const now = () => new Date('2026-10-28T10:00:00.000Z')
 
-export type TaskPatch = Partial<
-  Pick<
-    FactoryTask,
-    | 'branch'
-    | 'worktree'
-    | 'model'
-    | 'configSnapshot'
-    | 'iteration'
-    | 'maxIterations'
-    | 'diff'
-    | 'commits'
-    | 'usage'
-    | 'tests'
-    | 'review'
-    | 'cancelled'
-    | 'mergedCommits'
-    | 'targetBranch'
-    | 'pullRequest'
-    | 'writeback'
-    | 'timestamps'
-  >
-> & {
-  /** null 表示清除接管标记；其余值写入 task.takeover。 */
-  takeover?: FactoryTaskTakeover | null
-}
+  it('moves a queued task to the worktree stage and stamps startedAt', () => {
+    const id = taskId()
+    const result = transitionTask(
+      dir,
+      runId,
+      id,
+      { lane: 'implementing', stageIdx: 1 },
+      'worktree.ready',
+      { worktree: '.spacecode/worktrees/bl-1', branch: 'agent/task-bl-1' },
+      { now },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.snapshot.tasks[0]).toMatchObject({
+      lane: 'implementing',
+      stageIdx: 1,
+      worktree: '.spacecode/worktrees/bl-1',
+      branch: 'agent/task-bl-1',
+      timestamps: { startedAt: '2026-10-28T10:00:00.000Z' },
+    })
+    expect(readRunSnapshot(dir, runId)!.tasks[0].lane).toBe('implementing')
+  })
 
-/** patch 里的 null 代表「删除该字段」，其余值原样合并。 */
-function applyPatch<T extends object>(target: T, patch: object): T {
-  const next: Record<string, unknown> = { ...(target as Record<string, unknown>) }
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null) delete next[key]
-    else next[key] = value
-  }
-  return next as T
-}
+  it('blocks with an attention reason and keeps the stuck stage', () => {
+    const id = taskId()
+    transitionTask(dir, runId, id, { lane: 'implementing', stageIdx: 2 }, 'worktree.ready', {}, { now })
+    const blocked = transitionTask(dir, runId, id, { lane: 'blocked' }, 'stopped', {}, { now })
+    expect(blocked).toMatchObject({
+      ok: true,
+      snapshot: {
+        tasks: [
+          {
+            lane: 'blocked',
+            stageIdx: 2,
+            attention: { reason: 'stopped', action: 'retry' },
+          },
+        ],
+      },
+    })
+  })
 
-export type TransitionResult =
-  | { ok: true; snapshot: FactoryRunSnapshot }
-  | { ok: false; error: 'task-not-found' | 'invalid-transition' }
+  it('rejects illegal transitions without writing', () => {
+    const id = taskId()
+    const result = transitionTask(dir, runId, id, { lane: 'mergeable', stageIdx: 5 }, 'skip', {}, { now })
+    expect(result).toEqual({ ok: false, error: 'invalid-transition' })
+    expect(readRunSnapshot(dir, runId)!.tasks[0].lane).toBe('queued')
+  })
 
-export function transitionTask(
-  repoRoot: string,
-  runId: string,
-  taskId: string,
-  to: TransitionTarget,
-  reason: string,
-  patch: TaskPatch = {},
-  deps: RuntimeDeps = {},
-): TransitionResult {
-  const snapshot = readRunSnapshot(repoRoot, runId)
-  if (!snapshot) return { ok: false, error: 'task-not-found' }
+  it('lands an abandoned queued task in done with the cancelled flag and an end stamp', () => {
+    const id = taskId()
+    const result = transitionTask(
+      dir,
+      runId,
+      id,
+      { lane: 'done' },
+      'task.cancelled',
+      { cancelled: true },
+      { now },
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      snapshot: {
+        tasks: [
+          {
+            lane: 'done',
+            stageIdx: 6,
+            cancelled: true,
+            timestamps: { endedAt: '2026-10-28T10:00:00.000Z' },
+          },
+        ],
+      },
+    })
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({ lane: 'done', cancelled: true })
+  })
 
-  const index = snapshot.tasks.findIndex((task) => task.id === taskId)
-  if (index < 0) return { ok: false, error: 'task-not-found' }
-  const current = snapshot.tasks[index]
-  if (!canTransition(current.lane, to.lane)) return { ok: false, error: 'invalid-transition' }
+  it('reports missing tasks and runs', () => {
+    expect(
+      transitionTask(dir, runId, 'bl-404', { lane: 'implementing', stageIdx: 1 }, 'x', {}, { now }),
+    ).toEqual({ ok: false, error: 'task-not-found' })
+    expect(
+      transitionTask(dir, 'run-404', 'bl-1', { lane: 'implementing', stageIdx: 1 }, 'x', {}, { now }),
+    ).toEqual({ ok: false, error: 'task-not-found' })
+  })
 
-  const at = (deps.now ?? (() => new Date()))().toISOString()
-  const next: FactoryTask = {
-    ...applyPatch(current, patch),
-    lane: to.lane,
-    stageIdx: to.lane === 'blocked' ? current.stageIdx : (to.stageIdx ?? stageIndexFor(to.lane)),
-  }
+  it('stamps endedAt and the cancelled flag on completion', () => {
+    const id = taskId()
+    transitionTask(dir, runId, id, { lane: 'implementing', stageIdx: 2 }, 'worktree.ready', {}, { now })
+    const done = transitionTask(
+      dir,
+      runId,
+      id,
+      { lane: 'done', stageIdx: 6 },
+      'cancelled',
+      { cancelled: true },
+      { now },
+    )
+    expect(done).toMatchObject({
+      ok: true,
+      snapshot: { tasks: [{ lane: 'done', stageIdx: 6, cancelled: true, timestamps: { endedAt: '2026-10-28T10:00:00.000Z' } }] },
+    })
+  })
+})
 
-  const timestamps = { ...(patch.timestamps ?? current.timestamps) }
-  if (to.lane === 'implementing' && !timestamps.startedAt) timestamps.startedAt = at
-  if (to.lane === 'done' && !timestamps.endedAt) timestamps.endedAt = at
-  next.timestamps = timestamps
+describe('projection patches', () => {
+  const now = () => new Date('2026-10-28T10:00:00.000Z')
 
-  if (to.lane === 'blocked') {
-    next.attention = { reason, action: attentionAction(reason) }
-  } else {
-    delete next.attention
-  }
+  it('persists diff, commits, usage and iteration without changing the lane', () => {
+    const id = taskId()
+    const result = patchTask(
+      dir,
+      runId,
+      id,
+      {
+        iteration: 2,
+        diff: { additions: 12, deletions: 3, files: [{ path: 'a.ts', additions: 12, deletions: 3 }] },
+        commits: [{ sha: 'abc', message: 'feat: a' }],
+        usage: { inputTokens: 100, outputTokens: 20 },
+      },
+      { now },
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      snapshot: {
+        tasks: [
+          {
+            lane: 'queued',
+            iteration: 2,
+            diff: { additions: 12, deletions: 3 },
+            commits: [{ sha: 'abc', message: 'feat: a' }],
+            usage: { inputTokens: 100, outputTokens: 20 },
+          },
+        ],
+      },
+    })
+  })
 
-  const tasks = [...snapshot.tasks]
-  tasks[index] = next
-  writeJsonAtomic(tasksFilePath(repoRoot, runId), tasks)
-  return { ok: true, snapshot: { run: snapshot.run, tasks } }
-}
+  it('returns task-not-found for unknown ids', () => {
+    expect(patchTask(dir, runId, 'bl-404', { iteration: 1 }, { now })).toEqual({
+      ok: false,
+      error: 'task-not-found',
+    })
+  })
 
-export type PatchResult = { ok: true; snapshot: FactoryRunSnapshot } | { ok: false; error: 'task-not-found' }
+  it('sets and clears the takeover marker', () => {
+    const id = taskId()
+    transitionTask(dir, runId, id, { lane: 'implementing', stageIdx: 2 }, 'worktree.ready', {}, { now })
+    const marked = patchTask(
+      dir,
+      runId,
+      id,
+      { takeover: { at: '2026-10-28T10:00:00.000Z', sessionId: 'fac-run-1-bl-1-takeover' } },
+      { now },
+    )
+    expect(marked).toMatchObject({
+      ok: true,
+      snapshot: { tasks: [{ takeover: { sessionId: 'fac-run-1-bl-1-takeover' } }] },
+    })
 
-/** 只更新投影字段（不迁移 lane）；用于每轮迭代后的 diff/commits/usage 写回。 */
-export function patchTask(
-  repoRoot: string,
-  runId: string,
-  taskId: string,
-  patch: TaskPatch,
-  _deps: RuntimeDeps = {},
-): PatchResult {
-  const snapshot = readRunSnapshot(repoRoot, runId)
-  if (!snapshot) return { ok: false, error: 'task-not-found' }
-  const index = snapshot.tasks.findIndex((task) => task.id === taskId)
-  if (index < 0) return { ok: false, error: 'task-not-found' }
+    const cleared = transitionTask(dir, runId, id, { lane: 'blocked' }, 'stopped', { takeover: null }, { now })
+    expect(cleared).toMatchObject({ ok: true, snapshot: { tasks: [{ lane: 'blocked' }] } })
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).not.toHaveProperty('takeover')
+  })
+})
 
-  const tasks = [...snapshot.tasks]
-  tasks[index] = applyPatch(tasks[index], patch)
-  writeJsonAtomic(tasksFilePath(repoRoot, runId), tasks)
-  return { ok: true, snapshot: { run: snapshot.run, tasks } }
-}
+describe('updateRun', () => {
+  it('writes status, timestamps and elapsed time', () => {
+    const started = updateRun(
+      dir,
+      runId,
+      { status: 'running', startedAt: '2026-10-28T10:00:00.000Z' },
+      { now: () => new Date('2026-10-28T10:01:30.000Z') },
+    )
+    expect(started).toMatchObject({ status: 'running', elapsedMs: 90_000 })
 
-export type RunPatch = Partial<
-  Pick<
-    FactoryRun,
-    'status' | 'paused' | 'startedAt' | 'endedAt' | 'spendUsd' | 'maxConcurrency' | 'configRevision'
-  >
->
+    const stopped = updateRun(
+      dir,
+      runId,
+      { status: 'stopped', endedAt: '2026-10-28T10:02:00.000Z' },
+      { now: () => new Date('2026-10-28T10:02:00.000Z') },
+    )
+    expect(stopped).toMatchObject({ status: 'stopped', elapsedMs: 120_000 })
+  })
 
-/** 写运行状态；elapsedMs 由 startedAt/endedAt/当前时间派生，页面不自己算。 */
-export function updateRun(
-  repoRoot: string,
-  runId: string,
-  patch: RunPatch,
-  deps: RuntimeDeps = {},
-): FactoryRun | null {
-  const snapshot = readRunSnapshot(repoRoot, runId)
-  if (!snapshot) return null
-
-  const run: FactoryRun = { ...snapshot.run, ...patch }
-  if (run.startedAt) {
-    const end = run.endedAt ? Date.parse(run.endedAt) : (deps.now ?? (() => new Date()))().getTime()
-    run.elapsedMs = Math.max(0, end - Date.parse(run.startedAt))
-  }
-  const status: FactoryRunStatus = run.status
-  run.status = status
-
-  writeJsonAtomic(runFilePath(repoRoot, runId), run)
-  return run
-}
+  it('returns null for unknown runs', () => {
+    expect(updateRun(dir, 'run-404', { status: 'running' })).toBeNull()
+  })
+})
