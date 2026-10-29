@@ -10,7 +10,9 @@ import type {
   FactoryGithubAuthResult,
   FactoryGithubClaimResult,
   FactoryGithubListResult,
+  FactoryGithubReposResult,
   FactoryGithubWritebackRetryResult,
+  FactoryGhLoginResult,
   FactoryMergePreflightResult,
   FactoryMergeResult,
   FactoryPreflightResult,
@@ -33,6 +35,7 @@ const emptyContext: FactorySetupContext = {
   repo: { isGitRepo: false, root: '', baseBranch: 'main', dirty: false, gitVersion: null },
   engines: [],
   modelProfile: { configured: false },
+  models: { selectable: [] },
   dockerAvailable: false,
   encryptionAvailable: false,
   ghLoggedIn: false,
@@ -45,6 +48,8 @@ const emptyPreflight: FactoryPreflightResult = {
 }
 
 const failedAuth: FactoryGithubAuthResult = { ok: false, reason: 'network' }
+const failedGhLogin: FactoryGhLoginResult = { ok: false, reason: 'unsupported' }
+const failedRepos: FactoryGithubReposResult = { ok: false, reason: 'unsupported' }
 
 const emptyBacklog: FactoryBacklogResult = { ok: true, items: [] }
 const failedRun: FactoryRunCreateResult = { ok: false, error: 'empty-tasks' }
@@ -76,6 +81,8 @@ const invokeApi = createRendererApi(
     save: (): FactorySaveResult => ({ ok: false, error: 'write-failed' }),
     testGithubToken: () => failedAuth,
     checkGhAuth: () => failedAuth,
+    startGhLogin: () => failedGhLogin,
+    githubRepos: () => failedRepos,
     saveGithubToken: (): FactorySecretSaveResult => ({ ok: false, reason: 'write-failed' }),
     clearGithubToken: () => ({ ok: false }),
     githubIssues: () => failedIssueList,
