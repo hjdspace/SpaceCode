@@ -121,6 +121,11 @@ export interface FactoryRunner {
     input?: FactoryTaskStartInput,
   ): Promise<FactoryTaskStartResult>
   stopTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
+  /**
+   * 放弃/移除：把还没在跑的队列与阻塞任务落到已完成泳道并标记取消。
+   * 分支、提交与工作树原样保留，GitHub 来源不回写。
+   */
+  cancelTask(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskActionResult>
   /** 暂停：不再领取新任务，当前回合自然结束。 */
   pauseRun(repoRoot: string, runId: string): Promise<FactoryRunControlResult>
   /** 恢复：继续领取；已停止的运行拒绝恢复。 */
@@ -1080,6 +1085,32 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         return { ok: false, error: 'stop-failed' }
       }
       safeBlock(repoRoot, runId, taskId, 'stopped')
+
+      const latest = readRunSnapshot(repoRoot, runId)
+      return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
+    },
+
+    async cancelTask(repoRoot, runId, taskId) {
+      const task = taskOf(repoRoot, runId, taskId)
+      if (!task) return { ok: false, error: 'task-not-found' }
+      // 领取与放弃可以交错：后台回合还在跑就得先停下它，而不是静默标成已取消。
+      if (running.has(taskId)) return { ok: false, error: 'already-running' }
+      if (task.lane !== 'queued' && task.lane !== 'blocked') {
+        return { ok: false, error: 'not-cancellable' }
+      }
+
+      const moved = transitionTask(
+        repoRoot,
+        runId,
+        taskId,
+        { lane: 'done' },
+        'task.cancelled',
+        { cancelled: true },
+        { now },
+      )
+      if (!moved.ok) return { ok: false, error: 'not-cancellable' }
+
+      emit(repoRoot, runId, { taskId, code: 'task.cancelled', level: 'warn' })
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
