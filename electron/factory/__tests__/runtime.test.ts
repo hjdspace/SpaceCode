@@ -66,8 +66,11 @@ describe('transition rules', () => {
     expect(canTransition('blocked', 'implementing')).toBe(true)
     // 接管交回后验证通过：blocked 也可以直接回到审查阶段重试。
     expect(canTransition('blocked', 'reviewing')).toBe(true)
+    // 队列任务可以被直接移除，阻塞任务可以被放弃：两条都落进已完成泳道。
+    expect(canTransition('queued', 'done')).toBe(true)
+    expect(canTransition('blocked', 'done')).toBe(true)
 
-    expect(canTransition('queued', 'done')).toBe(false)
+    expect(canTransition('queued', 'mergeable')).toBe(false)
     expect(canTransition('done', 'implementing')).toBe(false)
     expect(canTransition('mergeable', 'reviewing')).toBe(false)
   })
@@ -119,9 +122,36 @@ describe('transitionTask', () => {
 
   it('rejects illegal transitions without writing', () => {
     const id = taskId()
-    const result = transitionTask(dir, runId, id, { lane: 'done', stageIdx: 6 }, 'skip', {}, { now })
+    const result = transitionTask(dir, runId, id, { lane: 'mergeable', stageIdx: 5 }, 'skip', {}, { now })
     expect(result).toEqual({ ok: false, error: 'invalid-transition' })
     expect(readRunSnapshot(dir, runId)!.tasks[0].lane).toBe('queued')
+  })
+
+  it('lands an abandoned queued task in done with the cancelled flag and an end stamp', () => {
+    const id = taskId()
+    const result = transitionTask(
+      dir,
+      runId,
+      id,
+      { lane: 'done' },
+      'task.cancelled',
+      { cancelled: true },
+      { now },
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      snapshot: {
+        tasks: [
+          {
+            lane: 'done',
+            stageIdx: 6,
+            cancelled: true,
+            timestamps: { endedAt: '2026-10-28T10:00:00.000Z' },
+          },
+        ],
+      },
+    })
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({ lane: 'done', cancelled: true })
   })
 
   it('reports missing tasks and runs', () => {
