@@ -99,6 +99,7 @@ const invokeApi = createRendererApi(
     runLatest: () => null,
     taskStart: () => failedStart,
     taskStop: () => failedAction,
+    taskCancel: () => failedAction,
     taskApprove: () => failedAction,
     taskRequestChanges: () => failedAction,
     taskFix: () => failedAction,
