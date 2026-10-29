@@ -73,6 +73,14 @@ describe('runFactoryPreflight', () => {
     expect(result.blocking).toBe(false)
   })
 
+  it('carries the dirty file count so the wizard can say what is uncommitted', () => {
+    const result = runFactoryPreflight(
+      config(),
+      input({ repo: { ...input().repo, dirty: true, dirtyFiles: 3 } }),
+    )
+    expect(item(result, 'gitDirty')).toEqual({ id: 'gitDirty', level: 'warn', params: { files: 3 } })
+  })
+
   it('blocks on unwritable config dir, unavailable engine or empty verify command', () => {
     expect(runFactoryPreflight(config(), input({ configWritable: false })).blocking).toBe(true)
     expect(runFactoryPreflight(config(), input({ engineAvailable: false })).blocking).toBe(true)
