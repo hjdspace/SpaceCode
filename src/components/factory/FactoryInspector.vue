@@ -13,6 +13,15 @@
           <span class="ins-chip" data-inspector-status>
             {{ status.params ? t(status.key, status.params) : t(status.key) }}
           </span>
+          <button
+            class="close-btn"
+            data-inspector-close
+            :title="t('factory.inspector.close')"
+            :aria-label="t('factory.inspector.close')"
+            @click="emit('close')"
+          >
+            <X :size="13" />
+          </button>
         </div>
 
         <h2 class="ins-title" data-inspector-title>{{ task.title }}</h2>
@@ -21,6 +30,19 @@
           <div class="meta-row">
             <GitBranch :size="12" />
             <code>{{ task.branch }}</code>
+            <button
+              class="copy-btn"
+              data-copy-branch
+              :title="t('factory.inspector.copyBranch')"
+              :aria-label="t('factory.inspector.copyBranch')"
+              @click="copyBranch"
+            >
+              <Check v-if="copied" :size="11" />
+              <Copy v-else :size="11" />
+            </button>
+            <span v-if="copied" class="copy-hint" data-copy-hint>
+              {{ t('factory.inspector.copied') }}
+            </span>
           </div>
           <div class="meta-row">
             <Folder :size="12" />
@@ -28,7 +50,7 @@
               {{ task.worktree || t('factory.inspector.worktreePending') }}
             </code>
             <button
-              v-if="task.worktree"
+              v-if="task.worktree && !canViewWorktree"
               class="reveal-btn"
               data-reveal-worktree
               :title="t('factory.inspector.revealWorktree')"
@@ -40,6 +62,10 @@
           <div class="meta-row">
             <Cpu :size="12" />
             <code>{{ task.model || t('factory.modelUnknown') }}</code>
+          </div>
+          <div v-if="permissionMode" class="meta-row" data-inspector-permission>
+            <ShieldCheck :size="12" />
+            <code>{{ t(`factory.config.permissions.${permissionMode}`) }}</code>
           </div>
         </div>
 
@@ -69,6 +95,11 @@
             @click="emit('select-tab', item.key)"
           >
             {{ t(item.labelKey) }}
+            <span
+              v-if="badges[item.key] !== undefined"
+              class="badge"
+              :data-inspector-badge="item.key"
+            >{{ badges[item.key] }}</span>
           </button>
         </nav>
       </header>
@@ -311,6 +342,15 @@
         </p>
         <div class="action-row">
           <button
+            v-if="canViewWorktree"
+            class="action-btn primary"
+            data-task-view-worktree
+            @click="emit('reveal')"
+          >
+            <Folder :size="12" />
+            {{ t('factory.actions.viewWorktree') }}
+          </button>
+          <button
             v-if="canStart"
             class="action-btn primary"
             data-task-start
@@ -406,6 +446,15 @@
             {{ retrying ? t('factory.actions.retrying') : t('factory.actions.retryLocal') }}
           </button>
           <button
+            v-if="canCancel"
+            class="action-btn danger"
+            data-task-cancel
+            :disabled="cancelling"
+            @click="emit('cancel')"
+          >
+            {{ cancelling ? t('factory.actions.cancelling') : cancelLabel }}
+          </button>
+          <button
             v-if="task.lane === 'mergeable'"
             class="action-btn primary"
             data-task-merge
@@ -431,13 +480,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Activity,
   AlertTriangle,
   Check,
   CornerUpLeft,
+  Copy,
   Cpu,
   FileDiff,
   Folder,
@@ -452,11 +502,14 @@ import {
   X,
 } from 'lucide-vue-next'
 import type { FactoryEvent, FactoryTask, FactoryReviewCommentStatus } from '@/shared/factory'
-import { pendingComments } from '@/shared/factoryReview'
 import type { FactoryActionError, FactoryGithubActionError } from '@/stores/factory'
 import {
+  canCancelTask,
+  canFixTask,
+  cancelLabelKey,
   canRetryTask,
   canTakeOver,
+  inspectorTabBadges,
   isTakenOver,
   FACTORY_INSPECTOR_TABS,
   FACTORY_STEPS,
@@ -464,7 +517,9 @@ import {
   formatTimestamp,
   stepStates,
   taskElapsedMs,
+  taskPermissionMode,
   taskStatus,
+  type FactoryInspectorBadges,
   type FactoryInspectorTab,
   type FactoryTaskStatus,
 } from '@/stores/factory/board'
@@ -498,6 +553,8 @@ const props = withDefaults(
     takingOver?: boolean
     returning?: boolean
     retrying?: boolean
+    /** 放弃/移除在途：与卡片动作行共用同一个 store 标志。 */
+    cancelling?: boolean
   }>(),
   {
     nowMs: () => Date.now(),
@@ -521,13 +578,16 @@ const props = withDefaults(
     takingOver: false,
     returning: false,
     retrying: false,
+    cancelling: false,
   },
 )
 
 const emit = defineEmits<{
   'select-tab': [tab: FactoryInspectorTab]
+  close: []
   start: []
   stop: []
+  cancel: []
   reveal: []
   'confirm-dirty': []
   approve: []
@@ -550,17 +610,25 @@ const status = computed<FactoryTaskStatus>(() =>
   props.task ? taskStatus(props.task) : { key: '' },
 )
 const visual = computed(() => (props.task ? stepStates(props.task) : []))
+const permissionMode = computed(() =>
+  props.task ? taskPermissionMode(props.task) : null,
+)
+const badges = computed<FactoryInspectorBadges>(() =>
+  props.task ? inspectorTabBadges(props.task) : {},
+)
+/** 已完成任务把「查看工作树」交给底部主按钮，元信息行就不再挂同义入口。 */
+const canViewWorktree = computed(
+  () => props.task?.lane === 'done' && Boolean(props.task.worktree),
+)
 const elapsedMs = computed(() => (props.task ? taskElapsedMs(props.task, props.nowMs) : 0))
 const files = computed(() => props.task?.diff.files ?? [])
 const commits = computed(() => props.task?.commits ?? [])
 const review = computed(() => props.task?.review ?? null)
-const pending = computed(() => pendingComments(props.task?.review))
-const canFix = computed(
-  () =>
-    pending.value.length > 0 &&
-    Boolean(props.task?.worktree) &&
-    (props.task?.lane === 'blocked' || props.task?.lane === 'reviewing'),
-)
+/** 与卡片动作行同一个资格判定，避免卡片能点、检查器报错。 */
+const canFix = computed(() => (props.task ? canFixTask(props.task) : false))
+const canCancel = computed(() => (props.task ? canCancelTask(props.task) : false))
+/** 队列里叫「移除」，阻塞里叫「放弃」：文案口径与卡片动作行同一处。 */
+const cancelLabel = computed(() => (props.task ? t(cancelLabelKey(props.task)) : ''))
 const canStart = computed(() => {
   const task = props.task
   if (!task) return false
@@ -591,6 +659,30 @@ const canRetryWriteback = computed(
 function isCommentActionable(status: FactoryReviewCommentStatus): boolean {
   return status === 'open' || status === 'accepted'
 }
+
+/** 提示按分支名归属：换到别的任务时立刻消失，而不是跟着漂到下一条分支上。 */
+const copiedBranch = ref<string | null>(null)
+const copied = computed(() => copiedBranch.value !== null && copiedBranch.value === props.task?.branch)
+let copyTimer: number | undefined
+
+async function copyBranch(): Promise<void> {
+  const branch = props.task?.branch
+  if (!branch) return
+  try {
+    await navigator.clipboard.writeText(branch)
+  } catch {
+    return
+  }
+  copiedBranch.value = branch
+  if (copyTimer !== undefined) window.clearTimeout(copyTimer)
+  copyTimer = window.setTimeout(() => {
+    copiedBranch.value = null
+  }, 1500)
+}
+
+onBeforeUnmount(() => {
+  if (copyTimer !== undefined) window.clearTimeout(copyTimer)
+})
 const actionErrorText = computed(() => {
   const err = props.actionError
   if (!err) return ''
@@ -668,6 +760,25 @@ const timestamps = computed(() => {
   color: var(--text-secondary);
 }
 
+.close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-glass-hover);
+    color: var(--text-primary);
+  }
+}
+
 .ins-title {
   margin: 0;
   font-size: var(--text-base, 14px);
@@ -702,9 +813,35 @@ const timestamps = computed(() => {
   }
 }
 
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-disabled);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-glass-hover);
+    color: var(--text-primary);
+  }
+}
+
+.copy-hint {
+  flex: none;
+  color: var(--success);
+  font-size: var(--text-2xs, 10px);
+}
+
 .railsteps {
   display: flex;
-  align-items: center;
+  /* 点必须全部对齐在同一行，连接线才接得上；标签换行只能往下长。 */
+  align-items: flex-start;
   justify-content: space-between;
   gap: 4px;
 }
@@ -715,10 +852,29 @@ const timestamps = computed(() => {
   align-items: center;
   gap: 3px;
   flex: 1;
+  position: relative;
+  min-width: 0;
   font-size: var(--text-2xs, 10px);
   color: var(--text-disabled);
 
+  /* 阶段之间的连接线；最后一段没有下一站，不画。 */
+  &::after {
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: calc(50% + 9px);
+    right: calc(-50% + 5px);
+    height: 1px;
+    background: var(--surface-border-strong);
+  }
+
+  &:last-child::after {
+    display: none;
+  }
+
   .sdot {
+    position: relative;
+    z-index: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -736,6 +892,11 @@ const timestamps = computed(() => {
       border-color: var(--success);
       background: var(--success);
       color: #fff;
+    }
+
+    /* 跑过的这一段用成功色，一眼能看出进度走到哪。 */
+    &::after {
+      background: var(--success);
     }
   }
 
@@ -768,6 +929,10 @@ const timestamps = computed(() => {
 }
 
 .itab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   flex: 1;
   padding: 5px 6px;
   border: none;
@@ -782,6 +947,23 @@ const timestamps = computed(() => {
     color: var(--text-primary);
     box-shadow: var(--shadow-sm);
   }
+}
+
+.badge {
+  flex: none;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--surface-glass);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs, 10px);
+  text-align: center;
+}
+
+.itab.active .badge {
+  background: var(--accent-primary-glow);
+  color: var(--accent-primary);
 }
 
 .ins-body {
