@@ -1,0 +1,142 @@
+/**
+ * 合并弹窗：九项预检展示、致命项禁用确认、勾选确认、方式切换与错误提示。
+ */
+import { describe, it, expect, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import type { FactoryMergeBlocker, FactoryMergePreflight, FactoryTask } from '@/shared/factory'
+
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string, params?: Record<string, unknown>) =>
+      params ? `${key}|${JSON.stringify(params)}` : key,
+  }),
+}))
+
+import FactoryMergeDialog from '../FactoryMergeDialog.vue'
+
+const task: FactoryTask = {
+  id: 'bl-1',
+  runId: 'run-1',
+  source: 'local',
+  title: '合并任务',
+  goal: '目标',
+  lane: 'mergeable',
+  stageIdx: 5,
+  branch: 'agent/task-bl-1',
+  worktree: '.spacecode/worktrees/bl-1',
+  model: 'Opus 4.8',
+  iteration: 1,
+  maxIterations: 5,
+  diff: { additions: 12, deletions: 3 },
+  timestamps: { claimedAt: '2026-10-28T10:00:00Z' },
+}
+
+function preflight(overrides: Partial<FactoryMergePreflight> = {}): FactoryMergePreflight {
+  return {
+    taskId: 'bl-1',
+    branch: 'agent/task-bl-1',
+    targetBranch: 'main',
+    commits: 2,
+    diff: { additions: 12, deletions: 3 },
+    tests: { status: 'pass', command: 'npm run test', at: '2026-10-28T10:02:00Z' },
+    review: { verdict: 'approved', summary: 'ok', comments: [], at: '2026-10-28T10:03:00Z' },
+    worktreeClean: true,
+    workspaceClean: true,
+    baseAdvanced: false,
+    conflicts: false,
+    conflictFiles: [],
+    verify: {
+      status: 'pass',
+      command: 'npm run test',
+      at: '2026-10-28T10:04:00Z',
+      exitCode: 0,
+    },
+    blockers: [],
+    checkedAt: '2026-10-28T10:04:00Z',
+    ...overrides,
+  }
+}
+
+function mountDialog(props: Record<string, unknown> = {}) {
+  return mount(FactoryMergeDialog, {
+    props: {
+      task,
+      target: 'main',
+      preflight: preflight(),
+      checking: false,
+      error: null,
+      mode: 'merge',
+      confirmed: false,
+      merging: false,
+      canConfirm: false,
+      ...props,
+    },
+  })
+}
+
+describe('FactoryMergeDialog', () => {
+  it('shows the preflight facts and no blockers for a clean task', () => {
+    const wrapper = mountDialog()
+    expect(wrapper.find('[data-merge-preview]').text()).toContain('factory.merge.commitCount|{"count":2}')
+    expect(wrapper.find('[data-merge-base]').text()).toBe('factory.merge.baseCurrent')
+    expect(wrapper.find('[data-merge-conflicts]').text()).toBe('factory.merge.conflictNone')
+    expect(wrapper.find('[data-merge-worktree]').text()).toBe('factory.merge.clean')
+    expect(wrapper.find('[data-merge-blockers]').exists()).toBe(false)
+  })
+
+  it('renders every blocker and keeps confirm disabled', () => {
+    const blockers: FactoryMergeBlocker[] = ['base-advanced', 'conflict', 'verify-failed']
+    const wrapper = mountDialog({
+      preflight: preflight({
+        baseAdvanced: true,
+        conflicts: true,
+        conflictFiles: ['README.md'],
+        blockers,
+      }),
+      confirmed: true,
+      canConfirm: false,
+    })
+
+    expect(wrapper.find('[data-merge-base]').text()).toBe('factory.merge.baseAdvanced')
+    expect(wrapper.find('[data-merge-conflicts]').text()).toBe('factory.merge.conflictFound')
+    expect(wrapper.find('[data-merge-conflict-files]').text()).toContain('README.md')
+    expect(wrapper.findAll('[data-merge-blocker]').map((item) => item.attributes('data-merge-blocker'))).toEqual(
+      blockers,
+    )
+    expect(wrapper.find('[data-merge-confirm]').attributes('disabled')).toBeDefined()
+  })
+
+  it('emits acknowledgment changes and blocks confirm until acknowledged', async () => {
+    const wrapper = mountDialog()
+    const checkbox = wrapper.find('[data-merge-confirm-checkbox]')
+    await checkbox.setValue(true)
+    expect(wrapper.emitted('update:confirmed')?.[0]).toEqual([true])
+    expect(wrapper.find('[data-merge-confirm]').attributes('disabled')).toBeDefined()
+  })
+
+  it('emits confirm when the acknowledgment and preflight allow it', async () => {
+    const wrapper = mountDialog({ confirmed: true, canConfirm: true })
+    expect(wrapper.find('[data-merge-confirm]').attributes('disabled')).toBeUndefined()
+    await wrapper.find('[data-merge-confirm]').trigger('click')
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
+  })
+
+  it('emits the selected merge mode and a refresh request', async () => {
+    const wrapper = mountDialog()
+    await wrapper.find('[data-merge-mode="squash"]').setValue()
+    expect(wrapper.emitted('update:mode')?.[0]).toEqual(['squash'])
+    await wrapper.find('[data-merge-refresh]').trigger('click')
+    expect(wrapper.emitted('refresh')).toHaveLength(1)
+  })
+
+  it('surfaces a failed preflight and an action error', () => {
+    const wrapper = mountDialog({
+      preflight: null,
+      error: { code: 'git-error', detail: 'fatal: not a git repository' },
+    })
+    expect(wrapper.find('[data-merge-preflight-error]').text()).toContain(
+      'factory.errors.git-error|{"detail":"fatal: not a git repository"}',
+    )
+    expect(wrapper.find('[data-merge-confirm]').attributes('disabled')).toBeDefined()
+  })
+})

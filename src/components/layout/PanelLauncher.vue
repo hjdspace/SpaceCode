@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GitCompare, Terminal, Globe, FileSearch, MessagesSquare } from 'lucide-vue-next'
+import { GitCompare, Terminal, Globe, FileSearch, MessagesSquare, Factory } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 
@@ -64,6 +64,13 @@ const items = computed(() => [
     // 无快捷键：侧边任务只从面板启动器或选中文本浮条进入
     shortcut: '',
     action: () => appStore.openSideTaskPanel(),
+  },
+  {
+    id: 'factory',
+    icon: Factory,
+    label: t('panel.factory'),
+    shortcut: '',
+    action: () => appStore.openFactoryTab(),
   },
 ])
 </script>

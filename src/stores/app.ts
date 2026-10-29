@@ -813,6 +813,32 @@ export const useAppStore = defineStore('app', () => {
     activeCenterTab.value = tabId
   }
 
+  function openFactoryTab() {
+    // 关闭所有可能阻塞中央面板的全屏视图
+    showSettings.value = false
+    showSkillsManager.value = false
+    showOldSkills.value = false
+    showAgentManager.value = false
+    showMCPManager.value = false
+    showCronManager.value = false
+    showTraceViewer.value = false
+
+    const existing = centerTabs.value.find(t => t.id.startsWith('factory-'))
+    if (existing) {
+      activeCenterTab.value = existing.id
+      return
+    }
+
+    const tabId = `factory-${Date.now()}`
+    centerTabs.value.push({
+      id: tabId,
+      label: 'Factory',
+      icon: markRaw(Workflow),
+      closable: true
+    })
+    activeCenterTab.value = tabId
+  }
+
   function closeCenterTab(tabId: string) {
     const index = centerTabs.value.findIndex(t => t.id === tabId)
     if (index > -1 && centerTabs.value[index].closable) {
@@ -1194,6 +1220,7 @@ export const useAppStore = defineStore('app', () => {
     createTerminalTab,
     openTerminalTab,
     openOrchestrationTab,
+    openFactoryTab,
     closeCenterTab,
     setProjectRoot,
     closeProject,

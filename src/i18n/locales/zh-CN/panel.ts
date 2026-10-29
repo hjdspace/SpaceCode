@@ -5,4 +5,5 @@ export default {
   browser: '浏览器',
   files: '文件',
   sideTask: '侧边任务',
+  factory: '流水线',
 }

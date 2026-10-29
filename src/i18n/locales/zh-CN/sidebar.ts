@@ -35,4 +35,5 @@ export default {
   failedCreateConversation: '创建新对话失败，请重试。',
   failedRemoveProject: '移除项目失败，请重试。',
   orchestration: '编排',
+  factory: '流水线',
 }

@@ -71,6 +71,7 @@ import { registerMobileIPCHandlers, getMobileServer, setMobileServer, getMobileU
 import { registerSettingsIPCHandlers, loadGuiSettings, reconcileProxyWithSettings } from './ipc/settingsIpc'
 import { registerTraceIPCHandlers } from './ipc/traceIpc'
 import { registerVoiceIPCHandlers } from './voice/voiceIpcHandlers'
+import { registerFactoryIPCHandlers } from './factory/factoryService'
 import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
 import { H5Server } from './h5/h5Server'
 
@@ -262,6 +263,9 @@ app.whenReady().then(async () => {
 
   registerVoiceIPCHandlers()
   info('Startup', 'Voice Input IPC handlers registered')
+
+  registerFactoryIPCHandlers()
+  info('Startup', 'Factory IPC handlers registered')
 
   if (registerVoiceShortcut(() => getMainWindow())) {
     info('Startup', 'Voice Input shortcut registered (Alt+V)')

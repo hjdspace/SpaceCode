@@ -422,6 +422,7 @@ import { computerUse } from './api/computerUse'
 import { cron } from './api/cron'
 import { debug } from './api/debug'
 import { design } from './api/design'
+import { factory } from './api/factory'
 import { git } from './api/git'
 import { h5Access } from './api/h5Access'
 import { mcp } from './api/mcp'
@@ -832,6 +833,7 @@ export const api = {
   cron,
   debug,
   design,
+  factory,
   git,
   h5Access,
   mcp,

@@ -5,4 +5,5 @@ export default {
   browser: 'Browser',
   files: 'Files',
   sideTask: 'Side task',
+  factory: 'Factory',
 }

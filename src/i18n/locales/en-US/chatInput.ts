@@ -54,8 +54,6 @@ export default {
   searchFiles: 'Search files or folders...',
   searching: 'Searching...',
   noMatchingFiles: 'No matching files or folders found',
-  searchModels: 'Search models...',
-  noMatchingModels: 'No matching models found',
   noModelsConfigured: 'No models configured. Please set up Haiku / Sonnet / Opus models in Settings',
   goToSettings: 'Go to Settings',
   retry: 'Retry',

@@ -128,48 +128,6 @@ describe('hasConfiguredModels', () => {
   })
 })
 
-describe('搜索过滤', () => {
-  const configured = {
-    haikuModel: 'claude-3-5-haiku-20241022',
-    sonnetModel: 'claude-3-5-sonnet-20241022',
-    opusModel: 'claude-3-opus-20240229',
-  }
-
-  it('空查询保留全部', () => {
-    const { selector } = selectorFor(configured)
-    expect(selector.filteredModels.value).toHaveLength(3)
-  })
-
-  it('按 label/value 命中（列表以模型名为 label）', () => {
-    const { selector } = selectorFor(configured)
-    selector.modelSearchQuery.value = 'haiku'
-    expect(selector.filteredModels.value.map((m) => m.value)).toEqual(['claude-3-5-haiku-20241022'])
-  })
-
-  it('大小写不敏感', () => {
-    const { selector } = selectorFor({ sonnetModel: 'GPT-4', opusModel: 'gpt-4-turbo' })
-    selector.modelSearchQuery.value = 'gpt-4'
-    expect(selector.filteredModels.value).toHaveLength(2)
-  })
-
-  it('无命中返回空', () => {
-    const { selector } = selectorFor(configured)
-    selector.modelSearchQuery.value = 'nonexistent'
-    expect(selector.filteredModels.value).toHaveLength(0)
-  })
-
-  it('关闭下拉会清空查询词', async () => {
-    const { selector } = selectorFor(configured)
-    selector.toggleModelDropdown()
-    selector.modelSearchQuery.value = 'haiku'
-    expect(selector.filteredModels.value).toHaveLength(1)
-
-    selector.closeModelDropdown()
-    await nextTick()
-    expect(selector.modelSearchQuery.value).toBe('')
-  })
-})
-
 describe('当前模型的显示名', () => {
   it('选中列表里的模型时显示它的 label', () => {
     const { selector } = selectorFor({ sonnetModel: 'labeled-sonnet' })
@@ -628,20 +586,18 @@ describe('fetchModelsFromBaseUrl 拉取流程', () => {
 })
 
 describe('下拉、子菜单与悬停定时器', () => {
-  it('selectModel 更新选中值、收起全部菜单、清查询词并通知调用方', () => {
+  it('selectModel 更新选中值、收起全部菜单并通知调用方', () => {
     const emitted: string[] = []
     const settingsStore = useSettingsStore()
     settingsStore.authMethod = 'anthropic_compatible'
     const selector = useModelSelector({ onUpdateModel: (m) => emitted.push(m) })
     selector.toggleModelDropdown()
-    selector.modelSearchQuery.value = 'haiku'
 
     selector.selectModel('my-model')
 
     expect(selector.selectedModel.value).toBe('my-model')
     expect(selector.showModelDropdown.value).toBe(false)
     expect(selector.showModelSubmenu.value).toBe(false)
-    expect(selector.modelSearchQuery.value).toBe('')
     expect(emitted).toEqual(['my-model'])
   })
 
@@ -657,18 +613,16 @@ describe('下拉、子菜单与悬停定时器', () => {
     expect(selector.showModelSubmenu.value).toBe(false)
   })
 
-  it('closeModelDropdown 同时收起子菜单并清查询词', async () => {
+  it('closeModelDropdown 同时收起子菜单', async () => {
     const { selector } = selectorFor({ sonnetModel: 's' })
     selector.toggleModelDropdown()
     selector.toggleModelSubmenu()
-    selector.modelSearchQuery.value = 'q'
 
     selector.closeModelDropdown()
     await nextTick()
 
     expect(selector.showModelDropdown.value).toBe(false)
     expect(selector.showModelSubmenu.value).toBe(false)
-    expect(selector.modelSearchQuery.value).toBe('')
   })
 
   it('离开当前模型行 120ms 后收起子菜单；期间移入子菜单可取消', () => {
@@ -712,23 +666,6 @@ describe('下拉、子菜单与悬停定时器', () => {
       vi.useRealTimers()
     }
   })
-
-  it('关闭主下拉 / 子菜单时清空查询词（watch 副作用）', async () => {
-    const { selector } = selectorFor({ sonnetModel: 's' })
-    selector.toggleModelDropdown()
-    await nextTick() // 先让 open=true 落一个 flush，避免同 tick 内开→关被合并
-    selector.modelSearchQuery.value = 'x'
-    selector.toggleModelDropdown()
-    await nextTick()
-    expect(selector.modelSearchQuery.value).toBe('')
-
-    selector.toggleModelSubmenu()
-    await nextTick()
-    selector.modelSearchQuery.value = 'y'
-    selector.toggleModelSubmenu()
-    await nextTick()
-    expect(selector.modelSearchQuery.value).toBe('')
-  })
 })
 
 describe('handleModelKeydown 键盘交互', () => {
@@ -751,15 +688,6 @@ describe('handleModelKeydown 键盘交互', () => {
     selector.toggleModelDropdown()
     const space = keyEvent(' ', box)
     selector.handleModelKeydown(space)
-    expect(selector.showModelDropdown.value).toBe(true)
-  })
-
-  it('未打开时在搜索框上按 Enter 也打开', () => {
-    const { selector } = selectorFor(slots)
-    const input = document.createElement('input')
-    selector.modelSearchInput.value = input
-
-    selector.handleModelKeydown(keyEvent('Enter', input))
     expect(selector.showModelDropdown.value).toBe(true)
   })
 
