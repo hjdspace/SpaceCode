@@ -69,7 +69,11 @@
           @focus-lane="handleFocusLane"
         />
 
-        <div class="factory-columns">
+        <div
+          class="factory-columns"
+          data-factory-columns
+          :data-inspector-collapsed="store.inspectorOpen ? undefined : 'true'"
+        >
           <FactoryGithubPanel
             v-if="isGithubTracker"
             :label="store.githubLabel"
@@ -115,14 +119,16 @@
               :selected-id="store.selectedId"
               :run="store.run"
               :now-ms="nowMs"
+              :readonly="store.readonly"
+              :busy="boardBusy"
               @select="store.selectTask"
-              @return="handleReturn"
+              @action="handleCardAction"
             />
             <div v-else class="board-empty" data-board-empty>{{ t('factory.run.empty') }}</div>
           </div>
 
           <FactoryInspector
-            v-if="store.run"
+            v-if="store.run && store.inspectorOpen"
             :task="store.selectedTask"
             :tab="store.inspectorTab"
             :now-ms="nowMs"
@@ -146,10 +152,13 @@
             :taking-over="store.takingOver"
             :returning="store.returning"
             :retrying="store.retrying"
+            :cancelling="store.cancelling"
             @select-tab="store.setInspectorTab"
+            @close="store.closeInspector"
             @retry-writeback="handleRetryWriteback"
             @start="handleStart"
             @stop="handleStopTask"
+            @cancel="handleCancel"
             @takeover="handleTakeover"
             @return="handleReturn()"
             @retry="handleRetry"
@@ -231,7 +240,7 @@ import { Workflow, AlertTriangle, Loader2 } from 'lucide-vue-next'
 import type { FactoryLane } from '@/shared/factory'
 import { useAppStore } from '@/stores/app'
 import { useFactoryStore } from '@/stores/factory'
-import { runUsage } from '@/stores/factory/board'
+import { runUsage, type FactoryCardActionKind } from '@/stores/factory/board'
 import { backlogCandidates, githubCandidates } from '@/stores/factory/newRun'
 import { factoryRepoLabel } from '@/utils/factoryRepo'
 import FactorySetupWizard from './FactorySetupWizard.vue'
@@ -286,6 +295,21 @@ const deliveryMode = computed<'local' | 'pr'>(() =>
   store.config?.tracker.type === 'github-issues' ? store.config.tracker.mergeMode : 'local',
 )
 const usage = computed(() => runUsage(store.tasks))
+
+/**
+ * 看板的在途动作取自检查器同一批 store 标志：一次只有一个动作占住按钮，
+ * 卡片和检查器不会出现「一处转圈一处能点」。
+ */
+const boardBusy = computed<FactoryCardActionKind | null>(() => {
+  if (store.startingId) return 'start'
+  if (store.cancelling) return 'cancel'
+  if (store.takingOver) return 'takeover'
+  if (store.returning) return 'return'
+  if (store.fixing) return 'fix'
+  if (store.retrying) return 'retry'
+  if (store.merging) return 'merge'
+  return null
+})
 
 const newRunOpen = ref(false)
 const newRunCandidates = computed(() =>
@@ -441,6 +465,13 @@ function handleStopTask(): void {
   void store.stopTask(root.value, store.run.id, taskId)
 }
 
+/** 检查器底部的移除/放弃：与卡片动作走同一条 store 动作。 */
+function handleCancel(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.cancelTask(root.value, store.run.id, taskId)
+}
+
 function handleReveal(): void {
   const taskId = selectedTaskId()
   if (!root.value || !store.run || !taskId) return
@@ -471,11 +502,54 @@ function handleTakeover(): void {
   void store.takeoverTask(root.value, store.run.id, taskId)
 }
 
-/** 看板卡片与检查器共用：传入卡片 id，未传时交回当前选中任务。 */
-function handleReturn(taskId?: string): void {
-  const target = taskId ?? selectedTaskId()
-  if (!root.value || !store.run || !target) return
-  void store.returnTask(root.value, store.run.id, target)
+/** 检查器底部交回当前选中任务。 */
+function handleReturn(): void {
+  const taskId = selectedTaskId()
+  if (!root.value || !store.run || !taskId) return
+  void store.returnTask(root.value, store.run.id, taskId)
+}
+
+/**
+ * 卡片快捷动作与检查器底部共用同一批 store 动作，结果、错误码与快照刷新只有一份。
+ * 失败时顺手选中任务，让检查器底部那个唯一的错误面解释原因，卡片不另起一套提示。
+ */
+async function handleCardAction(taskId: string, kind: FactoryCardActionKind): Promise<void> {
+  const value = root.value
+  const runId = store.run?.id
+  if (!value || !runId) return
+
+  let result: { ok: boolean } | null = null
+  switch (kind) {
+    case 'view':
+      store.selectTask(taskId)
+      return
+    case 'review':
+      store.selectTask(taskId)
+      store.setInspectorTab('review')
+      return
+    case 'merge':
+      await store.openMerge(value, runId, taskId)
+      return
+    case 'start':
+      result = await store.startTask(value, runId, taskId)
+      break
+    case 'cancel':
+      result = await store.cancelTask(value, runId, taskId)
+      break
+    case 'takeover':
+      result = await store.takeoverTask(value, runId, taskId)
+      break
+    case 'return':
+      result = await store.returnTask(value, runId, taskId)
+      break
+    case 'fix':
+      result = await store.fixTask(value, runId, taskId)
+      break
+    case 'retry':
+      result = await store.retryTask(value, runId, taskId)
+      break
+  }
+  if (result && !result.ok) store.selectTask(taskId)
 }
 
 function handleRetry(): void {
@@ -670,6 +744,11 @@ function handleCreateRun(ids: string[]): void {
   min-height: 0;
   overflow-x: auto;
   @include scrollbar-overlay;
+}
+
+/* 检查器收起后第三列没有内容了，看板吃掉整段剩余宽度。 */
+.factory-columns[data-inspector-collapsed='true'] {
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
 }
 
 .board-column {
