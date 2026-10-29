@@ -131,5 +131,37 @@ describe('createFactoryService', () => {
     expect(context.engines.map((e) => e.engineType)).toEqual(['claude-code', 'pi'])
     expect(context.encryptionAvailable).toBe(true)
     expect(context.modelProfile.model).toBe('claude-sonnet-4-5')
+    expect(context.models).toEqual({ selectable: [], default: 'claude-sonnet-4-5' })
+  })
+
+  it('surfaces per-role model options and github repos from injected deps', async () => {
+    const service = createFactoryService(
+      makeDeps({
+        getModelOptions: () => ({
+          selectable: ['glm-5.3-flash', 'qwen3.8-max'],
+          default: 'qwen3.8-max',
+          tiers: { 'glm-5.3-flash': 'haiku', 'qwen3.8-max': 'sonnet' },
+        }),
+        listRepos: async () => ({
+          ok: true,
+          repos: [{ repo: 'hjdspace/SpaceCode', name: 'SpaceCode', private: true }],
+        }),
+      }),
+    )
+    const context = await service.getContext(dir)
+    expect(context.models).toEqual({
+      selectable: ['glm-5.3-flash', 'qwen3.8-max'],
+      default: 'qwen3.8-max',
+      tiers: { 'glm-5.3-flash': 'haiku', 'qwen3.8-max': 'sonnet' },
+    })
+    await expect(service.githubRepos('gh')).resolves.toEqual({
+      ok: true,
+      repos: [{ repo: 'hjdspace/SpaceCode', name: 'SpaceCode', private: true }],
+    })
+  })
+
+  it('reports gh login as unsupported when the dependency is missing', async () => {
+    const service = createFactoryService(makeDeps())
+    await expect(service.startGhLogin()).resolves.toEqual({ ok: false, reason: 'unsupported' })
   })
 })
