@@ -220,11 +220,16 @@ export default {
     queued: '排队中',
     implementing: '迭代 {iteration}/{max}',
     reviewing: '审查中',
+    reviewingComments: '{count} 条意见',
     mergeable: '待批准',
     blocked: '需处理',
     done: '已合并',
     cancelled: '已取消',
     takeover: '接管中',
+  },
+  cardMeta: {
+    merged: '合并于 {time} · {commits} 个提交',
+    finished: '已完成 · {commits} 个提交',
   },
   storage: {
     readonly: '另一个窗口或进程正在推进这个运行，当前只能只读查看。',
@@ -235,6 +240,7 @@ export default {
     appRestarted: '应用已退出，任务未自动续跑，可从当前阶段重试。',
   },
   cardLocal: '本地',
+  cardTakeover: '已接管',
   modelUnknown: '未配置模型',
   laneEmpty: '暂无任务',
 
@@ -376,6 +382,12 @@ export default {
       'create-failed': '创建运行失败。',
       'run-locked': '另一个窗口或进程正在写入运行，当前只能只读查看。',
     },
+  },
+
+  runTabs: {
+    label: '流水线 #{id}',
+    close: '关闭页签',
+    new: '新建运行',
   },
 
   newRun: {
