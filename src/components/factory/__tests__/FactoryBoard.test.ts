@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import type { FactoryTask } from '@/shared/factory'
+import type { FactoryLane, FactoryTask } from '@/shared/factory'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -103,5 +103,20 @@ describe('FactoryBoard', () => {
 
     await wrapper.find('[data-task-card="bl-2"]').trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual(['bl-2'])
+  })
+
+  it('scrolls the requested lane inside the board scroller only', () => {
+    const wrapper = mount(FactoryBoard, { props: { tasks, selectedId: null } })
+    const board = wrapper.find('.factory-board').element as HTMLElement
+    const lane = wrapper.find('[data-lane="reviewing"]').element as HTMLElement
+    vi.spyOn(board, 'getBoundingClientRect').mockReturnValue({ left: 100 } as DOMRect)
+    vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({ left: 500 } as DOMRect)
+    const scrollTo = vi.fn()
+    board.scrollTo = scrollTo
+
+    ;(wrapper.vm as unknown as { focusLane: (key: FactoryLane) => void }).focusLane('reviewing')
+
+    expect(scrollTo).toHaveBeenCalledTimes(1)
+    expect(scrollTo).toHaveBeenCalledWith({ left: 400, behavior: 'smooth' })
   })
 })
