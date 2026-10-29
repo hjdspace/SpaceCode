@@ -564,6 +564,8 @@ export function registerFactoryIPCHandlers(): void {
         : { ok: false, error: 'run-locked' },
     taskStop: (root, runId, taskId) =>
       isWritable(root) ? runner.stopTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
+    taskCancel: (root, runId, taskId) =>
+      isWritable(root) ? runner.cancelTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
     taskApprove: (root, runId, taskId) =>
       isWritable(root) ? runner.approveTask(root, runId, taskId) : { ok: false, error: 'run-locked' },
     taskRequestChanges: (root, runId, taskId) =>
