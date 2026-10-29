@@ -235,6 +235,7 @@ export default {
   storage: {
     readonly: 'Another window or process is driving this run; this view is read-only.',
     readonlyHint: 'Read-only: close the other window and reopen to drive the run again.',
+    readonlyBadge: 'Read-only',
     corrupt: 'Quarantined corrupt run data: {runs}',
   },
   attention: {
@@ -510,13 +511,16 @@ export default {
     timestamps: 'Timestamps',
     worktreePending: 'Not created',
     revealWorktree: 'Show in file manager',
+    close: 'Collapse the inspector',
+    copyBranch: 'Copy branch name',
+    copied: 'Copied',
     tokens: 'Tokens',
     commits: 'Commits',
     empty: 'Pick a task from the board to see its stages, events, diff and review.',
   },
 
   actions: {
-    start: 'Start implementing',
+    start: 'Start now',
     starting: 'Starting…',
     stop: 'Stop',
     stopping: 'Stopping…',
@@ -530,6 +534,7 @@ export default {
     ignore: 'Ignore',
     confirmIgnore: 'Confirm ignore',
     merge: 'Merge into {target}',
+    viewWorktree: 'View worktree',
     takeover: 'Take over',
     takingOver: 'Taking over…',
     return: 'Return to pipeline',
@@ -537,6 +542,14 @@ export default {
     retry: 'Retry from current stage',
     retryLocal: 'Retry locally instead',
     retrying: 'Retrying…',
+    /** Card quick actions need short labels; lanes are narrow. */
+    review: 'Review',
+    view: 'View',
+    mergeShort: 'Merge',
+    retryShort: 'Retry',
+    remove: 'Remove',
+    abandon: 'Abandon',
+    cancelling: 'Abandoning…',
   },
 
   errors: {
@@ -559,6 +572,7 @@ export default {
     'agent-error': 'Failed to start the agent.',
     'sandbox-unavailable': 'The Docker sandbox is unavailable. Check Docker and the image configuration, then retry. You can also explicitly fall back to local.',
     'not-running': 'This task is not running.',
+    'not-cancellable': 'Only queued or blocked tasks can be removed or abandoned.',
     'stop-failed': 'Failed to stop the task.',
     'run-not-found': 'This run does not exist.',
     'run-stopped': 'This run is stopped and can no longer claim work.',
@@ -600,6 +614,7 @@ export default {
       iteration: { limit: 'Reached the iteration limit ({iterations} rounds), task blocked' },
       approved: 'Approved; the task is now mergeable',
       changes_requested: 'Changes requested; the task was blocked',
+      cancelled: 'Task abandoned; branch and worktree kept',
       fix: { started: 'Fixing {comments} review comments' },
       takeover: 'Task taken over; continuing in chat',
       retry: 'Retrying from the current stage',
