@@ -11,10 +11,11 @@
     @keydown.space.prevent="emit('select', task.id)"
   >
     <div class="card-top">
-      <span class="lane-dot" />
+      <span class="lane-dot" :class="{ pulse: pulsing }" data-card-dot />
       <span v-if="task.issueNumber !== undefined" class="card-num">#{{ task.issueNumber }}</span>
       <span v-else class="card-local">{{ t('factory.cardLocal') }}</span>
-      <span class="status-chip">{{ status.params ? t(status.key, status.params) : t(status.key) }}</span>
+      <span v-if="takenOver" class="takeover-badge" data-card-takeover>{{ t('factory.cardTakeover') }}</span>
+      <span v-else class="status-chip">{{ chipText }}</span>
     </div>
 
     <h3 class="card-title">{{ task.title }}</h3>
@@ -42,7 +43,7 @@
       <span>#{{ task.pullRequest.number }} · {{ t('factory.pr.open') }}</span>
     </a>
 
-    <div class="card-progress" data-card-progress>
+    <div v-if="showsProgress" class="card-progress" data-card-progress>
       <i :style="{ width: `${percent}%` }" />
     </div>
 
@@ -52,16 +53,25 @@
     </div>
 
     <div class="card-foot">
-      <span class="card-model">{{ task.model || t('factory.modelUnknown') }}</span>
-      <button
-        v-if="canReturn"
-        class="card-return"
-        data-card-return
-        @click.stop="emit('return', task.id)"
-      >
-        {{ t('factory.actions.return') }}
-      </button>
-      <span class="card-elapsed" data-card-elapsed>{{ formatClock(elapsedMs) }}</span>
+      <span class="diffstat" :class="{ empty: !diffstat }" data-card-diffstat>
+        <template v-if="diffstat"><b>+{{ diffstat.additions }}</b><em>−{{ diffstat.deletions }}</em></template>
+        <template v-else>—</template>
+      </span>
+      <div class="card-foot-meta">
+        <span v-if="mergeMeta" class="card-merged" data-card-merged>{{ mergedText }}</span>
+        <template v-else>
+          <span class="card-model">{{ task.model || t('factory.modelUnknown') }}</span>
+          <button
+            v-if="canReturn"
+            class="card-return"
+            data-card-return
+            @click.stop="emit('return', task.id)"
+          >
+            {{ t('factory.actions.return') }}
+          </button>
+          <span class="card-elapsed" data-card-elapsed>{{ formatClock(elapsedMs) }}</span>
+        </template>
+      </div>
     </div>
   </article>
 </template>
@@ -70,19 +80,26 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle, Folder, GitBranch, GitPullRequest } from 'lucide-vue-next'
-import type { FactoryTask } from '@/shared/factory'
+import type { FactoryRun, FactoryTask } from '@/shared/factory'
 import {
   canReturnTask,
+  cardDiffstat,
+  doneTaskMeta,
   formatClock,
+  isCardPulsing,
+  isTakenOver,
+  showsTaskProgress,
   taskElapsedMs,
-  taskStagePercent,
+  taskProgressPercent,
   taskStatus,
+  type FactoryTaskStatus,
 } from '@/stores/factory/board'
 
 const props = defineProps<{
   task: FactoryTask
   selected: boolean
   nowMs: number
+  run: FactoryRun | null
 }>()
 
 const emit = defineEmits<{ select: [id: string]; return: [id: string] }>()
@@ -90,9 +107,21 @@ const emit = defineEmits<{ select: [id: string]; return: [id: string] }>()
 const { t } = useI18n()
 
 const status = computed(() => taskStatus(props.task))
-const percent = computed(() => taskStagePercent(props.task))
+const takenOver = computed(() => isTakenOver(props.task))
+const pulsing = computed(() => isCardPulsing(props.task, props.run))
+const showsProgress = computed(() => showsTaskProgress(props.task))
+const percent = computed(() => taskProgressPercent(props.task))
+const diffstat = computed(() => cardDiffstat(props.task))
+const mergeMeta = computed(() => doneTaskMeta(props.task))
 const elapsedMs = computed(() => taskElapsedMs(props.task, props.nowMs))
 const canReturn = computed(() => canReturnTask(props.task))
+const chipText = computed(() => label(status.value))
+const mergedText = computed(() => (mergeMeta.value ? label(mergeMeta.value) : ''))
+
+/** 投影只给 i18n key + 参数，文案在这里落地。 */
+function label(meta: FactoryTaskStatus): string {
+  return meta.params ? t(meta.key, meta.params) : t(meta.key)
+}
 /** 目前只有崩溃恢复的 app.restarted 需要翻译，其余保持原始原因码。 */
 const attentionText = computed(() => {
   const reason = props.task.attention?.reason ?? ''
@@ -144,6 +173,24 @@ const attentionText = computed(() => {
   height: 6px;
   border-radius: 50%;
   background: var(--lane-color, var(--text-muted));
+
+  &.pulse {
+    animation: card-pulse 1.9s ease-out infinite;
+  }
+}
+
+@keyframes card-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--lane-color, var(--accent-primary)) 45%, transparent);
+  }
+
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
 .card-num,
@@ -158,6 +205,14 @@ const attentionText = computed(() => {
   border-radius: var(--radius-full);
   background: var(--surface-glass);
   color: var(--text-secondary);
+}
+
+.takeover-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--text-primary);
+  color: var(--bg-elevated);
 }
 
 .card-title {
@@ -221,9 +276,46 @@ const attentionText = computed(() => {
 .card-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   font-size: var(--text-2xs, 11px);
   color: var(--text-muted);
+}
+
+.card-foot-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+/* 变更量占住左侧后，模型名是脚区唯一可挤压的一项，长 ID 省略而不是顶穿卡片。 */
+.card-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diffstat {
+  display: inline-flex;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+
+  b {
+    color: var(--success);
+    font-weight: 500;
+  }
+
+  em {
+    color: var(--error);
+    font-style: normal;
+  }
+
+  &.empty {
+    color: var(--text-disabled);
+  }
 }
 
 .card-elapsed {
@@ -231,7 +323,6 @@ const attentionText = computed(() => {
 }
 
 .card-return {
-  margin-left: auto;
   padding: 1px 7px;
   border: 1px solid var(--accent-primary);
   border-radius: var(--radius-full);
@@ -242,6 +333,13 @@ const attentionText = computed(() => {
   &:hover {
     background: var(--accent-primary);
     color: var(--bg-elevated);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lane-dot.pulse {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 </style>
