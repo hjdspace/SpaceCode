@@ -20,6 +20,7 @@
           :task="task"
           :selected="task.id === selectedId"
           :now-ms="nowMs"
+          :run="run"
           @select="emit('select', $event)"
           @return="emit('return', $event)"
         />
@@ -34,7 +35,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { FactoryLane, FactoryTask } from '@/shared/factory'
+import type { FactoryLane, FactoryRun, FactoryTask } from '@/shared/factory'
 import { FACTORY_LANES, tasksByLane } from '@/stores/factory/board'
 import FactoryCard from './FactoryCard.vue'
 
@@ -42,6 +43,8 @@ const props = withDefaults(
   defineProps<{
     tasks: FactoryTask[]
     selectedId: string | null
+    /** 卡片的脉冲跟着运行走：泳道只负责分组，运行态由整块看板共享。 */
+    run: FactoryRun | null
     nowMs?: number
   }>(),
   { nowMs: () => Date.now() },
@@ -78,11 +81,14 @@ defineExpose({ focusLane })
 </script>
 
 <style lang="scss" scoped>
+/* 窄窗口下泳道守住最小列宽，整块看板横向滚动；纵向滚动留给每条泳道自己的卡片区。 */
 .factory-board {
   display: flex;
   gap: 10px;
-  min-height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   padding-bottom: 8px;
   @include scrollbar-overlay;
 }
@@ -93,6 +99,15 @@ defineExpose({ focusLane })
   gap: 8px;
   flex: 1 1 0;
   min-width: 200px;
+  min-height: 0;
+
+  &::before {
+    content: '';
+    height: 2px;
+    border-radius: 2px;
+    background: var(--lane-color);
+    opacity: 0.7;
+  }
 }
 
 .lane-head {
@@ -122,10 +137,13 @@ defineExpose({ focusLane })
   flex-direction: column;
   gap: 8px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg, 12px);
   background: var(--surface-glass);
+  @include scrollbar-overlay;
 }
 
 .lane-empty {
