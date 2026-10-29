@@ -19,7 +19,9 @@ import type {
   FactoryGithubClaimResult,
   FactoryGithubListInput,
   FactoryGithubListResult,
+  FactoryGithubReposResult,
   FactoryGithubWritebackRetryResult,
+  FactoryGhLoginResult,
   FactoryMergeExecuteInput,
   FactoryMergePreflightResult,
   FactoryMergeResult,
@@ -69,6 +71,14 @@ export const factoryNamespace = defineNamespace({
     checkGhAuth: {
       req: [] as unknown as [],
       res: null as unknown as FactoryGithubAuthResult,
+    },
+    startGhLogin: {
+      req: [] as unknown as [],
+      res: null as unknown as FactoryGhLoginResult,
+    },
+    githubRepos: {
+      req: [] as unknown as [source: 'gh' | 'token', token?: string],
+      res: null as unknown as FactoryGithubReposResult,
     },
     saveGithubToken: {
       req: [] as unknown as [token: string],

@@ -4,7 +4,7 @@
  * 组件只负责渲染；能不能进入下一步由这里决定，便于单测覆盖
  * 「引擎未选 / 仓库不是 Git / 验证命令为空」这类阻断。
  */
-import type { FactoryConfig, FactorySetupContext, FactorySetupDraft } from '@/shared/factory'
+import type { FactoryConfig, FactorySetupContext, FactorySetupDraft, FactoryStageKey } from '@/shared/factory'
 import { isValidRepoSlug, parseRepoFromRemote } from '@/utils/factoryRepo'
 
 export type FactorySetupContextLike = FactorySetupContext
@@ -12,6 +12,12 @@ export type FactorySetupContextLike = FactorySetupContext
 export type SetupStep = 1 | 2 | 3 | 4
 
 export const SETUP_STEPS = ['engine', 'sandbox', 'tracker', 'preflight'] as const
+
+/** 需要 Agent 的角色（阶段）；验证阶段由主进程执行命令，不选模型。 */
+export const AGENT_STAGES: readonly FactoryStageKey[] = ['plan', 'implement', 'review', 'merge']
+
+/** claude-code 的内置档位别名；设置里没有模型列表时仍可选。 */
+export const CLAUDE_CODE_MODEL_ALIASES = ['opus', 'sonnet', 'haiku'] as const
 
 /** Docker 沙箱的默认镜像名；用户可在向导第 2 步改写。 */
 export const DEFAULT_DOCKER_IMAGE = 'spacecode-factory:latest'
@@ -37,11 +43,17 @@ export function defaultDraft(context: FactorySetupContextLike): FactorySetupDraf
 }
 
 export function draftFromConfig(config: FactoryConfig): FactorySetupDraft {
+  const stages: NonNullable<FactorySetupDraft['stages']> = {}
+  for (const key of AGENT_STAGES) {
+    const model = config.stages[key].model
+    if (model) stages[key] = { model }
+  }
   return {
     agent: {
       engineType: config.agent.engineType,
       ...(config.agent.model ? { model: config.agent.model } : {}),
     },
+    ...(Object.keys(stages).length > 0 ? { stages } : {}),
     sandbox:
       config.sandbox.type === 'docker'
         ? { type: 'docker', imageName: config.sandbox.imageName }

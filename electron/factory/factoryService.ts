@@ -7,7 +7,7 @@
 import { execFile } from 'child_process'
 import { accessSync, constants, existsSync, mkdirSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { BrowserWindow, app, ipcMain, safeStorage } from 'electron'
+import { BrowserWindow, app, ipcMain, safeStorage, shell } from 'electron'
 import { registerHandlers } from '@/shared/handlerRegistry'
 import { eventChannels } from '@/shared/channelMap'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
@@ -18,6 +18,9 @@ import type {
   FactoryEngineOption,
   FactoryEngineType,
   FactoryGithubAuthResult,
+  FactoryGhLoginResult,
+  FactoryGithubReposResult,
+  FactoryModelOptions,
   FactoryPreflightResult,
   FactoryPrReadyResult,
   FactoryRepoInfo,
@@ -43,7 +46,7 @@ import {
   writePromptSkeletons,
 } from './init'
 import { runFactoryPreflight } from './preflight'
-import { checkGhAuth as defaultCheckGhAuth, checkGhWriteAccess, verifyGithubToken } from './github'
+import { checkGhAuth as defaultCheckGhAuth, checkGhWriteAccess, listGithubRepos, startGhWebLogin, verifyGithubToken } from './github'
 import { createFactorySecretStore, type FactorySecretStore } from './secrets'
 import {
   createBacklogItem,
@@ -58,7 +61,7 @@ import { acquireRunLock, releaseRunLock } from './lock'
 import { recoverRuns } from './recovery'
 import { updateFactoryConfig } from './configUpdate'
 import { createGithubTrackerService } from './githubTrackerService'
-import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
+import { loadEngineSessionConfig, loadModelTiers, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 import { createDockerSandboxProvider, probeProxyReachable } from './dockerSandbox'
 import { info, warn } from '../infra/logger'
 
@@ -107,6 +110,12 @@ export interface FactoryServiceDeps {
   getRepoInfo(root: string): Promise<FactoryRepoInfo>
   getEngineAvailability(engineType: 'claude-code' | 'pi'): Promise<{ available: boolean; reason: string; version: string | null }>
   getModelProfile(root: string): { configured: boolean; model?: string; provider?: string }
+  /** 可选：桌面设置里可切换的模型；缺省时向导只能沿用默认模型。 */
+  getModelOptions?(root: string): FactoryModelOptions
+  /** 可选：列出当前凭据可访问的 GitHub 仓库（向导仓库下拉）。 */
+  listRepos?(source: 'gh' | 'token', token: string | null): Promise<FactoryGithubReposResult>
+  /** 可选：发起 gh 浏览器登录（`gh auth login --web`）。 */
+  startGhLogin?(): Promise<FactoryGhLoginResult>
   isConfigWritable(root: string): boolean
   isDockerAvailable(): Promise<boolean>
   /** 可选：完整的 Docker 沙箱预检；缺省时只检查 docker 是否可用。 */
@@ -127,6 +136,8 @@ export interface FactoryService {
   save(root: string, draft: FactorySetupDraft): Promise<FactorySaveResult>
   testGithubToken(root: string, token: string, repo: string): Promise<FactoryGithubAuthResult>
   checkGhAuth(): Promise<FactoryGithubAuthResult>
+  startGhLogin(): Promise<FactoryGhLoginResult>
+  githubRepos(source: 'gh' | 'token', token?: string): Promise<FactoryGithubReposResult>
   saveGithubToken(token: string): FactorySecretSaveResult
   clearGithubToken(): { ok: boolean }
 }
@@ -261,6 +272,8 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
       { engineType: 'pi', ...pi, exposed: true },
     ]
     const profile = deps.getModelProfile(root)
+    const options = deps.getModelOptions?.(root) ?? { selectable: [] }
+    const defaultModel = options.default ?? profile.model
     return {
       repo,
       engines,
@@ -268,6 +281,11 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
         configured: profile.configured,
         ...(profile.model ? { model: profile.model } : {}),
         ...(profile.provider ? { provider: profile.provider } : {}),
+      },
+      models: {
+        selectable: options.selectable,
+        ...(defaultModel ? { default: defaultModel } : {}),
+        ...(options.tiers ? { tiers: options.tiers } : {}),
       },
       dockerAvailable,
       encryptionAvailable: deps.secrets.encryptionAvailable,
@@ -320,6 +338,9 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
     save,
     testGithubToken: (_root, token, repo) => deps.verifyToken(token, repo),
     checkGhAuth: () => deps.checkGhAuth(),
+    startGhLogin: () => deps.startGhLogin?.() ?? Promise.resolve({ ok: false, reason: 'unsupported' }),
+    githubRepos: (source, token) =>
+      deps.listRepos?.(source, token ?? null) ?? Promise.resolve({ ok: false, reason: 'unsupported' }),
     saveGithubToken: (token) => deps.secrets.saveGithubToken(token),
     clearGithubToken: () => {
       deps.secrets.clearGithubToken()
@@ -356,12 +377,19 @@ async function getRepoInfo(root: string): Promise<FactoryRepoInfo> {
     runCommand('git', ['--version'], root),
   ])
   const gitVersion = version.stdout.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] ?? null
+  // 与启动/合并闸门同口径：流水线自己写的 .spacecode/ 不算用户脏改动。
+  const dirtyFiles = status.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line !== '')
+    .filter((line) => !line.slice(3).trim().startsWith('.spacecode/')).length
   return {
     isGitRepo: true,
     root,
     ...(remote.stdout.trim() ? { remote: remote.stdout.trim() } : {}),
     baseBranch: branch.stdout.trim() || 'main',
-    dirty: status.stdout.trim() !== '',
+    dirty: dirtyFiles > 0,
+    ...(dirtyFiles > 0 ? { dirtyFiles } : {}),
     gitVersion,
   }
 }
@@ -437,6 +465,16 @@ function getModelProfile(root: string): { configured: boolean; model?: string; p
   }
 }
 
+function getModelOptions(root: string): FactoryModelOptions {
+  const config = loadEngineSessionConfig(root)
+  const tiers = loadModelTiers()
+  return {
+    selectable: config.selectableModels ?? [],
+    ...(config.model ? { default: config.model } : {}),
+    ...(Object.keys(tiers).length > 0 ? { tiers } : {}),
+  }
+}
+
 let registered = false
 
 export function registerFactoryIPCHandlers(): void {
@@ -457,6 +495,17 @@ export function registerFactoryIPCHandlers(): void {
       return { available: availability.available, reason: availability.reason, version: availability.version }
     },
     getModelProfile,
+    getModelOptions,
+    listRepos: (source, token) =>
+      listGithubRepos(source, source === 'token' ? token ?? secrets.readGithubToken() : null),
+    startGhLogin: async () => {
+      const result = await startGhWebLogin()
+      // 无 TTY 时 gh 只打印授权 URL，不会自己拉起浏览器。
+      if (result.ok && result.code) {
+        void shell.openExternal(result.url ?? 'https://github.com/login/device').catch(() => {})
+      }
+      return result
+    },
     isConfigWritable,
     isDockerAvailable,
     dockerPreflight,
@@ -491,6 +540,8 @@ export function registerFactoryIPCHandlers(): void {
     save: (root, draft) => service.save(root, draft),
     testGithubToken: (root, token, repo) => service.testGithubToken(root, token, repo),
     checkGhAuth: () => service.checkGhAuth(),
+    startGhLogin: () => service.startGhLogin(),
+    githubRepos: (source, token) => service.githubRepos(source, token),
     saveGithubToken: (token) => service.saveGithubToken(token),
     clearGithubToken: () => service.clearGithubToken(),
     githubIssues: (root, input) => githubTracker.listIssues(root, input),

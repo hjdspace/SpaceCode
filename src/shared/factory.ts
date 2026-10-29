@@ -28,6 +28,7 @@ export const FACTORY_IGNORE_ENTRIES = [
   '.spacecode/factory/runs/',
   '.spacecode/factory/logs/',
   '.spacecode/factory/cache/',
+  '.spacecode/factory/corrupt/',
 ] as const
 
 export type FactoryPermissionMode = 'default' | 'plan' | 'acceptEdits'
@@ -146,6 +147,8 @@ export interface FactorySetupDraft {
     engineType?: FactoryEngineType
     model?: string
   }
+  /** 按角色（阶段）覆盖模型；缺省表示跟随 agent.model / 桌面默认。 */
+  stages?: Partial<Record<FactoryStageKey, { model?: string }>>
   sandbox?: {
     type?: 'worktree' | 'docker' | 'podman'
     imageName?: string
@@ -238,6 +241,18 @@ export type FactoryGithubListResult =
   | { ok: true; issues: FactoryGithubIssue[] }
   | { ok: false; reason: FactoryGithubFailureReason; detail?: string }
 
+/** 向导仓库下拉的一项：当前登录凭据可访问的仓库。 */
+export interface FactoryGithubRepo {
+  repo: string
+  name: string
+  private: boolean
+  description?: string
+}
+
+export type FactoryGithubReposResult =
+  | { ok: true; repos: FactoryGithubRepo[] }
+  | { ok: false; reason: FactoryGithubFailureReason }
+
 export interface FactoryGithubClaimInput {
   issueNumbers: number[]
 }
@@ -302,6 +317,8 @@ export interface FactoryRepoInfo {
   remote?: string
   baseBranch: string
   dirty: boolean
+  /** 未提交改动的条目数（`git status --porcelain` 行数）；干净或缺省时不填。 */
+  dirtyFiles?: number
   gitVersion: string | null
 }
 
@@ -314,14 +331,35 @@ export interface FactoryEngineOption {
   exposed: boolean
 }
 
+/** 模型档位；claude-code 的 haiku/sonnet/opus 槽位映射。 */
+export type FactoryModelTier = 'haiku' | 'sonnet' | 'opus'
+
+/** 桌面设置里可切换的模型；`selectable` 为空时界面只提供默认值。 */
+export interface FactoryModelOptions {
+  selectable: string[]
+  default?: string
+  /** 真实模型名 → 档位；用于在下拉里作为标记展示，避免把档位名当成模型。 */
+  tiers?: Record<string, FactoryModelTier>
+}
+
 export interface FactorySetupContext {
   repo: FactoryRepoInfo
   engines: FactoryEngineOption[]
   modelProfile: { configured: boolean; model?: string; provider?: string }
+  models: FactoryModelOptions
   dockerAvailable: boolean
   encryptionAvailable: boolean
   ghLoggedIn: boolean
   existingConfig: FactoryConfig | null
+}
+
+/** `gh auth login --web` 的结果：成功时回传浏览器里要输入的一次性代码。 */
+export interface FactoryGhLoginResult {
+  ok: boolean
+  reason: 'ok' | FactoryGithubFailureReason
+  code?: string
+  url?: string
+  detail?: string
 }
 
 export type FactorySecretSaveResult =

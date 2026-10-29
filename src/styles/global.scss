@@ -63,6 +63,27 @@ input, textarea {
   }
 }
 
+/*
+ * 原生表单控件的主题：Chromium 的下拉弹层不继承祖先的 color-scheme（Windows 实测），
+ * 暗色主题下只改 select 自身外观会得到浅色弹层 + 主题浅色文字，几乎不可读。
+ * 三件事缺一不可：控件本身声明 color-scheme、option/optgroup 显式上主题色、
+ * 新增暗色主题时补对应选择器（见 AGENTS.md「原生表单控件」）。
+ */
+select {
+  color-scheme: light;
+
+  option,
+  optgroup {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+}
+
+[data-theme='dark'] select,
+[data-theme='anthropic-dark'] select {
+  color-scheme: dark;
+}
+
 a {
   color: var(--accent-primary);
   text-decoration: none;

@@ -58,6 +58,15 @@ CI: `.github/workflows/test.yml` 在 PR 与 push 到 `main` 时运行 `npm run t
 - **`types/`** — 类型声明文件 (`.d.ts`) 和纯类型导出
 - **`components/common/`** — 跨特性共享的 Vue 组件和指令
 
+### 原生表单控件（select / option）必须跟随主题
+
+Chromium 的原生下拉弹层**不继承**祖先的 `color-scheme`（Windows 上必现）。暗色主题里只给 `select` 本身设背景色，会得到「浅色弹层 + 主题浅色文字」，选项几乎不可读。这不是某个页面没适配，而是每个新写的 `<select>` 都会踩的坑。
+
+- 全局规则在 `src/styles/global.scss`：`select` 按主题声明 `color-scheme`（`light` 默认，`[data-theme='dark']` / `[data-theme='anthropic-dark']` 为 `dark`），`option` / `optgroup` 显式使用 `--bg-elevated` / `--text-primary`。
+- 新增 `<select>` 直接复用这套规则，**不要再给 option 写硬编码浅色背景**，也不要只依赖祖先主题。
+- 新增暗色主题时，必须同步补 `[data-theme='<name>'] select { color-scheme: dark; }`。
+- 验证方式：在暗色主题下真正展开下拉弹层（不是只看收起态），确认选项背景与文字都跟随主题；仅截图收起态不算验证。
+
 ## Guardrails
 
 - `engine/` 为独立子项目, 视为只读
