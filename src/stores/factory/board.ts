@@ -308,6 +308,8 @@ export type FactoryCardActionKind =
   | 'start'
   | 'cancel'
   | 'takeover'
+  /** 重新打开已接管任务的看板内面板；接管中不再有可重复执行的动作，角标只做这个。 */
+  | 'takeover-panel'
   | 'return'
   | 'review'
   | 'merge'
