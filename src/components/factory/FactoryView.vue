@@ -161,6 +161,7 @@
             @stop="handleStopTask"
             @cancel="handleCancel"
             @takeover="handleTakeover"
+            @open-takeover="handleOpenTakeoverPanel"
             @return="handleReturn()"
             @retry="handleRetry"
             @retry-local="handleRetryLocal"
@@ -230,6 +231,15 @@
       @create="handleCreateNewRun"
     />
 
+    <FactoryTakeoverPanel
+      v-if="store.takeoverPanelTask"
+      :task="store.takeoverPanelTask"
+      :returning="store.returning"
+      :verify-failed="store.takeoverVerifyFailed"
+      @close="handleCloseTakeoverPanel"
+      @return="handlePanelReturn"
+    />
+
     <FactorySetupWizard v-if="store.wizardOpen && root" :root="root" />
   </div>
 </template>
@@ -252,6 +262,7 @@ import FactoryInspector from './FactoryInspector.vue'
 import FactoryBacklogPanel from './FactoryBacklogPanel.vue'
 import FactoryGithubPanel from './FactoryGithubPanel.vue'
 import FactoryMergeDialog from './FactoryMergeDialog.vue'
+import FactoryTakeoverPanel from './FactoryTakeoverPanel.vue'
 import FactoryConfigModal from './FactoryConfigModal.vue'
 import FactoryNewRunModal from './FactoryNewRunModal.vue'
 
@@ -503,11 +514,34 @@ function handleTakeover(): void {
   void store.takeoverTask(root.value, store.run.id, taskId)
 }
 
+/**
+ * 接管面板是任务级视图：卡片可以直接打开它而不先选中任务，
+ * 所以交回目标跟着面板走，而不是跟着检查器的选中项走。
+ */
+function handleOpenTakeoverPanel(): void {
+  const taskId = selectedTaskId()
+  if (taskId) store.openTakeoverPanel(taskId)
+}
+
+/** 关闭只是收起面板；接管状态由任务上的标记保持，随时能再打开。 */
+function handleCloseTakeoverPanel(): void {
+  store.closeTakeoverPanel()
+}
+
+async function returnToPipeline(taskId: string | null | undefined): Promise<void> {
+  const value = root.value
+  const runId = store.run?.id
+  if (!value || !runId || !taskId) return
+  await store.returnTask(value, runId, taskId)
+}
+
+function handlePanelReturn(): void {
+  void returnToPipeline(store.takeoverPanelTask?.id)
+}
+
 /** 检查器底部交回当前选中任务。 */
 function handleReturn(): void {
-  const taskId = selectedTaskId()
-  if (!root.value || !store.run || !taskId) return
-  void store.returnTask(root.value, store.run.id, taskId)
+  void returnToPipeline(selectedTaskId())
 }
 
 /**
@@ -540,6 +574,9 @@ async function handleCardAction(taskId: string, kind: FactoryCardActionKind): Pr
     case 'takeover':
       result = await store.takeoverTask(value, runId, taskId)
       break
+    case 'takeover-panel':
+      store.openTakeoverPanel(taskId)
+      return
     case 'return':
       result = await store.returnTask(value, runId, taskId)
       break
