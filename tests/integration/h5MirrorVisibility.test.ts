@@ -88,6 +88,7 @@ vi.mock('@/services/electronAPI', () => ({
     getAppVersion: vi.fn().mockResolvedValue('0.0.0'),
     onMenuOpenFolder: vi.fn(),
     onMenuCloseFolder: vi.fn(),
+    onNotificationClicked: vi.fn(() => () => {}),
     getAppState: vi.fn().mockResolvedValue({ sessions: [], currentSessionId: null, theme: 'dark' }),
     loadGuiSettings: vi.fn().mockResolvedValue({ success: true, data: null }),
     saveGuiSettings: vi.fn().mockResolvedValue({ success: true }),
