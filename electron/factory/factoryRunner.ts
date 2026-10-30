@@ -1270,9 +1270,10 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       const worktreeAbsolute = worktreeAbsolutePath(repoRoot, taskId)
       if (!existsSync(worktreeAbsolute)) return { ok: false, error: 'worktree-missing' }
 
-      // 双驱动拦截：后台回合还在跑时先等它收口，再挂接管会话。
+      // 授权等待中的后台回合不会自然结束；带原因中止后，阶段循环保留原泳道再交接。
       const entry = running.get(taskId)
       if (entry && entry.runId === runId) {
+        entry.controller.abort('takeover')
         await entry.promise.catch(() => {})
       }
 
