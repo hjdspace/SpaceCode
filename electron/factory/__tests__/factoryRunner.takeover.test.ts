@@ -14,6 +14,7 @@ import { createBacklogItem } from '../backlog'
 import { createFactoryRun, readRunSnapshot } from '../runs'
 import { transitionTask } from '../runtime'
 import { createFactoryRunner, type FactoryRunner, type FactoryRunnerDeps } from '../factoryRunner'
+import { factorySessionId } from '../sessionId'
 import { worktreeAbsolutePath, type GitRunner } from '../worktree'
 import type { AgentPort } from '../agentEngineGateway'
 import type { ImplementInput, ImplementationResult } from '../implementer'
@@ -168,7 +169,7 @@ describe('takeover', () => {
     if (!result.ok) return
 
     expect(result.session).toMatchObject({
-      sessionId: 'fac-run-1-bl-1-takeover',
+      sessionId: factorySessionId('fac-run-1-bl-1-takeover'),
       taskId: 'bl-1',
       projectPath: worktreeAbsolutePath(dir, 'bl-1'),
       // 接管会话在看板面板里对话：不能把主聊天切到前台抢走用户视图。
@@ -180,7 +181,7 @@ describe('takeover', () => {
     expect(executed.pushes).toHaveLength(1)
     expect(result.snapshot.tasks[0]).toMatchObject({
       lane: 'implementing',
-      takeover: { sessionId: 'fac-run-1-bl-1-takeover' },
+      takeover: { sessionId: factorySessionId('fac-run-1-bl-1-takeover') },
     })
     expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.takeover')
   })
@@ -250,7 +251,7 @@ describe('takeover', () => {
 
     expect(calls.runs).toHaveLength(1)
     expect(calls.runs[0]).toMatchObject({
-      sessionId: 'fac-run-1-bl-1-takeover',
+      sessionId: factorySessionId('fac-run-1-bl-1-takeover'),
       cwd: worktreeAbsolutePath(dir, 'bl-1'),
       // 权限模式沿用领取时固化的实现阶段配置（该夹具的默认档）。
       permissionMode: 'acceptEdits',
@@ -283,7 +284,7 @@ describe('takeover', () => {
     await runner.returnTask(dir, runId, 'bl-1')
 
     // 接管会话与工作树同路：交回时不留第二个驱动。
-    expect(calls.stops).toContain('fac-run-1-bl-1-takeover')
+    expect(calls.stops).toContain(factorySessionId('fac-run-1-bl-1-takeover'))
   })
 })
 
@@ -307,7 +308,9 @@ describe('return to pipeline', () => {
 
     await runner.whenIdle(runId)
     expect(executed.reviews).toHaveLength(1)
-    expect(executed.reviews[0]).toMatchObject({ sessionId: 'fac-run-1-bl-1-review-1' })
+    expect(executed.reviews[0]).toMatchObject({
+      sessionId: factorySessionId('fac-run-1-bl-1-review-1'),
+    })
     expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.returned.verified')
 
     // 重复交回不改动状态。
@@ -328,7 +331,7 @@ describe('return to pipeline', () => {
     const task = readRunSnapshot(dir, runId)!.tasks[0]
     expect(task.tests).toMatchObject({ status: 'fail' })
     // 验证没过就不恢复调度：任务仍是接管中，由面板提示用户继续处理。
-    expect(task.takeover).toMatchObject({ sessionId: 'fac-run-1-bl-1-takeover' })
+    expect(task.takeover).toMatchObject({ sessionId: factorySessionId('fac-run-1-bl-1-takeover') })
     expect(task.lane).toBe('implementing')
     await runner.whenIdle(runId)
     expect(executed.inputs).toHaveLength(0)
@@ -372,7 +375,9 @@ describe('stop and retry', () => {
     expect(result.ok).toBe(true)
     await runner.whenIdle(runId)
     expect(executed.inputs).toHaveLength(1)
-    expect(executed.inputs[0]).toMatchObject({ sessionId: 'fac-run-1-bl-1-retry' })
+    expect(executed.inputs[0]).toMatchObject({
+      sessionId: factorySessionId('fac-run-1-bl-1-retry'),
+    })
     expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.retry')
   })
 
