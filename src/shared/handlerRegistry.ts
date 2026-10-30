@@ -16,10 +16,14 @@
  * })
  */
 import type { IpcMain } from 'electron'
+import { error as logError } from '@electron/infra/logger'
 import type { ChannelNamespace, DeriveHandler } from './channelMap'
 
 /**
  * 注册一组 IPC handler。
+ *
+ * handler 抛错会原样 reject 给渲染层，但渲染层的 catch-all 只能给出兜底文案 ——
+ * 真正的原因必须在这里落进主进程日志，否则线上只剩一句「操作失败」。
  *
  * @param ipcMain - Electron 的 ipcMain 模块
  * @param channels - defineChannels() 返回的定义对象（仅用于类型推断和 channel 名枚举）
@@ -35,7 +39,15 @@ export function registerHandlers<N extends ChannelNamespace>(
   for (const methodName of Object.keys(_channels)) {
     const handler = (handlers as Record<string, (...a: unknown[]) => unknown>)[methodName]
     if (typeof handler === 'function') {
-      ipcMain.handle(prefix + methodName, (_event, ...args) => handler(...args))
+      const channel = prefix + methodName
+      ipcMain.handle(channel, async (_event, ...args) => {
+        try {
+          return await handler(...args)
+        } catch (err) {
+          logError('IPC', `${channel} failed`, err)
+          throw err
+        }
+      })
     }
   }
 }
