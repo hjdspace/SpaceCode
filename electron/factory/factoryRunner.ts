@@ -63,6 +63,14 @@ import type { VerifyFn } from './implementer'
 import { runVerification, type VerifyInput, type VerifyResult } from './verify'
 import { executeMerge, runMergePreflight, type MergeWriteBackPayload } from './merge'
 import { createDefaultAgentPort, type AgentPort } from './agentEngineGateway'
+import { factorySessionId } from './sessionId'
+import {
+  createDockerSandboxProvider,
+  createSandboxAgentPort,
+  createSandboxVerify,
+  FACTORY_DOCKER_PREFIX,
+} from './dockerSandbox'
+import { loadEngineSessionConfig } from '../engine/engineSessionConfig'
 
 const LOGS_DIR = '.spacecode/factory/logs'
 
@@ -175,7 +183,6 @@ export interface FactoryRunner {
 
 interface RunningTask {
   runId: string
-  sessionId: string
   controller: AbortController
   promise: Promise<void>
 }
@@ -191,16 +198,10 @@ async function defaultReveal(path: string): Promise<void> {
  * 不在这里退回宿主 Agent —— 回退只能由用户显式触发。
  */
 async function defaultSandboxFactory(input: SandboxFactoryInput): Promise<SandboxFactoryResult> {
-  const [sandboxModule, sessionConfig] = await Promise.all([
-    import('./dockerSandbox'),
-    import('../engine/engineSessionConfig'),
-  ])
-  const engineConfig = sessionConfig.loadEngineSessionConfig(input.repoRoot)
-  const provider = sandboxModule.createDockerSandboxProvider()
+  const engineConfig = loadEngineSessionConfig(input.repoRoot)
+  const provider = createDockerSandboxProvider()
   // 起容器前回收陈旧容器（含本任务的旧容器），避免 --name 冲突；在跑的任务按 id 排除。
-  const activeNames = (input.activeTaskIds ?? []).map(
-    (id) => `${sandboxModule.FACTORY_DOCKER_PREFIX}${id}`,
-  )
+  const activeNames = (input.activeTaskIds ?? []).map((id) => `${FACTORY_DOCKER_PREFIX}${id}`)
   await provider.reclaim(activeNames)
   const created = await provider.create({
     repoRoot: input.repoRoot,
@@ -219,8 +220,8 @@ async function defaultSandboxFactory(input: SandboxFactoryInput): Promise<Sandbo
   return {
     ok: true,
     session: {
-      agent: sandboxModule.createSandboxAgentPort(created.sandbox),
-      verify: sandboxModule.createSandboxVerify(created.sandbox),
+      agent: createSandboxAgentPort(created.sandbox),
+      verify: createSandboxVerify(created.sandbox),
       close: async () => {
         await created.sandbox.close()
       },
@@ -545,7 +546,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       task,
       prompt: prompt.text,
       worktreeAbsolute,
-      sessionId: `fac-${runId}-${taskId}-review-${round}`,
+      sessionId: factorySessionId(`fac-${runId}-${taskId}-review-${round}`),
       ...(stageConfig.model ?? runtime.agentModel
         ? { model: stageConfig.model ?? runtime.agentModel }
         : {}),
@@ -635,7 +636,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       .filter((line) => line !== '')
       .join('\n')
     return {
-      sessionId: `fac-${task.runId}-${task.id}-takeover`,
+      sessionId: factorySessionId(`fac-${task.runId}-${task.id}-takeover`),
       taskId: task.id,
       projectPath: worktreeAbsolute,
       title: `接管 · ${task.title}`,
@@ -761,7 +762,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       running.delete(taskId)
       void pumpRun(repoRoot, runId)
     })
-    running.set(taskId, { runId, sessionId, controller, promise })
+    running.set(taskId, { runId, controller, promise })
     return null
   }
 
@@ -807,7 +808,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         running.delete(taskId)
         void pumpRun(repoRoot, runId)
       })
-    running.set(taskId, { runId, sessionId: `fac-${runId}-${taskId}-review`, controller, promise })
+    running.set(taskId, { runId, controller, promise })
     return null
   }
 
@@ -1040,7 +1041,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     }
     const execution = opened.execution
 
-    const sessionId = `fac-${runId}-${taskId}-impl`
+    const sessionId = factorySessionId(`fac-${runId}-${taskId}-impl`)
     const controller = new AbortController()
     const stageConfig = runtime.stages.implement
 
@@ -1098,7 +1099,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       void pumpRun(repoRoot, runId)
     })
 
-    running.set(taskId, { runId, sessionId, controller, promise })
+    running.set(taskId, { runId, controller, promise })
 
     emit(repoRoot, runId, {
       taskId,
@@ -1527,7 +1528,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         config,
         runtime,
         prompt.text,
-        `fac-${runId}-${taskId}-retry`,
+        factorySessionId(`fac-${runId}-${taskId}-retry`),
       )
       if (launchError) return { ok: false, error: launchError }
 
@@ -1663,7 +1664,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         params: { comments: pending.length },
       })
 
-      const sessionId = `fac-${runId}-${taskId}-fix`
+      const sessionId = factorySessionId(`fac-${runId}-${taskId}-fix`)
       const controller = new AbortController()
       const current = taskOf(repoRoot, runId, taskId) ?? task
       // 修复沿用任务领取时的快照，不跟随之后保存的配置。
@@ -1723,7 +1724,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         void pumpRun(repoRoot, runId)
       })
 
-      running.set(taskId, { runId, sessionId, controller, promise })
+      running.set(taskId, { runId, controller, promise })
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
