@@ -1737,8 +1737,10 @@ function handleOpenSkills() {
 async function handleToolSubmit(messageId: string, toolId: string, updatedInput: Record<string, unknown>) {
   console.log('[ChatPanel] Tool submit:', { messageId, toolId, updatedInput })
 
-  if (turnStore.hasPendingPermissionForToolUse(toolId)) {
-    await turnStore.allowPermission(messageId, toolId, updatedInput)
+  // 按面板自己的会话查/答：嵌入式面板（接管面板、侧边任务）显示的会话
+  // 往往不是 currentSessionId，回落到默认值会把应答送进另一条会话。
+  if (turnStore.hasPendingPermissionForToolUse(toolId, paneSessionId.value)) {
+    await turnStore.allowPermission(messageId, toolId, updatedInput, undefined, undefined, paneSessionId.value)
     return
   }
 
@@ -1752,8 +1754,8 @@ async function handleToolSubmit(messageId: string, toolId: string, updatedInput:
 async function handleToolSkip(messageId: string, toolId: string) {
   console.log('[ChatPanel] Tool skip:', { messageId, toolId })
 
-  if (turnStore.hasPendingPermissionForToolUse(toolId)) {
-    await turnStore.denyPermission(messageId, toolId, t('chatPanel.userSkippedQuestions'))
+  if (turnStore.hasPendingPermissionForToolUse(toolId, paneSessionId.value)) {
+    await turnStore.denyPermission(messageId, toolId, t('chatPanel.userSkippedQuestions'), {}, paneSessionId.value)
     return
   }
   // Fallback for legacy path

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type {
+  FactoryDiffFile,
   FactoryEvent,
   FactoryPermissionMode,
   FactoryReview,
@@ -415,6 +416,145 @@ describe('FactoryInspector', () => {
     expect(withoutCommits.find('[data-empty="commits"]').exists()).toBe(true)
   })
 
+  describe('line-level diff tab', () => {
+    const patchFile: FactoryDiffFile = {
+      path: 'src/a.ts',
+      additions: 2,
+      deletions: 1,
+      kind: 'patch',
+      hunks: [
+        {
+          header: '@@ -1,3 +1,4 @@',
+          lines: [
+            { kind: 'ctx', oldLine: 1, newLine: 1, text: 'ctx one' },
+            { kind: 'del', oldLine: 2, text: 'removed' },
+            { kind: 'add', newLine: 2, text: 'added one' },
+            { kind: 'add', newLine: 3, text: 'added two' },
+          ],
+        },
+      ],
+    }
+    const truncatedFile: FactoryDiffFile = {
+      path: 'src/big.ts',
+      additions: 900,
+      deletions: 880,
+      kind: 'patch',
+      truncated: true,
+      hunks: [
+        {
+          header: '@@ -1,1 +1,1 @@',
+          lines: [
+            { kind: 'del', oldLine: 1, text: 'old head' },
+            { kind: 'add', newLine: 1, text: 'new head' },
+          ],
+        },
+      ],
+    }
+    const droppedFile: FactoryDiffFile = {
+      path: 'src/later.ts',
+      additions: 10,
+      deletions: 4,
+      kind: 'patch',
+      truncated: true,
+      hunks: [],
+    }
+
+    function richTask(overrides: Partial<FactoryTask> = {}): FactoryTask {
+      return task({
+        ...overrides,
+        diff: {
+          additions: 912,
+          deletions: 885,
+          files: [
+            patchFile,
+            { path: 'assets/logo.png', additions: 0, deletions: 0, kind: 'binary' },
+            { path: 'src/new.ts', additions: 0, deletions: 0, kind: 'renamed', oldPath: 'src/old.ts' },
+            { path: 'src/m.md', additions: 1, deletions: 0, kind: 'missing' },
+            truncatedFile,
+            droppedFile,
+          ],
+        },
+      })
+    }
+
+    function mountDiff(overrides: Partial<FactoryTask> = {}) {
+      return mount(FactoryInspector, { props: { task: richTask(overrides), tab: 'diff' } })
+    }
+
+    it('renders the first patch by default with hunk header, kinds and line numbers', () => {
+      const wrapper = mountDiff()
+      const rows = wrapper.findAll('[data-diff-file]')
+      expect(rows).toHaveLength(6)
+      expect(rows[0].classes()).toContain('active')
+
+      expect(wrapper.find('[data-diff-patch]').exists()).toBe(true)
+      expect(wrapper.find('[data-diff-hunk]').text()).toContain('@@ -1,3 +1,4 @@')
+
+      const lines = wrapper.findAll('[data-diff-line]')
+      expect(lines).toHaveLength(4)
+      expect(lines[0].classes()).toContain('ctx')
+      expect(lines[1].classes()).toContain('del')
+      expect(lines[2].classes()).toContain('add')
+      expect(lines[1].find('.ln').text()).toBe('2')
+      expect(lines[2].find('.ln').text()).toBe('2')
+      expect(lines[3].find('.ln').text()).toBe('3')
+      expect(lines[3].find('.code').text()).toBe('added two')
+    })
+
+    it('switches the patch column when another file row is clicked', async () => {
+      const wrapper = mountDiff()
+      await wrapper.findAll('[data-diff-file]')[4].trigger('click')
+
+      expect(wrapper.findAll('[data-diff-file]')[4].classes()).toContain('active')
+      expect(wrapper.find('[data-diff-patch]').exists()).toBe(true)
+      expect(wrapper.find('[data-diff-hunk]').text()).toContain('@@ -1,1 +1,1 @@')
+      expect(wrapper.find('[data-diff-truncated]').text()).toBe('factory.diff.truncated')
+
+      await wrapper.findAll('[data-diff-file]')[0].trigger('click')
+      expect(wrapper.find('[data-diff-hunk]').text()).toContain('@@ -1,3 +1,4 @@')
+      expect(wrapper.find('[data-diff-truncated]').exists()).toBe(false)
+    })
+
+    it('gives binary, renamed, missing and fully-dropped files their own placeholders', async () => {
+      const wrapper = mountDiff()
+
+      await wrapper.findAll('[data-diff-file]')[1].trigger('click')
+      expect(wrapper.find('[data-diff-placeholder="binary"]').text()).toBe('factory.diff.binary')
+      expect(wrapper.find('[data-diff-patch]').exists()).toBe(false)
+
+      await wrapper.findAll('[data-diff-file]')[2].trigger('click')
+      expect(wrapper.find('[data-diff-placeholder="renamed"]').text()).toBe(
+        'factory.diff.renamed|{"from":"src/old.ts","to":"src/new.ts"}',
+      )
+      expect(wrapper.find('[data-diff-patch]').exists()).toBe(false)
+
+      await wrapper.findAll('[data-diff-file]')[3].trigger('click')
+      expect(wrapper.find('[data-diff-placeholder="missing"]').text()).toBe('factory.diff.noPatch')
+      expect(wrapper.find('[data-diff-patch]').exists()).toBe(false)
+
+      await wrapper.findAll('[data-diff-file]')[5].trigger('click')
+      expect(wrapper.find('[data-diff-placeholder="truncated"]').text()).toBe('factory.diff.truncated')
+      expect(wrapper.find('[data-diff-patch]').exists()).toBe(false)
+    })
+
+    it('keeps the diff empty state when the task has no files', () => {
+      const wrapper = mount(FactoryInspector, { props: { task: task(), tab: 'diff' } })
+      expect(wrapper.find('[data-empty="diff"]').exists()).toBe(true)
+      expect(wrapper.find('[data-diff-pane]').exists()).toBe(false)
+    })
+
+    it('resets the selection when the inspected task changes', async () => {
+      const wrapper = mountDiff()
+      await wrapper.findAll('[data-diff-file]')[3].trigger('click')
+      expect(wrapper.findAll('[data-diff-file]')[3].classes()).toContain('active')
+
+      const next = richTask({ id: 'bl-2' })
+      await wrapper.setProps({ task: next })
+      expect(wrapper.findAll('[data-diff-file]')[0].classes()).toContain('active')
+      expect(wrapper.find('[data-diff-hunk]').text()).toContain('@@ -1,3 +1,4 @@')
+    })
+  })
+
   it('offers start, stop, reveal and dirty confirmation actions', async () => {
     const queued = mount(FactoryInspector, {
       props: { task: task({ lane: 'queued', stageIdx: 0 }), tab: 'overview', pendingDirty: true },
@@ -684,6 +824,21 @@ describe('FactoryInspector', () => {
         '[data-task-view-worktree]',
       ).exists(),
     ).toBe(false)
+  })
+
+  it('接管中的任务给出重新打开接管面板的入口', async () => {
+    const wrapper = mount(FactoryInspector, {
+      props: {
+        task: task({ takeover: { at: '2026-10-28T10:05:00Z', sessionId: 'sess-1' } }),
+        tab: 'overview',
+      },
+    })
+
+    await wrapper.find('[data-task-open-takeover]').trigger('click')
+
+    expect(wrapper.emitted('open-takeover')).toHaveLength(1)
+    // 接管中不再给第二次「接管」：面板入口与交回才是这个状态的动作。
+    expect(wrapper.find('[data-task-takeover]').exists()).toBe(false)
   })
 
   it('keeps a single worktree affordance on a finished task', () => {

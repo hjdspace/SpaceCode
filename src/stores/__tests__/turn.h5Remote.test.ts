@@ -89,11 +89,26 @@ describe('turn H5 remote user events', () => {
     expect(sessionStore.currentSessionId).toBe('h5-session')
   })
 
+  interface RevealDetail {
+    sessionId: string
+    title: string
+    projectPath: string | null
+  }
+
+  /** App.vue 靠这个事件把中央面板切到会话页签；后台触发方不该抢到用户眼前。 */
+  function recordReveals(): { details: RevealDetail[]; stop: () => void } {
+    const details: RevealDetail[] = []
+    const listener = (event: Event) => details.push((event as CustomEvent<RevealDetail>).detail)
+    window.addEventListener('h5-remote-user-message', listener)
+    return { details, stop: () => window.removeEventListener('h5-remote-user-message', listener) }
+  }
+
   it('activate:false 只把会话落进列表，不抢走用户正在看的会话', async () => {
     const { useTurnStore } = await import('../turn')
     const turnStore = useTurnStore()
     const sessionStore = useChatSessionStore()
     const main = sessionStore.createSession('主会话', 'D:/repo')
+    const reveals = recordReveals()
 
     mockState.handlers.onUser({
       sessionId: 'cron-session',
@@ -113,6 +128,61 @@ describe('turn H5 remote user events', () => {
     expect(cronSession?.messages[0]).toMatchObject({ role: 'user', content: '分析当前项目依赖' })
     expect(turnStore.getIsLoading('cron-session')).toBe(true)
     expect(sessionStore.currentSessionId).toBe(main.id)
+    expect(reveals.details).toEqual([])
+    reveals.stop()
+  })
+
+  it('手机端消息仍会请求把会话切到前台', async () => {
+    const { useTurnStore } = await import('../turn')
+    useTurnStore()
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('主会话', 'D:/repo')
+    const reveals = recordReveals()
+
+    mockState.handlers.onUser({
+      sessionId: 'phone-session',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: 'hello from phone',
+        projectPath: 'D:/repo',
+        title: 'hello from phone',
+        timestamp: Date.now(),
+      },
+    })
+
+    expect(reveals.details).toEqual([
+      { sessionId: 'phone-session', title: 'hello from phone', projectPath: 'D:/repo' },
+    ])
+    reveals.stop()
+  })
+
+  it('activate:false 推到已有会话时也不切换当前会话', async () => {
+    const { useTurnStore } = await import('../turn')
+    const turnStore = useTurnStore()
+    const sessionStore = useChatSessionStore()
+    const main = sessionStore.createSession('主会话', 'D:/repo')
+    const takeover = sessionStore.createSession('接管 · 任务 1', 'D:/repo', 'fac-run-1-bl-1-takeover', { activate: false })
+    const reveals = recordReveals()
+
+    mockState.handlers.onUser({
+      sessionId: 'fac-run-1-bl-1-takeover',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '继续处理',
+        projectPath: 'D:/repo',
+        title: '接管 · 任务 1',
+        timestamp: Date.now(),
+        activate: false,
+      },
+    })
+
+    expect(sessionStore.currentSessionId).toBe(main.id)
+    expect(sessionStore.getSession(takeover.id)?.messages.map((m) => m.content)).toContain('继续处理')
+    expect(turnStore.getIsLoading(takeover.id)).toBe(true)
+    expect(reveals.details).toEqual([])
+    reveals.stop()
   })
 
   it('payload 带 model 时写进会话记录，输入框与续话都沿用任务模型', async () => {

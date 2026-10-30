@@ -58,7 +58,7 @@ import {
   setupStepErrors,
   type SetupStep,
 } from './setup'
-import { findTask, laneCounts as computeLaneCounts, type FactoryInspectorTab } from './board'
+import { findTask, isTakenOver, laneCounts as computeLaneCounts, type FactoryInspectorTab } from './board'
 
 export interface FactoryRunError {
   code: FactoryRunCreateError | 'create-failed'
@@ -203,6 +203,13 @@ export const useFactoryStore = defineStore('factory', () => {
   const takingOver = ref(false)
   const returning = ref(false)
   const retrying = ref(false)
+  /**
+   * 看板内接管面板的目标任务。面板只在任务仍为接管中时出现，
+   * 所以关闭它只是清掉这个 id —— 交回成功或被别的窗口结束接管都会自然收起。
+   */
+  const takeoverPanelTaskId = ref<string | null>(null)
+  /** 交回时重跑验证没过：面板保持打开并说明原因，下一次打开面板或接管别的任务时清掉。 */
+  const takeoverVerifyFailed = ref(false)
 
   // 审查阶段：批准/要求修改/修复与意见处理各自的重入保护
   const approving = ref(false)
@@ -233,6 +240,10 @@ export const useFactoryStore = defineStore('factory', () => {
   }
 
   const selectedTask = computed(() => findTask(tasks.value, selectedId.value))
+  const takeoverPanelTask = computed(() => {
+    const target = findTask(tasks.value, takeoverPanelTaskId.value)
+    return target && isTakenOver(target) ? target : null
+  })
   const laneCounts = computed(() => computeLaneCounts(tasks.value))
   const selectedEvents = computed(() => {
     const runId = run.value?.id
@@ -669,6 +680,8 @@ export const useFactoryStore = defineStore('factory', () => {
     mergeTaskId.value = null
     mergePreflight.value = null
     mergeError.value = null
+    takeoverPanelTaskId.value = null
+    takeoverVerifyFailed.value = false
   }
 
   function applySnapshot(snapshot: FactoryRunSnapshot | null): void {
@@ -1109,8 +1122,13 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskTakeover(root, runId, taskId)
-      if (result.ok) applyActionSnapshot(result.snapshot)
-      else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      if (result.ok) {
+        applyActionSnapshot(result.snapshot)
+        takeoverPanelTaskId.value = taskId
+        takeoverVerifyFailed.value = false
+      } else {
+        actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      }
       return result
     } catch {
       actionError.value = { code: 'agent-error' }
@@ -1125,8 +1143,12 @@ export const useFactoryStore = defineStore('factory', () => {
     actionError.value = null
     try {
       const result = await api.factory.taskReturn(root, runId, taskId)
-      if (result.ok) applyActionSnapshot(result.snapshot)
-      else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      if (result.ok) {
+        applyActionSnapshot(result.snapshot)
+        takeoverVerifyFailed.value = result.verified === false
+      } else {
+        actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
+      }
       return result
     } catch {
       actionError.value = { code: 'write-failed' }
@@ -1134,6 +1156,17 @@ export const useFactoryStore = defineStore('factory', () => {
     } finally {
       returning.value = false
     }
+  }
+
+  /** 卡片角标与检查器按钮都用它重新打开面板，不重跑接管动作。 */
+  function openTakeoverPanel(taskId: string): void {
+    takeoverPanelTaskId.value = taskId
+    takeoverVerifyFailed.value = false
+  }
+
+  /** 关闭面板不等于交回：任务的接管状态不受影响。 */
+  function closeTakeoverPanel(): void {
+    takeoverPanelTaskId.value = null
   }
 
   async function retryTask(
@@ -1370,6 +1403,8 @@ export const useFactoryStore = defineStore('factory', () => {
     takingOver.value = false
     returning.value = false
     retrying.value = false
+    takeoverPanelTaskId.value = null
+    takeoverVerifyFailed.value = false
     approving.value = false
     fixing.value = false
     updatingComment.value = false
@@ -1453,6 +1488,8 @@ export const useFactoryStore = defineStore('factory', () => {
     takingOver,
     returning,
     retrying,
+    takeoverPanelTask,
+    takeoverVerifyFailed,
     approving,
     fixing,
     updatingComment,
@@ -1530,6 +1567,8 @@ export const useFactoryStore = defineStore('factory', () => {
     fixTask,
     takeoverTask,
     returnTask,
+    openTakeoverPanel,
+    closeTakeoverPanel,
     retryTask,
     updateComment,
     acceptComment,

@@ -216,9 +216,21 @@ describe('git error mapping', () => {
 describe('collectWorktreeState', () => {
   const wt = join(root, '.spacecode', 'worktrees', 'bl-1')
 
-  it('parses numstat, commits and cleanliness', async () => {
+  const aPatch = [
+    'diff --git a/src/a.ts b/src/a.ts',
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -1,2 +1,4 @@',
+    ' ctx',
+    '-old',
+    '+new1',
+    '+new2',
+  ].join('\n')
+
+  it('parses numstat, patches, commits and cleanliness', async () => {
     const { git, calls } = fakeGit([
       { stdout: '3\t1\tsrc/a.ts\n0\t0\tREADME.md\n-\t-\tassets/logo.png\n' },
+      { stdout: aPatch },
       { stdout: 'abc123\tfeat: first\ndef456\tfix: second\n' },
       { stdout: '' },
     ])
@@ -228,9 +240,26 @@ describe('collectWorktreeState', () => {
         additions: 3,
         deletions: 1,
         files: [
-          { path: 'src/a.ts', additions: 3, deletions: 1 },
-          { path: 'README.md', additions: 0, deletions: 0 },
-          { path: 'assets/logo.png', additions: 0, deletions: 0 },
+          {
+            path: 'src/a.ts',
+            additions: 3,
+            deletions: 1,
+            kind: 'patch',
+            hunks: [
+              {
+                header: '@@ -1,2 +1,4 @@',
+                lines: [
+                  { kind: 'ctx', oldLine: 1, newLine: 1, text: 'ctx' },
+                  { kind: 'del', oldLine: 2, text: 'old' },
+                  { kind: 'add', newLine: 2, text: 'new1' },
+                  { kind: 'add', newLine: 3, text: 'new2' },
+                ],
+              },
+            ],
+            truncated: false,
+          },
+          { path: 'README.md', additions: 0, deletions: 0, kind: 'missing' },
+          { path: 'assets/logo.png', additions: 0, deletions: 0, kind: 'binary' },
         ],
       },
       commits: [
@@ -239,14 +268,35 @@ describe('collectWorktreeState', () => {
       ],
       clean: true,
     })
-    expect(calls.map((call) => call.cwd)).toEqual([wt, wt, wt])
+    expect(calls.map((call) => call.cwd)).toEqual([wt, wt, wt, wt])
     expect(calls[0].args).toEqual(['diff', '--numstat', 'main'])
-    expect(calls[1].args).toEqual(['log', '--format=%H%x09%s', 'main..HEAD'])
-    expect(calls[2].args).toEqual(['status', '--porcelain'])
+    expect(calls[1].args).toEqual(['diff', '--unified=3', 'main'])
+    expect(calls[2].args).toEqual(['log', '--format=%H%x09%s', 'main..HEAD'])
+    expect(calls[3].args).toEqual(['status', '--porcelain'])
+  })
+
+  it('keeps counts when the patch call fails, marking files missing', async () => {
+    const { git } = fakeGit([
+      { stdout: '2\t1\tsrc/a.ts\n' },
+      { ok: false, stderr: 'fatal: unable to read' },
+      { stdout: '' },
+      { stdout: '' },
+    ])
+    const state = await collectWorktreeState(root, 'bl-1', 'main', { git })
+    expect(state?.diff).toEqual({
+      additions: 2,
+      deletions: 1,
+      files: [{ path: 'src/a.ts', additions: 2, deletions: 1, kind: 'missing' }],
+    })
   })
 
   it('marks a dirty worktree and returns null when git cannot read it', async () => {
-    const dirty = fakeGit([{ stdout: '1\t0\ta.ts\n' }, { stdout: '' }, { stdout: ' M a.ts\n' }])
+    const dirty = fakeGit([
+      { stdout: '1\t0\ta.ts\n' },
+      { stdout: '' },
+      { stdout: '' },
+      { stdout: ' M a.ts\n' },
+    ])
     expect(await collectWorktreeState(root, 'bl-1', 'main', { git: dirty.git })).toMatchObject({ clean: false })
 
     const broken = fakeGit([{ ok: false, stderr: 'fatal: not a git repository' }])

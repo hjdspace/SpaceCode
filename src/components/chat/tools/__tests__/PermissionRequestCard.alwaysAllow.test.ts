@@ -103,7 +103,7 @@ describe('PermissionRequestCard 始终允许', () => {
     await wrapper.find('.always-allow').trigger('click')
 
     expect(storeMocks.allowPermission).toHaveBeenCalledWith(
-      'msg-1', 'tu-1', EDIT_INPUT, 'user_permanent', SESSION_SUGGESTIONS,
+      'msg-1', 'tu-1', EDIT_INPUT, 'user_permanent', SESSION_SUGGESTIONS, undefined,
     )
   })
 
@@ -113,9 +113,10 @@ describe('PermissionRequestCard 始终允许', () => {
 
     await wrapper.find('.allow').trigger('click')
 
-    // 连 decisionClassification 都不带 —— 它不是持久化开关
+    // 连 decisionClassification 都不带 —— 它不是持久化开关；
+    // 末位是所属会话，未传时由 store 回落到当前会话。
     expect(storeMocks.allowPermission).toHaveBeenCalledWith(
-      'msg-1', 'tu-1', EDIT_INPUT,
+      'msg-1', 'tu-1', EDIT_INPUT, undefined, undefined, undefined,
     )
   })
 

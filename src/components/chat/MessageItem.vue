@@ -65,6 +65,7 @@
         <ToolCallList
           v-if="message.toolCalls?.length"
           :tool-calls="message.toolCalls"
+          :session-id="props.sessionId"
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
         />
@@ -202,6 +203,8 @@ const appStore = useAppStore()
 const props = defineProps<{
   message: Message
   canRewind?: boolean
+  /** 消息所属会话；嵌入式面板里它不是 currentSessionId。 */
+  sessionId?: string
 }>()
 
 const emit = defineEmits<{

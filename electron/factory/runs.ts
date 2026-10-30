@@ -9,9 +9,17 @@ import { existsSync, readdirSync, readFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import {
+  FACTORY_DIFF_MAX_BYTES_PER_FILE,
+  FACTORY_DIFF_MAX_LINES_PER_FILE,
+  FACTORY_DIFF_MAX_TOTAL_BYTES,
+  FACTORY_DIFF_MAX_TOTAL_LINES,
   FACTORY_RUNS_PATH,
   FACTORY_RUN_TAB_LIMIT,
   FACTORY_SANDBOX_WORKTREE_ROOT,
+  type FactoryDiffFile,
+  type FactoryDiffFileKind,
+  type FactoryDiffHunk,
+  type FactoryDiffLine,
   type FactoryLane,
   type FactoryPermissionMode,
   type FactoryReviewComment,
@@ -140,21 +148,106 @@ function parseConfigSnapshot(raw: unknown): FactoryTaskConfigSnapshot | undefine
   }
 }
 
+/**
+ * 快照回填时的补丁清洗：坏数据降级为占位而不是渲染崩溃；「patch 但无有效分块且
+ * 未截断」一律变 missing，保证界面永远不会拿到空补丁框。
+ */
+const DIFF_FILE_KINDS: readonly string[] = ['patch', 'binary', 'renamed', 'missing']
+const DIFF_LINE_KINDS: readonly string[] = ['ctx', 'add', 'del']
+
+function parseLineCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function parseLineNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+interface DiffBudget {
+  lines: number
+  bytes: number
+}
+
+function parseDiffHunks(raw: unknown, budget: DiffBudget): { hunks: FactoryDiffHunk[]; capped: boolean } {
+  if (!Array.isArray(raw)) return { hunks: [], capped: false }
+  const hunks: FactoryDiffHunk[] = []
+  let capped = false
+  for (const item of raw) {
+    if (!isRecord(item) || typeof item.header !== 'string' || !Array.isArray(item.lines)) continue
+    const lines: FactoryDiffLine[] = []
+    for (const line of item.lines) {
+      if (!isRecord(line) || typeof line.text !== 'string') continue
+      if (!DIFF_LINE_KINDS.includes(String(line.kind))) continue
+      if (budget.lines < 1 || line.text.length > budget.bytes) {
+        capped = true
+        continue
+      }
+      const oldLine = parseLineNumber(line.oldLine)
+      const newLine = parseLineNumber(line.newLine)
+      lines.push({
+        kind: line.kind as FactoryDiffLine['kind'],
+        ...(oldLine !== undefined ? { oldLine } : {}),
+        ...(newLine !== undefined ? { newLine } : {}),
+        text: line.text,
+      })
+      budget.lines -= 1
+      budget.bytes -= line.text.length
+    }
+    if (lines.length > 0) hunks.push({ header: item.header, lines })
+  }
+  return { hunks, capped }
+}
+
+function parseDiffFile(raw: Record<string, unknown>, shared: DiffBudget): FactoryDiffFile | null {
+  if (typeof raw.path !== 'string' || !raw.path) return null
+  const base = {
+    path: raw.path,
+    additions: parseLineCount(raw.additions),
+    deletions: parseLineCount(raw.deletions),
+  }
+  const kind = DIFF_FILE_KINDS.includes(String(raw.kind))
+    ? (raw.kind as FactoryDiffFileKind)
+    : ('missing' as const)
+  const oldPath = typeof raw.oldPath === 'string' && raw.oldPath ? raw.oldPath : undefined
+
+  if (kind === 'renamed' && !oldPath) return { ...base, kind: 'missing' }
+  if (kind === 'patch') {
+    // 盘上快照可能被改坏：行数与字节都按采集时的同一组上限重新夹紧。
+    const startLines = Math.min(FACTORY_DIFF_MAX_LINES_PER_FILE, shared.lines)
+    const startBytes = Math.min(FACTORY_DIFF_MAX_BYTES_PER_FILE, shared.bytes)
+    const budget: DiffBudget = { lines: startLines, bytes: startBytes }
+    const { hunks, capped } = parseDiffHunks(raw.hunks, budget)
+    shared.lines -= startLines - budget.lines
+    shared.bytes -= startBytes - budget.bytes
+    const truncated = raw.truncated === true || capped
+    if (hunks.length === 0 && !truncated) return { ...base, kind: 'missing' }
+    return {
+      ...base,
+      kind,
+      hunks,
+      ...(oldPath ? { oldPath } : {}),
+      ...(truncated ? { truncated: true } : {}),
+    }
+  }
+  return {
+    ...base,
+    kind,
+    ...(kind === 'renamed' && oldPath ? { oldPath } : {}),
+  }
+}
+
 function parseDiff(raw: unknown): FactoryTask['diff'] {
   if (!isRecord(raw)) return { additions: 0, deletions: 0 }
+  const shared: DiffBudget = { lines: FACTORY_DIFF_MAX_TOTAL_LINES, bytes: FACTORY_DIFF_MAX_TOTAL_BYTES }
   const files = Array.isArray(raw.files)
     ? raw.files
         .filter((item): item is Record<string, unknown> => isRecord(item))
-        .filter((item) => typeof item.path === 'string')
-        .map((item) => ({
-          path: String(item.path),
-          additions: typeof item.additions === 'number' ? item.additions : 0,
-          deletions: typeof item.deletions === 'number' ? item.deletions : 0,
-        }))
+        .map((item) => parseDiffFile(item, shared))
+        .filter((item): item is FactoryDiffFile => item !== null)
     : undefined
   return {
-    additions: typeof raw.additions === 'number' ? raw.additions : 0,
-    deletions: typeof raw.deletions === 'number' ? raw.deletions : 0,
+    additions: parseLineCount(raw.additions),
+    deletions: parseLineCount(raw.deletions),
     ...(files && files.length > 0 ? { files } : {}),
   }
 }

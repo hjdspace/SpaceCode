@@ -136,6 +136,20 @@ describe('FactoryCard', () => {
     expect(wrapper.find('.status-chip').exists()).toBe(false)
   })
 
+  it('已接管角标用来重新打开接管面板，不再走选中', async () => {
+    const wrapper = mountCard({
+      lane: 'implementing',
+      stageIdx: 2,
+      worktree: '.spacecode/worktrees/bl-1',
+      takeover: { at: '2026-10-28T10:00:00Z', sessionId: 'sess-1' },
+    })
+
+    await wrapper.find('[data-card-takeover]').trigger('click')
+
+    expect(wrapper.emitted('action')).toEqual([['bl-1', 'takeover-panel']])
+    expect(wrapper.emitted('select')).toBeUndefined()
+  })
+
   it('draws the progress bar only for implementing and reviewing tasks', () => {
     expect(mountCard({ lane: 'queued' }).find('[data-card-progress]').exists()).toBe(false)
     expect(mountCard({ lane: 'mergeable' }).find('[data-card-progress]').exists()).toBe(false)

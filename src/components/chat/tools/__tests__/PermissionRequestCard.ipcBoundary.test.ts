@@ -163,4 +163,19 @@ describe('PermissionRequestCard 跨 IPC 边界', () => {
     expect(fake._ipcCalls).toHaveLength(2)
     expect(permissionService.hasPendingPermissionForToolUse('tu-1', sid)).toBe(false)
   })
+
+  it('嵌入式面板里的卡片应答自己的会话，而不是用户当前查看的那条', async () => {
+    const { wrapper, fake, sid } = await setup()
+    const sessionStore = useChatSessionStore()
+    // 用户在看板接管面板里对话，中间面板仍停在另一条会话上。
+    const other = sessionStore.createSession('用户正在看的会话')
+    sessionStore.selectSession(other.id)
+
+    await wrapper.setProps({ sessionId: sid })
+    await wrapper.find('.allow').trigger('click')
+    await new Promise(r => setTimeout(r, 0))
+
+    expect(fake._ipcCalls).toHaveLength(1)
+    expect(fake._ipcCalls[0][0]).toBe(sid)
+  })
 })

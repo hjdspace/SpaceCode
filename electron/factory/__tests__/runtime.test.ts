@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import { FACTORY_DIFF_MAX_LINES_PER_FILE, type FactoryTaskDiff } from '@/shared/factory'
 import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
 import { createBacklogItem } from '../backlog'
 import { createFactoryRun, readRunSnapshot } from '../runs'
@@ -220,6 +221,140 @@ describe('projection patches', () => {
       ok: false,
       error: 'task-not-found',
     })
+  })
+
+  it('caps an oversized persisted patch payload on load and marks it truncated', () => {
+    const id = taskId()
+    const lines = Array.from({ length: 405 }, (_, index) => ({
+      kind: 'add',
+      newLine: index + 1,
+      text: 'x',
+    }))
+    patchTask(dir, runId, id, {
+      diff: {
+        additions: 405,
+        deletions: 0,
+        files: [{ path: 'a.ts', additions: 405, deletions: 0, kind: 'patch', hunks: [{ header: '@@ -0,0 +1,405 @@', lines }] }],
+      } as unknown as FactoryTaskDiff,
+    })
+
+    const files = readRunSnapshot(dir, runId)!.tasks[0].diff.files!
+    expect(files[0].hunks![0].lines).toHaveLength(FACTORY_DIFF_MAX_LINES_PER_FILE)
+    expect(files[0].truncated).toBe(true)
+  })
+
+  it('round-trips per-file patch blocks through the persisted snapshot', () => {
+    const id = taskId()
+    patchTask(dir, runId, id, {
+      diff: {
+        additions: 4,
+        deletions: 1,
+        files: [
+          {
+            path: 'a.ts',
+            additions: 4,
+            deletions: 1,
+            kind: 'patch' as const,
+            truncated: true,
+            hunks: [
+              {
+                header: '@@ -1,3 +1,4 @@',
+                lines: [
+                  { kind: 'ctx' as const, oldLine: 1, newLine: 1, text: 'x' },
+                  { kind: 'del' as const, oldLine: 2, text: 'y' },
+                  { kind: 'add' as const, newLine: 2, text: 'z' },
+                  { kind: 'add' as const, newLine: 3, text: 'w' },
+                ],
+              },
+            ],
+          },
+          { path: 'logo.png', additions: 0, deletions: 0, kind: 'binary' as const },
+          {
+            path: 'n.ts',
+            additions: 0,
+            deletions: 0,
+            kind: 'renamed' as const,
+            oldPath: 'o.ts',
+          },
+        ],
+      },
+    })
+
+    expect(readRunSnapshot(dir, runId)!.tasks[0].diff).toEqual({
+      additions: 4,
+      deletions: 1,
+      files: [
+        {
+          path: 'a.ts',
+          additions: 4,
+          deletions: 1,
+          kind: 'patch',
+          hunks: [
+            {
+              header: '@@ -1,3 +1,4 @@',
+              lines: [
+                { kind: 'ctx', oldLine: 1, newLine: 1, text: 'x' },
+                { kind: 'del', oldLine: 2, text: 'y' },
+                { kind: 'add', newLine: 2, text: 'z' },
+                { kind: 'add', newLine: 3, text: 'w' },
+              ],
+            },
+          ],
+          truncated: true,
+        },
+        { path: 'logo.png', additions: 0, deletions: 0, kind: 'binary' },
+        { path: 'n.ts', additions: 0, deletions: 0, kind: 'renamed', oldPath: 'o.ts' },
+      ],
+    })
+  })
+
+  it('degrades malformed patch payloads and legacy files to explicit kinds', () => {
+    const id = taskId()
+    // 模拟盘上快照的脏数据：坏值不可能通过静态类型，只能从类型外注入。
+    patchTask(dir, runId, id, {
+      diff: {
+        additions: 3,
+        deletions: 1,
+        files: [
+          // 旧快照：没有 kind/hunks，回填为 missing。
+          { path: 'legacy.ts', additions: 2, deletions: 1 },
+          // patch 但 hunk 全是坏数据 → 空补丁不渲染，降级 missing。
+          { path: 'broken.ts', additions: 1, deletions: 0, kind: 'patch', hunks: [{ header: 123, lines: 'nope' }] },
+          // renamed 缺 oldPath → missing；非法 kind 直接 missing。
+          { path: 'ghost.ts', additions: 0, deletions: 0, kind: 'renamed' },
+          // 合法 hunk 里的坏行被清洗，好行保留。
+          {
+            path: 'mixed.ts',
+            additions: 1,
+            deletions: 0,
+            kind: 'patch',
+            hunks: [
+              {
+                header: '@@ -1 +1,2 @@',
+                lines: [
+                  { kind: 'add', text: 'ok', newLine: 1 },
+                  { kind: 'zap', text: 'bad kind' },
+                  { kind: 'ctx' },
+                ],
+              },
+            ],
+          },
+        ],
+      } as unknown as FactoryTaskDiff,
+    })
+
+    expect(readRunSnapshot(dir, runId)!.tasks[0].diff.files).toEqual([
+      { path: 'legacy.ts', additions: 2, deletions: 1, kind: 'missing' },
+      { path: 'broken.ts', additions: 1, deletions: 0, kind: 'missing' },
+      { path: 'ghost.ts', additions: 0, deletions: 0, kind: 'missing' },
+      {
+        path: 'mixed.ts',
+        additions: 1,
+        deletions: 0,
+        kind: 'patch',
+        hunks: [{ header: '@@ -1 +1,2 @@', lines: [{ kind: 'add', newLine: 1, text: 'ok' }] }],
+      },
+    ])
   })
 
   it('sets and clears the takeover marker', () => {
