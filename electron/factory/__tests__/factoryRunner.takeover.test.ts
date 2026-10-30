@@ -38,10 +38,26 @@ function fakeGit(failures: Record<string, string> = {}): GitRunner {
   }
 }
 
-function agent(): AgentPort {
+/** 记录引擎回合的假 AgentPort；接管会话要真的跑在引擎上才算能对话。 */
+interface AgentCalls {
+  runs: Array<{ sessionId: string; prompt: string; cwd: string; permissionMode: string }>
+  stops: string[]
+}
+
+function agent(calls: AgentCalls = { runs: [], stops: [] }): AgentPort {
   return {
-    run: async () => ({ text: '', isError: false, inputTokens: 0, outputTokens: 0 }),
-    stop: async () => {},
+    run: async (sessionId, prompt, options) => {
+      calls.runs.push({
+        sessionId,
+        prompt,
+        cwd: options.cwd,
+        permissionMode: String(options.permissionMode),
+      })
+      return { text: '', isError: false, inputTokens: 0, outputTokens: 0 }
+    },
+    stop: async (sessionId) => {
+      calls.stops.push(sessionId)
+    },
     onEvent: () => () => {},
   }
 }
@@ -141,7 +157,7 @@ afterEach(async () => {
 })
 
 describe('takeover', () => {
-  it('pushes the takeover session, activates the chat and marks the task', async () => {
+  it('pushes the takeover session for the board panel and marks the task', async () => {
     seed()
     withWorktree('implementing')
     const executed = { inputs: [], reviews: [], prompts: [], pushes: [] as FactoryTakeoverSession[] }
@@ -155,7 +171,8 @@ describe('takeover', () => {
       sessionId: 'fac-run-1-bl-1-takeover',
       taskId: 'bl-1',
       projectPath: worktreeAbsolutePath(dir, 'bl-1'),
-      activate: true,
+      // 接管会话在看板面板里对话：不能把主聊天切到前台抢走用户视图。
+      activate: false,
     })
     expect(result.session.title).toContain('任务 1')
     expect(result.session.content).toContain('目标 1')
@@ -220,6 +237,54 @@ describe('takeover', () => {
     expect(executed.inputs).toHaveLength(1)
     expect(executed.pushes).toHaveLength(1)
   })
+
+  it('hands the briefing to the takeover session engine so the panel can reply', async () => {
+    seed()
+    withWorktree('implementing')
+    const calls: AgentCalls = { runs: [], stops: [] }
+    const runner = makeRunner({ agentFactory: async () => agent(calls) })
+
+    await runner.takeoverTask(dir, runId, 'bl-1')
+    // 接管回合是后台起的，等它落到假 AgentPort 上。
+    await sleep(20)
+
+    expect(calls.runs).toHaveLength(1)
+    expect(calls.runs[0]).toMatchObject({
+      sessionId: 'fac-run-1-bl-1-takeover',
+      cwd: worktreeAbsolutePath(dir, 'bl-1'),
+      // 权限模式沿用领取时固化的实现阶段配置（该夹具的默认档）。
+      permissionMode: 'acceptEdits',
+    })
+    expect(calls.runs[0].prompt).toContain('任务 1')
+    expect(calls.runs[0].prompt).toContain('目标 1')
+  })
+
+  it('repeated takeover starts only one engine turn', async () => {
+    seed()
+    withWorktree('implementing')
+    const calls: AgentCalls = { runs: [], stops: [] }
+    const runner = makeRunner({ agentFactory: async () => agent(calls) })
+
+    await runner.takeoverTask(dir, runId, 'bl-1')
+    await runner.takeoverTask(dir, runId, 'bl-1')
+    await sleep(20)
+
+    expect(calls.runs).toHaveLength(1)
+  })
+
+  it('交回前先收口接管会话的引擎进程', async () => {
+    seed()
+    withWorktree('implementing')
+    const calls: AgentCalls = { runs: [], stops: [] }
+    const runner = makeRunner({ agentFactory: async () => agent(calls), verify: verifyWith(testRun('pass')) })
+
+    await runner.takeoverTask(dir, runId, 'bl-1')
+    await sleep(20)
+    await runner.returnTask(dir, runId, 'bl-1')
+
+    // 接管会话与工作树同路：交回时不留第二个驱动。
+    expect(calls.stops).toContain('fac-run-1-bl-1-takeover')
+  })
 })
 
 describe('return to pipeline', () => {
@@ -250,7 +315,7 @@ describe('return to pipeline', () => {
     expect(again).toMatchObject({ ok: true, verified: true })
   })
 
-  it('records the failed verification and continues the fix loop when it fails', async () => {
+  it('keeps the task taken over when the return verification fails', async () => {
     seed()
     withWorktree('implementing')
     const executed = { inputs: [], reviews: [], prompts: [], pushes: [] as FactoryTakeoverSession[] }
@@ -260,12 +325,15 @@ describe('return to pipeline', () => {
     const result = await runner.returnTask(dir, runId, 'bl-1')
     expect(result).toMatchObject({ ok: true, verified: false })
 
+    const task = readRunSnapshot(dir, runId)!.tasks[0]
+    expect(task.tests).toMatchObject({ status: 'fail' })
+    // 验证没过就不恢复调度：任务仍是接管中，由面板提示用户继续处理。
+    expect(task.takeover).toMatchObject({ sessionId: 'fac-run-1-bl-1-takeover' })
+    expect(task.lane).toBe('implementing')
     await runner.whenIdle(runId)
-    expect(executed.inputs).toHaveLength(1)
-    expect(executed.inputs[0]).toMatchObject({ sessionId: 'fac-run-1-bl-1-fix' })
-    expect(readRunSnapshot(dir, runId)!.tasks[0].tests).toMatchObject({ status: 'fail' })
-    const returned = runner.readEvents(dir, runId).find((event) => event.code === 'task.returned.failed')
-    expect(returned).toBeDefined()
+    expect(executed.inputs).toHaveLength(0)
+    expect(executed.reviews).toHaveLength(0)
+    expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.returned.failed')
   })
 
   it('requires an active takeover to return', async () => {
