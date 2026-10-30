@@ -60,6 +60,7 @@ vi.mock('vue-i18n', () => ({
 }))
 
 import FactoryView from '../FactoryView.vue'
+import { useFactoryStore } from '@/stores/factory'
 
 const ROOT = '/repo'
 
@@ -254,6 +255,19 @@ const HeaderStub = defineComponent({
   },
 })
 
+/** 整页向导只报它的存在与就绪页动作：步骤内容在 FactorySetupWizard 自己的用例里验证。 */
+const WizardStub = defineComponent({
+  name: 'FactorySetupWizard',
+  props: { root: { type: String, required: true } },
+  emits: ['new-run'],
+  setup(_, { emit }) {
+    return () =>
+      h('div', { 'data-setup-wizard-stub': '' }, [
+        h('button', { 'data-stub-done-plan': '', onClick: () => emit('new-run') }),
+      ])
+  },
+})
+
 const stubs = {
   FactoryRunHeader: HeaderStub,
   FactoryBoard: BoardStub,
@@ -263,7 +277,7 @@ const stubs = {
   FactoryGithubPanel: true,
   FactoryMergeDialog: true,
   FactoryConfigModal: true,
-  FactorySetupWizard: true,
+  FactorySetupWizard: WizardStub,
 }
 
 async function mountView() {
@@ -571,5 +585,78 @@ describe('FactoryView run tabs', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('FactoryView pipeline configuration page', () => {
+  it('replaces the board area with the wizard and shows a matching tab', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-wizard-entry]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-setup-wizard-stub]').exists()).toBe(true)
+    expect(wrapper.find('[data-factory-columns]').exists()).toBe(false)
+
+    const setupTab = wrapper.find('[data-setup-tab]')
+    expect(setupTab.exists()).toBe(true)
+    expect(setupTab.find('[role="tab"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('[data-run-tab="run-1"]').attributes('data-run-tab-active')).toBeUndefined()
+  })
+
+  it('closing the configuration tab keeps the draft where it was for the next visit', async () => {
+    const store = useFactoryStore()
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-wizard-entry]').trigger('click')
+    await flushPromises()
+    store.step = 2
+    store.draft = {
+      ...store.draft,
+      tracker: { type: 'github-issues', repo: 'mine/keep', label: 'mine', auth: 'gh', mergeMode: 'local' },
+    }
+    await flushPromises()
+
+    await wrapper.find('[data-setup-tab-close]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-setup-wizard-stub]').exists()).toBe(false)
+    expect(wrapper.find('[data-setup-tab]').exists()).toBe(false)
+    expect(wrapper.find('[data-factory-columns]').exists()).toBe(true)
+    expect(store.step).toBe(2)
+
+    await wrapper.find('[data-wizard-entry]').trigger('click')
+    await flushPromises()
+    expect(store.step).toBe(2)
+    expect(store.draft.tracker).toMatchObject({ repo: 'mine/keep', label: 'mine' })
+  })
+
+  it('opens the plan dialog straight from the ready page and leaves the wizard', async () => {
+    const store = useFactoryStore()
+    const wrapper = await mountView()
+    await wrapper.find('[data-wizard-entry]').trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-stub-done-plan]').trigger('click')
+    await flushPromises()
+
+    expect(store.wizardOpen).toBe(false)
+    expect(wrapper.find('[data-factory-columns]').exists()).toBe(true)
+    expect(wrapper.find('[data-new-run-modal]').exists()).toBe(true)
+  })
+
+  it('leaves the configuration page once another run tab is picked', async () => {
+    factoryApi.runList.mockResolvedValue([snapshot('run-2').run, snapshot('run-1', 'stopped').run])
+    const store = useFactoryStore()
+    const wrapper = await mountView()
+    await wrapper.find('[data-wizard-entry]').trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-run-tab="run-1"] .tab-main').trigger('click')
+    await flushPromises()
+
+    expect(store.wizardOpen).toBe(false)
+    expect(wrapper.find('[data-setup-wizard-stub]').exists()).toBe(false)
+    expect(factoryApi.runGet).toHaveBeenLastCalledWith(ROOT, 'run-1')
   })
 })

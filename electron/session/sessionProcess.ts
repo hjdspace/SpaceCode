@@ -1909,11 +1909,10 @@ export class SessionProcess extends EventEmitter {
     // in resources/officecli/. The standard name expected by SKILL.md is `officecli` (or
     // `officecli.exe` on Windows). The sync writes the bundled binary under that name,
     // and rewrites it whenever the bundle is newer — otherwise the copy made on first
-    // launch pins every session to that version forever. It runs synchronously so the
-    // file is there before the first Bash tool call, regardless of whether the async
-    // ensureOfficeCliInstalled() at startup has completed.
+    // launch pins every session to that version forever. Await the shared async sync so
+    // the file is there before the first Bash tool call without blocking the event loop.
     const officeCliInstallDir = getOfficeCliInstallDir()
-    const officeCliSync = syncInstalledOfficeCli()
+    const officeCliSync = await syncInstalledOfficeCli()
     if (officeCliSync.copied) {
       info('SessionProcess', `[${this.sessionId.slice(0, 8)}] Synced officecli binary | reason=${officeCliSync.reason} | version=${officeCliSync.bundledVersion}`)
     } else if (officeCliSync.reason === 'copy-failed') {

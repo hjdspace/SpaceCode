@@ -3,7 +3,7 @@
  * 不能出现在界面上；每个非 ok 项都必须有一句能照着做的解释。
  */
 import { describe, it, expect } from 'vitest'
-import { preflightText } from '../preflightDisplay'
+import { preflightFix, preflightText } from '../preflightDisplay'
 import type { FactoryPreflightItem } from '@/shared/factory'
 
 const t = (key: string, params?: Record<string, unknown>): string =>
@@ -11,6 +11,10 @@ const t = (key: string, params?: Record<string, unknown>): string =>
 
 function text(item: FactoryPreflightItem) {
   return preflightText(item, t)
+}
+
+function fix(item: FactoryPreflightItem) {
+  return preflightFix(item)
 }
 
 describe('preflightText', () => {
@@ -100,5 +104,57 @@ describe('preflightText', () => {
     expect(text({ id: 'trackerAuth', level: 'ok', params: { tracker: 'local' } }).detail).toBe(
       'factory.preflightDetail.localTracker',
     )
+  })
+})
+
+/**
+ * 修复入口：预检项只说明「哪里不对」，用户还需要一条出路。
+ * 选择造成的问题跳回拥有该选择的步骤，环境/本页字段造成的问题就地重新检测。
+ */
+describe('preflightFix', () => {
+  it('sends a choice problem back to the step that owns it', () => {
+    expect(fix({ id: 'engine', level: 'error', params: { engine: 'pi' } })).toEqual({ kind: 'step', step: 1 })
+    expect(fix({ id: 'sandbox', level: 'error', params: { sandbox: 'docker' } })).toEqual({ kind: 'step', step: 2 })
+    expect(fix({ id: 'sandbox', level: 'warn', params: { sandbox: 'docker', image: 'img' } })).toEqual({
+      kind: 'step',
+      step: 2,
+    })
+    expect(fix({ id: 'trackerAuth', level: 'error', params: { reason: 'gh-not-logged-in' } })).toEqual({
+      kind: 'step',
+      step: 3,
+    })
+    expect(fix({ id: 'trackerPush', level: 'error', params: { reason: 'no-push-permission' } })).toEqual({
+      kind: 'step',
+      step: 3,
+    })
+    expect(fix({ id: 'trackerLabel', level: 'warn', params: { label: 'ready-for-agent' } })).toEqual({
+      kind: 'step',
+      step: 3,
+    })
+  })
+
+  /**
+   * 出路要和该项 hint 里写的补救动作一致：`gitRepo` 让人先 git init，`modelProfile`
+   * 让人去桌面设置，镜像/挂载/代理是环境事实——跳回步骤改不动它们，只能重检。
+   */
+  it('re-checks in place what this page or the machine outside the wizard controls', () => {
+    expect(fix({ id: 'verifyCommand', level: 'error' })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'verifyCommand', level: 'warn', params: { command: 'npm run test' } })).toEqual({
+      kind: 'recheck',
+    })
+    expect(fix({ id: 'gitRepo', level: 'error' })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'modelProfile', level: 'warn' })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'gitDirty', level: 'warn', params: { files: 2 } })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'gitVersion', level: 'error', params: { version: '2.30.0' } })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'configWritable', level: 'error' })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'dockerImage', level: 'error', params: { image: 'img' } })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'dockerMount', level: 'error' })).toEqual({ kind: 'recheck' })
+    expect(fix({ id: 'dockerProxy', level: 'error' })).toEqual({ kind: 'recheck' })
+  })
+
+  it('offers no entry for an item that passed', () => {
+    expect(fix({ id: 'engine', level: 'ok', params: { engine: 'claude-code' } })).toBeNull()
+    expect(fix({ id: 'gitDirty', level: 'ok' })).toBeNull()
+    expect(fix({ id: 'trackerLabel', level: 'ok', params: { label: 'ready-for-agent' } })).toBeNull()
   })
 })

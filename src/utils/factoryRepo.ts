@@ -34,8 +34,11 @@ export function projectNameFromPath(path: string): string {
   return /^[A-Za-z]:$/.test(name) ? '' : name
 }
 
-/** 运行头部展示的仓库标识：GitHub 用 owner/repo，本地 backlog 用项目目录名。 */
-export function factoryRepoLabel(tracker: FactoryTrackerConfig, projectRoot: string): string {
-  if (tracker.type === 'github-issues') return tracker.repo
+/** 看板与向导共用的仓库标识：GitHub 用 owner/repo，本地 backlog 用项目目录名。 */
+export function factoryRepoLabel(
+  tracker: { type: FactoryTrackerConfig['type']; repo?: string },
+  projectRoot: string,
+): string {
+  if (tracker.type === 'github-issues') return tracker.repo ?? ''
   return projectNameFromPath(projectRoot)
 }

@@ -48,7 +48,18 @@
               <b v-if="preflight.verify" :class="verifyClass" data-merge-verify>
                 {{ t(`factory.tests.status.${preflight.verify.status}`) }}
               </b>
-              <b v-else class="muted">{{ t('factory.inspector.pending') }}</b>
+              <b v-else class="muted" data-merge-verify>{{ t('factory.inspector.pending') }}</b>
+            </div>
+            <div v-if="verifyDetail" class="verify-detail" data-merge-verify-detail>
+              <pre class="verify-output">{{ verifyPreview }}</pre>
+              <button
+                v-if="verifyTruncated"
+                class="link-btn"
+                data-merge-verify-toggle
+                @click="verifyExpanded = !verifyExpanded"
+              >
+                {{ verifyExpanded ? t('factory.merge.verifyCollapse') : t('factory.merge.verifyExpand') }}
+              </button>
             </div>
             <div class="pv-row">
               <span>{{ t('factory.merge.review') }}</span>
@@ -167,7 +178,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle, Loader2, X, XCircle } from 'lucide-vue-next'
 import { FACTORY_MERGE_MODES, type FactoryMergeMode, type FactoryMergePreflight, type FactoryTask } from '@/shared/factory'
@@ -213,6 +224,25 @@ const { t } = useI18n()
 const MERGE_MODES: Array<{ mode: FactoryMergeMode }> = FACTORY_MERGE_MODES.map((mode) => ({ mode }))
 
 const verifyClass = computed(() => (props.preflight?.verify?.status === 'pass' ? 'ok' : 'warn'))
+
+/** 验证输出只在弹窗里预览末尾几行：计数与耗时摘要总在输出尾部；完整内容按需展开。 */
+const VERIFY_PREVIEW_LINES = 4
+const verifyExpanded = ref(false)
+const verifyDetail = computed(() => (props.preflight?.verify?.detail ?? '').trimEnd())
+const verifyLines = computed(() => verifyDetail.value.split(/\r?\n/))
+const verifyTruncated = computed(() => verifyLines.value.length > VERIFY_PREVIEW_LINES)
+const verifyPreview = computed(() =>
+  verifyExpanded.value || !verifyTruncated.value
+    ? verifyDetail.value
+    : verifyLines.value.slice(-VERIFY_PREVIEW_LINES).join('\n'),
+)
+
+watch(
+  () => props.preflight,
+  () => {
+    verifyExpanded.value = false
+  },
+)
 
 const errorText = computed(() => {
   const err = props.error
@@ -395,6 +425,40 @@ const errorText = computed(() => {
   color: var(--text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.verify-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.verify-output {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  @include scrollbar-overlay;
+}
+
+.link-btn {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 10.5px;
+  color: var(--accent-primary);
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 .radios {

@@ -200,22 +200,47 @@
       </div>
 
       <footer class="dialog-footer">
-        <span class="spacer" />
-        <button class="ghost-btn" :disabled="saving" @click="emit('close')">
-          {{ t('factory.cancel') }}
-        </button>
-        <button class="primary-btn" data-config-save :disabled="saving" @click="emit('save')">
-          {{ saving ? t('factory.config.saving') : t('factory.config.save') }}
-        </button>
+        <div v-if="confirmingRestart" class="restart-confirm" data-config-restart-confirm>
+          <p>{{ t('factory.config.restartHint') }}</p>
+          <button
+            class="ghost-btn"
+            data-config-restart-cancel
+            :disabled="saving"
+            @click="confirmingRestart = false"
+          >
+            {{ t('factory.cancel') }}
+          </button>
+          <button class="primary-btn" data-config-restart-proceed :disabled="saving" @click="confirmRestart">
+            {{ t('factory.config.restartProceed') }}
+          </button>
+        </div>
+        <template v-else>
+          <button
+            class="ghost-btn restart-btn"
+            data-config-restart
+            :disabled="saving"
+            @click="confirmingRestart = true"
+          >
+            <RefreshCw :size="13" />
+            {{ t('factory.config.restart') }}
+          </button>
+          <span class="spacer" />
+          <button class="ghost-btn" :disabled="saving" @click="emit('close')">
+            {{ t('factory.cancel') }}
+          </button>
+          <button class="primary-btn" data-config-save :disabled="saving" @click="emit('save')">
+            {{ saving ? t('factory.config.saving') : t('factory.config.save') }}
+          </button>
+        </template>
       </footer>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Workflow, X } from 'lucide-vue-next'
+import { AlertTriangle, RefreshCw, Workflow, X } from 'lucide-vue-next'
 import {
   FACTORY_STAGE_PERMISSIONS,
   type FactoryConfig,
@@ -251,6 +276,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   close: []
   save: []
+  restart: []
   'update:stage': [key: FactoryStageKey, patch: Partial<FactoryStageConfig>]
   'update:concurrency': [value: number]
   'update:verify': [value: string]
@@ -259,6 +285,14 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+/** 重新初始化会覆盖磁盘上的配置，先让用户确认再进向导。 */
+const confirmingRestart = ref(false)
+
+function confirmRestart(): void {
+  confirmingRestart.value = false
+  emit('restart')
+}
 
 /** 固定流水线的阶段顺序；不做 DAG 编辑器，只按此表渲染。 */
 const STAGES: readonly { key: FactoryStageKey; labelKey: string; hintKey: string }[] = [
@@ -590,6 +624,28 @@ select {
     font-size: 11px;
     color: var(--error);
   }
+}
+
+.restart-confirm {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  p {
+    flex: 1;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--warning);
+  }
+}
+
+.restart-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .dialog-footer {

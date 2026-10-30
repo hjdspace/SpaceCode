@@ -17,165 +17,172 @@
     </div>
 
     <template v-else>
-      <div v-if="!store.configured" class="factory-empty">
+      <div v-if="!store.configured && !store.wizardOpen" class="factory-empty">
         <div class="empty-icon"><Workflow :size="32" /></div>
         <h1>{{ t('factory.emptyTitle') }}</h1>
         <p>{{ t('factory.emptyDescription') }}</p>
-        <button class="primary-btn" @click="store.openWizard(root)">
+        <button class="primary-btn" data-wizard-entry @click="store.openWizard(root)">
           {{ t('factory.init') }}
         </button>
       </div>
 
       <div v-else class="factory-board-shell">
-        <header class="board-header">
+        <header v-if="!store.wizardOpen && store.configured" class="board-header">
           <div>
             <h1>{{ t('factory.boardTitle') }}</h1>
             <p>{{ t('factory.boardDescription') }}</p>
           </div>
-          <button class="ghost-btn" @click="store.openWizard(root)">
-            {{ t('factory.reconfigure') }}
+          <button class="ghost-btn" data-wizard-entry @click="store.openWizard(root)">
+            {{ t('factory.configurePipeline') }}
           </button>
         </header>
 
         <FactoryRunTabs
+          v-if="store.configured"
           :runs="store.runTabs"
-          :active-id="store.run?.id ?? null"
+          :active-id="store.wizardOpen ? null : store.run?.id ?? null"
+          :setup-active="store.wizardOpen"
           @select="handleSelectRunTab"
           @close="handleCloseRunTab"
           @new-run="handleOpenNewRun"
+          @show-board="store.closeWizard()"
         />
 
-        <div v-if="store.readonly" class="storage-banner" data-storage-readonly>
-          <AlertTriangle :size="14" />
-          <span>{{ t('factory.storage.readonly') }}</span>
-        </div>
-        <div v-if="store.corruptRuns.length" class="storage-banner" data-storage-corrupt>
-          <AlertTriangle :size="14" />
-          <span>{{ t('factory.storage.corrupt', { runs: store.corruptRuns.join(', ') }) }}</span>
-        </div>
+        <FactorySetupWizard v-if="store.wizardOpen" :root="root" @new-run="handleDonePlan" />
 
-        <FactoryRunHeader
-          v-if="store.run"
-          :run="store.run"
-          :tasks="store.tasks"
-          :pausing="store.pausing"
-          :repo-label="repoLabel"
-          @select="store.selectTask"
-          @pause="handlePauseRun"
-          @resume="handleResumeRun"
-          @config="store.openConfig()"
-          @stop="handleStopRun"
-          @new-run="handleOpenNewRun"
-          @focus-lane="handleFocusLane"
-        />
-
-        <div
-          class="factory-columns"
-          data-factory-columns
-          :data-inspector-collapsed="store.inspectorOpen ? undefined : 'true'"
-        >
-          <FactoryGithubPanel
-            v-if="isGithubTracker"
-            :label="store.githubLabel"
-            :issues="store.githubIssues"
-            :loading="store.githubIssuesLoading"
-            :error="store.githubIssuesError"
-            :claiming="store.githubClaiming"
-            :claim-error="store.githubClaimError"
-            :run-id="store.run?.id ?? null"
-            @update:label="store.setGithubLabel"
-            @refresh="handleGithubRefresh"
-            @claim="handleGithubClaim"
-          />
-          <FactoryBacklogPanel
-            v-else
-            :items="store.backlog"
-            :loading="store.backlogLoading"
-            :error="store.backlogError"
-            :run-error="store.createRunError"
-            :claimed-ids="claimedIds"
-            :creating="store.creatingRun"
-            :run-id="store.run?.id ?? null"
-            @create="handleCreate"
-            @update="handleUpdate"
-            @remove="handleRemove"
-            @move="handleMove"
-            @create-run="handleCreateRun"
-          />
-
-          <div class="board-column">
-            <div v-if="store.runLoading" class="state-inline">
-              <Loader2 :size="18" class="spin" />
-              <span>{{ t('factory.loading') }}</span>
-            </div>
-            <div v-else-if="store.runError" class="state-inline error">
-              <AlertTriangle :size="18" />
-              <span>{{ t('factory.run.loadFailed') }}</span>
-            </div>
-            <FactoryBoard
-              v-else-if="store.run"
-              ref="boardRef"
-              :tasks="store.tasks"
-              :selected-id="store.selectedId"
-              :run="store.run"
-              :now-ms="nowMs"
-              :readonly="store.readonly"
-              :busy="boardBusy"
-              @select="store.selectTask"
-              @action="handleCardAction"
-            />
-            <div v-else class="board-empty" data-board-empty>{{ t('factory.run.empty') }}</div>
+        <template v-else>
+          <div v-if="store.readonly" class="storage-banner" data-storage-readonly>
+            <AlertTriangle :size="14" />
+            <span>{{ t('factory.storage.readonly') }}</span>
+          </div>
+          <div v-if="store.corruptRuns.length" class="storage-banner" data-storage-corrupt>
+            <AlertTriangle :size="14" />
+            <span>{{ t('factory.storage.corrupt', { runs: store.corruptRuns.join(', ') }) }}</span>
           </div>
 
-          <FactoryInspector
-            v-if="store.run && store.inspectorOpen"
-            :task="store.selectedTask"
-            :tab="store.inspectorTab"
+          <FactoryRunHeader
+            v-if="store.run"
             :run="store.run"
-            :now-ms="nowMs"
-            :events="store.selectedEvents"
-            :events-loading="store.eventsLoading"
-            :events-error="store.eventsError"
-            :action-error="store.actionError"
-            :starting="store.startingId === store.selectedTask?.id"
-            :stopping="store.stopping"
-            :pending-dirty="store.pendingDirtyId === store.selectedTask?.id"
-            :eligible="store.selectedEligibility.ok"
-            :approving="store.approving"
-            :fixing="store.fixing"
-            :updating-comment="store.updatingComment"
-            :pending-ignore-id="store.pendingIgnoreId"
-            :merge-target="store.mergeTarget"
-            :merging="store.merging"
-            :retrying-writeback="store.retryingWritebackId === store.selectedTask?.id"
-            :writeback-error="store.writebackError"
-            :readonly="store.readonly"
-            :taking-over="store.takingOver"
-            :returning="store.returning"
-            :retrying="store.retrying"
-            :cancelling="store.cancelling"
-            @select-tab="store.setInspectorTab"
-            @close="store.closeInspector"
-            @retry-writeback="handleRetryWriteback"
-            @start="handleStart"
-            @stop="handleStopTask"
-            @cancel="handleCancel"
-            @takeover="handleTakeover"
-            @open-takeover="handleOpenTakeoverPanel"
-            @return="handleReturn()"
-            @retry="handleRetry"
-            @retry-local="handleRetryLocal"
-            @reveal="handleReveal"
-            @confirm-dirty="handleConfirmDirty"
-            @approve="handleApprove"
-            @request-changes="handleRequestChanges"
-            @fix="handleFix"
-            @comment-accept="handleCommentAccept"
-            @comment-ignore="handleCommentIgnore"
-            @comment-confirm-ignore="handleCommentConfirmIgnore"
-            @merge="handleOpenMerge"
+            :tasks="store.tasks"
+            :pausing="store.pausing"
+            :repo-label="repoLabel"
+            @select="store.selectTask"
+            @pause="handlePauseRun"
+            @resume="handleResumeRun"
+            @config="store.openConfig()"
+            @stop="handleStopRun"
+            @new-run="handleOpenNewRun"
+            @focus-lane="handleFocusLane"
           />
-        </div>
+
+          <div
+            class="factory-columns"
+            data-factory-columns
+            :data-inspector-collapsed="store.inspectorOpen ? undefined : 'true'"
+          >
+            <FactoryGithubPanel
+              v-if="isGithubTracker"
+              :label="store.githubLabel"
+              :issues="store.githubIssues"
+              :loading="store.githubIssuesLoading"
+              :error="store.githubIssuesError"
+              :claiming="store.githubClaiming"
+              :claim-error="store.githubClaimError"
+              :run-id="store.run?.id ?? null"
+              @update:label="store.setGithubLabel"
+              @refresh="handleGithubRefresh"
+              @claim="handleGithubClaim"
+            />
+            <FactoryBacklogPanel
+              v-else
+              :items="store.backlog"
+              :loading="store.backlogLoading"
+              :error="store.backlogError"
+              :run-error="store.createRunError"
+              :claimed-ids="claimedIds"
+              :creating="store.creatingRun"
+              :run-id="store.run?.id ?? null"
+              @create="handleCreate"
+              @update="handleUpdate"
+              @remove="handleRemove"
+              @move="handleMove"
+              @create-run="handleCreateRun"
+            />
+
+            <div class="board-column">
+              <div v-if="store.runLoading" class="state-inline">
+                <Loader2 :size="18" class="spin" />
+                <span>{{ t('factory.loading') }}</span>
+              </div>
+              <div v-else-if="store.runError" class="state-inline error">
+                <AlertTriangle :size="18" />
+                <span>{{ t('factory.run.loadFailed') }}</span>
+              </div>
+              <FactoryBoard
+                v-else-if="store.run"
+                ref="boardRef"
+                :tasks="store.tasks"
+                :selected-id="store.selectedId"
+                :run="store.run"
+                :now-ms="nowMs"
+                :readonly="store.readonly"
+                :busy="boardBusy"
+                @select="store.selectTask"
+                @action="handleCardAction"
+              />
+              <div v-else class="board-empty" data-board-empty>{{ t('factory.run.empty') }}</div>
+            </div>
+
+            <FactoryInspector
+              v-if="store.run && store.inspectorOpen"
+              :task="store.selectedTask"
+              :tab="store.inspectorTab"
+              :run="store.run"
+              :now-ms="nowMs"
+              :events="store.selectedEvents"
+              :events-loading="store.eventsLoading"
+              :events-error="store.eventsError"
+              :action-error="store.actionError"
+              :starting="store.startingId === store.selectedTask?.id"
+              :stopping="store.stopping"
+              :pending-dirty="store.pendingDirtyId === store.selectedTask?.id"
+              :eligible="store.selectedEligibility.ok"
+              :approving="store.approving"
+              :fixing="store.fixing"
+              :updating-comment="store.updatingComment"
+              :pending-ignore-id="store.pendingIgnoreId"
+              :merge-target="store.mergeTarget"
+              :merging="store.merging"
+              :retrying-writeback="store.retryingWritebackId === store.selectedTask?.id"
+              :writeback-error="store.writebackError"
+              :readonly="store.readonly"
+              :taking-over="store.takingOver"
+              :returning="store.returning"
+              :retrying="store.retrying"
+              :cancelling="store.cancelling"
+              @select-tab="store.setInspectorTab"
+              @close="store.closeInspector"
+              @retry-writeback="handleRetryWriteback"
+              @start="handleStart"
+              @stop="handleStopTask"
+              @cancel="handleCancel"
+              @takeover="handleTakeover"
+              @open-takeover="handleOpenTakeoverPanel"
+              @return="handleReturn()"
+              @retry="handleRetry"
+              @retry-local="handleRetryLocal"
+              @reveal="handleReveal"
+              @confirm-dirty="handleConfirmDirty"
+              @approve="handleApprove"
+              @request-changes="handleRequestChanges"
+              @fix="handleFix"
+              @comment-accept="handleCommentAccept"
+              @comment-ignore="handleCommentIgnore"
+              @comment-confirm-ignore="handleCommentConfirmIgnore"
+              @merge="handleOpenMerge"
+            />
+          </div>
+        </template>
       </div>
     </template>
 
@@ -211,6 +218,7 @@
       :confirm-gate-off="store.configConfirmGateOff"
       @close="store.closeConfig()"
       @save="handleSaveConfig"
+      @restart="handleRestartWizard"
       @update:stage="store.updateStage"
       @update:concurrency="store.setConfigConcurrency"
       @update:verify="store.setConfigVerifyCommand"
@@ -239,8 +247,6 @@
       @close="handleCloseTakeoverPanel"
       @return="handlePanelReturn"
     />
-
-    <FactorySetupWizard v-if="store.wizardOpen && root" :root="root" />
   </div>
 </template>
 
@@ -343,8 +349,16 @@ async function handleOpenNewRun(): Promise<void> {
   await loadSources(root.value)
 }
 
+/** 就绪页的「生成第一个计划」：回到看板并直接打开新建运行弹窗。 */
+function handleDonePlan(): void {
+  store.closeWizard()
+  void handleOpenNewRun()
+}
+
 function handleSelectRunTab(runId: string): void {
   if (!root.value) return
+  // 页签是看板的导航：点别的运行先离开整页向导。
+  if (store.wizardOpen) store.closeWizard()
   void store.selectRun(root.value, runId)
 }
 
@@ -639,6 +653,12 @@ function handleResumeRun(): void {
 function handleSaveConfig(): void {
   if (!root.value) return
   void store.saveConfig(root.value)
+}
+
+/** 配置弹窗的「重新初始化」：收起弹窗，从向导第 1 步重走。 */
+function handleRestartWizard(): void {
+  if (!root.value) return
+  void store.restartWizard(root.value)
 }
 
 function handleCreate(input: { title: string; goal: string }): void {

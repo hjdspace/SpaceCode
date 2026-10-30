@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { execFileSync } from 'child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, statfsSync, statSync } from 'fs'
 import { join } from 'path'
 
 function setupLinuxIme(): void {
@@ -130,11 +130,56 @@ function setupLinuxDbus(): void {
   }
 }
 
-export function setupLinuxPlatform(): void {
-  if (process.platform !== 'linux') return
+/** /dev/shm 的容量（字节）；读不到返回 null。 */
+function readDevShmBytes(): number | null {
+  try {
+    const st = statfsSync('/dev/shm')
+    return st.blocks * st.bsize
+  } catch {
+    return null
+  }
+}
 
-  // Suppress Chromium's benign D-Bus diagnostics without affecting app logs.
-  app.commandLine.appendSwitch('log-level', '3')
+/**
+ * Linux 上没有别的兜底：Chromium 的默认假设是"有 GPU、/dev/shm 够大"。
+ * 服务器/虚机/容器两条都不满足，表现是先黑屏、随后渲染进程以 133(SIGTRAP) 退出。
+ *
+ *  - `--disable-dev-shm-usage`：容器里 /dev/shm 常被限到 64MB，共享内存分配失败
+ *    会直接打死渲染进程。改走 /tmp。
+ *  - 没有 /dev/dri 就意味着没有可用的 KMS 驱动，建 GL 上下文只会让 GPU 进程反复
+ *    失败并让合成器退化成黑帧。直接软件渲染。
+ */
+function setupLinuxRendering(): { gpu: 'software' | 'hardware'; devShmBytes: number | null } {
+  app.commandLine.appendSwitch('disable-dev-shm-usage')
+
+  const hasDri = existsSync('/dev/dri')
+  if (!hasDri) app.disableHardwareAcceleration()
+
+  return { gpu: hasDri ? 'hardware' : 'software', devShmBytes: readDevShmBytes() }
+}
+
+export function setupLinuxPlatform(): string[] {
+  if (process.platform !== 'linux') return []
+
+  const notes: string[] = []
+
+  // `log-level 3` 会把 Chromium 自己的 GPU / 合成器报错一起吞掉 —— 黑屏时日志里
+  // 就只剩业务代码的行，现场等于没有证据。显式要日志时必须放开。
+  if (app.commandLine.hasSwitch('debug') || process.argv.includes('--debug')) {
+    notes.push('Chromium log level left at default (debug mode)')
+  } else {
+    // Suppress Chromium's benign D-Bus diagnostics without affecting app logs.
+    app.commandLine.appendSwitch('log-level', '3')
+  }
+
   setupLinuxIme()
   setupLinuxDbus()
+
+  const rendering = setupLinuxRendering()
+  notes.push(
+    `GPU acceleration ${rendering.gpu === 'hardware' ? 'enabled' : 'disabled (no /dev/dri)'}, `
+    + `/dev/shm=${rendering.devShmBytes === null ? 'unknown' : `${Math.round(rendering.devShmBytes / 1024 / 1024)}MB`}`,
+  )
+
+  return notes
 }

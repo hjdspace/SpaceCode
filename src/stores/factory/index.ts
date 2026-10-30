@@ -53,6 +53,7 @@ import { FACTORY_RUN_TAB_LIMIT } from '@/shared/factory'
 import { mergeEligibility, type MergeEligibility } from '@/shared/factoryReview'
 import {
   canAdvance,
+  canJumpToStep,
   defaultDraft,
   draftFromConfig,
   setupStepErrors,
@@ -133,6 +134,10 @@ export const useFactoryStore = defineStore('factory', () => {
   const preflightError = ref<string | null>(null)
 
   const wizardOpen = ref(false)
+  /** 保存成功后整页向导停在就绪页；回到看板即收起。 */
+  const wizardDone = ref(false)
+  /** 向导由配置弹窗的「重新初始化」进入：取消时回到弹窗，而不是看板。 */
+  const wizardFromConfig = ref(false)
   const step = ref<SetupStep>(1)
   const draft = ref<FactorySetupDraft>({})
   const saving = ref(false)
@@ -144,6 +149,11 @@ export const useFactoryStore = defineStore('factory', () => {
 
   const tokenTesting = ref(false)
   const tokenResult = ref<FactoryGithubAuthResult | null>(null)
+  /**
+   * 第 3 步里刚敲进去、还没落进凭据库的 token。跟着向导会话走：
+   * 关页签回来不用重敲，保存成功（已写入凭据库）后立刻丢弃。
+   */
+  const wizardToken = ref('')
   const ghChecking = ref(false)
   const ghLogin = ref<{ running: boolean; code?: string; url?: string; error?: string }>({ running: false })
   let ghLoginPoll: ReturnType<typeof setInterval> | null = null
@@ -318,12 +328,22 @@ export const useFactoryStore = defineStore('factory', () => {
     await Promise.all([loadState(root), loadContext(root)])
   }
 
-  async function openWizard(root: string): Promise<void> {
+  /**
+   * 打开整页向导。默认接着上次的草稿；`fresh` 给配置弹窗的「重新初始化」用：
+   * 丢掉残留草稿，按磁盘上的配置从第 1 步重新回填。
+   */
+  async function openWizard(root: string, options: { fresh?: boolean } = {}): Promise<void> {
     saveError.value = null
     tokenResult.value = null
     preflight.value = null
     preflightError.value = null
     ghLogin.value = { running: false }
+    // 上次的草稿还在（关页签回看过板）就接着用它；全新会话才回填磁盘上的配置。
+    if (!options.fresh && Object.keys(draft.value).length > 0) {
+      wizardOpen.value = true
+      if (step.value === 4) await runPreflight(root)
+      return
+    }
     step.value = 1
     if (!context.value) await loadContext(root)
     const ctx = context.value
@@ -334,21 +354,54 @@ export const useFactoryStore = defineStore('factory', () => {
 
   function closeWizard(): void {
     wizardOpen.value = false
+    wizardDone.value = false
+    wizardFromConfig.value = false
     saveError.value = null
     stopGhLoginPolling()
     ghLogin.value = { running: false }
   }
 
+  /**
+   * 配置弹窗的「重新初始化」：从第 1 步重走向导，草稿按磁盘上的配置重新回填，
+   * 上次会话残留的草稿不参与。配置草稿保留，取消时回到弹窗还能接着改。
+   */
+  async function restartWizard(root: string): Promise<void> {
+    await openWizard(root, { fresh: true })
+    // 上下文缺失时向导不会打开：配置弹窗保持原样，别把用户留在空界面。
+    if (!wizardOpen.value) return
+    wizardFromConfig.value = true
+    configOpen.value = false
+  }
+
+  /** 向导的取消口径：从配置弹窗进来的回到弹窗，否则收回看板。 */
+  function cancelWizard(): void {
+    const backToConfig = wizardFromConfig.value && configDraft.value !== null
+    closeWizard()
+    if (backToConfig) configOpen.value = true
+  }
+
+  /**
+   * 每一次预检的序号。改一次验证命令就重跑一次，两条 IPC 会在路上重叠，
+   * 而慢的那条对应的是已经作废的草稿：只允许最新一次写结果，否则旧响应
+   * 后落地会把「完成配置」重新顶开。
+   */
+  let preflightEpoch = 0
+
   async function runPreflight(root: string): Promise<void> {
+    const epoch = ++preflightEpoch
     preflightRunning.value = true
     preflightError.value = null
     try {
-      preflight.value = await api.factory.preflight(root, toPlain(draft.value))
+      const result = await api.factory.preflight(root, toPlain(draft.value))
+      if (epoch !== preflightEpoch) return
+      preflight.value = result
     } catch (err) {
+      if (epoch !== preflightEpoch) return
       preflight.value = null
       preflightError.value = String(err)
     } finally {
-      preflightRunning.value = false
+      // 过期的那一次不许关掉还在飞的新一轮的进度标记。
+      if (epoch === preflightEpoch) preflightRunning.value = false
     }
   }
 
@@ -384,6 +437,14 @@ export const useFactoryStore = defineStore('factory', () => {
     if (step.value > 1) step.value = (step.value - 1) as SetupStep
   }
 
+  /** 步骤条直接跳步：越过校验没过的步骤要挡住，落到第 4 步补跑预检。 */
+  async function goToStep(target: SetupStep, root: string): Promise<void> {
+    if (target === step.value || !context.value) return
+    if (!canJumpToStep(target, draft.value, context.value)) return
+    step.value = target
+    if (target === 4) await runPreflight(root)
+  }
+
   async function save(root: string): Promise<boolean> {
     saving.value = true
     saveError.value = null
@@ -394,7 +455,8 @@ export const useFactoryStore = defineStore('factory', () => {
         if (result.preflight) preflight.value = result.preflight
         return false
       }
-      wizardOpen.value = false
+      wizardDone.value = true
+      wizardToken.value = ''
       await loadState(root)
       return true
     } finally {
@@ -402,10 +464,10 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
-  async function testToken(root: string, token: string, repo: string): Promise<void> {
+  async function testToken(root: string, token: string, repo: string, label?: string): Promise<void> {
     tokenTesting.value = true
     try {
-      tokenResult.value = await api.factory.testGithubToken(root, token, repo)
+      tokenResult.value = await api.factory.testGithubToken(root, token, repo, label)
       if (!tokenResult.value.ok) return
       await storeToken(token)
       // token 有效即可列出它可访问的仓库，向导仓库下拉不再依赖已打开项目。
@@ -1349,6 +1411,8 @@ export const useFactoryStore = defineStore('factory', () => {
     preflightRunning.value = false
     preflightError.value = null
     wizardOpen.value = false
+    wizardFromConfig.value = false
+    wizardDone.value = false
     step.value = 1
     draft.value = {}
     saving.value = false
@@ -1358,6 +1422,7 @@ export const useFactoryStore = defineStore('factory', () => {
     githubReposError.value = null
     tokenTesting.value = false
     tokenResult.value = null
+    wizardToken.value = ''
     ghChecking.value = false
     stopGhLoginPolling()
     ghLogin.value = { running: false }
@@ -1436,6 +1501,7 @@ export const useFactoryStore = defineStore('factory', () => {
     preflightRunning,
     preflightError,
     wizardOpen,
+    wizardDone,
     step,
     draft,
     saving,
@@ -1445,6 +1511,7 @@ export const useFactoryStore = defineStore('factory', () => {
     githubReposError,
     tokenTesting,
     tokenResult,
+    wizardToken,
     ghChecking,
     ghLogin,
     backlog,
@@ -1521,10 +1588,13 @@ export const useFactoryStore = defineStore('factory', () => {
     refresh,
     openWizard,
     closeWizard,
+    restartWizard,
+    cancelWizard,
     runPreflight,
     loadGithubRepos,
     next,
     back,
+    goToStep,
     save,
     testToken,
     storeToken,

@@ -11,7 +11,7 @@
  */
 
 import { ipcMain, app, BrowserWindow } from 'electron'
-import { spawn, spawnSync, type ChildProcess } from 'child_process'
+import { execFile, spawn, spawnSync, type ChildProcess } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -183,20 +183,25 @@ function binaryFingerprint(binaryPath: string): string | null {
   }
 }
 
-function readOfficeCliVersion(binaryPath: string): string | null {
+async function readOfficeCliVersion(binaryPath: string): Promise<string | null> {
   const fingerprint = binaryFingerprint(binaryPath)
   if (fingerprint) {
     const cached = versionCache.get(binaryPath)
     if (cached && cached.fingerprint === fingerprint) return cached.version
   }
   try {
-    const result = spawnSync(binaryPath, ['--version'], {
-      timeout: 5000,
-      windowsHide: true,
-      encoding: 'utf-8',
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(binaryPath, ['--version'], {
+        timeout: 5000,
+        windowsHide: true,
+        encoding: 'utf-8',
+      }, (error, output) => {
+        if (error) reject(error)
+        else resolve(output)
+      })
     })
-    if (result.status !== 0 || !result.stdout) return null
-    const match = result.stdout.trim().match(/\d+\.\d+\.\d+/)
+    if (!stdout) return null
+    const match = stdout.trim().match(/\d+\.\d+\.\d+/)
     if (!match) return null
     if (fingerprint) versionCache.set(binaryPath, { fingerprint, version: match[0] })
     return match[0]
@@ -216,11 +221,11 @@ function compareOfficeCliVersions(a: string, b: string): number {
   return 0
 }
 
-function copyBundledToUserInstall(bundled: string, installed: string): boolean {
+async function copyBundledToUserInstall(bundled: string, installed: string): Promise<boolean> {
   try {
-    fs.mkdirSync(getOfficeCliInstallDir(), { recursive: true })
-    fs.copyFileSync(bundled, installed)
-    if (process.platform !== 'win32') fs.chmodSync(installed, 0o755)
+    await fs.promises.mkdir(getOfficeCliInstallDir(), { recursive: true })
+    await fs.promises.copyFile(bundled, installed)
+    if (process.platform !== 'win32') await fs.promises.chmod(installed, 0o755)
     return true
   } catch {
     return false
@@ -236,7 +241,7 @@ function copyBundledToUserInstall(bundled: string, installed: string): boolean {
  * wins now, a user install that outranks the bundle is left alone, and an
  * unreadable version never triggers a 33 MB rewrite.
  */
-export function syncInstalledOfficeCli(): OfficeCliSyncResult {
+async function reconcileInstalledOfficeCli(): Promise<OfficeCliSyncResult> {
   const bundled = getOfficeCliBinaryPath()
   const installed = getOfficeCliInstalledBinary()
 
@@ -245,15 +250,17 @@ export function syncInstalledOfficeCli(): OfficeCliSyncResult {
   }
 
   if (!fs.existsSync(installed)) {
-    const bundledVersion = readOfficeCliVersion(bundled)
-    if (!copyBundledToUserInstall(bundled, installed)) {
+    const bundledVersion = await readOfficeCliVersion(bundled)
+    if (!await copyBundledToUserInstall(bundled, installed)) {
       return { copied: false, reason: 'copy-failed', bundledVersion, installedVersion: null }
     }
     return { copied: true, reason: 'missing', bundledVersion, installedVersion: null }
   }
 
-  const bundledVersion = readOfficeCliVersion(bundled)
-  const installedVersion = readOfficeCliVersion(installed)
+  const [bundledVersion, installedVersion] = await Promise.all([
+    readOfficeCliVersion(bundled),
+    readOfficeCliVersion(installed),
+  ])
 
   if (!bundledVersion || !installedVersion) {
     return { copied: false, reason: 'unknown-version', bundledVersion, installedVersion }
@@ -262,10 +269,21 @@ export function syncInstalledOfficeCli(): OfficeCliSyncResult {
     return { copied: false, reason: 'up-to-date', bundledVersion, installedVersion }
   }
 
-  if (!copyBundledToUserInstall(bundled, installed)) {
+  if (!await copyBundledToUserInstall(bundled, installed)) {
     return { copied: false, reason: 'copy-failed', bundledVersion, installedVersion }
   }
   return { copied: true, reason: 'outdated', bundledVersion, installedVersion }
+}
+
+let officeCliSyncInFlight: Promise<OfficeCliSyncResult> | null = null
+
+export function syncInstalledOfficeCli(): Promise<OfficeCliSyncResult> {
+  if (!officeCliSyncInFlight) {
+    officeCliSyncInFlight = reconcileInstalledOfficeCli().finally(() => {
+      officeCliSyncInFlight = null
+    })
+  }
+  return officeCliSyncInFlight
 }
 
 // ===== Cross-platform process-tree termination =====
@@ -440,7 +458,7 @@ function readPngSize(filePath: string): { width: number; height: number } {
  * Call inside app.whenReady(), non-blocking (do not await from the startup path).
  */
 export async function ensureOfficeCliInstalled(): Promise<void> {
-  const sync = syncInstalledOfficeCli()
+  const sync = await syncInstalledOfficeCli()
   if (sync.copied) {
     info('OfficeCli', `Installed bundled officecli | reason=${sync.reason} | version=${sync.bundledVersion}`)
     return
@@ -588,7 +606,7 @@ export async function downloadOfficeCliBinary(): Promise<string> {
   // resolved binary would report the bundle's version instead of the user
   // copy's, which made this button a no-op for as long as ~/.officecli/bin
   // held any runnable file — however stale.
-  const installedVersion = fs.existsSync(installedPath) ? readOfficeCliVersion(installedPath) : null
+  const installedVersion = fs.existsSync(installedPath) ? await readOfficeCliVersion(installedPath) : null
   if (installedVersion && latestVersion && compareOfficeCliVersions(latestVersion, installedVersion) <= 0) {
     info('OfficeCli', `Already up to date | version=${installedVersion} | path=${installedPath}`)
     sendDownloadProgress({ stage: 'done', message: installedVersion, percent: 100 })

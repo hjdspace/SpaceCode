@@ -139,4 +139,62 @@ describe('FactoryMergeDialog', () => {
     )
     expect(wrapper.find('[data-merge-confirm]').attributes('disabled')).toBeDefined()
   })
+
+  it('shows the verification output behind the verdict', () => {
+    const wrapper = mountDialog({
+      preflight: preflight({
+        verify: {
+          status: 'pass',
+          command: 'npm run test:changed',
+          at: '2026-10-28T10:04:00Z',
+          exitCode: 0,
+          detail: 'Tests  64 passed (64)\nDuration  38.24s',
+        },
+      }),
+    })
+
+    const detail = wrapper.find('[data-merge-verify-detail]')
+    expect(detail.exists()).toBe(true)
+    expect(detail.text()).toContain('64 passed')
+    expect(detail.text()).toContain('38.24s')
+    // 短输出不需要展开入口。
+    expect(wrapper.find('[data-merge-verify-toggle]').exists()).toBe(false)
+  })
+
+  it('reads "not run yet" when the preflight has no verification result', () => {
+    const wrapper = mountDialog({ preflight: preflight({ verify: undefined }) })
+    expect(wrapper.find('[data-merge-verify]').text()).toBe('factory.inspector.pending')
+    expect(wrapper.find('[data-merge-verify-detail]').exists()).toBe(false)
+  })
+
+  it('ignores a blank verification output instead of rendering an empty block', () => {
+    const wrapper = mountDialog({
+      preflight: preflight({
+        verify: { status: 'pass', command: 'npm run test', at: '2026-10-28T10:04:00Z', detail: '  \n\n' },
+      }),
+    })
+    expect(wrapper.find('[data-merge-verify-detail]').exists()).toBe(false)
+    expect(wrapper.find('[data-merge-verify-toggle]').exists()).toBe(false)
+  })
+
+  it('collapses a long verification output to its tail and opens it on demand', async () => {
+    const output = Array.from({ length: 9 }, (_, index) => `output line ${index + 1}`).join('\n')
+    const wrapper = mountDialog({
+      preflight: preflight({
+        verify: { status: 'fail', command: 'npm run test:changed', at: '2026-10-28T10:04:00Z', detail: output },
+      }),
+    })
+
+    // 计数与耗时摘要落在输出尾部，折叠态先看这一段。
+    const detail = wrapper.find('[data-merge-verify-detail]')
+    expect(detail.text()).toContain('output line 9')
+    expect(detail.text()).not.toContain('output line 1')
+
+    const toggle = wrapper.find('[data-merge-verify-toggle]')
+    expect(toggle.text()).toBe('factory.merge.verifyExpand')
+    await toggle.trigger('click')
+
+    expect(wrapper.find('[data-merge-verify-detail]').text()).toContain('output line 1')
+    expect(wrapper.find('[data-merge-verify-toggle]').text()).toBe('factory.merge.verifyCollapse')
+  })
 })

@@ -30,6 +30,29 @@
           <X :size="12" />
         </button>
       </div>
+
+      <!-- 配置向导占住看板区域时，它自己占一个页签；关掉它回看板。 -->
+      <div v-if="setupActive" class="run-tab active" data-setup-tab>
+        <button
+          type="button"
+          class="tab-main"
+          role="tab"
+          aria-selected="true"
+          @click="emit('show-board')"
+        >
+          <SlidersHorizontal :size="12" />
+          <span class="tab-label">{{ t('factory.configurePipeline') }}</span>
+        </button>
+        <button
+          type="button"
+          class="tab-close"
+          data-setup-tab-close
+          :title="t('factory.runTabs.close')"
+          @click.stop="emit('show-board')"
+        >
+          <X :size="12" />
+        </button>
+      </div>
     </div>
     <button
       type="button"
@@ -45,18 +68,21 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { Layers, Plus, X } from 'lucide-vue-next'
+import { Layers, Plus, SlidersHorizontal, X } from 'lucide-vue-next'
 import type { FactoryRun } from '@/shared/factory'
 
 defineProps<{
   runs: FactoryRun[]
   activeId: string | null
+  /** 配置向导占住看板区域时，页签条上一个对应的页签，关掉它回看板。 */
+  setupActive?: boolean
 }>()
 
 const emit = defineEmits<{
   select: [id: string]
   close: [id: string]
   'new-run': []
+  'show-board': []
 }>()
 
 const { t } = useI18n()

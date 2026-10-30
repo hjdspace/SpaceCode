@@ -123,7 +123,7 @@ export interface FactoryServiceDeps {
   checkGhAuth(): Promise<FactoryGithubAuthResult>
   /** PR 模式：gh 凭据对目标仓库的写权限；缺省时预检按未知处理。 */
   checkGhRepoWrite?(repo: string): Promise<FactoryPrReadyResult>
-  verifyToken(token: string, repo: string): Promise<FactoryGithubAuthResult>
+  verifyToken(token: string, repo: string, label?: string): Promise<FactoryGithubAuthResult>
   verifyScriptMissing(root: string, command: string): boolean
   secrets: FactorySecretStore
   now?: () => Date
@@ -134,7 +134,7 @@ export interface FactoryService {
   getContext(root: string): Promise<FactorySetupContext>
   runPreflight(root: string, draft: FactorySetupDraft): Promise<FactoryPreflightResult>
   save(root: string, draft: FactorySetupDraft): Promise<FactorySaveResult>
-  testGithubToken(root: string, token: string, repo: string): Promise<FactoryGithubAuthResult>
+  testGithubToken(root: string, token: string, repo: string, label?: string): Promise<FactoryGithubAuthResult>
   checkGhAuth(): Promise<FactoryGithubAuthResult>
   startGhLogin(): Promise<FactoryGhLoginResult>
   githubRepos(source: 'gh' | 'token', token?: string): Promise<FactoryGithubReposResult>
@@ -336,7 +336,7 @@ export function createFactoryService(deps: FactoryServiceDeps): FactoryService {
     getContext,
     runPreflight,
     save,
-    testGithubToken: (_root, token, repo) => deps.verifyToken(token, repo),
+    testGithubToken: (_root, token, repo, label) => deps.verifyToken(token, repo, label),
     checkGhAuth: () => deps.checkGhAuth(),
     startGhLogin: () => deps.startGhLogin?.() ?? Promise.resolve({ ok: false, reason: 'unsupported' }),
     githubRepos: (source, token) =>
@@ -511,7 +511,7 @@ export function registerFactoryIPCHandlers(): void {
     dockerPreflight,
     checkGhAuth: () => defaultCheckGhAuth(),
     checkGhRepoWrite: (repo) => checkGhWriteAccess(repo),
-    verifyToken: (token, repo) => verifyGithubToken(token, repo),
+    verifyToken: (token, repo, label) => verifyGithubToken(token, repo, { label, counts: true }),
     verifyScriptMissing,
     secrets,
   })
@@ -538,7 +538,7 @@ export function registerFactoryIPCHandlers(): void {
     context: (root) => service.getContext(root),
     preflight: (root, draft) => service.runPreflight(root, draft),
     save: (root, draft) => service.save(root, draft),
-    testGithubToken: (root, token, repo) => service.testGithubToken(root, token, repo),
+    testGithubToken: (root, token, repo, label) => service.testGithubToken(root, token, repo, label),
     checkGhAuth: () => service.checkGhAuth(),
     startGhLogin: () => service.startGhLogin(),
     githubRepos: (source, token) => service.githubRepos(source, token),

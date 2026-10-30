@@ -175,4 +175,31 @@ describe('FactoryConfigModal', () => {
     expect(saving.find('[data-config-save]').attributes('disabled')).toBeDefined()
     expect(saving.findAll('button').some((button) => button.attributes('disabled') !== undefined)).toBe(true)
   })
+
+  it('asks for confirmation before restarting setup from the footer', async () => {
+    const wrapper = mountModal()
+    const restart = wrapper.find('[data-config-restart]')
+    expect(restart.text()).toContain('factory.config.restart')
+    expect(wrapper.find('[data-config-restart-confirm]').exists()).toBe(false)
+
+    await restart.trigger('click')
+    const confirm = wrapper.find('[data-config-restart-confirm]')
+    expect(confirm.exists()).toBe(true)
+    expect(confirm.text()).toContain('factory.config.restartHint')
+    // 只是弹提示，还没进向导。
+    expect(wrapper.emitted('restart')).toBeUndefined()
+
+    await wrapper.find('[data-config-restart-cancel]').trigger('click')
+    expect(wrapper.find('[data-config-restart-confirm]').exists()).toBe(false)
+    expect(wrapper.emitted('restart')).toBeUndefined()
+
+    await wrapper.find('[data-config-restart]').trigger('click')
+    await wrapper.find('[data-config-restart-proceed]').trigger('click')
+    expect(wrapper.emitted('restart')).toHaveLength(1)
+  })
+
+  it('keeps restart disabled while saving', () => {
+    const wrapper = mountModal({ saving: true })
+    expect(wrapper.find('[data-config-restart]').attributes('disabled')).toBeDefined()
+  })
 })

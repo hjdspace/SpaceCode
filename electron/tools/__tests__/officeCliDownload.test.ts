@@ -21,9 +21,9 @@ const runtime = vi.hoisted(() => ({
   progress: [] as Array<{ stage: string; message: string; percent: number }>,
 }))
 
-const cp = vi.hoisted(() => ({ spawnSync: vi.fn(), spawn: vi.fn() }))
+const cp = vi.hoisted(() => ({ execFile: vi.fn(), spawnSync: vi.fn(), spawn: vi.fn() }))
 
-vi.mock('child_process', () => ({ spawnSync: cp.spawnSync, spawn: cp.spawn }))
+vi.mock('child_process', () => ({ execFile: cp.execFile, spawnSync: cp.spawnSync, spawn: cp.spawn }))
 
 vi.mock('electron', () => ({
   app: {
@@ -89,9 +89,15 @@ beforeEach(() => {
   runtime.versions.clear()
   runtime.writeStreams.length = 0
   runtime.progress.length = 0
-  cp.spawnSync.mockImplementation((cmd: string) => {
+  cp.execFile.mockImplementation((
+    cmd: string,
+    _args: string[],
+    _options: object,
+    callback: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
     const version = runtime.versions.get(norm(String(cmd)))
-    return version ? { status: 0, stdout: version } : { status: 1, stdout: '' }
+    if (version) callback(null, version, '')
+    else callback(new Error('version probe failed'), '', '')
   })
 })
 
