@@ -622,15 +622,21 @@ export function unfinishedTaskIds(repoRoot: string): Set<string> {
   return ids
 }
 
-/** 未结束运行已领取的 GitHub issue；用于导入列表去重与重复领取拦截。 */
+/**
+ * 未结束运行仍占着的 GitHub issue；用于导入列表去重、重复领取拦截，
+ * 以及判断远端领取评论是否仍然有效。
+ *
+ * 已完成/已放弃（lane=done）的任务不再占用：放弃后 issue 可以重新领取，
+ * 否则被阻塞/放弃的任务会永久占住 issue。
+ */
 export function claimedGithubIssues(repoRoot: string): Map<number, ClaimedIssue> {
   const claimed = new Map<number, ClaimedIssue>()
   for (const run of listRuns(repoRoot)) {
     if (!isUnfinished(run)) continue
     for (const task of readTasks(repoRoot, run.id)) {
-      if (task.source === 'github-issues' && typeof task.issueNumber === 'number') {
-        claimed.set(task.issueNumber, { runId: run.id, taskId: task.id })
-      }
+      if (task.source !== 'github-issues' || typeof task.issueNumber !== 'number') continue
+      if (task.lane === 'done') continue
+      claimed.set(task.issueNumber, { runId: run.id, taskId: task.id })
     }
   }
   return claimed
