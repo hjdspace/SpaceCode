@@ -271,19 +271,21 @@ export async function runImplementation(input: ImplementInput): Promise<Implemen
               ? 'tests.timeout'
               : 'agent.error'
 
-  transitionTask(
-    input.repoRoot,
-    input.runId,
-    task.id,
-    outcome === 'completed'
-      ? verified
-        ? { lane: 'reviewing', stageIdx: 4 }
-        : { lane: 'implementing', stageIdx: 2 }
-      : { lane: 'blocked' },
-    reason,
-    {},
-    { ...(deps.now ? { now: deps.now } : {}) },
-  )
+  if (input.signal.reason !== 'takeover') {
+    transitionTask(
+      input.repoRoot,
+      input.runId,
+      task.id,
+      outcome === 'completed'
+        ? verified
+          ? { lane: 'reviewing', stageIdx: 4 }
+          : { lane: 'implementing', stageIdx: 2 }
+        : { lane: 'blocked' },
+      reason,
+      {},
+      { ...(deps.now ? { now: deps.now } : {}) },
+    )
+  }
 
   if (outcome === 'completed') {
     emit({ taskId: task.id, stage: 'implement', code: 'task.implementation.completed', level: 'ok' })
