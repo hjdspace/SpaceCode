@@ -153,6 +153,16 @@ describe('startGitWatcher (linux) — worktree watch runs in a worker', () => {
 
     expect(probe.sends.filter(s => s.channel === 'git:statusChanged')).toHaveLength(1)
   })
+
+  it('drops Factory worktree changes before they can schedule a parent SCM refresh', async () => {
+    await handlers.watchProject!('/proj')
+    const worker = probe.workers[0]
+
+    worker.emit('message', { type: 'change', filename: '.spacecode/worktrees/bl-1/src/a.ts' })
+    vi.advanceTimersByTime(300)
+
+    expect(probe.sends.filter(s => s.channel === 'git:statusChanged')).toHaveLength(0)
+  })
 })
 
 describe('startWorktreeWorkerWatcher — degradation paths', () => {

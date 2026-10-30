@@ -617,8 +617,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Notification API
-  showNotification: (options: { title: string; message: string }) =>
+  showNotification: (options: { title: string; message: string; sessionId?: string }) =>
     ipcRenderer.send('app:showNotification', options),
+  onNotificationClicked: (callback: (detail: { sessionId: string }) => void) => {
+    const handler = (_: unknown, detail: { sessionId: string }) => callback(detail)
+    ipcRenderer.on('app:notificationClicked', handler)
+    return () => ipcRenderer.removeListener('app:notificationClicked', handler)
+  },
 
   // Preview API — HTTP URL 给 webview；frame URL 给设计预览 iframe 的专用源
   preview: {

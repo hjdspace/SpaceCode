@@ -87,6 +87,7 @@ import { defineAsyncComponent, ref, onMounted, onUnmounted, watch, type Componen
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
+import { useFactoryStore } from '@/stores/factory'
 import { useSettingsStore } from '@/stores/settings'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useFontStore } from '@/stores/font'
@@ -162,6 +163,7 @@ const FileQuickOpen = lazyPage(() => import('./components/layout/FileQuickOpen.v
 
 const appStore = useAppStore()
 const sessionStore = useChatSessionStore()
+const factoryStore = useFactoryStore()
 const settingsStore = useSettingsStore()
 const onboarding = useOnboardingStore()
 const splitLayout = useSplitLayoutStore()
@@ -237,6 +239,21 @@ function revealChatSession(detail: H5RemoteUserMessageDetail) {
 function revealRemoteChatSession(event: Event) {
   revealChatSession((event as CustomEvent<H5RemoteUserMessageDetail>).detail || {})
 }
+
+function revealNotificationSession(detail: { sessionId?: string }) {
+  const sessionId = detail.sessionId
+  if (!sessionId) return
+
+  const task = factoryStore.tasks.find(task => task.takeover?.sessionId === sessionId)
+  if (task) {
+    appStore.openFactoryTab()
+    factoryStore.openTakeoverPanel(task.id)
+    return
+  }
+  revealChatSession({ sessionId })
+}
+
+let removeNotificationClickListener: (() => void) | undefined
 
 // Initialize shortcuts
 const { register } = useShortcuts({
@@ -673,6 +690,7 @@ onMounted(() => {
 
   // 桌面端：手机 H5 发送消息后，打开/激活对应会话，保证主页面同步可见。
   window.addEventListener('h5-remote-user-message', revealRemoteChatSession)
+  removeNotificationClickListener = api.onNotificationClicked(revealNotificationSession)
 
   // 注册 Ctrl+P 全局键盘监听
   document.addEventListener('keydown', onGlobalKeydown, true)
@@ -705,6 +723,7 @@ onUnmounted(() => {
   window.removeEventListener('open-old-skills', handleOpenOldSkills)
   window.removeEventListener('open-mcp-manager', handleOpenMCPManager)
   window.removeEventListener('h5-remote-user-message', revealRemoteChatSession)
+  removeNotificationClickListener?.()
   document.removeEventListener('keydown', onGlobalKeydown, true)
 })
 </script>

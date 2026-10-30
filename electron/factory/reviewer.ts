@@ -178,15 +178,17 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
             ? 'stopped'
             : 'review.error'
 
-  transitionTask(
-    input.repoRoot,
-    input.runId,
-    task.id,
-    finalOutcome === 'approved' ? { lane: 'reviewing', stageIdx: 4 } : { lane: 'blocked' },
-    reason,
-    {},
-    { now },
-  )
+  if (input.signal.reason !== 'takeover') {
+    transitionTask(
+      input.repoRoot,
+      input.runId,
+      task.id,
+      finalOutcome === 'approved' ? { lane: 'reviewing', stageIdx: 4 } : { lane: 'blocked' },
+      reason,
+      {},
+      { now },
+    )
+  }
 
   if (finalOutcome === 'approved') {
     emit({ taskId: task.id, stage: 'review', code: 'review.approved', level: 'ok' })

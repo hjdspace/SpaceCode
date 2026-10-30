@@ -586,7 +586,8 @@ export interface ElectronAPI {
     writeText: (text: string) => Promise<void>
   }
 
-  showNotification: (options: { title: string; message: string }) => void
+  showNotification: (options: { title: string; message: string; sessionId?: string }) => void
+  onNotificationClicked: (callback: (detail: { sessionId: string }) => void) => () => void
 
   preview: {
     getUrl: (filePath: string) => Promise<string | null>

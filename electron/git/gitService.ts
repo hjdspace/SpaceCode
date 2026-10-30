@@ -1433,8 +1433,13 @@ function scheduleStatusNotify(): void {
 }
 
 function isRelevantWorktreeChange(filename: string): boolean {
-  // Ignore .git changes (watched separately) and node_modules
-  return !filename.startsWith('.git') && !filename.startsWith('node_modules')
+  const normalized = filename.replace(/\\/g, '/')
+  return (
+    !normalized.startsWith('.git') &&
+    !normalized.startsWith('node_modules') &&
+    normalized !== '.spacecode/worktrees' &&
+    !normalized.startsWith('.spacecode/worktrees/')
+  )
 }
 
 /**
@@ -1461,7 +1466,9 @@ const postError = (err) => parentPort.postMessage({
 try {
   const watcher = watch(workerData.root, { recursive: true }, (_event, filename) => {
     if (!filename) return;
-    if (filename.startsWith('.git') || filename.startsWith('node_modules')) return;
+    const normalized = filename.replace(/\\\\/g, '/');
+    if (normalized.startsWith('.git') || normalized.startsWith('node_modules')) return;
+    if (normalized === '.spacecode/worktrees' || normalized.startsWith('.spacecode/worktrees/')) return;
     parentPort.postMessage({ type: 'change', filename });
   });
   watcher.on('error', postError);
@@ -1506,8 +1513,9 @@ function startWorktreeWorkerWatcher(projectRoot: string): void {
       workerData: { root: projectRoot },
     })
     worker.unref() // Never keep the app alive just for file watching
-    worker.on('message', (msg: { type?: string; message?: string }) => {
+    worker.on('message', (msg: { type?: string; message?: string; filename?: string }) => {
       if (msg?.type === 'change') {
+        if (typeof msg.filename === 'string' && !isRelevantWorktreeChange(msg.filename)) return
         scheduleStatusNotify()
         return
       }
