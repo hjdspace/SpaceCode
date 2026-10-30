@@ -18,6 +18,7 @@ import { info, warn } from './logger'
 export interface SystemNotificationOptions {
   title: string
   message: string
+  sessionId?: string
   /** 点击通知时聚焦的目标窗口（通常为主窗口） */
   window?: BrowserWindow | null
   /** 系统通知不可用时回调（如 SSH 远程会话无通知守护进程），用于回退到应用内弹窗 */
@@ -197,6 +198,9 @@ export function showSystemNotification(options: SystemNotificationOptions): bool
         if (target.isMinimized()) target.restore()
         target.show()
         target.focus()
+        if (options.sessionId) {
+          target.webContents.send('app:notificationClicked', { sessionId: options.sessionId })
+        }
       }
     })
 
@@ -224,8 +228,9 @@ export function showSystemNotification(options: SystemNotificationOptions): bool
  * showNotificationPopup 弹出的置顶提醒窗口。
  */
 export function registerNotificationIPCHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.on('app:showNotification', (_event, options: { title: string; message: string }) => {
+  ipcMain.on('app:showNotification', (_event, options: { title: string; message: string; sessionId?: string }) => {
     if (!options || typeof options.title !== 'string' || typeof options.message !== 'string') return
+    const sessionId = typeof options.sessionId === 'string' ? options.sessionId : undefined
     const win = getWindow()
     const winState = win && !win.isDestroyed()
       ? `focused=${win.isFocused()} visible=${win.isVisible()} minimized=${win.isMinimized()}`
@@ -235,9 +240,15 @@ export function registerNotificationIPCHandlers(getWindow: () => BrowserWindow |
     showSystemNotification({
       title: options.title,
       message: options.message,
+      ...(sessionId ? { sessionId } : {}),
       window: win,
       onFailed: () => {
-        showNotificationPopup({ title: options.title, message: options.message, window: win })
+        showNotificationPopup({
+          title: options.title,
+          message: options.message,
+          ...(sessionId ? { sessionId } : {}),
+          window: win,
+        })
       },
     })
   })
@@ -323,6 +334,9 @@ export function showNotificationPopup(options: SystemNotificationOptions): void 
         if (win.isMinimized()) win.restore()
         win.show()
         win.focus()
+        if (options.sessionId) {
+          win.webContents.send('app:notificationClicked', { sessionId: options.sessionId })
+        }
       }
       if (!popup.isDestroyed()) popup.close()
     })
