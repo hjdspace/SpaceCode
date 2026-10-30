@@ -66,7 +66,7 @@ export const factoryNamespace = defineNamespace({
       res: null as unknown as FactorySaveResult,
     },
     testGithubToken: {
-      req: [] as unknown as [repoRoot: string, token: string, repo: string],
+      req: [] as unknown as [repoRoot: string, token: string, repo: string, label?: string],
       res: null as unknown as FactoryGithubAuthResult,
     },
     checkGhAuth: {
