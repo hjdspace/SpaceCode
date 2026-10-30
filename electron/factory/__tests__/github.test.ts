@@ -17,7 +17,7 @@ describe('verifyGithubToken', () => {
     const fetchImpl = vi.fn<GithubFetch>()
       .mockResolvedValueOnce(response(200, { login: 'hjdspace' }))
       .mockResolvedValueOnce(response(200, { full_name: 'hjdspace/SpaceCode', private: true }))
-    const result = await verifyGithubToken('ghp_x', 'hjdspace/SpaceCode', fetchImpl)
+    const result = await verifyGithubToken('ghp_x', 'hjdspace/SpaceCode', { fetch: fetchImpl })
     expect(result).toMatchObject({ ok: true, reason: 'ok', login: 'hjdspace', private: true })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     expect(fetchImpl.mock.calls[0][0]).toContain('/user')
@@ -25,14 +25,14 @@ describe('verifyGithubToken', () => {
 
   it('classifies 401 as invalid-token and stops before repo lookup', async () => {
     const fetchImpl = vi.fn<GithubFetch>().mockResolvedValueOnce(response(401, { message: 'Bad credentials' }))
-    const result = await verifyGithubToken('bad', 'hjdspace/SpaceCode', fetchImpl)
+    const result = await verifyGithubToken('bad', 'hjdspace/SpaceCode', { fetch: fetchImpl })
     expect(result).toMatchObject({ ok: false, reason: 'invalid-token' })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
   it('verifies a token without a repository so the repo list can drive selection', async () => {
     const fetchImpl = vi.fn<GithubFetch>().mockResolvedValueOnce(response(200, { login: 'hjdspace' }))
-    await expect(verifyGithubToken('ghp_x', '', fetchImpl)).resolves.toMatchObject({
+    await expect(verifyGithubToken('ghp_x', '', { fetch: fetchImpl })).resolves.toMatchObject({
       ok: true,
       reason: 'ok',
       login: 'hjdspace',
@@ -44,19 +44,73 @@ describe('verifyGithubToken', () => {
     const fetchImpl = vi.fn<GithubFetch>()
       .mockResolvedValueOnce(response(200, { login: 'hjdspace' }))
       .mockResolvedValueOnce(response(404, { message: 'Not Found' }))
-    const result = await verifyGithubToken('ghp_x', 'hjdspace/private', fetchImpl)
-    expect(result).toMatchObject({ ok: false, reason: 'repo-permission' })
+    const result = await verifyGithubToken('ghp_x', 'hjdspace/private', { fetch: fetchImpl })
+    expect(result).toMatchObject({ ok: false, reason: 'repo-permission', status: 404 })
+  })
+
+  it('keeps the HTTP status so the wizard can explain 401/403/404', async () => {
+    const fetchImpl = vi.fn<GithubFetch>().mockResolvedValueOnce(response(401, { message: 'Bad credentials' }))
+    await expect(verifyGithubToken('bad', 'hjdspace/SpaceCode', { fetch: fetchImpl })).resolves.toMatchObject({
+      ok: false,
+      reason: 'invalid-token',
+      status: 401,
+    })
+  })
+
+  it('counts open issues even when no claim label is given', async () => {
+    const fetchImpl = vi.fn<GithubFetch>()
+      .mockResolvedValueOnce(response(200, { login: 'hjdspace' }))
+      .mockResolvedValueOnce(response(200, { full_name: 'hjdspace/SpaceCode', private: true }))
+      .mockResolvedValueOnce(response(200, { total_count: 12 }))
+    const result = await verifyGithubToken('ghp_x', 'hjdspace/SpaceCode', { counts: true, fetch: fetchImpl })
+    expect(result).toMatchObject({ ok: true, issueCount: 12 })
+    expect(result.labelCount).toBeUndefined()
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it('as well as the label hit count when a label is given', async () => {
+    const fetchImpl = vi.fn<GithubFetch>()
+      .mockResolvedValueOnce(response(200, { login: 'hjdspace' }))
+      .mockResolvedValueOnce(response(200, { full_name: 'hjdspace/SpaceCode', private: true }))
+      .mockResolvedValueOnce(response(200, { total_count: 12 }))
+      .mockResolvedValueOnce(response(200, { total_count: 3 }))
+    const result = await verifyGithubToken('ghp_x', 'hjdspace/SpaceCode', {
+      counts: true,
+      label: 'ready-for-agent',
+      fetch: fetchImpl,
+    })
+    expect(result).toMatchObject({ ok: true, issueCount: 12, labelCount: 3 })
+    expect(decodeURIComponent(fetchImpl.mock.calls[2][0])).toContain(
+      'search/issues?q=repo:hjdspace/SpaceCode is:issue is:open',
+    )
+    expect(decodeURIComponent(fetchImpl.mock.calls[3][0])).toContain('label:ready-for-agent')
+  })
+
+  it('stays green when the count lookup is rate-limited', async () => {
+    const fetchImpl = vi.fn<GithubFetch>()
+      .mockResolvedValueOnce(response(200, { login: 'hjdspace' }))
+      .mockResolvedValueOnce(response(200, { full_name: 'hjdspace/SpaceCode', private: false }))
+      .mockResolvedValueOnce(response(403, { message: 'API rate limit exceeded' }))
+      .mockRejectedValueOnce(new Error('ETIMEDOUT'))
+    const result = await verifyGithubToken('ghp_x', 'hjdspace/SpaceCode', {
+      counts: true,
+      label: 'ready-for-agent',
+      fetch: fetchImpl,
+    })
+    expect(result).toMatchObject({ ok: true, reason: 'ok', repo: 'hjdspace/SpaceCode' })
+    expect(result.issueCount).toBeUndefined()
+    expect(result.labelCount).toBeUndefined()
   })
 
   it('classifies thrown requests as network', async () => {
     const fetchImpl = vi.fn<GithubFetch>().mockRejectedValueOnce(new Error('ENOTFOUND'))
-    const result = await verifyGithubToken('ghp_x', 'hjdspace/SpaceCode', fetchImpl)
+    const result = await verifyGithubToken('ghp_x', 'hjdspace/SpaceCode', { fetch: fetchImpl })
     expect(result).toMatchObject({ ok: false, reason: 'network' })
   })
 
   it('rejects empty tokens without touching the network', async () => {
     const fetchImpl = vi.fn<GithubFetch>()
-    const result = await verifyGithubToken('  ', 'hjdspace/SpaceCode', fetchImpl)
+    const result = await verifyGithubToken('  ', 'hjdspace/SpaceCode', { fetch: fetchImpl })
     expect(result).toMatchObject({ ok: false, reason: 'invalid-token' })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
