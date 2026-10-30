@@ -125,6 +125,7 @@ function sendWaitingNotice(
   api.showNotification({
     title: String(i18n.global.t('chat.waitingNotifyTitle', { session: env.sessionTitle() })),
     message,
+    sessionId,
   })
   return 'sent'
 }
