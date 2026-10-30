@@ -15,6 +15,7 @@ import type {
   FactoryGhLoginResult,
   FactoryMergePreflightResult,
   FactoryMergeResult,
+  FactoryPlanResult,
   FactoryPreflightResult,
   FactoryReturnResult,
   FactoryRunCreateResult,
@@ -65,6 +66,7 @@ const failedIssueClaim: FactoryGithubClaimResult = { ok: false, reason: 'config-
 const failedWritebackRetry: FactoryGithubWritebackRetryResult = { ok: false, reason: 'not-applicable' }
 const failedControl: FactoryRunControlResult = { ok: false, error: 'run-not-found' }
 const failedConfigSave: FactoryConfigSaveResult = { ok: false, error: 'write-failed' }
+const failedPlan: FactoryPlanResult = { ok: false, error: 'agent-error' }
 
 const invokeApi = createRendererApi(
   factoryNamespace.channels,
@@ -93,6 +95,7 @@ const invokeApi = createRendererApi(
     backlogUpdate: () => emptyBacklog,
     backlogDelete: () => emptyBacklog,
     backlogMove: () => emptyBacklog,
+    plan: () => failedPlan,
     runCreate: () => failedRun,
     runGet: () => null,
     runList: () => [],
