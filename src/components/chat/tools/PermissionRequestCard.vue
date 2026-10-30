@@ -127,6 +127,11 @@ interface Props {
   toolUseId: string
   toolName: string
   input: Record<string, unknown>
+  /**
+   * 卡片所属的会话。嵌入式面板（看板接管面板、侧边任务）显示的会话不是
+   * currentSessionId，缺这一层就会把应答送到用户正在看的另一条会话上。
+   */
+  sessionId?: string
 }
 
 const props = defineProps<Props>()
@@ -193,7 +198,7 @@ const formattedInput = computed(() =>
 // 引擎在 can_use_tool 里随请求附带 permission_suggestions —— 那才是"始终允许"的内容。
 // 没有它就没有任何可落地的规则，按钮也就无从生效，所以按它驱动显隐，而不是按工具名猜。
 const permissionSuggestions = computed(
-  () => turnStore.getPendingPermissionForToolUse(props.toolUseId)?.permissionSuggestions,
+  () => turnStore.getPendingPermissionForToolUse(props.toolUseId, props.sessionId)?.permissionSuggestions,
 )
 
 const showAlwaysAllow = computed(() => !!permissionSuggestions.value?.length)
@@ -226,7 +231,10 @@ async function handleAllow() {
     await turnStore.allowPermission(
       props.messageId, 
       props.toolUseId, 
-      props.input
+      props.input,
+      undefined,
+      undefined,
+      props.sessionId
     )
     status.value = 'completed'
   } catch (error) {
@@ -245,7 +253,9 @@ async function handleDeny() {
     await turnStore.denyPermission(
       props.messageId, 
       props.toolUseId, 
-      t('permission.card.actions.denied')
+      t('permission.card.actions.denied'),
+      {},
+      props.sessionId
     )
     status.value = 'denied'
   } catch (error) {
@@ -268,7 +278,8 @@ async function handleAlwaysAllow() {
       props.toolUseId,
       props.input,
       'user_permanent',
-      suggestions
+      suggestions,
+      props.sessionId
     )
     status.value = 'completed'
   } catch (error) {
