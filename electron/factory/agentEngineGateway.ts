@@ -73,6 +73,26 @@ function buildConfig(options: AgentRunOptions, deps: EngineAgentDeps): EngineSes
   return config
 }
 
+/**
+ * 生产环境的 AgentPort：延迟加载引擎模块，避免主进程启动时就初始化引擎。
+ * 工厂实现/审查/修复与规划阶段共用同一套入口。
+ */
+export async function createDefaultAgentPort(): Promise<AgentPort> {
+  const [engine, factory, sessionConfig] = await Promise.all([
+    import('../engine/engineGateway'),
+    import('../engine/engines/EngineFactory'),
+    import('../engine/engineSessionConfig'),
+  ])
+  return createEngineAgentPort({
+    loadSessionConfig: sessionConfig.loadEngineSessionConfig,
+    resolveModelAlias: sessionConfig.resolveEngineModelAlias,
+    startSession: (sessionId, config) => engine.engineGateway.startSession(sessionId, config),
+    sendMessage: (sessionId, content) => engine.engineGateway.sendMessage(sessionId, content),
+    stop: (sessionId) => engine.engineGateway.stop(sessionId),
+    onRouteEvent: (listener) => factory.EngineFactory.onRouteEvent(listener),
+  })
+}
+
 export function createEngineAgentPort(deps: EngineAgentDeps): AgentPort {
   const listeners = new Set<AgentEventListener>()
   const sessions = new Set<string>()
