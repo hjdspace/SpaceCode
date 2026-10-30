@@ -14,7 +14,16 @@
       <span class="lane-dot" :class="{ pulse: pulsing }" data-card-dot />
       <span v-if="task.issueNumber !== undefined" class="card-num">#{{ task.issueNumber }}</span>
       <span v-else class="card-local">{{ t('factory.cardLocal') }}</span>
-      <span v-if="takenOver" class="takeover-badge" data-card-takeover>{{ t('factory.cardTakeover') }}</span>
+      <button
+        v-if="takenOver"
+        class="takeover-badge"
+        data-card-takeover
+        :aria-label="t('factory.takeoverPanel.badgeAria')"
+        @click.stop="emit('action', task.id, 'takeover-panel')"
+      >
+        <MessageSquare :size="10" />
+        {{ t('factory.cardTakeover') }}
+      </button>
       <span v-else class="status-chip">{{ chipText }}</span>
     </div>
 
@@ -91,7 +100,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Folder, GitBranch, GitPullRequest, Lock } from 'lucide-vue-next'
+import { AlertTriangle, Folder, GitBranch, GitPullRequest, Lock, MessageSquare } from 'lucide-vue-next'
 import type { FactoryRun, FactoryTask } from '@/shared/factory'
 import {
   cardActions,
@@ -231,11 +240,17 @@ const attentionText = computed(() => {
 }
 
 .takeover-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   margin-left: auto;
   padding: 1px 6px;
+  border: none;
   border-radius: var(--radius-full);
   background: var(--text-primary);
   color: var(--bg-elevated);
+  font: inherit;
+  cursor: pointer;
 }
 
 .card-title {
