@@ -44,19 +44,70 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 }
 
+/** 校验 token 时可选的附加能力：统计 issue 数供向导展示。 */
+export interface VerifyGithubTokenOptions {
+  /** 给出时额外统计该标签的命中数。 */
+  label?: string
+  /** 测试连接时才统计（预检不为此多打两次搜索 API）。 */
+  counts?: boolean
+  fetch?: GithubFetch
+}
+
+function isOkResponse(res: GithubFetchResponse): boolean {
+  return res.status >= 200 && res.status < 300
+}
+
+/** 搜索 API 的 total_count 只用于展示；限流/失败不能把校验本身判失败。 */
+async function fetchCount(token: string, query: string, fetchImpl: GithubFetch): Promise<number | undefined> {
+  try {
+    const res = await fetchImpl(`${API_BASE}/search/issues?q=${encodeURIComponent(query)}&per_page=1`, {
+      headers: headers(token),
+    })
+    if (!isOkResponse(res)) return undefined
+    const total = asRecord(await res.json()).total_count
+    return typeof total === 'number' ? total : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function fetchIssueCounts(
+  token: string,
+  repo: string,
+  label: string | undefined,
+  fetchImpl: GithubFetch,
+): Promise<Pick<FactoryGithubAuthResult, 'issueCount' | 'labelCount'>> {
+  const scoped = `repo:${repo} is:issue is:open`
+  // 带空格的标签必须加引号才是合法的搜索限定符。
+  const labelQuery = label ? (/[\s"]/.test(label) ? `label:"${label.replace(/"/g, '\\"')}"` : `label:${label}`) : null
+  const [issueCount, labelCount] = await Promise.all([
+    fetchCount(token, scoped, fetchImpl),
+    labelQuery ? fetchCount(token, `${scoped} ${labelQuery}`, fetchImpl) : Promise.resolve(undefined),
+  ])
+  return {
+    ...(issueCount === undefined ? {} : { issueCount }),
+    ...(labelCount === undefined ? {} : { labelCount }),
+  }
+}
+
 /** 校验 token 与目标仓库可读性；不检查写权限。 */
 export async function verifyGithubToken(
   token: string,
   repo: string,
-  fetchImpl: GithubFetch = defaultFetch,
+  options: VerifyGithubTokenOptions = {},
 ): Promise<FactoryGithubAuthResult> {
+  const fetchImpl = options.fetch ?? defaultFetch
   const trimmed = token.trim()
   if (!trimmed) return { ok: false, reason: 'invalid-token' }
 
   try {
     const userRes = await fetchImpl(`${API_BASE}/user`, { headers: headers(trimmed) })
-    if (userRes.status === 401 || userRes.status === 403) return { ok: false, reason: 'invalid-token' }
-    if (userRes.status < 200 || userRes.status >= 300) return { ok: false, reason: 'network' }
+    if (userRes.status === 401 || userRes.status === 403) {
+      return { ok: false, reason: 'invalid-token', status: userRes.status }
+    }
+    if (!isOkResponse(userRes)) {
+      return { ok: false, reason: 'network', status: userRes.status }
+    }
     const user = asRecord(await userRes.json())
     const login = typeof user.login === 'string' ? user.login : undefined
     // 向导的仓库来自「凭据可访问的仓库」列表，校验阶段可以不带仓库。
@@ -64,13 +115,21 @@ export async function verifyGithubToken(
 
     const repoRes = await fetchImpl(`${API_BASE}/repos/${repo}`, { headers: headers(trimmed) })
     if (repoRes.status === 404 || repoRes.status === 403) {
-      return { ok: false, reason: 'repo-permission', ...(login ? { login } : {}) }
+      return {
+        ok: false,
+        reason: 'repo-permission',
+        ...(login ? { login } : {}),
+        status: repoRes.status,
+      }
     }
-    if (repoRes.status < 200 || repoRes.status >= 300) {
-      return { ok: false, reason: 'network', ...(login ? { login } : {}) }
+    if (!isOkResponse(repoRes)) {
+      return { ok: false, reason: 'network', ...(login ? { login } : {}), status: repoRes.status }
     }
     const repoBody = asRecord(await repoRes.json())
     const permissions = asRecord(repoBody.permissions)
+    const counts = options.counts
+      ? await fetchIssueCounts(trimmed, repo, options.label?.trim(), fetchImpl)
+      : {}
     return {
       ok: true,
       reason: 'ok',
@@ -78,6 +137,7 @@ export async function verifyGithubToken(
       repo,
       private: repoBody.private === true,
       canPush: permissions.push === true,
+      ...counts,
     }
   } catch {
     return { ok: false, reason: 'network' }
