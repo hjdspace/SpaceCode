@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canAdvance,
+  canJumpToStep,
   defaultDraft,
   draftFromConfig,
   setupStepErrors,
@@ -108,6 +109,39 @@ describe('setupStepErrors', () => {
     const draft = defaultDraft(context())
     expect(canAdvance(1, draft, context())).toBe(true)
     expect(canAdvance(4, { ...draft, commands: { verify: '' } }, context())).toBe(false)
+  })
+})
+
+/** 步骤条是整页向导里的导航：能回到已填过的步骤，但不能越过还没校验通过的步骤。 */
+describe('canJumpToStep', () => {
+  it('lets the user jump back regardless of the step being left', () => {
+    const halfFilledGithub = {
+      ...defaultDraft(context()),
+      tracker: { type: 'github-issues' as const, mergeMode: 'local' as const, repo: '', label: '' },
+    }
+    expect(canJumpToStep(1, halfFilledGithub, context())).toBe(true)
+    expect(canJumpToStep(2, halfFilledGithub, context())).toBe(true)
+  })
+
+  it('reaches the last step once every earlier step passes', () => {
+    expect(canJumpToStep(4, defaultDraft(context()), context())).toBe(true)
+  })
+
+  it('refuses to cross a step whose own validation fails', () => {
+    const draft = defaultDraft(context())
+    const noEngine = { ...draft, agent: {} }
+    expect(canJumpToStep(2, noEngine, context())).toBe(false)
+    expect(canJumpToStep(4, noEngine, context())).toBe(false)
+
+    const notGit = { ...draft, sandbox: { type: 'worktree' as const } }
+    const repoContext = context({ repo: { ...context().repo, isGitRepo: false } })
+    expect(canJumpToStep(2, notGit, repoContext)).toBe(true)
+    expect(canJumpToStep(3, notGit, repoContext)).toBe(false)
+  })
+
+  it('does not gate the target step itself, only the ones before it', () => {
+    const emptyVerify = { ...defaultDraft(context()), commands: { verify: '' } }
+    expect(canJumpToStep(4, emptyVerify, context())).toBe(true)
   })
 })
 
