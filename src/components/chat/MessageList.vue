@@ -17,6 +17,7 @@
           <div v-if="item.type === 'user-group'" :data-minimap-id="item.group!.messages[0].id" class="minimap-anchor">
             <MessageItem
               :message="item.group!.messages[0]"
+              :session-id="props.sessionId"
               :can-rewind="mode !== 'design' && item.group!.messages[0].id !== props.messages[props.messages.length - 1]?.id"
               @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
               @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
@@ -29,6 +30,7 @@
             <AgentTimeline
               :messages="item.group!.messages"
               :dialogs="dialogsForGroup(item.group!)"
+              :session-id="props.sessionId"
               :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
               :mode="mode === 'design' ? 'design' : undefined"
               @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
