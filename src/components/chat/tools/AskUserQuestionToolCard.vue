@@ -154,6 +154,8 @@ interface Question {
 
 const props = defineProps<{
   toolCall: ToolCall
+  /** 卡片所属会话；嵌入式面板里它不是 currentSessionId。 */
+  sessionId?: string
 }>()
 
 const emit = defineEmits<{
@@ -184,7 +186,7 @@ const questions = computed<Question[]>(() => {
  *   2) 用户连续点提交导致重复 control_response
  */
 const isPending = computed(() =>
-  turnStore.hasPendingPermissionForToolUse(props.toolCall.id),
+  turnStore.hasPendingPermissionForToolUse(props.toolCall.id, props.sessionId),
 )
 
 /**
