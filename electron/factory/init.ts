@@ -38,22 +38,37 @@ const PROMPT_SKELETONS: Record<FactoryPromptKey, string> = {
 You are the planner for one run of the factory pipeline.
 
 ## Input
-- Read open tasks from the configured tracker (issue label or local backlog).
-- Skip tasks that are already done, cancelled, or blocked on another task.
+Candidate tasks come from the configured tracker ({{TRACKER}}). Only plan tasks from this list.
+Each candidate id is stable; never invent or rename ids.
+
+<candidate-tasks>
+{{TASK_CANDIDATES}}
+</candidate-tasks>
 
 ## Rules
-- Only propose tasks that can run in parallel in separate worktrees.
-- Give each task a stable, lowercase branch slug (kebab-case).
+- Pick only tasks that can run in parallel in separate worktrees.
+- A task is blocked when it needs code, infrastructure, or an API shape that another
+  candidate introduces, or when it touches the same files and would conflict.
+- Put blocked tasks in \`dependsOn\` instead of dropping them silently; dependencies must
+  point to tasks included in this plan, and dependency cycles are rejected.
+- Select at most {{MAX_TASKS}} tasks. Prefer fewer, unblocked tasks over a large batch.
+- Do not write code, run commands, or modify files.
 
 ## Structured output
 Emit exactly one \`<plan>\` block and nothing after it:
 
 <plan>
-{ "tasks": [ { "issueNumber": 412, "title": "...", "parallelizable": true, "branchSlug": "session-refresh", "dependsOn": [] } ] }
+{ "tasks": [ { "id": "bl-1", "parallelizable": true, "dependsOn": [] } ] }
 </plan>
 
-${COMMON_FOOTER}`,
+Use an empty list when nothing is ready: \`<plan>{"tasks": []}</plan>\`.
 
+## Working agreement
+- Base branch: {{SOURCE_BRANCH}}; target branch: {{TARGET_BRANCH}}.
+- This stage is read-only: never commit, push, or modify files.
+- End your turn with exactly:
+  <promise>COMPLETE</promise>
+`,
   implement: `# Implement
 
 You are the implementer. Work only inside the task worktree on {{SOURCE_BRANCH}}.
