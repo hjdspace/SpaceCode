@@ -16,8 +16,8 @@ import { transitionTask } from '../runtime'
 import { createFactoryRunner, type FactoryRunner, type FactoryRunnerDeps } from '../factoryRunner'
 import { factorySessionId } from '../sessionId'
 import { worktreeAbsolutePath, type GitRunner } from '../worktree'
-import type { AgentPort } from '../agentEngineGateway'
-import type { ImplementInput, ImplementationResult } from '../implementer'
+import type { AgentPort, AgentTurn } from '../agentEngineGateway'
+import type { ImplementInput } from '../implementer'
 import type { ReviewInput } from '../reviewer'
 import type { BuildPromptInput } from '../prompt'
 import type { FactoryTakeoverSession, FactoryTestRun } from '@/shared/factory'
@@ -58,6 +58,28 @@ function agent(calls: AgentCalls = { runs: [], stops: [] }): AgentPort {
     },
     stop: async (sessionId) => {
       calls.stops.push(sessionId)
+    },
+    onEvent: () => () => {},
+  }
+}
+
+/** 模拟等待工具授权的引擎：只有宿主 stop 这个会话，挂起的回合才会结算。 */
+function authorizationBlockedAgent(calls: AgentCalls): AgentPort {
+  const pending = new Map<string, (turn: AgentTurn) => void>()
+  return {
+    run: async (sessionId, prompt, options) => {
+      calls.runs.push({
+        sessionId,
+        prompt,
+        cwd: options.cwd,
+        permissionMode: String(options.permissionMode),
+      })
+      return await new Promise<AgentTurn>((resolve) => pending.set(sessionId, resolve))
+    },
+    stop: async (sessionId) => {
+      calls.stops.push(sessionId)
+      pending.get(sessionId)?.({ text: 'stopped', isError: true, inputTokens: 0, outputTokens: 0 })
+      pending.delete(sessionId)
     },
     onEvent: () => () => {},
   }
@@ -197,6 +219,7 @@ describe('takeover', () => {
 
     const snapshot = readRunSnapshot(dir, runId)!
     expect(snapshot.tasks.find((task) => task.id === 'bl-2')).toMatchObject({ lane: 'queued' })
+    expect(snapshot.tasks.find((task) => task.id === 'bl-2')?.takeover).toBeUndefined()
     expect(runner.readEvents(dir, runId).some((event) => event.code === 'scheduler.claimed')).toBe(false)
   })
 
@@ -209,34 +232,55 @@ describe('takeover', () => {
     expect(await runner.takeoverTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'no-worktree' })
   })
 
-  it('waits for a running background turn before handing over (single driver)', async () => {
+  it('stops an authorization-blocked implementation turn and hands over in the same lane', async () => {
     seed()
-    const executed: Executed = { inputs: [], reviews: [], prompts: [], pushes: [] }
-    let release: (() => void) | null = null
-    const runner = makeRunner(
-      {
-        runImplementation: async (input): Promise<ImplementationResult> => {
-          executed.inputs.push(input)
-          await new Promise<void>((resolve) => {
-            release = resolve
-          })
-          return { outcome: 'completed', iterations: 1, inputTokens: 1, outputTokens: 1 }
-        },
-      },
-      executed,
-    )
-    await runner.startTask(dir, runId, 'bl-1', {})
+    const calls: AgentCalls = { runs: [], stops: [] }
+    const runner = makeRunner({
+      agentFactory: async () => authorizationBlockedAgent(calls),
+      runImplementation: undefined,
+    })
+    expect((await runner.startTask(dir, runId, 'bl-1', {})).ok).toBe(true)
     mkdirSync(join(dir, '.spacecode', 'worktrees', 'bl-1'), { recursive: true })
+    expect(calls.runs.map((call) => call.sessionId)).toContain(factorySessionId('fac-run-1-bl-1-impl'))
 
-    const takeover = runner.takeoverTask(dir, runId, 'bl-1')
-    await sleep(50)
-    expect(executed.pushes).toHaveLength(0)
+    const result = await Promise.race([
+      runner.takeoverTask(dir, runId, 'bl-1'),
+      sleep(500).then(() => ({ ok: false as const, error: 'takeover-timeout' as const })),
+    ])
 
-    ;(release as (() => void) | null)?.()
-    const result = await takeover
     expect(result.ok).toBe(true)
-    expect(executed.inputs).toHaveLength(1)
-    expect(executed.pushes).toHaveLength(1)
+    if (!result.ok) return
+    expect(calls.stops).toContain(factorySessionId('fac-run-1-bl-1-impl'))
+    expect(result.snapshot.tasks[0]).toMatchObject({
+      lane: 'implementing',
+      takeover: { sessionId: factorySessionId('fac-run-1-bl-1-takeover') },
+    })
+  })
+
+  it('stops an authorization-blocked review turn and hands over in the same lane', async () => {
+    seed()
+    withWorktree('reviewing')
+    transitionTask(dir, runId, 'bl-1', { lane: 'blocked' }, 'app.restarted', {})
+    const calls: AgentCalls = { runs: [], stops: [] }
+    const runner = makeRunner({
+      agentFactory: async () => authorizationBlockedAgent(calls),
+      runReview: undefined,
+    })
+    expect((await runner.retryTask(dir, runId, 'bl-1')).ok).toBe(true)
+    expect(calls.runs.map((call) => call.sessionId)).toContain(factorySessionId('fac-run-1-bl-1-review-1'))
+
+    const result = await Promise.race([
+      runner.takeoverTask(dir, runId, 'bl-1'),
+      sleep(500).then(() => ({ ok: false as const, error: 'takeover-timeout' as const })),
+    ])
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(calls.stops).toContain(factorySessionId('fac-run-1-bl-1-review-1'))
+    expect(result.snapshot.tasks[0]).toMatchObject({
+      lane: 'reviewing',
+      takeover: { sessionId: factorySessionId('fac-run-1-bl-1-takeover') },
+    })
   })
 
   it('hands the briefing to the takeover session engine so the panel can reply', async () => {
