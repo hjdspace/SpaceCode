@@ -29,6 +29,8 @@ import type {
   FactoryMergePreflight,
   FactoryMergeResult,
   FactoryGithubRepo,
+  FactoryPlanError,
+  FactoryPlanResult,
   FactoryPreflightResult,
   FactoryReviewCommentInput,
   FactoryRun,
@@ -187,6 +189,8 @@ export const useFactoryStore = defineStore('factory', () => {
 
   const creatingRun = ref(false)
   const createRunError = ref<FactoryRunError | null>(null)
+  const planning = ref(false)
+  const planError = ref<FactoryPlanError | null>(null)
 
   // 运行控制：暂停/恢复与配置弹窗；保存时带 revision 做乐观并发
   const pausing = ref(false)
@@ -619,6 +623,7 @@ export const useFactoryStore = defineStore('factory', () => {
     root: string,
     issueNumbers: number[],
     concurrency?: number,
+    dependencies?: Record<string, string[]>,
   ): Promise<boolean> {
     githubClaiming.value = true
     githubClaimError.value = null
@@ -626,6 +631,7 @@ export const useFactoryStore = defineStore('factory', () => {
       const result: FactoryGithubClaimResult = await api.factory.githubClaim(root, {
         issueNumbers,
         ...(concurrency === undefined ? {} : { concurrency }),
+        ...(dependencies === undefined ? {} : { dependencies }),
       })
       if (!result.ok) {
         githubClaimError.value = {
@@ -846,13 +852,19 @@ export const useFactoryStore = defineStore('factory', () => {
     if (next) await selectRun(root, next.id)
   }
 
-  async function createRun(root: string, taskIds: string[], concurrency?: number): Promise<boolean> {
+  async function createRun(
+    root: string,
+    taskIds: string[],
+    concurrency?: number,
+    dependencies?: Record<string, string[]>,
+  ): Promise<boolean> {
     creatingRun.value = true
     createRunError.value = null
     try {
       const result = await api.factory.runCreate(root, {
         taskIds,
         ...(concurrency === undefined ? {} : { concurrency }),
+        ...(dependencies === undefined ? {} : { dependencies }),
       })
       if (!result.ok) {
         const ids = [...(result.duplicates ?? []), ...(result.missing ?? [])].join(', ')
@@ -873,6 +885,25 @@ export const useFactoryStore = defineStore('factory', () => {
       return false
     } finally {
       creatingRun.value = false
+    }
+  }
+
+  /** 规划只是预览；确认创建运行前不落任何运行目录。 */
+  async function requestPlan(root: string, candidateIds: string[]): Promise<FactoryPlanResult> {
+    planning.value = true
+    planError.value = null
+    try {
+      const result: FactoryPlanResult = await api.factory.plan(root, { candidateIds })
+      if (!result.ok) {
+        planError.value = result.error
+        return result
+      }
+      return result
+    } catch {
+      planError.value = 'agent-error'
+      return { ok: false, error: 'agent-error' }
+    } finally {
+      planning.value = false
     }
   }
 
@@ -1396,6 +1427,7 @@ export const useFactoryStore = defineStore('factory', () => {
   function clearNewRunErrors(): void {
     createRunError.value = null
     githubClaimError.value = null
+    planError.value = null
   }
 
   function reset(): void {
@@ -1448,6 +1480,8 @@ export const useFactoryStore = defineStore('factory', () => {
     inspectorOpen.value = true
     creatingRun.value = false
     createRunError.value = null
+    planning.value = false
+    planError.value = null
     pausing.value = false
     configOpen.value = false
     configDraft.value = null
@@ -1535,6 +1569,8 @@ export const useFactoryStore = defineStore('factory', () => {
     inspectorOpen,
     creatingRun,
     createRunError,
+    planning,
+    planError,
     pausing,
     configOpen,
     configDraft,
@@ -1613,6 +1649,7 @@ export const useFactoryStore = defineStore('factory', () => {
     selectRun,
     closeRun,
     createRun,
+    requestPlan,
     pauseRun,
     resumeRun,
     openConfig,
