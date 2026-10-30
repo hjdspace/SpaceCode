@@ -120,6 +120,11 @@ function toPlain<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+/** 登录轮询间隔：`gh auth status` 单次可能耗时数秒，间隔不能小于它。 */
+const GH_LOGIN_POLL_INTERVAL_MS = 3000
+/** 授权流程（用户在浏览器里操作）的最长存活时间。 */
+const GH_LOGIN_POLL_TIMEOUT_MS = 5 * 60_000
+
 export const useFactoryStore = defineStore('factory', () => {
   const loading = ref(false)
   const loaded = ref(false)
@@ -158,7 +163,12 @@ export const useFactoryStore = defineStore('factory', () => {
   const wizardToken = ref('')
   const ghChecking = ref(false)
   const ghLogin = ref<{ running: boolean; code?: string; url?: string; error?: string }>({ running: false })
-  let ghLoginPoll: ReturnType<typeof setInterval> | null = null
+  /** 下一次轮询的定时器；串行链上只有一枚。 */
+  let ghLoginPoll: ReturnType<typeof setTimeout> | null = null
+  /** 每次启动/停止递增：旧的轮询链看到序号变了就自行退出。 */
+  let ghLoginPollEpoch = 0
+  /** 正在飞的登录态探测：并发调用共享同一次 `gh auth status`。 */
+  let ghAuthCheck: Promise<boolean> | null = null
 
   // 看板：本地待办 + 当前运行投影 + 检查器选中
   const backlog = ref<FactoryBacklogItem[]>([])
@@ -342,6 +352,10 @@ export const useFactoryStore = defineStore('factory', () => {
     preflight.value = null
     preflightError.value = null
     ghLogin.value = { running: false }
+    // gh 登录态必须在打开这一刻重新确认。context 是页面挂载时的快照，
+    // 期间在终端登录/退出、token 失效都反映不过来，界面会一直停在旧状态，
+    // 只能靠手动刷新才发现。
+    if (context.value) void checkGhAuth()
     // 上次的草稿还在（关页签回看过板）就接着用它；全新会话才回填磁盘上的配置。
     if (!options.fresh && Object.keys(draft.value).length > 0) {
       wizardOpen.value = true
@@ -490,31 +504,53 @@ export const useFactoryStore = defineStore('factory', () => {
     return true
   }
 
+  /**
+   * 探测 `gh` 登录态。并发调用共享同一次 IPC：`gh auth status` 超时时若每次都
+   * 新起一个，几秒内的轮询会堆出多个 gh 子进程，内存随之放大。
+   */
+  function startGhAuthCheck(): Promise<boolean> {
+    return Promise.resolve()
+      .then(() => api.factory.checkGhAuth())
+      .then((result: FactoryGithubAuthResult) => {
+        // 只在登录态真的变了才替换 context：每次无脑换对象会让下游依赖
+        // context 的 watch/computed 每轮都重算。
+        if (context.value && context.value.ghLoggedIn !== result.ok) {
+          context.value = { ...context.value, ghLoggedIn: result.ok }
+        }
+        if (result.ok) {
+          stopGhLoginPolling()
+          ghLogin.value = { running: false }
+        }
+        return result.ok
+      })
+      .catch(() => false)
+      .finally(() => {
+        ghAuthCheck = null
+      })
+  }
+
   async function checkGhAuth(options: { quiet?: boolean } = {}): Promise<boolean> {
     if (!options.quiet) ghChecking.value = true
     try {
-      const result = await api.factory.checkGhAuth()
-      if (context.value) context.value = { ...context.value, ghLoggedIn: result.ok }
-      if (result.ok) {
-        stopGhLoginPolling()
-        ghLogin.value = { running: false }
-      }
-      return result.ok
-    } catch {
-      return false
+      ghAuthCheck ??= startGhAuthCheck()
+      return await ghAuthCheck
     } finally {
       if (!options.quiet) ghChecking.value = false
     }
   }
 
   function stopGhLoginPolling(): void {
-    if (ghLoginPoll) clearInterval(ghLoginPoll)
+    ghLoginPollEpoch++
+    if (ghLoginPoll) clearTimeout(ghLoginPoll)
     ghLoginPoll = null
   }
 
   /**
    * 发起 `gh auth login --web`：主进程返回浏览器里要输入的一次性代码，
-   * 之后每 3 秒检查一次登录状态，授权完成即收尾。
+   * 之后轮询登录状态，授权完成即收尾。
+   *
+   * 轮询用「上一次返回后才排下一次」的串行链，而不是固定间隔的 setInterval：
+   * `gh auth status` 单次可达 10s，固定间隔会在它还没返回时再叠一次，进程越堆越多。
    */
   async function startGhLogin(): Promise<void> {
     if (ghLogin.value.running) return
@@ -536,15 +572,21 @@ export const useFactoryStore = defineStore('factory', () => {
       ...(result.url ? { url: result.url } : {}),
     }
     stopGhLoginPolling()
+    const epoch = ghLoginPollEpoch
     const startedAt = Date.now()
-    ghLoginPoll = setInterval(async () => {
-      if (Date.now() - startedAt > 5 * 60_000) {
+    const tick = async (): Promise<void> => {
+      if (epoch !== ghLoginPollEpoch) return
+      if (Date.now() - startedAt > GH_LOGIN_POLL_TIMEOUT_MS) {
         stopGhLoginPolling()
         ghLogin.value = { running: false, error: 'timeout' }
         return
       }
       if (await checkGhAuth({ quiet: true })) return
-    }, 3000)
+      // 探测期间可能已经关闭向导/重新发起登录，过期的链不再续命。
+      if (epoch !== ghLoginPollEpoch) return
+      ghLoginPoll = setTimeout(() => void tick(), GH_LOGIN_POLL_INTERVAL_MS)
+    }
+    ghLoginPoll = setTimeout(() => void tick(), GH_LOGIN_POLL_INTERVAL_MS)
   }
 
   async function loadBacklog(root: string): Promise<void> {

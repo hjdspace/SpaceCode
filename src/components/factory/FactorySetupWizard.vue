@@ -241,7 +241,7 @@
               </div>
               <p class="hint">
                 <template v-if="(tracker.auth ?? 'gh') === 'gh'">
-                  {{ context?.ghLoggedIn ? t('factory.authGhOk') : t('factory.authGhMissing') }}
+                  {{ ghStatusText }}
                 </template>
                 <template v-else-if="!context?.encryptionAvailable">{{ t('factory.tokenEncryption') }}</template>
               </p>
@@ -745,6 +745,12 @@ const tokenPermissions = computed(() => [
   { name: 'Contents', scope: 'Read / Write', purpose: t('factory.tokenPermContentsWhy') },
   { name: 'Pull requests', scope: 'Read / Write', purpose: t('factory.tokenPermPrWhy') },
 ])
+
+/** 重新校验登录态期间不展示可能过期的快照结论。 */
+const ghStatusText = computed(() => {
+  if (store.ghChecking) return t('factory.ghChecking')
+  return context.value?.ghLoggedIn ? t('factory.authGhOk') : t('factory.authGhMissing')
+})
 
 const ghLoginErrorText = computed(() => {
   const code = store.ghLogin.error
