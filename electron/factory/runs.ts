@@ -612,6 +612,16 @@ export interface ClaimedIssue {
   taskId: string
 }
 
+/** 未结束（stopped 以外）运行已占用的任务 id；本地待办与 GitHub issue 共用。 */
+export function unfinishedTaskIds(repoRoot: string): Set<string> {
+  const ids = new Set<string>()
+  for (const run of listRuns(repoRoot)) {
+    if (!isUnfinished(run)) continue
+    for (const task of readTasks(repoRoot, run.id)) ids.add(task.id)
+  }
+  return ids
+}
+
 /** 未结束运行已领取的 GitHub issue；用于导入列表去重与重复领取拦截。 */
 export function claimedGithubIssues(repoRoot: string): Map<number, ClaimedIssue> {
   const claimed = new Map<number, ClaimedIssue>()

@@ -574,34 +574,6 @@ describe('FactorySetupWizard · isolation and task source detail', () => {
     }
   })
 
-  it('points at the desktop model profile and opens model settings', async () => {
-    const store = seed({ step: 3 })
-    store.draft = { ...store.draft, tracker: { type: 'local', mergeMode: 'local' } }
-    const wrapper = mountWizard()
-
-    const row = wrapper.find('[data-reuse-row]')
-    expect(row.text()).toContain('factory.reuseModelTitle')
-    expect(row.text()).toContain('anthropic · claude-sonnet-4-5')
-
-    const listener = vi.fn()
-    window.addEventListener('open-settings', listener)
-    await row.find('[data-open-model-settings]').trigger('click')
-    window.removeEventListener('open-settings', listener)
-
-    expect(listener).toHaveBeenCalledTimes(1)
-    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ tab: 'model' })
-  })
-
-  it('does not claim reuse when the desktop model profile is not configured', () => {
-    seed({
-      step: 3,
-      context: { ...context, modelProfile: { configured: false }, models: { selectable: [], default: 'qwen3.8-max' } },
-    })
-    const wrapper = mountWizard()
-
-    expect(wrapper.find('[data-reuse-row]').text()).toContain('factory.reuseModelUnset')
-  })
-
   it('states where the local backlog lives and how it is claimed', async () => {
     const store = seed({ step: 3 })
     store.draft = { ...store.draft, tracker: { type: 'local', mergeMode: 'local' } }

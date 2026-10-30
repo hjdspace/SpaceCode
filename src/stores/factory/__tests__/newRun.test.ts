@@ -2,8 +2,13 @@
  * 新建运行弹窗的候选投影：本地待办与 GitHub issue 统一成可选/跳过列表。
  */
 import { describe, it, expect } from 'vitest'
-import type { FactoryBacklogItem, FactoryGithubIssue } from '@/shared/factory'
-import { backlogCandidates, githubCandidates } from '../newRun'
+import type { FactoryBacklogItem, FactoryGithubIssue, FactoryPlanTask } from '@/shared/factory'
+import {
+  backlogCandidates,
+  githubCandidates,
+  plannedCandidates,
+  runDependencies,
+} from '../newRun'
 
 function item(overrides: Partial<FactoryBacklogItem> = {}): FactoryBacklogItem {
   return {
@@ -70,5 +75,34 @@ describe('githubCandidates', () => {
   it('keeps the claimed flag from the issue list', () => {
     const candidates = githubCandidates([issue({ claimed: true })])
     expect(candidates[0].claimed).toBe(true)
+  })
+})
+
+describe('plan projections', () => {
+  const tasks: FactoryPlanTask[] = [
+    { id: 'bl-1', title: 'A', dependsOn: [], parallelizable: true },
+    { id: 'bl-2', title: 'B', dependsOn: ['bl-1'], parallelizable: true },
+  ]
+
+  it('keeps local task ids and maps dependencies into candidate space', () => {
+    expect(plannedCandidates('local', tasks)).toEqual([
+      { candidateId: 'bl-1', dependsOn: [] },
+      { candidateId: 'bl-2', dependsOn: ['bl-1'] },
+    ])
+    expect(runDependencies('local', { 'bl-2': ['bl-1'] })).toEqual({ 'bl-2': ['bl-1'] })
+  })
+
+  it('translates GitHub task ids to issue numbers and back', () => {
+    const issues: FactoryPlanTask[] = [
+      { id: 'issue-12', issueNumber: 12, title: 'A', dependsOn: [], parallelizable: true },
+      { id: 'issue-13', issueNumber: 13, title: 'B', dependsOn: ['issue-12'], parallelizable: true },
+    ]
+    expect(plannedCandidates('github-issues', issues)).toEqual([
+      { candidateId: '12', dependsOn: [] },
+      { candidateId: '13', dependsOn: ['12'] },
+    ])
+    expect(runDependencies('github-issues', { '13': ['12'] })).toEqual({
+      'issue-13': ['issue-12'],
+    })
   })
 })

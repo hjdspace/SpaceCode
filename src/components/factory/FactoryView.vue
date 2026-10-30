@@ -235,7 +235,13 @@
       :creating="isGithubTracker ? store.githubClaiming : store.creatingRun"
       :loading="isGithubTracker ? store.githubIssuesLoading : store.backlogLoading"
       :error="newRunError"
+      :plan-enabled="planEnabled"
+      :planning="store.planning"
+      :plan-error="store.planError"
+      :planned="newRunPlanned"
+      :plan-warnings="newRunPlanWarnings"
       @close="newRunOpen = false"
+      @plan="handlePlan"
       @create="handleCreateNewRun"
     />
 
@@ -254,11 +260,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Workflow, AlertTriangle, Loader2 } from 'lucide-vue-next'
-import type { FactoryLane } from '@/shared/factory'
+import type { FactoryLane, FactoryPlanResult } from '@/shared/factory'
 import { useAppStore } from '@/stores/app'
 import { useFactoryStore } from '@/stores/factory'
 import { runUsage, type FactoryCardActionKind } from '@/stores/factory/board'
-import { backlogCandidates, githubCandidates } from '@/stores/factory/newRun'
+import {
+  backlogCandidates,
+  githubCandidates,
+  plannedCandidates,
+  runDependencies,
+} from '@/stores/factory/newRun'
 import { factoryRepoLabel } from '@/utils/factoryRepo'
 import FactorySetupWizard from './FactorySetupWizard.vue'
 import FactoryRunTabs from './FactoryRunTabs.vue'
@@ -330,6 +341,7 @@ const boardBusy = computed<FactoryCardActionKind | null>(() => {
 })
 
 const newRunOpen = ref(false)
+const planResult = ref<FactoryPlanResult | null>(null)
 const newRunCandidates = computed(() =>
   isGithubTracker.value
     ? githubCandidates(store.githubIssues)
@@ -340,19 +352,41 @@ const newRunDefaultConcurrency = computed(() => store.config?.agent.maxConcurren
 const newRunError = computed(() =>
   isGithubTracker.value ? store.githubClaimError : store.createRunError,
 )
+const planEnabled = computed(() => store.config?.stages.plan.enabled !== false)
+const newRunPlanned = computed(() => {
+  const result = planResult.value
+  if (!result?.ok) return []
+  return plannedCandidates(isGithubTracker.value ? 'github-issues' : 'local', result.tasks)
+})
+const newRunPlanWarnings = computed(() =>
+  planResult.value?.ok ? planResult.value.warnings : [],
+)
 
 /** 打开前刷新一次来源列表，避免弹窗还展示已经领取或被删除的任务。 */
 async function handleOpenNewRun(): Promise<void> {
   if (!root.value) return
   store.clearNewRunErrors()
+  planResult.value = null
   newRunOpen.value = true
   await loadSources(root.value)
 }
 
-/** 就绪页的「生成第一个计划」：回到看板并直接打开新建运行弹窗。 */
-function handleDonePlan(): void {
+/** 规划只是预览；用户确认创建前不产生运行目录。 */
+async function handlePlan(candidateIds: string[]): Promise<void> {
+  const value = root.value
+  if (!value) return
+  const result = await store.requestPlan(value, candidateIds)
+  if (result.ok) planResult.value = result
+}
+
+/** 就绪页的「生成第一个计划」：回到看板、打开新建运行并直接跑一次规划。 */
+async function handleDonePlan(): Promise<void> {
   store.closeWizard()
-  void handleOpenNewRun()
+  await handleOpenNewRun()
+  const ids = newRunCandidates.value
+    .filter((candidate) => !candidate.claimed)
+    .map((candidate) => candidate.id)
+  if (ids.length > 0) await handlePlan(ids)
 }
 
 function handleSelectRunTab(runId: string): void {
@@ -367,16 +401,29 @@ function handleCloseRunTab(runId: string): void {
   void store.closeRun(root.value, runId)
 }
 
-async function handleCreateNewRun(input: { ids: string[]; concurrency: number }): Promise<void> {
+async function handleCreateNewRun(input: {
+  ids: string[]
+  concurrency: number
+  dependencies?: Record<string, string[]>
+}): Promise<void> {
   const value = root.value
   if (!value) return
+  const dependencies = runDependencies(
+    isGithubTracker.value ? 'github-issues' : 'local',
+    input.dependencies,
+  )
   let ok: boolean
   if (isGithubTracker.value) {
-    ok = await store.claimGithubIssues(value, input.ids.map(Number), input.concurrency)
+    ok = await store.claimGithubIssues(
+      value,
+      input.ids.map(Number),
+      input.concurrency,
+      dependencies,
+    )
     // 领取只落一条 pending 运行；与本地创建口径一致，确认后直接交给调度器。
     if (ok && store.run) await store.resumeRun(value, store.run.id)
   } else {
-    ok = await store.createRun(value, input.ids, input.concurrency)
+    ok = await store.createRun(value, input.ids, input.concurrency, dependencies)
   }
   if (!ok) return
 

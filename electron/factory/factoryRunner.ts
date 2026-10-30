@@ -62,7 +62,7 @@ import { runReview, type ReviewInput, type ReviewResult } from './reviewer'
 import type { VerifyFn } from './implementer'
 import { runVerification, type VerifyInput, type VerifyResult } from './verify'
 import { executeMerge, runMergePreflight, type MergeWriteBackPayload } from './merge'
-import type { AgentPort } from './agentEngineGateway'
+import { createDefaultAgentPort, type AgentPort } from './agentEngineGateway'
 
 const LOGS_DIR = '.spacecode/factory/logs'
 
@@ -178,23 +178,6 @@ interface RunningTask {
   sessionId: string
   controller: AbortController
   promise: Promise<void>
-}
-
-async function defaultAgentFactory(): Promise<AgentPort> {
-  const [engine, factory, sessionConfig, gateway] = await Promise.all([
-    import('../engine/engineGateway'),
-    import('../engine/engines/EngineFactory'),
-    import('../engine/engineSessionConfig'),
-    import('./agentEngineGateway'),
-  ])
-  return gateway.createEngineAgentPort({
-    loadSessionConfig: sessionConfig.loadEngineSessionConfig,
-    resolveModelAlias: sessionConfig.resolveEngineModelAlias,
-    startSession: (sessionId, config) => engine.engineGateway.startSession(sessionId, config),
-    sendMessage: (sessionId, content) => engine.engineGateway.sendMessage(sessionId, content),
-    stop: (sessionId) => engine.engineGateway.stop(sessionId),
-    onRouteEvent: (listener) => factory.EngineFactory.onRouteEvent(listener),
-  })
 }
 
 async function defaultReveal(path: string): Promise<void> {
@@ -411,7 +394,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     stage: 'implement' | 'review' | 'verify',
   ): Promise<AgentPort | null> {
     try {
-      return await (deps.agentFactory ?? defaultAgentFactory)()
+      return await (deps.agentFactory ?? createDefaultAgentPort)()
     } catch (error) {
       safeBlock(repoRoot, runId, taskId, 'agent.error')
       emit(repoRoot, runId, {

@@ -21,6 +21,8 @@ import type {
   FactoryGhLoginResult,
   FactoryGithubReposResult,
   FactoryModelOptions,
+  FactoryPlanCandidate,
+  FactoryPlanError,
   FactoryPreflightResult,
   FactoryPrReadyResult,
   FactoryRepoInfo,
@@ -55,8 +57,17 @@ import {
   readBacklog,
   updateBacklogItem,
 } from './backlog'
-import { createFactoryRun, listRecentRuns, readLatestRun, readRunSnapshot } from './runs'
+import {
+  createFactoryRun,
+  githubTaskId,
+  listRecentRuns,
+  readLatestRun,
+  readRunSnapshot,
+  unfinishedTaskIds,
+} from './runs'
 import { createFactoryRunner } from './factoryRunner'
+import { appendRawLog } from './events'
+import { runPlanner } from './planner'
 import { acquireRunLock, releaseRunLock } from './lock'
 import { recoverRuns } from './recovery'
 import { updateFactoryConfig } from './configUpdate'
@@ -522,6 +533,46 @@ export function registerFactoryIPCHandlers(): void {
     checkGh: () => defaultCheckGhAuth(),
   })
 
+  type PlanCandidatesResult =
+    | { ok: true; candidates: FactoryPlanCandidate[] }
+    | { ok: false; error: FactoryPlanError; detail?: string }
+
+  /** 规划只看到「当前来源里还没被领取」的任务；来源不可用时明确报错。 */
+  async function collectPlanCandidates(
+    root: string,
+    config: FactoryConfig,
+  ): Promise<PlanCandidatesResult> {
+    if (config.tracker.type === 'local') {
+      const claimed = unfinishedTaskIds(root)
+      return {
+        ok: true,
+        candidates: readBacklog(root)
+          .filter((item) => !claimed.has(item.id))
+          .map((item) => ({ id: item.id, title: item.title, goal: item.goal })),
+      }
+    }
+
+    const listed = await githubTracker.listIssues(root)
+    if (!listed.ok) {
+      return {
+        ok: false,
+        error: 'tracker-error',
+        ...(listed.detail ? { detail: listed.detail } : { detail: listed.reason }),
+      }
+    }
+    return {
+      ok: true,
+      candidates: listed.issues
+        .filter((issue) => !issue.claimed)
+        .map((issue) => ({
+          id: githubTaskId(issue.number),
+          issueNumber: issue.number,
+          title: issue.title,
+          goal: issue.body,
+        })),
+    }
+  }
+
   const runner = createFactoryRunner({
     mergeWriteBack: (payload) => githubTracker.writeBackMerge(payload),
     checkPrReady: (root) => githubTracker.checkPrReady(root),
@@ -553,6 +604,37 @@ export function registerFactoryIPCHandlers(): void {
     backlogUpdate: (root, input) => updateBacklogItem(root, input),
     backlogDelete: (root, id) => deleteBacklogItem(root, id),
     backlogMove: (root, id, direction) => moveBacklogItem(root, id, direction),
+    plan: async (root, input = {}) => {
+      const config = readFactoryConfig(root)
+      if (!config) return { ok: false, error: 'config-missing' }
+
+      const collected = await collectPlanCandidates(root, config)
+      if (!collected.ok) {
+        return {
+          ok: false,
+          error: collected.error,
+          ...(collected.detail ? { detail: collected.detail } : {}),
+        }
+      }
+
+      const requested = new Set(
+        (input.candidateIds ?? []).filter((id): id is string => typeof id === 'string' && id !== ''),
+      )
+      const candidates =
+        requested.size > 0
+          ? collected.candidates.filter((candidate) => requested.has(candidate.id))
+          : collected.candidates
+
+      const logId = `planner-${Date.now().toString(36)}`
+      return runPlanner({
+        repoRoot: root,
+        config,
+        candidates,
+        deps: {
+          appendLog: (text) => appendRawLog(join(root, '.spacecode/factory/logs'), logId, text),
+        },
+      })
+    },
     runCreate: (root, input) =>
       isWritable(root) ? createFactoryRun(root, input) : { ok: false, error: 'run-locked' },
     runGet: (root, runId) => readRunSnapshot(root, runId),

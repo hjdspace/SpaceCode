@@ -104,6 +104,8 @@ export interface FactoryLimitsConfig {
   taskTimeoutSec: number
   idleTimeoutSec: number
   keepDoneRuns: number
+  /** 规划最多产出多少条任务；缺省按 10 处理，旧配置无需迁移。 */
+  maxTasksPerRun?: number
 }
 
 export interface FactoryConfig {
@@ -261,6 +263,8 @@ export interface FactoryGithubClaimInput {
   issueNumbers: number[]
   /** 本次运行的并发上限；不传时沿用配置值。 */
   concurrency?: number
+  /** 规划产出的依赖；键为任务 id（`issue-<n>`）。 */
+  dependencies?: Record<string, string[]>
 }
 
 export interface FactoryGithubListInput {
@@ -665,6 +669,55 @@ export type FactoryRunCreateError = 'empty-tasks' | 'missing-tasks' | 'duplicate
 export type FactoryRunCreateResult =
   | { ok: true; snapshot: FactoryRunSnapshot }
   | { ok: false; error: FactoryRunCreateError; duplicates?: string[]; missing?: string[] }
+
+// ── 规划阶段 ────────────────────────────────────────────────────
+
+/** 参与规划的候选任务；id 与运行内的任务 id 一致（本地 backlog id / issue-<n>）。 */
+export interface FactoryPlanCandidate {
+  id: string
+  title: string
+  goal: string
+  issueNumber?: number
+}
+
+export interface FactoryPlanInput {
+  /** 只规划这些候选；缺省表示当前来源的全部可领取任务。 */
+  candidateIds?: string[]
+}
+
+export interface FactoryPlanTask {
+  id: string
+  title: string
+  issueNumber?: number
+  dependsOn: string[]
+  parallelizable: boolean
+}
+
+/** 规划告警只存码与参数，渲染层按 `factory.newRun.planWarnings.*` 格式化。 */
+export interface FactoryPlanWarning {
+  code: 'truncated'
+  max: number
+}
+
+export type FactoryPlanError =
+  | 'config-missing'
+  | 'plan-disabled'
+  | 'no-candidates'
+  | 'tracker-error'
+  | 'prompt-missing'
+  | 'prompt-error'
+  | 'agent-error'
+  | 'plan-invalid'
+  | 'plan-timeout'
+
+export type FactoryPlanResult =
+  | {
+      ok: true
+      tasks: FactoryPlanTask[]
+      usage: { inputTokens: number; outputTokens: number }
+      warnings: FactoryPlanWarning[]
+    }
+  | { ok: false; error: FactoryPlanError; detail?: string }
 
 // ── 事件流、实现阶段与工作树 ────────────────────────────────────
 

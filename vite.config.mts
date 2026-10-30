@@ -219,9 +219,11 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // resources/ 是打包进应用的静态资源（officecli 二进制、skills-lib 等），
-    // 无需 HMR；且其中的 exe 可能被运行中的进程锁定，fs.watch 会抛 EBUSY 崩掉 dev server
+    // 无需 HMR；且其中的 exe 可能被运行中的进程锁定，fs.watch 会抛 EBUSY 崩掉 dev server。
+    // .spacecode/ 是 factory 的运行时目录，工作树是整份仓库副本 —— 监控它会把 engine/
+    // 的数百个 tsconfig 拉进来触发全量 reload，并让工作树里的文件保持打开、删不干净。
     watch: {
-      ignored: ['**/resources/**']
+      ignored: ['**/resources/**', '**/.spacecode/**']
     }
   }
 })

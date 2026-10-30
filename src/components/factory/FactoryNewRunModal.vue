@@ -48,6 +48,13 @@
               />
               <span class="item-text">
                 <span class="item-title">{{ candidate.title }}</span>
+                <span
+                  v-if="dependencyLabels(candidate.id)"
+                  class="item-detail"
+                  :data-new-run-dep="candidate.id"
+                >
+                  {{ t('factory.newRun.dependsOn', { ids: dependencyLabels(candidate.id) }) }}
+                </span>
                 <span v-if="candidate.detail" class="item-detail">{{ candidate.detail }}</span>
                 <span
                   v-if="candidate.claimed"
@@ -64,6 +71,21 @@
         <p v-if="skippedCount" class="plan-note" data-new-run-note>
           <AlertTriangle :size="13" />
           <span>{{ t('factory.newRun.skipNote') }}</span>
+        </p>
+
+        <p v-if="planEmpty" class="plan-note" data-new-run-plan-empty>
+          <AlertTriangle :size="13" />
+          <span>{{ t('factory.newRun.planEmpty') }}</span>
+        </p>
+
+        <p
+          v-for="warning in planWarnings"
+          :key="warning.code"
+          class="plan-note"
+          data-new-run-plan-warning
+        >
+          <AlertTriangle :size="13" />
+          <span>{{ t(`factory.newRun.planWarnings.${warning.code}`, { max: warning.max }) }}</span>
         </p>
 
         <div class="plan-row">
@@ -84,6 +106,7 @@
           </span>
         </div>
 
+        <p v-if="planErrorText" class="error-text" data-new-run-plan-error>{{ planErrorText }}</p>
         <p v-if="errorText" class="error-text" data-new-run-error>{{ errorText }}</p>
       </div>
 
@@ -92,13 +115,27 @@
           {{ t('factory.newRun.selected', { count: selected.length }) }}
         </span>
         <span class="spacer" />
-        <button class="ghost-btn" data-new-run-cancel :disabled="creating" @click="requestClose">
+        <button
+          class="ghost-btn"
+          data-new-run-plan
+          :disabled="!planEnabled || planning || creating || loading || !selectableCount"
+          @click="requestPlan"
+        >
+          <Sparkles :size="13" />
+          {{ planning ? t('factory.newRun.planning') : t('factory.newRun.plan') }}
+        </button>
+        <button
+          class="ghost-btn"
+          data-new-run-cancel
+          :disabled="creating || planning"
+          @click="requestClose"
+        >
           {{ t('factory.cancel') }}
         </button>
         <button
           class="primary-btn"
           data-new-run-confirm
-          :disabled="!selected.length || creating"
+          :disabled="!selected.length || creating || planning"
           @click="submit"
         >
           <Play :size="13" />
@@ -112,9 +149,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Play, X } from 'lucide-vue-next'
+import { AlertTriangle, Play, Sparkles, X } from 'lucide-vue-next'
+import type { FactoryPlanError, FactoryPlanWarning } from '@/shared/factory'
 import type { FactoryGithubActionError, FactoryRunError } from '@/stores/factory'
-import type { NewRunCandidate } from '@/stores/factory/newRun'
+import type { NewRunCandidate, PlannedCandidate } from '@/stores/factory/newRun'
 
 const props = defineProps<{
   source: 'local' | 'github-issues'
@@ -124,17 +162,42 @@ const props = defineProps<{
   creating: boolean
   loading: boolean
   error: FactoryRunError | FactoryGithubActionError | null
+  planEnabled: boolean
+  planning: boolean
+  planError: FactoryPlanError | null
+  planned: PlannedCandidate[]
+  planWarnings: FactoryPlanWarning[]
 }>()
 
 const emit = defineEmits<{
   close: []
-  create: [input: { ids: string[]; concurrency: number }]
+  plan: [ids: string[]]
+  create: [input: {
+    ids: string[]
+    concurrency: number
+    dependencies?: Record<string, string[]>
+  }]
 }>()
 
 const { t } = useI18n()
 
 const selected = ref<string[]>([])
+const dependencies = ref<Record<string, string[]>>({})
 const concurrency = ref<number | ''>(props.defaultConcurrency)
+
+const selectableIds = computed(
+  () => props.candidates.filter((candidate) => !candidate.claimed).map((candidate) => candidate.id),
+)
+const selectableCount = computed(() => selectableIds.value.length)
+const planApplied = ref(false)
+const planEmpty = computed(
+  () =>
+    planApplied.value &&
+    !props.planning &&
+    props.planError === null &&
+    props.planned.length === 0 &&
+    selected.value.length === 0,
+)
 
 // 刷新后已被领取的任务不能再留在选择里，否则确认会直接撞上重复领取。
 watch(
@@ -144,8 +207,52 @@ watch(
       candidates.filter((candidate) => !candidate.claimed).map((candidate) => candidate.id),
     )
     selected.value = selected.value.filter((id) => selectable.has(id))
+    dependencies.value = filterDependencies(dependencies.value, selected.value)
   },
 )
+
+/** 勾选变化后立刻收敛依赖展示，避免界面上留着已取消任务的依赖。 */
+watch(
+  selected,
+  (ids) => {
+    dependencies.value = filterDependencies(dependencies.value, ids)
+  },
+  { deep: true },
+)
+
+/** 规划结果回填勾选与依赖；用户仍可手动调整。 */
+watch(
+  () => props.planned,
+  (planned) => {
+    planApplied.value = true
+    const selectable = new Set(selectableIds.value)
+    const ids = planned
+      .map((item) => item.candidateId)
+      .filter((id) => selectable.has(id))
+    selected.value = ids
+    const next: Record<string, string[]> = {}
+    for (const item of planned) {
+      if (!ids.includes(item.candidateId)) continue
+      const deps = item.dependsOn.filter((id) => ids.includes(id))
+      if (deps.length > 0) next[item.candidateId] = deps
+    }
+    dependencies.value = next
+  },
+)
+
+function filterDependencies(
+  source: Record<string, string[]>,
+  ids: string[],
+): Record<string, string[]> {
+  const allowed = new Set(ids)
+  const result: Record<string, string[]> = {}
+  for (const [id, value] of Object.entries(source)) {
+    if (!allowed.has(id)) continue
+    const deps = value.filter((dependency) => allowed.has(dependency))
+    if (deps.length > 0) result[id] = deps
+  }
+  return result
+}
 
 const skippedCount = computed(
   () => props.candidates.filter((candidate) => candidate.claimed).length,
@@ -165,6 +272,17 @@ const errorText = computed(() => {
     : t(`factory.run.errors.${error.code}`)
 })
 
+const planErrorText = computed(() =>
+  props.planError ? t(`factory.newRun.planErrors.${props.planError}`) : null,
+)
+
+function dependencyLabels(id: string): string {
+  const deps = dependencies.value[id]
+  if (!deps || deps.length === 0) return ''
+  const titles = new Map(props.candidates.map((candidate) => [candidate.id, candidate.title]))
+  return deps.map((dependency) => titles.get(dependency) ?? dependency).join('、')
+}
+
 /** 输入框清空或非法时回退到配置的默认并发，再收敛到服务端接受的区间。 */
 function normalizedConcurrency(): number {
   const value = concurrency.value
@@ -173,13 +291,24 @@ function normalizedConcurrency(): number {
 }
 
 function requestClose(): void {
-  if (props.creating) return
+  if (props.creating || props.planning) return
   emit('close')
 }
 
+/** 规划覆盖全部可领取候选；用户未勾选时也能先拿到一张计划。 */
+function requestPlan(): void {
+  if (props.planning || props.creating || selectableIds.value.length === 0) return
+  emit('plan', [...selectableIds.value])
+}
+
 function submit(): void {
-  if (props.creating || selected.value.length === 0) return
-  emit('create', { ids: [...selected.value], concurrency: normalizedConcurrency() })
+  if (props.creating || props.planning || selected.value.length === 0) return
+  const deps = filterDependencies(dependencies.value, selected.value)
+  emit('create', {
+    ids: [...selected.value],
+    concurrency: normalizedConcurrency(),
+    ...(Object.keys(deps).length > 0 ? { dependencies: deps } : {}),
+  })
 }
 </script>
 

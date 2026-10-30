@@ -287,6 +287,13 @@ export function validateFactoryConfig(raw: unknown): FactoryConfigValidationResu
   for (const key of ['taskTimeoutSec', 'idleTimeoutSec', 'keepDoneRuns'] as const) {
     if (typeof limits[key] !== 'number' || (limits[key] as number) <= 0) errors.push(`limits.${key}`)
   }
+  const maxTasksPerRun = limits.maxTasksPerRun
+  if (
+    maxTasksPerRun !== undefined &&
+    (typeof maxTasksPerRun !== 'number' || !Number.isInteger(maxTasksPerRun) || maxTasksPerRun < 1 || maxTasksPerRun > 50)
+  ) {
+    errors.push('limits.maxTasksPerRun')
+  }
 
   if (errors.length > 0 || !sandbox || !tracker) return { ok: false, errors }
 
@@ -320,6 +327,7 @@ export function validateFactoryConfig(raw: unknown): FactoryConfigValidationResu
       taskTimeoutSec: limits.taskTimeoutSec as number,
       idleTimeoutSec: limits.idleTimeoutSec as number,
       keepDoneRuns: limits.keepDoneRuns as number,
+      ...(typeof maxTasksPerRun === 'number' ? { maxTasksPerRun } : {}),
     },
   }
   return { ok: true, config }

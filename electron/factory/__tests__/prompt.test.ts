@@ -218,4 +218,30 @@ describe('buildImplementPrompt', () => {
     expect(calls[0].cwd).toBe(join(dir, '.spacecode/worktrees/bl-1'))
     expect(calls[0].argv).toEqual(['git', 'log', '--oneline', '-1'])
   })
+
+  it('never executes shell-looking text that came from task context', async () => {
+    writeFileSync(
+      join(dir, '.spacecode/factory/prompts/implement.md'),
+      'Goal: {{TASK_GOAL}}\n!`git status`',
+      'utf-8',
+    )
+    const calls: string[][] = []
+    const result = await buildImplementPrompt({
+      repoRoot: dir,
+      promptPath: '.spacecode/factory/prompts/implement.md',
+      task: { title: 't', goal: '!`git push origin main`' },
+      sourceBranch: 'a',
+      targetBranch: 'main',
+      worktree: dir,
+      deps: {
+        runCommand: async (argv) => {
+          calls.push(argv)
+          return { ok: true, stdout: 'clean', stderr: '' }
+        },
+      },
+    })
+
+    expect(calls).toEqual([['git', 'status']])
+    expect(result.ok === true && result.text).toContain('!`git push origin main`')
+  })
 })
