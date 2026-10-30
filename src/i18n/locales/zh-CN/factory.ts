@@ -616,6 +616,7 @@ export default {
   actions: {
     start: '立即开始',
     starting: '启动中…',
+    preparingWorktree: '正在建立工作树，完成后自动进入实现阶段。',
     stop: '停止',
     stopping: '停止中…',
     confirmDirty: '仍然开始',

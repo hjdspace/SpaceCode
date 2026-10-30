@@ -418,6 +418,9 @@
         <p v-if="readonly" class="readonly-hint" data-action-readonly>
           {{ t('factory.storage.readonlyHint') }}
         </p>
+        <p v-if="starting" class="pending-hint" data-worktree-pending>
+          {{ t('factory.actions.preparingWorktree') }}
+        </p>
         <p v-if="actionError" class="action-error" data-action-error>
           {{ actionErrorText }}
         </p>
@@ -1715,6 +1718,12 @@ const timestamps = computed(() => {
   margin: 0;
   font-size: var(--text-2xs, 11px);
   color: var(--warning);
+}
+
+.pending-hint {
+  margin: 0;
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-secondary);
 }
 
 .action-btn {

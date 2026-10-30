@@ -618,6 +618,7 @@ export default {
   actions: {
     start: 'Start now',
     starting: 'Starting…',
+    preparingWorktree: 'Creating the worktree — implementation starts automatically when ready.',
     stop: 'Stop',
     stopping: 'Stopping…',
     confirmDirty: 'Start anyway',

@@ -574,6 +574,20 @@ describe('FactoryInspector', () => {
     expect(running.emitted('reveal')).toHaveLength(1)
   })
 
+  it('disables the start button and explains the worktree wait while starting', () => {
+    const wrapper = mount(FactoryInspector, {
+      props: { task: task({ lane: 'queued', stageIdx: 0 }), tab: 'overview', starting: true },
+    })
+    expect(wrapper.find('[data-task-start]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-task-start]').text()).toBe('factory.actions.starting')
+    expect(wrapper.find('[data-worktree-pending]').text()).toBe('factory.actions.preparingWorktree')
+
+    const idle = mount(FactoryInspector, {
+      props: { task: task({ lane: 'queued', stageIdx: 0 }), tab: 'overview' },
+    })
+    expect(idle.find('[data-worktree-pending]').exists()).toBe(false)
+  })
+
   it('offers remove on a queued task and abandon on a blocked one', async () => {
     const queued = mount(FactoryInspector, {
       props: { task: task({ lane: 'queued', stageIdx: 0, worktree: null }), tab: 'overview' },

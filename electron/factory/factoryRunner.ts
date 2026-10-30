@@ -315,6 +315,12 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
 
   const running = new Map<string, RunningTask>()
   /**
+   * 正在领取中的任务：手动点击与调度泵可能同时领取同一条任务。
+   * 工作树 checkout 期间 git 会短暂锁住目录，第二个请求若不排队就会拿到
+   * `worktree-busy`；这里让它们共享同一次领取的结果。
+   */
+  const startingTasks = new Map<string, Promise<FactoryTaskStartResult>>()
+  /**
    * 接管会话的引擎回合，与后台实现/审查回合分表存放：调度器把「接管中」
    * 单独计入并发（见 scheduler.dispatchDecision），混进 running 会重复占槽。
    */
@@ -875,7 +881,27 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     return promise
   }
 
-  async function startTaskInternal(
+  /**
+   * 同一任务的并发领取合并为一次：第二次调用直接等第一次的结果，
+   * 不再对正在 checkout 的工作树报告 `worktree-busy`。
+   */
+  function startTaskInternal(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    input: FactoryTaskStartInput = {},
+  ): Promise<FactoryTaskStartResult> {
+    const key = `${repoRoot}::${runId}::${taskId}`
+    const inflight = startingTasks.get(key)
+    if (inflight) return inflight
+    const promise = performStartTask(repoRoot, runId, taskId, input).finally(() => {
+      startingTasks.delete(key)
+    })
+    startingTasks.set(key, promise)
+    return promise
+  }
+
+  async function performStartTask(
     repoRoot: string,
     runId: string,
     taskId: string,

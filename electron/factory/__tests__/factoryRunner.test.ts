@@ -227,6 +227,42 @@ describe('startTask happy path', () => {
     expect(events[0].runId).toBe('run-1')
   })
 
+  it('merges a concurrent second start into the in-flight worktree creation', async () => {
+    seed()
+    const calls: string[][] = []
+    let signalAddStarted: () => void = () => {}
+    let releaseAdd: () => void = () => {}
+    const addStarted = new Promise<void>((resolve) => {
+      signalAddStarted = resolve
+    })
+    const addGate = new Promise<void>((resolve) => {
+      releaseAdd = resolve
+    })
+    const git: GitRunner = async (args) => {
+      calls.push(args)
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        signalAddStarted()
+        await addGate
+      }
+      if (args[0] === 'worktree' && args[1] === 'list') return { ok: true, stdout: '', stderr: '' }
+      if (args[0] === 'status') return { ok: true, stdout: '', stderr: '' }
+      if (args[0] === 'rev-parse') return { ok: true, stdout: 'abc\n', stderr: '' }
+      return { ok: true, stdout: '', stderr: '' }
+    }
+    const runner = createFactoryRunner(deps({ git }))
+
+    const first = runner.startTask(dir, runId, 'bl-1', {})
+    await addStarted
+    const second = runner.startTask(dir, runId, 'bl-1', {})
+    releaseAdd()
+
+    const [a, b] = await Promise.all([first, second])
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(calls.filter((args) => args[0] === 'worktree' && args[1] === 'add')).toHaveLength(1)
+    await runner.whenIdle(runId)
+  })
+
   it('reuses an existing worktree on retry and emits worktree.reused', async () => {
     seed()
     const calls: string[][] = []
