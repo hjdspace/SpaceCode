@@ -67,6 +67,22 @@ describe('buildFactoryConfig', () => {
     expect(c.limits.keepDoneRuns).toBe(20)
   })
 
+  it('keeps maxTasksPerRun optional and rejects invalid values', () => {
+    const config = validConfig()
+    const accepted = validateFactoryConfig({
+      ...config,
+      limits: { ...config.limits, maxTasksPerRun: 6 },
+    })
+    expect(accepted.ok && accepted.config.limits.maxTasksPerRun).toBe(6)
+
+    expect(
+      validateFactoryConfig({
+        ...config,
+        limits: { ...config.limits, maxTasksPerRun: 0 },
+      }),
+    ).toMatchObject({ ok: false, errors: ['limits.maxTasksPerRun'] })
+  })
+
   it('applies per-role model overrides from the wizard draft', () => {
     const result = buildFactoryConfig(
       { ...baseDraft, stages: { plan: { model: 'opus' }, review: { model: 'claude-haiku' } } },
