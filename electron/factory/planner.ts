@@ -15,6 +15,7 @@ import type {
 } from '@/shared/factory'
 import { buildPlanPrompt, type PlanPromptData } from './prompt'
 import { createDefaultAgentPort, type AgentPort } from './agentEngineGateway'
+import { factorySessionId } from './sessionId'
 
 const PLAN_TAG = 'plan'
 const PLAN_MAX_RETRIES = 1
@@ -293,7 +294,9 @@ export async function runPlanner(input: PlannerInput): Promise<FactoryPlanResult
   }
 
   const now = deps.now ?? (() => new Date())
-  const sessionId = `fac-plan-${now().getTime().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const sessionId = factorySessionId(
+    `fac-plan-${now().getTime().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+  )
   const stage = config.stages.plan
   const model = stage.model ?? config.agent.model
 
