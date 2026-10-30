@@ -801,10 +801,16 @@ export const api = {
   },
 
   // Notification API
-  showNotification: (options: { title: string; message: string }): void => {
+  showNotification: (options: { title: string; message: string; sessionId?: string }): void => {
     if (electronAPI?.showNotification) {
       electronAPI.showNotification(options)
     }
+  },
+  onNotificationClicked: (callback: (detail: { sessionId: string }) => void): (() => void) => {
+    if (electronAPI?.onNotificationClicked) {
+      return electronAPI.onNotificationClicked(callback)
+    }
+    return () => {}
   },
 
   // Preview API — HTTP 预览 URL 给 webview；frame URL 给设计预览 iframe 的专用源
