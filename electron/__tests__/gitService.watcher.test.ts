@@ -156,6 +156,28 @@ describe('gitService — worktree file watcher', () => {
   )
 
   it(
+    'ignores Factory worktree checkouts instead of refreshing the parent SCM',
+    async () => {
+      const factoryTree = join(tmpRoot, '.spacecode', 'worktrees', 'bl-1')
+      mkdirSync(factoryTree, { recursive: true })
+      await expect(mockState.capturedHandlers.watchProject!(tmpRoot)).resolves.toBe(true)
+
+      await waitForStatusChange(join(tmpRoot, 'root.txt'))
+      await new Promise(resolve => setTimeout(resolve, 500))
+      const baseline = statusChangedCount()
+
+      await vi.waitFor(
+        () => {
+          writeFileSync(join(factoryTree, 'index.ts'), `x-${Date.now()}`)
+          expect(statusChangedCount()).toBe(baseline)
+        },
+        { timeout: 2000, interval: 100 },
+      )
+    },
+    15_000,
+  )
+
+  it(
     'stopWatch stops renderer notifications',
     async () => {
       await expect(mockState.capturedHandlers.watchProject!(tmpRoot)).resolves.toBe(true)
