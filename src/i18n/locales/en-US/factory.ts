@@ -243,6 +243,14 @@ export default {
   },
   cardLocal: 'Local',
   cardTakeover: 'Taken over',
+  takeoverPanel: {
+    paused: 'Background agent paused',
+    reopen: 'Takeover chat',
+    badgeAria: 'Taken over · open takeover chat',
+    close: 'Close takeover panel',
+    footnote: 'The pipeline does not advance this task while it is taken over; returning resumes it from the current stage.',
+    verifyFailed: 'Verification failed, so the task stays taken over. Keep working in the chat, then return it again.',
+  },
   modelUnknown: 'No model configured',
   laneEmpty: 'No tasks',
 
@@ -490,6 +498,13 @@ export default {
     },
   },
 
+  diff: {
+    binary: 'Binary file — no textual patch.',
+    renamed: 'Renamed {from} → {to}; no content changes.',
+    noPatch: 'No patch was captured for this file.',
+    truncated: 'Patch exceeded the line/byte limit and was truncated.',
+  },
+
   inspector: {
     goal: 'Task goal',
     goalEmpty: 'This backlog item has no goal yet.',
@@ -617,11 +632,11 @@ export default {
       changes_requested: 'Changes requested; the task was blocked',
       cancelled: 'Task abandoned; branch and worktree kept',
       fix: { started: 'Fixing {comments} review comments' },
-      takeover: 'Task taken over; continuing in chat',
+      takeover: 'Task taken over; continuing in the board panel',
       retry: 'Retrying from the current stage',
       returned: {
         verified: 'Returned to the pipeline; verification passed and review started',
-        failed: 'Returned to the pipeline; verification failed and the fix loop started',
+        failed: 'Return verification failed; the task stays taken over',
       },
     },
     worktree: {
