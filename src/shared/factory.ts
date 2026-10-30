@@ -425,10 +425,38 @@ export interface FactoryBacklogUpdate {
   goal?: string
 }
 
+export type FactoryDiffLineKind = 'ctx' | 'add' | 'del'
+
+/** 单行补丁：行号按基准/任务分支两侧分别记录，新增行只有 newLine，删除行只有 oldLine。 */
+export interface FactoryDiffLine {
+  kind: FactoryDiffLineKind
+  oldLine?: number
+  newLine?: number
+  text: string
+}
+
+export interface FactoryDiffHunk {
+  /** `@@ -a,b +c,d @@` 原始分块头。 */
+  header: string
+  lines: FactoryDiffLine[]
+}
+
+/**
+ * 文件补丁形态：patch=有分块补丁；binary=二进制无文本补丁；renamed=纯重命名；
+ * missing=只有行数没有补丁（采集失败或旧快照）。
+ */
+export type FactoryDiffFileKind = 'patch' | 'binary' | 'renamed' | 'missing'
+
 export interface FactoryDiffFile {
   path: string
   additions: number
   deletions: number
+  kind?: FactoryDiffFileKind
+  hunks?: FactoryDiffHunk[]
+  /** 重命名文件的原路径，供占位说明展示。 */
+  oldPath?: string
+  /** 超过行数或字节上限时截断并标记。 */
+  truncated?: boolean
 }
 
 export interface FactoryTaskDiff {
@@ -436,6 +464,13 @@ export interface FactoryTaskDiff {
   deletions: number
   files?: FactoryDiffFile[]
 }
+
+/** 单文件补丁上限：行数与字节先到先截断。 */
+export const FACTORY_DIFF_MAX_LINES_PER_FILE = 400
+export const FACTORY_DIFF_MAX_BYTES_PER_FILE = 64 * 1024
+/** 任务级补丁总量上限：之后的文件降级为无补丁，保证快照与看板推送不卡顿。 */
+export const FACTORY_DIFF_MAX_TOTAL_LINES = 4000
+export const FACTORY_DIFF_MAX_TOTAL_BYTES = 256 * 1024
 
 export interface FactoryCommit {
   sha: string
