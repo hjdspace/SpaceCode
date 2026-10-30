@@ -251,12 +251,74 @@
             <span>{{ t('factory.inspector.changes') }}</span>
             <b>+{{ task.diff.additions }} −{{ task.diff.deletions }}</b>
           </div>
-          <ul v-if="files.length" class="diff-files" data-diff-files>
-            <li v-for="file in files" :key="file.path">
-              <code>{{ file.path }}</code>
-              <b>+{{ file.additions }} −{{ file.deletions }}</b>
-            </li>
-          </ul>
+          <div v-if="files.length" class="diff-pane" data-diff-pane>
+            <ul class="diff-files" data-diff-files>
+              <li v-for="file in files" :key="file.path">
+                <button
+                  class="frow"
+                  :class="{ active: file.path === activeFile?.path }"
+                  :data-diff-file="file.path"
+                  :title="file.path"
+                  @click="selectedPath = file.path"
+                >
+                  <code>{{ file.path }}</code>
+                  <b class="diffstat">
+                    <span class="plus">+{{ file.additions }}</span>
+                    <span class="minus">−{{ file.deletions }}</span>
+                  </b>
+                </button>
+              </li>
+            </ul>
+            <div class="diff-detail" data-diff-detail>
+              <template v-if="activePatch">
+                <div class="diffbox" data-diff-patch>
+                  <template v-for="(hunk, hunkIndex) in activePatch" :key="hunkIndex">
+                    <div class="dline hunk" data-diff-hunk>
+                      <span class="ln" />
+                      <span class="code">{{ hunk.header }}</span>
+                    </div>
+                    <div
+                      v-for="(line, lineIndex) in hunk.lines"
+                      :key="lineIndex"
+                      class="dline"
+                      :class="line.kind"
+                      data-diff-line
+                    >
+                      <span class="ln">{{ line.kind === 'del' ? line.oldLine : line.newLine }}</span>
+                      <span class="code">{{ line.text }}</span>
+                    </div>
+                  </template>
+                </div>
+                <p v-if="activeFile?.truncated" class="diff-note" data-diff-truncated>
+                  {{ t('factory.diff.truncated') }}
+                </p>
+              </template>
+              <p
+                v-else-if="activeFile?.truncated"
+                class="diff-placeholder"
+                data-diff-placeholder="truncated"
+              >
+                {{ t('factory.diff.truncated') }}
+              </p>
+              <p
+                v-else-if="activeFile?.kind === 'binary'"
+                class="diff-placeholder"
+                data-diff-placeholder="binary"
+              >
+                {{ t('factory.diff.binary') }}
+              </p>
+              <p
+                v-else-if="activeFile?.kind === 'renamed'"
+                class="diff-placeholder"
+                data-diff-placeholder="renamed"
+              >
+                {{ t('factory.diff.renamed', { from: activeFile.oldPath ?? '', to: activeFile.path }) }}
+              </p>
+              <p v-else class="diff-placeholder" data-diff-placeholder="missing">
+                {{ t('factory.diff.noPatch') }}
+              </p>
+            </div>
+          </div>
           <div v-else class="ins-empty" data-empty="diff">
             <FileDiff :size="22" />
             <p>{{ t('factory.empty.diff') }}</p>
@@ -413,6 +475,15 @@
           </button>
           <button
             v-if="takenOver"
+            class="action-btn"
+            data-task-open-takeover
+            @click="emit('open-takeover')"
+          >
+            <MessageSquare :size="12" />
+            {{ t('factory.takeoverPanel.reopen') }}
+          </button>
+          <button
+            v-if="takenOver"
             class="action-btn primary"
             data-task-return
             :disabled="returning"
@@ -518,12 +589,15 @@ import {
   Hand,
   Layers,
   Loader2,
+  MessageSquare,
   Play,
   ShieldCheck,
   Square,
   X,
 } from 'lucide-vue-next'
 import type {
+  FactoryDiffFile,
+  FactoryDiffHunk,
   FactoryEvent,
   FactoryRun,
   FactoryTask,
@@ -625,6 +699,7 @@ const emit = defineEmits<{
   'request-changes': []
   fix: []
   takeover: []
+  'open-takeover': []
   return: []
   retry: []
   'retry-local': []
@@ -657,6 +732,25 @@ const agentLive = computed(
   () => Boolean(props.task && isCardPulsing(props.task, props.run)),
 )
 const files = computed(() => props.task?.diff.files ?? [])
+/** Diff 页签选中态：点左列换文件；没选中或选中的文件已不在列表里时回到第一个。 */
+const selectedPath = ref<string | null>(null)
+const activeFile = computed<FactoryDiffFile | null>(() => {
+  const list = files.value
+  if (list.length === 0) return null
+  return list.find((file) => file.path === selectedPath.value) ?? list[0]
+})
+/** kind 缺省按 missing 处理：旧快照只有文件清单，不渲染空补丁框。 */
+const activePatch = computed<FactoryDiffHunk[] | null>(() => {
+  const file = activeFile.value
+  if (!file || file.kind !== 'patch') return null
+  return file.hunks && file.hunks.length > 0 ? file.hunks : null
+})
+watch(
+  () => props.task?.id,
+  () => {
+    selectedPath.value = null
+  },
+)
 const commits = computed(() => props.task?.commits ?? [])
 const review = computed(() => props.task?.review ?? null)
 /** 与卡片动作行同一个资格判定，避免卡片能点、检查器报错。 */
@@ -1403,7 +1497,156 @@ const timestamps = computed(() => {
   }
 }
 
-.diff-files,
+.diff-pane {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.diff-files {
+  display: flex;
+  flex: 0 0 38%;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 420px;
+  overflow-y: auto;
+  @include scrollbar-thin;
+}
+
+.frow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-2xs, 11px);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-glass);
+  }
+
+  &.active {
+    background: var(--surface-glass);
+    color: var(--text-primary);
+  }
+
+  code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs, 10px);
+  }
+
+  .diffstat {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs, 10px);
+    font-weight: 500;
+
+    .plus {
+      color: var(--gdc-add-text-color);
+    }
+
+    .minus {
+      color: var(--gdc-remove-text-color);
+    }
+  }
+}
+
+.diff-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.diffbox {
+  overflow: auto;
+  max-height: 420px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--gdc-bg-color);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs, 10.5px);
+  line-height: 1.6;
+  @include scrollbar-thin;
+}
+
+.dline {
+  display: flex;
+  min-width: max-content;
+  white-space: pre;
+
+  .ln {
+    flex: 0 0 32px;
+    padding-right: 7px;
+    text-align: right;
+    color: var(--gdc-gutter-text-color);
+    user-select: none;
+  }
+
+  .code {
+    flex: 1;
+    padding: 0 7px;
+    color: var(--gdc-text-color);
+  }
+
+  &.add {
+    background: var(--gdc-add-bg-color);
+
+    .code {
+      color: var(--gdc-add-text-color);
+    }
+  }
+
+  &.del {
+    background: var(--gdc-remove-bg-color);
+
+    .code {
+      color: var(--gdc-remove-text-color);
+    }
+  }
+
+  &.hunk {
+    background: var(--gdc-gutter-bg-color);
+
+    .code {
+      color: var(--text-muted);
+    }
+  }
+}
+
+.diff-note {
+  margin: 0;
+  font-size: var(--text-2xs, 11px);
+  color: var(--warning);
+}
+
+.diff-placeholder {
+  margin: 0;
+  padding: 14px 10px;
+  border: 1px dashed var(--surface-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
 .commit-list {
   display: flex;
   flex-direction: column;
