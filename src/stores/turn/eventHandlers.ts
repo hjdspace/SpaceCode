@@ -573,7 +573,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       if (data?.projectPath && !session.workingDirectory) {
         session.workingDirectory = data.projectPath
       }
-      if (getCurrentSessionId() !== sessionId) {
+      if (data?.activate !== false && getCurrentSessionId() !== sessionId) {
         void selectSession(sessionId)
       }
     }
@@ -584,7 +584,9 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       session.model = data.model
     }
 
-    if (typeof window !== 'undefined') {
+    // activate:false 的推送方（定时任务、看板接管面板）只要会话落进列表；
+    // 切前台由 App.vue 响应这个事件完成，派发与否就是「抢不抢视图」的开关。
+    if (data?.activate !== false && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('h5-remote-user-message', {
         detail: {
           sessionId,
