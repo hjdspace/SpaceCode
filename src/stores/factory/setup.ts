@@ -128,3 +128,18 @@ export function canAdvance(
 ): boolean {
   return setupStepErrors(step, draft, context).length === 0
 }
+
+/**
+ * 步骤条跳转：目标步骤之前的每一步都得校验通过，否则不能越过还没填对的步骤。
+ * 目标步骤自身是否完整不设限——跳过去正是为了补它。
+ */
+export function canJumpToStep(
+  target: SetupStep,
+  draft: FactorySetupDraft,
+  context: FactorySetupContextLike,
+): boolean {
+  for (let step = 1; step < target; step++) {
+    if (setupStepErrors(step as SetupStep, draft, context).length > 0) return false
+  }
+  return true
+}
