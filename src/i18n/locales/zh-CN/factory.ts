@@ -242,6 +242,14 @@ export default {
   },
   cardLocal: '本地',
   cardTakeover: '已接管',
+  takeoverPanel: {
+    paused: '后台 Agent 已暂停',
+    reopen: '接管会话',
+    badgeAria: '已接管 · 打开接管会话',
+    close: '关闭接管面板',
+    footnote: '接管期间后台不推进该任务；交回后从当前阶段继续。',
+    verifyFailed: '验证未通过，任务仍是接管中。继续在会话里处理后再交回。',
+  },
   modelUnknown: '未配置模型',
   laneEmpty: '暂无任务',
 
@@ -488,6 +496,13 @@ export default {
     },
   },
 
+  diff: {
+    binary: '二进制文件，无文本补丁。',
+    renamed: '文件重命名：{from} → {to}，内容无变化。',
+    noPatch: '未采集到该文件的补丁。',
+    truncated: '补丁超过行数或字节上限，已截断显示。',
+  },
+
   inspector: {
     goal: '任务目标',
     goalEmpty: '这条待办还没有填写目标。',
@@ -615,11 +630,11 @@ export default {
       changes_requested: '已要求修改，任务转阻塞',
       cancelled: '任务已放弃，分支与工作树保留',
       fix: { started: '按 {comments} 条意见开始修复' },
-      takeover: '已接管任务，在聊天中继续',
+      takeover: '已接管任务，在看板内继续对话',
       retry: '从当前阶段重试',
       returned: {
         verified: '已交回流水线，验证通过并转审查',
-        failed: '已交回流水线，验证未通过并转入修复',
+        failed: '交回时验证未通过，任务保持接管中',
       },
     },
     worktree: {
