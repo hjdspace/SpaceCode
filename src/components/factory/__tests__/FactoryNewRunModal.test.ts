@@ -32,6 +32,11 @@ function mountModal(props: Record<string, unknown> = {}) {
       creating: false,
       loading: false,
       error: null,
+      planEnabled: true,
+      planning: false,
+      planError: null,
+      planned: [],
+      planWarnings: [],
       ...props,
     },
   })
@@ -155,5 +160,48 @@ describe('FactoryNewRunModal', () => {
     await wrapper.find('[data-new-run-cancel]').trigger('click')
     await wrapper.find('[data-new-run-modal]').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(2)
+  })
+
+  it('asks the planner for every claimable candidate', async () => {
+    const wrapper = mountModal()
+    expect(wrapper.find('[data-new-run-plan]').attributes('disabled')).toBeUndefined()
+    await wrapper.find('[data-new-run-plan]').trigger('click')
+    expect(wrapper.emitted('plan')?.[0]).toEqual([['bl-1', 'bl-2']])
+  })
+
+  it('disables planning when the stage is off or a plan is running', () => {
+    expect(mountModal({ planEnabled: false }).find('[data-new-run-plan]').attributes('disabled')).toBeDefined()
+    expect(mountModal({ planning: true }).find('[data-new-run-plan]').attributes('disabled')).toBeDefined()
+  })
+
+  it('applies the planned selection and dependencies before creating the run', async () => {
+    const wrapper = mountModal()
+    await wrapper.setProps({
+      planned: [
+        { candidateId: 'bl-1', dependsOn: [] },
+        { candidateId: 'bl-2', dependsOn: ['bl-1'] },
+      ],
+    })
+
+    expect((wrapper.find('[data-new-run-check="bl-1"]').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.find('[data-new-run-check="bl-2"]').element as HTMLInputElement).checked).toBe(true)
+    expect(wrapper.find('[data-new-run-dep="bl-2"]').text()).toContain('登录态在刷新后丢失')
+
+    await wrapper.find('[data-new-run-confirm]').trigger('click')
+    expect(wrapper.emitted('create')?.[0]?.[0]).toMatchObject({
+      ids: ['bl-1', 'bl-2'],
+      dependencies: { 'bl-2': ['bl-1'] },
+    })
+  })
+
+  it('explains an empty plan and renders plan errors', async () => {
+    const empty = mountModal()
+    await empty.setProps({ planned: [] })
+    expect(empty.find('[data-new-run-plan-empty]').exists()).toBe(true)
+
+    const failed = mountModal({ planError: 'plan-invalid' })
+    expect(failed.find('[data-new-run-plan-error]').text()).toBe(
+      'factory.newRun.planErrors.plan-invalid',
+    )
   })
 })
