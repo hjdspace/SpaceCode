@@ -279,6 +279,7 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
         runId,
         tasks,
         ...(input.concurrency === undefined ? {} : { concurrency: input.concurrency }),
+        ...(input.dependencies === undefined ? {} : { dependencies: input.dependencies }),
       },
       { now },
     )
