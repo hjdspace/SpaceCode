@@ -366,6 +366,30 @@ describe('config snapshot', () => {
     expect(gate.inputs[0].verifyCommand).toBe('npm run test')
   })
 
+  it('阶段权限模式按落盘值固化进快照，读回不被换成默认档', async () => {
+    // 实现阶段默认档已改成完全信任。解析清单若漏了某一档，表现不是报错而是悄悄
+    // 回落到默认值 —— 旧配置被无声提权，只在无人值守时不再弹审批，比崩掉难发现。
+    const ids = seedTasks(1, { concurrency: 1 })
+    const existing = readFactoryConfig(dir)
+    if (!existing) throw new Error('fixture config missing')
+    writeFactoryConfigAtomic(dir, {
+      ...existing,
+      stages: {
+        ...existing.stages,
+        implement: { ...existing.stages.implement, permissionMode: 'acceptEdits' },
+      },
+    })
+    const gate = createGate()
+    const runner = makeRunner(gate)
+
+    await runner.resumeRun(dir, runId)
+    await waitFor(() => gate.started.length === 1, 'claim')
+
+    const claimed = readRunSnapshot(dir, runId)!.tasks.find((task) => task.id === ids[0])
+    expect(claimed?.configSnapshot?.stages.implement.permissionMode).toBe('acceptEdits')
+    expect(gate.inputs[0].permissionMode).toBe('acceptEdits')
+  })
+
   it('emits a config.changed event for the current unfinished run', async () => {
     seedTasks(1, { concurrency: 1 })
     const gate = createGate()

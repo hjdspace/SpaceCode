@@ -19,6 +19,7 @@ import {
   type FactoryMergePreflightResult,
   type FactoryMergeResult,
   type FactoryPrReadyResult,
+  type FactoryPermissionMode,
   type FactoryReviewComment,
   type FactoryReviewCommentInput,
   type FactoryRunStopResult,
@@ -631,7 +632,11 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
    * activate=false：会话只在列表里落位，对话发生在看板内的接管面板，
    * 而不是把中间面板切到主聊天。
    */
-  function takeoverSessionFor(task: FactoryTask, worktreeAbsolute: string): FactoryTakeoverSession {
+  function takeoverSessionFor(
+    task: FactoryTask,
+    worktreeAbsolute: string,
+    permissionMode?: FactoryPermissionMode,
+  ): FactoryTakeoverSession {
     const stage = task.lane === 'reviewing' ? '审查中' : '实现中'
     const content = [
       `你已接管流水线任务「${task.title}」。`,
@@ -648,6 +653,9 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       title: `接管 · ${task.title}`,
       content,
       ...(task.model ? { model: task.model } : {}),
+      // 面板据此显示并沿用阶段模式；缺了它，渲染层会把这条会话按全局默认档对账，
+      // 引擎被就地降级（见 handleRemoteUserMessage）。
+      ...(permissionMode ? { permissionMode } : {}),
       activate: false,
     }
   }
@@ -701,9 +709,12 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
   async function stopTakeoverTurn(repoRoot: string, runId: string, taskId: string): Promise<void> {
     const entry = takeoverTurns.get(taskId)
     if (!entry || entry.runId !== runId) return
-    await entry.promise
     takeoverTurns.delete(taskId)
+    // 顺序不能反：接管会话可能正停在 can_use_tool 授权等待上，那种回合永远不会自己
+    // 结束，先 await 会把交回与停止运行一起挂死。stop() 会以 stopped 结算在途 promise，
+    // 所以先停进程、再等它，等待才有上界。
     await entry.agent.stop(entry.sessionId).catch(() => {})
+    await entry.promise
   }
 
   /** 在既有工作树上开实现/修复会话；调用方负责先迁移状态与发事件。 */
@@ -1310,11 +1321,21 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       if (!takeoverEligible(current)) return { ok: false, error: 'not-takeover' }
 
       // 重复接管幂等：沿用已有接管会话，不重复推送。
+      // 阶段配置先读一次：会话推送与引擎回合必须报同一个权限模式，否则面板显示
+      // 的和引擎跑着的不是同一档。
+      const config = readFactoryConfig(repoRoot)
+      const permissionMode = config
+        ? stageRuntimeFor(current, config).stages.implement.permissionMode
+        : undefined
       if (current.takeover) {
-        return { ok: true, snapshot: fresh, session: takeoverSessionFor(current, worktreeAbsolute) }
+        return {
+          ok: true,
+          snapshot: fresh,
+          session: takeoverSessionFor(current, worktreeAbsolute, permissionMode),
+        }
       }
 
-      const session = takeoverSessionFor(current, worktreeAbsolute)
+      const session = takeoverSessionFor(current, worktreeAbsolute, permissionMode)
       patchTask(repoRoot, runId, taskId, {
         takeover: { at: now().toISOString(), sessionId: session.sessionId },
       })
@@ -1325,7 +1346,6 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         level: 'warn',
       })
       pushTakeoverSession(session)
-      const config = readFactoryConfig(repoRoot)
       if (config) startTakeoverTurn(repoRoot, runId, current, session, worktreeAbsolute, config)
 
       const latest = readRunSnapshot(repoRoot, runId)

@@ -33,15 +33,34 @@ export const FACTORY_IGNORE_ENTRIES = [
   '.spacecode/factory/corrupt/',
 ] as const
 
-export type FactoryPermissionMode = 'default' | 'plan' | 'acceptEdits'
+export type FactoryPermissionMode = 'default' | 'plan' | 'acceptEdits' | 'bypassPermissions'
+
+/**
+ * 全部合法权限模式。配置文件与任务快照的解析都走这里，避免各处手写清单漏掉新档 ——
+ * 漏掉的后果是静默回落到阶段默认值，而不是报错。
+ */
+export const FACTORY_PERMISSION_MODES: readonly FactoryPermissionMode[] = [
+  'default',
+  'plan',
+  'acceptEdits',
+  'bypassPermissions',
+]
+
+export function isFactoryPermissionMode(value: unknown): value is FactoryPermissionMode {
+  return typeof value === 'string' && (FACTORY_PERMISSION_MODES as readonly string[]).includes(value)
+}
 
 /**
  * 每个阶段允许的权限模式：主进程据此拒绝非法组合，配置弹窗据此只提供合法选项。
  * 顺序稳定，报错与下拉顺序都依赖它。
+ *
+ * `bypassPermissions` 只开给实现阶段：引擎以 `--dangerously-skip-permissions` 启动，
+ * Bash 之类的工具不再发 `can_use_tool`，无人值守的实现回合才不会停在授权卡上。
+ * 代价是该阶段内工具无限制放行，隔离全靠任务自己的独立工作树与分支。
  */
 export const FACTORY_STAGE_PERMISSIONS: Record<FactoryStageKey, readonly FactoryPermissionMode[]> = {
   plan: ['plan'],
-  implement: ['default', 'acceptEdits'],
+  implement: ['default', 'acceptEdits', 'bypassPermissions'],
   verify: ['default'],
   review: ['default', 'acceptEdits'],
   merge: ['default', 'acceptEdits'],
@@ -555,6 +574,11 @@ export interface FactoryTakeoverSession {
   title: string
   content: string
   model?: string
+  /**
+   * 引擎实际跑着的阶段权限模式。渲染层会话记录缺了它，selectSession 的权限对账
+   * 会拿全局默认档下发，把接管会话就地降级（如降到 plan 后连 Bash 都要审批）。
+   */
+  permissionMode?: FactoryPermissionMode
   activate: boolean
 }
 

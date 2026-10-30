@@ -100,6 +100,7 @@ function pushFactorySession(session: FactoryTakeoverSession): void {
     timestamp: Date.now(),
     activate: session.activate,
     ...(session.model ? { model: session.model } : {}),
+    ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
   }
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {

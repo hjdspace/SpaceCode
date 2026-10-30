@@ -537,6 +537,7 @@ export default {
       default: 'Confirm each action',
       plan: 'Read-only planning',
       acceptEdits: 'Auto-accept edits',
+      bypassPermissions: 'Full trust (auto-approve)',
     },
     errors: {
       'invalid-config': 'The configuration failed validation; fix the fields below.',
@@ -558,7 +559,7 @@ export default {
           model: 'This stage model cannot be resolved for the current engine.',
         },
         implement: {
-          permissionMode: 'The implement stage allows confirm-each-action or auto-accept edits.',
+          permissionMode: 'The implement stage allows confirm-each-action, auto-accept edits, or full trust.',
           model: 'This stage model cannot be resolved for the current engine.',
         },
         verify: {

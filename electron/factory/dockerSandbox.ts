@@ -562,6 +562,9 @@ export function createDockerSandboxProvider(deps: DockerSandboxProviderDeps = {}
       async runAgent(prompt, options) {
         const argv = [...agentCommand]
         if (options.permissionMode) argv.push('--permission-mode', options.permissionMode)
+        // 与宿主 buildArgs 同口径：bypass 只能由这个 flag 打开，只传 --permission-mode
+        // 会让容器内的 CLI 拒绝该模式并退回逐次审批。
+        if (options.permissionMode === 'bypassPermissions') argv.push('--dangerously-skip-permissions')
         if (options.model) argv.push('--model', options.model)
         const result = await docker(
           ['exec', '-i', '-w', options.cwd ?? worktreePath, containerName, ...argv],

@@ -31,6 +31,7 @@ import { api } from '@/services/electronAPI'
 import { i18n } from '@/i18n'
 import { mergeGenuiCardRecords, projectGenuiCards } from '@/lib/genui/cardProjection'
 import { applyGenuiCardBudget } from '@/lib/genui/cardLifecycle'
+import type { PermissionMode } from '@/shared/channels/claudeCode'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -582,6 +583,13 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     // 用户在该会话续话时 initClaudeCodeSession 也会按它重启引擎，而不是退回全局默认
     if (typeof data?.model === 'string' && data.model && !session.model) {
       session.model = data.model
+    }
+
+    // 权限模式同理，但它还多一层责任：引擎已由推送方（流水线接管）按阶段配置起好，
+    // 会话记录若不记下同一档，selectSession 的权限对账会拿全局默认值下发，把这条
+    // 正在跑的会话就地降级 —— 接管会话被降到 plan 后连 Bash 都要逐次审批。
+    if (typeof data?.permissionMode === 'string' && data.permissionMode && !session.permissionMode) {
+      session.permissionMode = data.permissionMode as PermissionMode
     }
 
     // activate:false 的推送方（定时任务、看板接管面板）只要会话落进列表；

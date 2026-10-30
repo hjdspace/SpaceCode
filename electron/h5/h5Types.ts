@@ -1,6 +1,8 @@
 // electron/h5Types.ts
 // H5 WebUI 访问功能的类型定义
 
+import type { PermissionMode } from '@/shared/channels/claudeCode'
+
 /** H5 访问设置（持久化到 h5-access.json） */
 export interface H5AccessSettings {
   enabled: boolean
@@ -60,6 +62,11 @@ export interface H5RemoteUserMessagePayload {
   activate?: boolean
   /** 触发方为该会话指定的模型（实际模型名），用于桌面输入框显示与续话沿用 */
   model?: string
+  /**
+   * 触发方为该会话指定的权限模式。缺省时桌面按全局默认档对账引擎 —— 流水线接管
+   * 这类「引擎已由主进程起好」的会话必须带上它，否则会话会被就地降级。
+   */
+  permissionMode?: PermissionMode
 }
 
 /** WS 推送的消息格式 */

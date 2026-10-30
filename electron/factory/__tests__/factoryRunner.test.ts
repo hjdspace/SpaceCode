@@ -215,7 +215,7 @@ describe('startTask happy path', () => {
       sessionId: factorySessionId('fac-run-1-bl-1-impl'),
       worktreeAbsolute: join(dir, '.spacecode', 'worktrees', 'bl-1'),
       baseBranch: 'main',
-      permissionMode: 'acceptEdits',
+      permissionMode: 'bypassPermissions',
       prompt: 'rendered prompt',
     })
     expect(calls.some((args) => args[0] === 'worktree' && args[1] === 'add')).toBe(true)

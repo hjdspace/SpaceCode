@@ -535,6 +535,7 @@ export default {
       default: '每次确认',
       plan: '只读规划',
       acceptEdits: '自动接受编辑',
+      bypassPermissions: '完全信任（自动放行）',
     },
     errors: {
       'invalid-config': '配置校验未通过，请修正下方字段。',
@@ -556,7 +557,7 @@ export default {
           model: '该阶段模型无法按当前引擎解析。',
         },
         implement: {
-          permissionMode: '实现阶段只允许每次确认或自动接受编辑。',
+          permissionMode: '实现阶段只允许每次确认、自动接受编辑或完全信任。',
           model: '该阶段模型无法按当前引擎解析。',
         },
         verify: {

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
+import { buildFactoryConfig, readFactoryConfig, writeFactoryConfigAtomic } from '../config'
 import { createBacklogItem } from '../backlog'
 import { createFactoryRun, readRunSnapshot } from '../runs'
 import { transitionTask } from '../runtime'
@@ -298,10 +298,27 @@ describe('takeover', () => {
       sessionId: factorySessionId('fac-run-1-bl-1-takeover'),
       cwd: worktreeAbsolutePath(dir, 'bl-1'),
       // 权限模式沿用领取时固化的实现阶段配置（该夹具的默认档）。
-      permissionMode: 'acceptEdits',
+      permissionMode: 'bypassPermissions',
     })
     expect(calls.runs[0].prompt).toContain('任务 1')
     expect(calls.runs[0].prompt).toContain('目标 1')
+  })
+
+  it('接管会话报出的权限模式与引擎真正启动的那一档是同一个值', async () => {
+    seed()
+    withWorktree('implementing')
+    const calls: AgentCalls = { runs: [], stops: [] }
+    const runner = makeRunner({ agentFactory: async () => agent(calls) })
+
+    const result = await runner.takeoverTask(dir, runId, 'bl-1')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    await sleep(20)
+
+    // 面板里的会话记录只有拿到这一档，才不会被渲染层的权限对账按全局默认值降级。
+    const stageMode = readFactoryConfig(dir)!.stages.implement.permissionMode
+    expect(result.session.permissionMode).toBe(stageMode)
+    expect(calls.runs[0]?.permissionMode).toBe(stageMode)
   })
 
   it('repeated takeover starts only one engine turn', async () => {
@@ -328,6 +345,30 @@ describe('takeover', () => {
     await runner.returnTask(dir, runId, 'bl-1')
 
     // 接管会话与工作树同路：交回时不留第二个驱动。
+    expect(calls.stops).toContain(factorySessionId('fac-run-1-bl-1-takeover'))
+  })
+
+  it('接管回合卡在授权等待时交回仍能结束，不会把按钮留在「交回中」', async () => {
+    seed()
+    withWorktree('implementing')
+    const calls: AgentCalls = { runs: [], stops: [] }
+    const runner = makeRunner({
+      agentFactory: async () => authorizationBlockedAgent(calls),
+      verify: verifyWith(testRun('pass')),
+    })
+
+    await runner.takeoverTask(dir, runId, 'bl-1')
+    await sleep(20)
+    expect(calls.runs).toHaveLength(1)
+
+    // 卡在 can_use_tool 上的接管回合永不自行结束：交回必须先停引擎再等在途回合，
+    // 否则这条 IPC 永不返回，渲染层的 returning 标志也就永远清不掉。
+    const result = await Promise.race([
+      runner.returnTask(dir, runId, 'bl-1'),
+      sleep(500).then(() => ({ ok: false as const, error: 'return-timeout' as const })),
+    ])
+
+    expect(result).toMatchObject({ ok: true, verified: true })
     expect(calls.stops).toContain(factorySessionId('fac-run-1-bl-1-takeover'))
   })
 })

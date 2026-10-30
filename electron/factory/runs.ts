@@ -16,12 +16,12 @@ import {
   FACTORY_RUNS_PATH,
   FACTORY_RUN_TAB_LIMIT,
   FACTORY_SANDBOX_WORKTREE_ROOT,
+  isFactoryPermissionMode,
   type FactoryDiffFile,
   type FactoryDiffFileKind,
   type FactoryDiffHunk,
   type FactoryDiffLine,
   type FactoryLane,
-  type FactoryPermissionMode,
   type FactoryReviewComment,
   type FactoryRun,
   type FactoryRunCreateInput,
@@ -86,10 +86,6 @@ function parseRun(raw: unknown): FactoryRun | null {
   }
 }
 
-function isPermissionMode(value: unknown): value is FactoryPermissionMode {
-  return value === 'default' || value === 'plan' || value === 'acceptEdits'
-}
-
 function parseStages(raw: unknown): Record<FactoryStageKey, FactoryStageConfig> {
   const source = isRecord(raw) ? raw : {}
   const stages = {} as FactoryTaskConfigSnapshot['stages']
@@ -99,7 +95,9 @@ function parseStages(raw: unknown): Record<FactoryStageKey, FactoryStageConfig> 
     stages[key] = {
       enabled: item.enabled !== false,
       ...(typeof item.model === 'string' && item.model.trim() ? { model: item.model.trim() } : {}),
-      permissionMode: isPermissionMode(item.permissionMode) ? item.permissionMode : fallback.permissionMode,
+      permissionMode: isFactoryPermissionMode(item.permissionMode)
+        ? item.permissionMode
+        : fallback.permissionMode,
       humanGate: item.humanGate === true || (item.humanGate === undefined && fallback.humanGate),
       ...(typeof item.maxIterations === 'number' ? { maxIterations: item.maxIterations } : {}),
     }
