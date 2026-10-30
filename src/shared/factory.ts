@@ -751,9 +751,11 @@ export type FactoryTaskStartError =
   | 'base-branch-missing'
   | 'branch-in-use'
   | 'worktree-mismatch'
+  | 'worktree-busy'
   | 'invalid-task-id'
   | 'path-too-long'
   | 'permission'
+  | 'git-timeout'
   | 'git-error'
   | 'prompt-error'
   | 'agent-error'
@@ -768,6 +770,8 @@ export type FactoryTaskStartError =
   | 'task-busy'
   | 'run-locked'
   | 'sandbox-unavailable'
+  /** 渲染层动作链路自身抛错：与 git / 引擎错误区分，避免误导排障方向。 */
+  | 'action-failed'
 
 export interface FactoryTaskStartInput {
   /** 基础仓库有未提交改动时，用户确认后仍可继续。 */

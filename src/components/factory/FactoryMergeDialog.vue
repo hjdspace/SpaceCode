@@ -247,7 +247,8 @@ watch(
 const errorText = computed(() => {
   const err = props.error
   if (!err) return ''
-  return t(`factory.errors.${err.code}`, err.detail ? { detail: err.detail } : {})
+  const text = t(`factory.errors.${err.code}`)
+  return err.detail ? `${text} ${err.detail}` : text
 })
 </script>
 

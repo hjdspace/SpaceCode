@@ -9,6 +9,7 @@ import {
   buildBranchName,
   collectWorktreeState,
   gitErrorHint,
+  gitTimeoutFor,
   isValidTaskId,
   mapGitFailure,
   parseWorktreeList,
@@ -25,7 +26,7 @@ interface Call {
   cwd?: string
 }
 
-function fakeGit(responses: Array<{ ok?: boolean; stdout?: string; stderr?: string }>): {
+function fakeGit(responses: Array<{ ok?: boolean; stdout?: string; stderr?: string; timedOut?: boolean }>): {
   git: GitRunner
   calls: Call[]
 } {
@@ -34,7 +35,12 @@ function fakeGit(responses: Array<{ ok?: boolean; stdout?: string; stderr?: stri
   const git: GitRunner = async (args, cwd) => {
     calls.push({ args, cwd })
     const next = responses[index++] ?? { ok: true }
-    return { ok: next.ok !== false, stdout: next.stdout ?? '', stderr: next.stderr ?? '' }
+    return {
+      ok: next.ok !== false,
+      stdout: next.stdout ?? '',
+      stderr: next.stderr ?? '',
+      ...(next.timedOut ? { timedOut: true } : {}),
+    }
   }
   return { git, calls }
 }
@@ -106,11 +112,34 @@ describe('parseWorktreeList', () => {
     ].join('\n')
 
     expect(parseWorktreeList(stdout)).toEqual([
-      { path: 'D:/repo', branch: 'refs/heads/main', bare: false, detached: false },
-      { path: 'D:/repo/.spacecode/worktrees/bl-1', branch: 'refs/heads/agent/task-bl-1', bare: false, detached: false },
-      { path: 'D:/repo/.spacecode/worktrees/detached', branch: null, bare: false, detached: true },
-      { path: 'D:/repo/bare.git', branch: null, bare: true, detached: false },
+      { path: 'D:/repo', branch: 'refs/heads/main', bare: false, detached: false, locked: false },
+      {
+        path: 'D:/repo/.spacecode/worktrees/bl-1',
+        branch: 'refs/heads/agent/task-bl-1',
+        bare: false,
+        detached: false,
+        locked: false,
+      },
+      { path: 'D:/repo/.spacecode/worktrees/detached', branch: null, bare: false, detached: true, locked: false },
+      { path: 'D:/repo/bare.git', branch: null, bare: true, detached: false, locked: false },
     ])
+  })
+
+  it('marks locked worktrees with and without a reason', () => {
+    const stdout = [
+      'worktree D:/repo/.spacecode/worktrees/bl-1',
+      'HEAD def456',
+      'branch refs/heads/agent/task-bl-1',
+      'locked',
+      '',
+      'worktree D:/repo/.spacecode/worktrees/bl-2',
+      'HEAD def789',
+      'branch refs/heads/agent/task-bl-2',
+      'locked initial checkout',
+      '',
+    ].join('\n')
+
+    expect(parseWorktreeList(stdout).map((entry) => entry.locked)).toEqual([true, true])
   })
 })
 
@@ -193,6 +222,48 @@ describe('prepareWorktree', () => {
       platform: 'win32',
     })
     expect(result).toMatchObject({ ok: false, error: 'path-too-long' })
+  })
+
+  it('reports a timed-out checkout as git-timeout instead of git-error', async () => {
+    const timedOut = fakeGit([
+      { stdout: '' },
+      {
+        ok: false,
+        timedOut: true,
+        stderr: 'Preparing worktree (new branch \'agent/task-bl-1\')\rUpdating files:  49% (5929/12099)\r',
+      },
+    ])
+    const result = await prepareWorktree(input, { git: timedOut.git, pathExists: () => false, isSymlink: () => false })
+    // 进度输出被剥掉后没有剩余细节：界面只显示超时文案本身。
+    expect(result).toEqual({ ok: false, error: 'git-timeout', detail: '' })
+  })
+
+  it('keeps only the last meaningful stderr line as the failure detail', async () => {
+    const noisy = fakeGit([
+      { stdout: '' },
+      {
+        ok: false,
+        stderr:
+          "Preparing worktree (new branch 'agent/task-bl-1')\rUpdating files:  10% (1/10)\rUpdating files:  90% (9/10)\rfatal: could not write index\r",
+      },
+    ])
+    const result = await prepareWorktree(input, { git: noisy.git, pathExists: () => false, isSymlink: () => false })
+    expect(result).toMatchObject({ ok: false, error: 'git-error', detail: 'fatal: could not write index' })
+  })
+
+  it('refuses to reuse a worktree that is still locked', async () => {
+    const list = `worktree ${expectedAbsolute}\nHEAD abc\nbranch refs/heads/agent/task-bl-1\nlocked\n\n`
+    const { git } = fakeGit([{ stdout: list }])
+    const result = await prepareWorktree(input, { git, pathExists: () => true, isSymlink: () => false })
+    expect(result).toEqual({ ok: false, error: 'worktree-busy', detail: '.spacecode/worktrees/bl-1' })
+  })
+})
+
+describe('git timeouts', () => {
+  it('gives checkout a much longer timeout than read-only commands', () => {
+    expect(gitTimeoutFor(['worktree', 'add', '-b', 'agent/task-bl-1', '/x', 'main'])).toBe(10 * 60 * 1000)
+    expect(gitTimeoutFor(['worktree', 'list', '--porcelain'])).toBe(10000)
+    expect(gitTimeoutFor(['status', '--porcelain'])).toBe(10000)
   })
 })
 

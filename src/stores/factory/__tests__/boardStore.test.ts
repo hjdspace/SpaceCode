@@ -326,6 +326,18 @@ describe('implementation events', () => {
     expect(factoryApi.taskStart).toHaveBeenLastCalledWith('/repo', 'run-1', 'bl-1', { confirmDirty: true })
     expect(store.pendingDirtyId).toBeNull()
   })
+
+  it('reports a renderer failure as action-failed instead of blaming git', async () => {
+    mockRun(snapshot())
+    factoryApi.taskStart.mockRejectedValue(new Error('ipc down'))
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    const result = await store.startTask('/repo', 'run-1', 'bl-1')
+    expect(result).toMatchObject({ ok: false, error: 'action-failed' })
+    expect(store.actionError).toEqual({ code: 'action-failed' })
+    expect(store.startingId).toBeNull()
+  })
 })
 
 /** 卡片与检查器共用同一条放弃动作：store 只保留一份结果与错误。 */

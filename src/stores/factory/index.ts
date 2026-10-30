@@ -1087,8 +1087,9 @@ export const useFactoryStore = defineStore('factory', () => {
       if (result.error === 'dirty-worktree') pendingDirtyId.value = taskId
       return result
     } catch {
-      actionError.value = { code: 'git-error' }
-      return { ok: false, error: 'git-error' }
+      // 渲染层异常不等于 git 失败：冒充 git-error 会把真正的故障点藏起来。
+      actionError.value = { code: 'action-failed' }
+      return { ok: false, error: 'action-failed' }
     } finally {
       startingId.value = null
     }
@@ -1276,8 +1277,8 @@ export const useFactoryStore = defineStore('factory', () => {
       else actionError.value = { code: result.error, ...(result.detail ? { detail: result.detail } : {}) }
       return result
     } catch {
-      actionError.value = { code: 'git-error' }
-      return { ok: false, error: 'git-error' }
+      actionError.value = { code: 'action-failed' }
+      return { ok: false, error: 'action-failed' }
     } finally {
       retrying.value = false
     }
