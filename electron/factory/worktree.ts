@@ -16,15 +16,38 @@ import {
 import { buildDiffFiles, parsePatchOutput, type NumstatEntry } from './diffPatch'
 
 const GIT_TIMEOUT = 10000
+/**
+ * 检出要落盘整棵工作树：万级文件在 Windows 上实测可达 70s 以上，10s 会把
+ * `git worktree add` 杀掉并留下「分支已建、工作树完整、看板却报失败」的残局。
+ */
+const GIT_CHECKOUT_TIMEOUT = 10 * 60 * 1000
 const GIT_MAX_BUFFER = 10 * 1024 * 1024
 const GIT_BINARY = process.platform === 'win32' ? 'git.exe' : 'git'
 const TASK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 const SLUG_MAX = 40
+/** git 的进度输出会灌满 stderr，报错详情里只保留真正的失败行。 */
+const GIT_PROGRESS_LINE = /^(Updating files|Checking out files|Preparing worktree|Updating)/
 
 export interface GitExecResult {
   ok: boolean
   stdout: string
   stderr: string
+  /** 被超时杀掉：进程没有正常退出，stderr 里通常只有进度输出。 */
+  timedOut?: boolean
+}
+
+export function gitTimeoutFor(args: string[]): number {
+  return args[0] === 'worktree' && args[1] === 'add' ? GIT_CHECKOUT_TIMEOUT : GIT_TIMEOUT
+}
+
+/** 去掉 `\r` 覆盖式进度与进度行，返回最后一条有意义的 stderr。 */
+function meaningfulStderr(stderr: string): string {
+  const lines = stderr
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !GIT_PROGRESS_LINE.test(line))
+  return lines.length > 0 ? lines[lines.length - 1] : ''
 }
 
 export type GitRunner = (args: string[], cwd?: string) => Promise<GitExecResult>
@@ -51,7 +74,7 @@ const defaultGit: GitRunner = (args, cwd) =>
       args,
       {
         cwd,
-        timeout: GIT_TIMEOUT,
+        timeout: gitTimeoutFor(args),
         maxBuffer: GIT_MAX_BUFFER,
         env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
       },
@@ -60,6 +83,7 @@ const defaultGit: GitRunner = (args, cwd) =>
           ok: !error,
           stdout: stdout || '',
           stderr: stderr || '',
+          ...(error?.killed ? { timedOut: true } : {}),
         })
       },
     )
@@ -125,6 +149,8 @@ export interface WorktreeEntry {
   branch: string | null
   bare: boolean
   detached: boolean
+  /** 正在创建或被人为锁定：此时复用会拿到半成品工作树。 */
+  locked: boolean
 }
 
 export function parseWorktreeList(stdout: string): WorktreeEntry[] {
@@ -142,6 +168,7 @@ export function parseWorktreeList(stdout: string): WorktreeEntry[] {
     if (line.startsWith('branch ')) current.branch = line.slice('branch '.length)
     else if (line === 'bare') current.bare = true
     else if (line === 'detached') current.detached = true
+    else if (line === 'locked' || line.startsWith('locked ')) current.locked = true
   }
   if (current?.path) entries.push(finishEntry(current))
 
@@ -154,6 +181,7 @@ function finishEntry(partial: Partial<WorktreeEntry>): WorktreeEntry {
     branch: partial.branch ?? null,
     bare: partial.bare === true,
     detached: partial.detached === true,
+    locked: partial.locked === true,
   }
 }
 
@@ -203,7 +231,16 @@ export type PrepareWorktreeResult =
     }
   | {
       ok: false
-      error: 'invalid-task-id' | 'permission' | 'not-git-repo' | 'path-too-long' | 'branch-in-use' | 'worktree-mismatch' | 'git-error'
+      error:
+        | 'invalid-task-id'
+        | 'permission'
+        | 'not-git-repo'
+        | 'path-too-long'
+        | 'branch-in-use'
+        | 'worktree-mismatch'
+        | 'worktree-busy'
+        | 'git-timeout'
+        | 'git-error'
       detail?: string
     }
 
@@ -213,9 +250,16 @@ function samePath(a: string, b: string, platform: NodeJS.Platform): boolean {
   return platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
-function failure(error: WorktreeGitError, stderr: string, platform: NodeJS.Platform): PrepareWorktreeResult {
+function failure(result: GitExecResult, platform: NodeJS.Platform): PrepareWorktreeResult {
+  // 超时被杀时 stderr 只剩进度输出，映射成 git 错误会把人引向错误的方向。
+  if (result.timedOut) {
+    return { ok: false, error: 'git-timeout', detail: meaningfulStderr(result.stderr) }
+  }
+  const error = mapGitFailure(result.stderr)
+  const detail = meaningfulStderr(result.stderr)
   const hint = gitErrorHint(error, platform)
-  return { ok: false, error, detail: hint ? `${stderr.trim()} (${hint})` : stderr.trim() }
+  const withHint = hint ? (detail ? `${detail} (${hint})` : hint) : detail
+  return { ok: false, error, detail: withHint }
 }
 
 /** 幂等准备：同分支同路径复用，其它情况明确阻塞，绝不复用错误分支。 */
@@ -232,7 +276,7 @@ export async function prepareWorktree(
   const { absolute, relative } = pathResult
 
   const list = await git(['worktree', 'list', '--porcelain'], input.repoRoot)
-  if (!list.ok) return failure(mapGitFailure(list.stderr), list.stderr, platform)
+  if (!list.ok) return failure(list, platform)
   const entries = parseWorktreeList(list.stdout)
 
   const existingAtPath = entries.find((entry) => samePath(entry.path, absolute, platform))
@@ -245,6 +289,7 @@ export async function prepareWorktree(
         detail: `${relative} @ ${existingAtPath.branch ?? 'detached'}`,
       }
     }
+    if (existingAtPath.locked) return { ok: false, error: 'worktree-busy', detail: relative }
     return { ok: true, worktree: { absolute, relative, branch: input.branch, reused: true } }
   }
 
@@ -260,7 +305,7 @@ export async function prepareWorktree(
     ['worktree', 'add', '-b', input.branch, absolute, input.baseBranch],
     input.repoRoot,
   )
-  if (!add.ok) return failure(mapGitFailure(add.stderr), add.stderr, platform)
+  if (!add.ok) return failure(add, platform)
 
   return { ok: true, worktree: { absolute, relative, branch: input.branch, reused: false } }
 }
