@@ -135,7 +135,7 @@ describe('FactoryMergeDialog', () => {
       error: { code: 'git-error', detail: 'fatal: not a git repository' },
     })
     expect(wrapper.find('[data-merge-preflight-error]').text()).toContain(
-      'factory.errors.git-error|{"detail":"fatal: not a git repository"}',
+      'factory.errors.git-error fatal: not a git repository',
     )
     expect(wrapper.find('[data-merge-confirm]').attributes('disabled')).toBeDefined()
   })
