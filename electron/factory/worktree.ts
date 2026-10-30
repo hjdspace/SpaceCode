@@ -13,6 +13,7 @@ import {
   type FactoryCommit,
   type FactoryTaskDiff,
 } from '@/shared/factory'
+import { buildDiffFiles, parsePatchOutput, type NumstatEntry } from './diffPatch'
 
 const GIT_TIMEOUT = 10000
 const GIT_MAX_BUFFER = 10 * 1024 * 1024
@@ -270,11 +271,8 @@ export interface WorktreeState {
   clean: boolean
 }
 
-function parseNumstat(stdout: string): FactoryTaskDiff {
-  let additions = 0
-  let deletions = 0
-  const files: NonNullable<FactoryTaskDiff['files']> = []
-
+function parseNumstatEntries(stdout: string): NumstatEntry[] {
+  const entries: NumstatEntry[] = []
   for (const raw of stdout.split(/\r?\n/)) {
     const line = raw.trim()
     if (!line) continue
@@ -285,16 +283,11 @@ function parseNumstat(stdout: string): FactoryTaskDiff {
     const del = middle === '-' ? 0 : Number(middle)
     const safeAdd = Number.isFinite(add) ? add : 0
     const safeDel = Number.isFinite(del) ? del : 0
-    additions += safeAdd
-    deletions += safeDel
-    if (path) files.push({ path, additions: safeAdd, deletions: safeDel })
+    if (path) {
+      entries.push({ path, additions: safeAdd, deletions: safeDel, binary: left === '-' || middle === '-' })
+    }
   }
-
-  return {
-    additions,
-    deletions,
-    ...(files.length > 0 ? { files } : {}),
-  }
+  return entries
 }
 
 function parseCommits(stdout: string): FactoryCommit[] {
@@ -309,7 +302,7 @@ function parseCommits(stdout: string): FactoryCommit[] {
     .filter((commit) => commit.sha !== '')
 }
 
-/** 采集工作树相对基础分支的变更、提交与是否干净。读不到工作树时返回 null。 */
+/** 采集工作树相对基础分支的变更（含分块补丁）、提交与是否干净。读不到工作树时返回 null。 */
 export async function collectWorktreeState(
   repoRoot: string,
   taskId: string,
@@ -323,11 +316,20 @@ export async function collectWorktreeState(
   const numstat = await git(['diff', '--numstat', baseBranch], cwd)
   if (!numstat.ok) return null
 
+  const entries = parseNumstatEntries(numstat.stdout)
+  // 补丁失败只降级为「无补丁」，行数与提交仍是权威信息。
+  const patch = await git(['diff', '--unified=3', baseBranch], cwd)
+  const files = buildDiffFiles(entries, patch.ok ? parsePatchOutput(patch.stdout) : [])
+
   const log = await git(['log', '--format=%H%x09%s', `${baseBranch}..HEAD`], cwd)
   const status = await git(['status', '--porcelain'], cwd)
 
   return {
-    diff: parseNumstat(numstat.stdout),
+    diff: {
+      additions: entries.reduce((sum, entry) => sum + entry.additions, 0),
+      deletions: entries.reduce((sum, entry) => sum + entry.deletions, 0),
+      ...(files.length > 0 ? { files } : {}),
+    },
     commits: log.ok ? parseCommits(log.stdout) : [],
     clean: status.ok ? status.stdout.trim() === '' : false,
   }
