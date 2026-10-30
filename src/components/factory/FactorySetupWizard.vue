@@ -428,16 +428,6 @@
               <span>{{ t('factory.closeIssue') }}</span>
             </label>
           </div>
-
-          <div class="reuse-row" data-reuse-row>
-            <div class="reuse-info">
-              <strong>{{ t('factory.reuseModelTitle') }}</strong>
-              <span>{{ reuseModelLabel }}</span>
-            </div>
-            <button class="gh-check" data-open-model-settings @click="openModelSettings">
-              {{ t('factory.openModelSettings') }}
-            </button>
-          </div>
         </section>
 
         <!-- Step 4: preflight -->
@@ -717,14 +707,6 @@ const repoListErrorText = computed(() => {
 
 const detectedRepo = computed(() => parseRepoFromRemote(context.value?.repo.remote))
 
-/** 复用行只陈述事实：桌面配置里的 provider/model，不在向导里重复选。 */
-const reuseModelLabel = computed(() => {
-  const profile = context.value?.modelProfile
-  if (!profile?.configured) return t('factory.reuseModelUnset')
-  const parts = [profile.provider, profile.model ?? context.value?.models.default].filter(Boolean)
-  return parts.length > 0 ? parts.join(' · ') : t('factory.reuseModelUnset')
-})
-
 /** 只报与本次状态码对应的排查方向；未知状态码交给上面的原因文案。 */
 const tokenHints = computed(() => {
   const status = store.tokenResult?.status
@@ -842,11 +824,6 @@ async function recheckDocker(): Promise<void> {
 
 function openDockerDownload(): void {
   void shell.openExternal('https://www.docker.com/products/docker-desktop/')
-}
-
-/** 设置面板是全应用共用的浮层；借 open-settings 事件直达模型页。 */
-function openModelSettings(): void {
-  window.dispatchEvent(new CustomEvent('open-settings', { detail: { tab: 'model' } }))
 }
 
 function engineLabel(type: FactoryEngineType): string {
@@ -1458,36 +1435,6 @@ async function finish(): Promise<void> {
   padding: 0;
   border: none;
   background: transparent;
-}
-
-.reuse-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md, 8px);
-  background: var(--surface-glass);
-}
-
-.reuse-info {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  font-size: 12px;
-
-  strong {
-    color: var(--text-primary);
-    font-weight: 600;
-  }
-
-  span {
-    color: var(--text-muted);
-    overflow-wrap: anywhere;
-  }
 }
 
 .role-models {
