@@ -25,6 +25,8 @@ import type {
   FactoryMergeExecuteInput,
   FactoryMergePreflightResult,
   FactoryMergeResult,
+  FactoryPlanInput,
+  FactoryPlanResult,
   FactoryPreflightResult,
   FactoryReviewCommentInput,
   FactoryRun,
@@ -120,6 +122,10 @@ export const factoryNamespace = defineNamespace({
     backlogMove: {
       req: [] as unknown as [repoRoot: string, id: string, direction: 'up' | 'down'],
       res: null as unknown as FactoryBacklogResult,
+    },
+    plan: {
+      req: [] as unknown as [repoRoot: string, input?: FactoryPlanInput],
+      res: null as unknown as FactoryPlanResult,
     },
     runCreate: {
       req: [] as unknown as [repoRoot: string, input: FactoryRunCreateInput],
