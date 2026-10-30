@@ -15,6 +15,7 @@ import {
   readRunSnapshot,
   runDir,
 } from '../runs'
+import { transitionTask } from '../runtime'
 
 let dir: string
 
@@ -149,6 +150,27 @@ describe('createGithubRun', () => {
     )
     expect(duplicate).toMatchObject({ ok: false, error: 'duplicate-tasks', duplicates: ['42'] })
     expect(runIds()).toEqual(['run-1'])
+  })
+
+  it('allows reclaiming the issue once its task is abandoned in a still-running run', () => {
+    const first = createGithubRun(
+      dir,
+      { runId: 'run-1', tasks: [{ issueNumber: 43, title: '已放弃', goal: '' }] },
+      runDeps(),
+    )
+    if (!first.ok) throw new Error('fixture run invalid')
+
+    transitionTask(dir, 'run-1', first.snapshot.tasks[0].id, { lane: 'done' }, 'task.cancelled', {
+      cancelled: true,
+    })
+    expect(claimedGithubIssues(dir).has(43)).toBe(false)
+
+    const retried = createGithubRun(
+      dir,
+      { runId: 'run-2', tasks: [{ issueNumber: 43, title: '重新领取', goal: '' }] },
+      runDeps(),
+    )
+    expect(retried.ok).toBe(true)
   })
 
   it('allows reclaiming the issue once the previous run is stopped', () => {
