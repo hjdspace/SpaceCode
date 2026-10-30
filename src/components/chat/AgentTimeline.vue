@@ -261,6 +261,7 @@
                 :tool-use-id="toolOf(item.event!)!.id"
                 :tool-name="getPendingPermission(toolOf(item.event!)!.id)!.toolName"
                 :input="getPendingPermission(toolOf(item.event!)!.id)!.input"
+                :session-id="props.sessionId"
               />
             </template>
 
@@ -316,6 +317,7 @@
                   :tool-use-id="toolOf(item.event!)!.id"
                   :tool-name="getPendingPermission(toolOf(item.event!)!.id)!.toolName"
                   :input="getPendingPermission(toolOf(item.event!)!.id)!.input"
+                  :session-id="props.sessionId"
                 />
               </div>
             </template>
@@ -477,6 +479,8 @@ const props = defineProps<{
    * 重复出现 (#54)。
    */
   dialogs?: ExtensionDialog[]
+  /** 本条时间线所属会话；嵌入式面板里它不是 currentSessionId。 */
+  sessionId?: string
 }>()
 
 const expandedEvents = reactive<Record<string, boolean>>({})
@@ -486,7 +490,7 @@ const turnStore = useTurnStore()
 const { t } = useI18n()
 
 function getPendingPermission(toolUseId: string) {
-  return turnStore.getPendingPermissionForToolUse(toolUseId)
+  return turnStore.getPendingPermissionForToolUse(toolUseId, props.sessionId)
 }
 
 /**
