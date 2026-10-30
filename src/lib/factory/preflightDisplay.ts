@@ -1,6 +1,6 @@
 /**
  * 预检项的展示文案。预检结果只带「码 + 参数」（`not-checked`、`no-push-permission`
- * 之类），裸码不能直接给用户看，这里统一按 id 翻成详情与一行解释。
+ * 之类），裸码不能直接给用户看，这里统一按 id 翻成详情、一行解释和一条出路。
  */
 import type { FactoryPreflightItem } from '@/shared/factory'
 
@@ -10,6 +10,35 @@ export type PreflightTranslate = (key: string, params?: Record<string, unknown>)
 export interface PreflightText {
   detail: string
   hint: string
+}
+
+/**
+ * 预检项的出路。判据只有一条，和该项 hint 里写的补救动作对齐：
+ * 能靠改向导里的某个选择解决的，跳回那一步；补救在向导之外（环境、桌面设置、
+ * 本页字段）的，就地重新检测——跳回去也改不动它。
+ */
+export type PreflightFix = { kind: 'step'; step: 1 | 2 | 3 } | { kind: 'recheck' }
+
+const FIX_BY_ITEM: Record<FactoryPreflightItem['id'], PreflightFix> = {
+  engine: { kind: 'step', step: 1 },
+  sandbox: { kind: 'step', step: 2 },
+  trackerAuth: { kind: 'step', step: 3 },
+  trackerPush: { kind: 'step', step: 3 },
+  trackerLabel: { kind: 'step', step: 3 },
+  verifyCommand: { kind: 'recheck' },
+  gitRepo: { kind: 'recheck' },
+  gitDirty: { kind: 'recheck' },
+  gitVersion: { kind: 'recheck' },
+  configWritable: { kind: 'recheck' },
+  modelProfile: { kind: 'recheck' },
+  dockerImage: { kind: 'recheck' },
+  dockerMount: { kind: 'recheck' },
+  dockerProxy: { kind: 'recheck' },
+}
+
+/** 通过的项不需要出路；`Record` 保证新增预检项时这里不会漏。 */
+export function preflightFix(item: FactoryPreflightItem): PreflightFix | null {
+  return item.level === 'ok' ? null : FIX_BY_ITEM[item.id]
 }
 
 const EMPTY: PreflightText = { detail: '', hint: '' }
