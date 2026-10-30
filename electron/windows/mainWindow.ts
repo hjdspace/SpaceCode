@@ -74,8 +74,6 @@ export function waitForViteAndLoad(
 // ── Splash Screen ────────────────────────────────────────────────
 
 function createSplashScreen(): void {
-  if (!isDev) return
-
   splashWindow = new BrowserWindow({
     width: 360,
     height: 240,
@@ -223,12 +221,6 @@ export function createWindow(
 
   mainWindow.webContents.on('did-finish-load', () => {
     info('Startup', `Page did-finish-load | elapsed=${Date.now() - startTime}ms`)
-    if (mainWindow && !mainWindow.isVisible()) {
-      info('Startup', 'ready-to-show did not fire, showing window as fallback')
-      mainWindow.show()
-      mainWindow.focus()
-      closeSplashScreen()
-    }
     if (isDev) {
       mainWindow?.webContents.openDevTools()
     }
@@ -285,8 +277,35 @@ export function createWindow(
     }
   })
 
+  /** 自动重载次数上限：1 次。崩溃循环比黑屏更难收拾，第二次留给现场。 */
+  let rendererCrashReloads = 0
+
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     error('Renderer', `Render process gone! reason=${details.reason} exitCode=${details.exitCode}`)
+    // 崩溃在窗口可见之前发生时（Linux 服务器上的典型形态：黑屏不动，随后 133/SIGTRAP），
+    // 用户唯一的线索是托盘图标。这里把窗口亮出来并重载一次：要么自己回来，要么露出
+    // Chromium 的错误页 —— 都比一帧都没有的黑窗口可查。
+    if (rendererCrashReloads >= 1) {
+      error('Renderer', 'Renderer crashed again after reload — leaving the window as-is for inspection')
+      return
+    }
+    rendererCrashReloads++
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+    }
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      info('Renderer', 'Reloading renderer after crash')
+      mainWindow.reload()
+    }, 1000)
+  })
+
+  // 崩溃前的"卡住"阶段也要留证据：renderer 无响应 ≠ 进程死了，但两者的修法不同。
+  mainWindow.on('unresponsive', () => {
+    warn('Renderer', 'Window unresponsive — renderer event loop is blocked')
+  })
+  mainWindow.on('responsive', () => {
+    info('Renderer', 'Window responsive again')
   })
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDesc, validatedURL) => {
