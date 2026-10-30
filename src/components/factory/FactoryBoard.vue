@@ -1,166 +1,181 @@
-<template>
-  <div ref="boardEl" class="factory-board">
-    <section
-      v-for="lane in FACTORY_LANES"
-      :key="lane.key"
-      class="board-lane"
-      :data-lane="lane.key"
-      :style="{ '--lane-color': lane.color }"
-    >
-      <header class="lane-head">
-        <i />
-        <span>{{ t(lane.labelKey) }}</span>
-        <b data-lane-count>{{ grouped[lane.key].length }}</b>
-      </header>
-
-      <div class="lane-cards">
-        <FactoryCard
-          v-for="task in grouped[lane.key]"
-          :key="task.id"
-          :task="task"
-          :selected="task.id === selectedId"
-          :now-ms="nowMs"
-          :run="run"
-          :readonly="readonly"
-          :busy="busy"
-          @select="emit('select', $event)"
-          @action="(id, kind) => emit('action', id, kind)"
-        />
-        <div v-if="!grouped[lane.key].length" class="lane-empty" data-lane-empty>
-          {{ t('factory.laneEmpty') }}
-        </div>
-      </div>
-    </section>
-  </div>
-</template>
-
-<script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { FactoryLane, FactoryRun, FactoryTask } from '@/shared/factory'
-import { FACTORY_LANES, tasksByLane, type FactoryCardActionKind } from '@/stores/factory/board'
-import FactoryCard from './FactoryCard.vue'
-
-const props = withDefaults(
-  defineProps<{
-    tasks: FactoryTask[]
-    selectedId: string | null
-    /** 卡片的脉冲跟着运行走：泳道只负责分组，运行态由整块看板共享。 */
-    run: FactoryRun | null
-    nowMs?: number
-    /** 运行目录只读：整块看板的卡片动作一起禁用，原因由卡片给出。 */
-    readonly?: boolean
-    /** 看板上正在执行中的快捷动作，避免同一动作重复点击。 */
-    busy?: FactoryCardActionKind | null
-  }>(),
-  { nowMs: () => Date.now(), readonly: false, busy: null },
-)
-
-const emit = defineEmits<{
-  select: [id: string]
-  action: [id: string, kind: FactoryCardActionKind]
-}>()
-
-const { t } = useI18n()
-
-const boardEl = ref<HTMLElement | null>(null)
-
-const grouped = computed<Record<FactoryLane, FactoryTask[]>>(() => {
-  const lanes = {} as Record<FactoryLane, FactoryTask[]>
-  for (const lane of FACTORY_LANES) lanes[lane.key] = tasksByLane(props.tasks, lane.key)
-  return lanes
-})
-
 /**
- * 运行头部点分段时把对应泳道横向滚进视野。
- * 只滚看板自己的容器：用 scrollIntoView 会连带滚动外层 overflow 容器，挤走左右两栏。
+ * 六泳道看板渲染：顺序/数量/空态/卡片内容与点击选中。
  */
-function focusLane(lane: FactoryLane): void {
-  const board = boardEl.value
-  const laneEl = board?.querySelector<HTMLElement>(`[data-lane="${lane}"]`)
-  if (!board || !laneEl) return
-  const left =
-    board.scrollLeft +
-    laneEl.getBoundingClientRect().left -
-    board.getBoundingClientRect().left
-  board.scrollTo({ left, behavior: 'smooth' })
-}
+import { describe, it, expect, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import type { FactoryLane, FactoryRun, FactoryTask } from '@/shared/factory'
 
-defineExpose({ focusLane })
-</script>
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string, params?: Record<string, unknown>) =>
+      params ? `${key}|${JSON.stringify(params)}` : key,
+  }),
+}))
 
-<style lang="scss" scoped>
-/* 窄窗口下泳道守住最小列宽，整块看板横向滚动；纵向滚动留给每条泳道自己的卡片区。 */
-.factory-board {
-  display: flex;
-  gap: 10px;
-  flex: 1;
-  min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 8px;
-  @include scrollbar-overlay;
-}
+import FactoryBoard from '../FactoryBoard.vue'
 
-.board-lane {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1 1 0;
-  min-width: 200px;
-  min-height: 0;
-
-  &::before {
-    content: '';
-    height: 2px;
-    border-radius: 2px;
-    background: var(--lane-color);
-    opacity: 0.7;
+function task(overrides: Partial<FactoryTask> = {}): FactoryTask {
+  return {
+    id: 'bl-1',
+    runId: 'run-1',
+    source: 'local',
+    title: '登录态在刷新后丢失',
+    goal: '修复恢复顺序',
+    lane: 'queued',
+    stageIdx: 0,
+    branch: 'agent/task-bl-1',
+    worktree: null,
+    model: 'Opus 4.8',
+    iteration: 0,
+    maxIterations: 5,
+    diff: { additions: 0, deletions: 0 },
+    timestamps: { claimedAt: '2026-10-28T10:00:00Z' },
+    ...overrides,
   }
 }
 
-.lane-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 2px;
-  font-size: var(--text-2xs, 11px);
-  color: var(--text-muted);
-
-  i {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--lane-color);
-  }
-
-  b {
-    margin-left: auto;
-    font-weight: 600;
-    color: var(--text-secondary);
+function run(overrides: Partial<FactoryRun> = {}): FactoryRun {
+  return {
+    id: 'run-1',
+    status: 'running',
+    paused: false,
+    createdAt: '2026-10-28T10:00:00Z',
+    maxConcurrency: 4,
+    spendUsd: 0,
+    elapsedMs: 0,
+    ...overrides,
   }
 }
 
-.lane-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 6px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg, 12px);
-  background: var(--surface-glass);
-  @include scrollbar-overlay;
+const tasks = [
+  task(),
+  task({
+    id: 'bl-2',
+    title: '合并预检失败',
+    lane: 'blocked',
+    stageIdx: 5,
+    attention: { reason: 'base 已前进 3 个提交', action: 'fix' },
+  }),
+  task({ id: 'bl-3', title: '已合并任务', lane: 'done', stageIdx: 6 }),
+]
+
+function mountBoard(items: FactoryTask[], runValue: FactoryRun | null = run()) {
+  return mount(FactoryBoard, { props: { tasks: items, selectedId: null, run: runValue } })
 }
 
-.lane-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 64px;
-  color: var(--text-disabled);
-  font-size: var(--text-2xs, 11px);
-}
-</style>
+describe('FactoryBoard', () => {
+  it('renders the six lanes in prototype order with counts', () => {
+    const wrapper = mountBoard(tasks)
+    const lanes = wrapper.findAll('[data-lane]')
+    expect(lanes).toHaveLength(6)
+    expect(lanes.map((lane) => lane.attributes('data-lane'))).toEqual([
+      'queued',
+      'implementing',
+      'reviewing',
+      'mergeable',
+      'blocked',
+      'done',
+    ])
+    expect(wrapper.find('[data-lane="queued"] [data-lane-count]').text()).toBe('1')
+    expect(wrapper.find('[data-lane="blocked"] [data-lane-count]').text()).toBe('1')
+    expect(wrapper.find('[data-lane="reviewing"] [data-lane-count]').text()).toBe('0')
+  })
+
+  it('shows an empty state instead of placeholder cards', () => {
+    const wrapper = mountBoard([])
+    expect(wrapper.findAll('[data-task-card]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-lane-empty]')).toHaveLength(6)
+  })
+
+  it('renders card title, branch, model and blocked marker', () => {
+    const wrapper = mountBoard(tasks)
+    const queued = wrapper.find('[data-lane="queued"] [data-task-card]')
+    expect(queued.text()).toContain('登录态在刷新后丢失')
+    expect(queued.text()).toContain('agent/task-bl-1')
+    expect(queued.text()).toContain('Opus 4.8')
+    expect(queued.text()).toContain('factory.cardStatus.queued')
+
+    const blocked = wrapper.find('[data-lane="blocked"] [data-task-card]')
+    expect(blocked.classes()).toContain('blocked')
+    expect(blocked.text()).toContain('base 已前进 3 个提交')
+  })
+
+  it('shows the relative worktree path once the task starts', () => {
+    const wrapper = mountBoard([task({ lane: 'implementing', stageIdx: 2, worktree: '.spacecode/worktrees/bl-1' })])
+    expect(wrapper.find('[data-card-worktree]').text()).toContain('.spacecode/worktrees/bl-1')
+
+    const queued = mountBoard([task()])
+    expect(queued.find('[data-card-worktree]').exists()).toBe(false)
+  })
+
+  it('runs the pulse off the board run, not off the task alone', () => {
+    const running = mountBoard([task({ lane: 'implementing', stageIdx: 2 })])
+    expect(running.find('[data-card-dot]').classes()).toContain('pulse')
+
+    const paused = mountBoard([task({ lane: 'implementing', stageIdx: 2 })], run({ paused: true }))
+    expect(paused.find('[data-card-dot]').classes()).not.toContain('pulse')
+
+    const stopped = mountBoard([task({ lane: 'implementing', stageIdx: 2 })], run({ status: 'stopped' }))
+    expect(stopped.find('[data-card-dot]').classes()).not.toContain('pulse')
+  })
+
+  it('marks the selected card and emits select on click', async () => {
+    const wrapper = mount(FactoryBoard, { props: { tasks, selectedId: 'bl-1', run: run() } })
+    const card = wrapper.find('[data-task-card="bl-1"]')
+    expect(card.classes()).toContain('selected')
+
+    await wrapper.find('[data-task-card="bl-2"]').trigger('click')
+    expect(wrapper.emitted('select')?.[0]).toEqual(['bl-2'])
+  })
+
+  it('shows the takeover badge only on the task that owns the takeover session', () => {
+    const wrapper = mountBoard([
+      task({
+        lane: 'implementing',
+        stageIdx: 2,
+        worktree: '.spacecode/worktrees/bl-1',
+        takeover: { at: '2026-10-28T10:01:00Z', sessionId: 'sess-1' },
+      }),
+      task({
+        id: 'bl-2',
+        lane: 'implementing',
+        stageIdx: 2,
+        worktree: '.spacecode/worktrees/bl-2',
+      }),
+    ])
+
+    expect(wrapper.find('[data-task-card="bl-1"] [data-card-takeover]').exists()).toBe(true)
+    expect(wrapper.find('[data-task-card="bl-2"] [data-card-takeover]').exists()).toBe(false)
+    expect(wrapper.find('[data-task-card="bl-2"] .status-chip').text()).toContain('factory.cardStatus.implementing')
+  })
+
+  it('hands the card action up without deciding what it means', async () => {
+    const wrapper = mountBoard(tasks)
+    await wrapper.find('[data-lane="queued"] [data-card-action="cancel"]').trigger('click')
+    expect(wrapper.emitted('action')?.[0]).toEqual(['bl-1', 'cancel'])
+  })
+
+  it('passes the storage lock and the in-flight action down to every card', () => {
+    const wrapper = mount(FactoryBoard, {
+      props: { tasks, selectedId: null, run: run(), readonly: true, busy: 'cancel' },
+    })
+    expect(wrapper.findAll('[data-card-locked]')).toHaveLength(3)
+    const queued = wrapper.find('[data-lane="queued"]')
+    expect(queued.find('[data-card-action="cancel"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('scrolls the requested lane inside the board scroller only', () => {
+    const wrapper = mountBoard(tasks)
+    const board = wrapper.find('.factory-board').element as HTMLElement
+    const lane = wrapper.find('[data-lane="reviewing"]').element as HTMLElement
+    vi.spyOn(board, 'getBoundingClientRect').mockReturnValue({ left: 100 } as DOMRect)
+    vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({ left: 500 } as DOMRect)
+    const scrollTo = vi.fn()
+    board.scrollTo = scrollTo
+
+    ;(wrapper.vm as unknown as { focusLane: (key: FactoryLane) => void }).focusLane('reviewing')
+
+    expect(scrollTo).toHaveBeenCalledTimes(1)
+    expect(scrollTo).toHaveBeenCalledWith({ left: 400, behavior: 'smooth' })
+  })
+})
