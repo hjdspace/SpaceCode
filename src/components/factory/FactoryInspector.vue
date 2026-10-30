@@ -827,8 +827,8 @@ onBeforeUnmount(() => {
 const actionErrorText = computed(() => {
   const err = props.actionError
   if (!err) return ''
-  const params = err.detail ? { detail: err.detail } : {}
-  return t(`factory.errors.${err.code}`, params)
+  const text = t(`factory.errors.${err.code}`)
+  return err.detail ? `${text} ${err.detail}` : text
 })
 
 const timestamps = computed(() => {
