@@ -128,6 +128,27 @@ describe('FactoryBoard', () => {
     expect(wrapper.emitted('select')?.[0]).toEqual(['bl-2'])
   })
 
+  it('shows the takeover badge only on the task that owns the takeover session', () => {
+    const wrapper = mountBoard([
+      task({
+        lane: 'implementing',
+        stageIdx: 2,
+        worktree: '.spacecode/worktrees/bl-1',
+        takeover: { at: '2026-10-28T10:01:00Z', sessionId: 'sess-1' },
+      }),
+      task({
+        id: 'bl-2',
+        lane: 'implementing',
+        stageIdx: 2,
+        worktree: '.spacecode/worktrees/bl-2',
+      }),
+    ])
+
+    expect(wrapper.find('[data-task-card="bl-1"] [data-card-takeover]').exists()).toBe(true)
+    expect(wrapper.find('[data-task-card="bl-2"] [data-card-takeover]').exists()).toBe(false)
+    expect(wrapper.find('[data-task-card="bl-2"] .status-chip').text()).toContain('factory.cardStatus.implementing')
+  })
+
   it('hands the card action up without deciding what it means', async () => {
     const wrapper = mountBoard(tasks)
     await wrapper.find('[data-lane="queued"] [data-card-action="cancel"]').trigger('click')
