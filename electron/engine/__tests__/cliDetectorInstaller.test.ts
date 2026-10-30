@@ -62,6 +62,25 @@ type ExecCall = {
   options: { shell?: boolean; timeout?: number; windowsHide?: boolean }
 }
 type SpawnCall = { command: string; args: string[]; options: Record<string, unknown> }
+
+/**
+ * 把 shell 模式下拼接好的命令行拆回 token 列表（尊重双引号包裹的路径）。
+ * 与实现在 `cliDetector` 里的拼接规则对称：普通 token 原样、含空格的整体加引号。
+ */
+function splitShellCommandLine(line: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let quoted = false
+  for (const ch of line) {
+    if (ch === '"') quoted = !quoted
+    else if (ch === ' ' && !quoted) {
+      if (current) tokens.push(current)
+      current = ''
+    } else current += ch
+  }
+  if (current) tokens.push(current)
+  return tokens
+}
 type Listener = (payload?: unknown) => void
 type Sink = {
   on: (event: string, cb: Listener) => void
@@ -220,7 +239,12 @@ vi.mock('child_process', () => ({
     options: ExecCall['options'],
     cb: (err: Error | null, stdout: string, stderr: string) => void,
   ) => {
-    const call: ExecCall = { command, args, options }
+    // 实现层在 shell 模式下会把参数并进命令行、以空 args 调用（见 cliDetector
+    // 里对 DEP0190 的处理）。这里把它拆回「命令 + 参数」，断言才能继续按语义写。
+    const [head, ...rest] = options?.shell === true && args.length === 0
+      ? splitShellCommandLine(command)
+      : [command, ...args]
+    const call: ExecCall = { command: head, args: rest, options }
     probe.execCalls.push(call)
     const result = probe.respond(call)
     // Microtask, not setImmediate: vitest's fake timers fake immediates by

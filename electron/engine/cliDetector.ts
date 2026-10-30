@@ -12,17 +12,46 @@ const MIN_CLI_VERSION = '1.0.0'
 const CLAUDE_CODE_PKG = '@anthropic-ai/claude-code'
 const CLI_OVERVIEW_DOCS = 'https://docs.anthropic.com/en/docs/claude-code/overview'
 
+/**
+ * 按目标 shell 的规则给单个 token 加引号，供 shell 模式拼接命令行使用。
+ *
+ * 只在含空格或 shell 元字符时才加；普通 token 原样透传，避免改变既有行为
+ * （如 `where claude`、`npm root -g`）。注意 Windows 路径里的反斜杠不是元字符，
+ * POSIX 才是 —— 两套字符集不能混用，否则每个 `.cmd` 全路径都会被无谓地包起来。
+ */
+function quoteShellToken(token: string, windows: boolean): string {
+  if (token === '') return windows ? '""' : "''"
+  const needsQuote = windows
+    ? /[ \t"&|<>^();%!]/.test(token)
+    : /[ \t"'\\$`&|<>^();*?[\]{}#~!]/.test(token)
+  if (!needsQuote) return token
+  if (windows) return `"${token}"`
+  return `'${token.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * 把 command + args 拼成一条完整的命令行字符串。
+ *
+ * Node 的 DEP0190 警告针对的是 `shell: true` + 非空 args 的组合：shell 模式下
+ * args 不做转义、只做字符串拼接，于是 Node 无法保证注入安全。修复方式就是自己
+ * 拼好命令行、把 args 传空数组 —— 拼接规则显式写在这里，不再靠 Node 的隐式行为。
+ */
+function buildShellCommandLine(command: string, args: string[]): string {
+  return [command, ...args].map(t => quoteShellToken(t, isWindows)).join(' ')
+}
+
 function execFileAsync(command: string, args: string[] = [], timeout = 15000, forceShell = false): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     // Windows 上 .cmd/.bat 不是真正的可执行文件，必须通过 shell 解释。
     // 否则 execFile 会直接 ENOENT —— 这就是早先 npx (npx.cmd) 检测假阴性的根因。
     const lower = command.toLowerCase()
     const useShell = forceShell || (isWindows && (lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.ps1')))
-    // 走 shell 时路径可能含空格（如 "C:\Program Files\nodejs\npx.cmd"），需要加引号
-    // 防止 shell 在空格处拆参数；非 shell 模式 execFile 自己会处理空格。
-    const finalCommand = useShell && command.includes(' ') ? `"${command}"` : command
+    // shell 模式必须自己拼命令行（含空格/元字符的 token 加引号），否则 Node 会
+    // 以 DEP0190 告警；非 shell 模式 execFile 自己会处理空格，args 原样传。
+    const finalCommand = useShell ? buildShellCommandLine(command, args) : command
+    const finalArgs = useShell ? [] : args
     const options: import('child_process').ExecFileOptions = { timeout, windowsHide: true, shell: useShell }
-    execFile(finalCommand, args, options, (err, stdout, stderr) => {
+    execFile(finalCommand, finalArgs, options, (err, stdout, stderr) => {
       if (err) return reject(err)
       resolve({ stdout: String(stdout).trim(), stderr: String(stderr).trim() })
     })
@@ -32,7 +61,9 @@ function execFileAsync(command: string, args: string[] = [], timeout = 15000, fo
 async function findInPath(cliName: string): Promise<string | null> {
   try {
     const cmd = isWindows ? 'where' : 'which'
-    const { stdout } = await execFileAsync(cmd, [cliName], 15000, true)
+    // 只有 Windows 的 where 需要过 shell；POSIX 的 which 是真二进制，直接 execFile
+    // 更稳（也不会把参数并进命令串）。
+    const { stdout } = await execFileAsync(cmd, [cliName], 15000, isWindows)
     const lines = stdout.split(/\r?\n/).filter(Boolean)
     if (!lines.length) return null
     if (isWindows) {

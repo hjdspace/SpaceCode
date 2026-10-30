@@ -85,9 +85,11 @@ function lookupResult(stdout: string | null): ExecResult {
   return { stdout }
 }
 
-const isLookup = (c: Call) => c.command === 'where' || c.command === 'which'
+// Windows 的 `where` 走 shell，参数被并进命令行（DEP0190 修复），所以只比对首 token。
+const isLookup = (c: Call) => /^(where|which)(\s|$)/.test(c.command)
 const isNpmRoot = (c: Call) => c.command === 'npm' && c.args[0] === 'root'
-const isVersionProbe = (c: Call) => c.args[0] === '--version'
+// shell 模式下参数已并入 command、args 为空，两种形态都要认。
+const isVersionProbe = (c: Call) => c.args[0] === '--version' || /\s--version$/.test(c.command)
 
 let detector: Detector
 
@@ -261,8 +263,10 @@ describe('findInPath — Windows .cmd shims', () => {
 
     await detector.detectInstalledCli()
     const versionCall = harness.calls.find(isVersionProbe)
-    expect(versionCall?.command).toBe(cmd)
+    expect(versionCall?.command).toBe(`${cmd} --version`)
     expect(versionCall?.options.shell).toBe(true)
+    // shell 模式下 args 必须为空，否则 Node 抛 DEP0190（参数不转义直接拼接）。
+    expect(versionCall?.args).toEqual([])
   })
 
   it('quotes a shell-routed path that contains spaces', async () => {
@@ -276,7 +280,7 @@ describe('findInPath — Windows .cmd shims', () => {
 
     await detector.isCommandAvailable('npx')
     const versionCall = harness.calls.find(isVersionProbe)
-    expect(versionCall?.command).toBe(`"${spaced}"`)
+    expect(versionCall?.command).toBe(`"${spaced}" --version`)
     expect(versionCall?.options.shell).toBe(true)
   })
 
