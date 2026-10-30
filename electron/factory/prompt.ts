@@ -8,11 +8,33 @@
 import { execFile } from 'child_process'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import type { FactoryPlanCandidate } from '@/shared/factory'
 import { isSafeRelativePath } from './config'
 
 const COMMAND_TIMEOUT = 10000
 const COMMAND_MAX_BUFFER = 10 * 1024 * 1024
 const DEFAULT_MAX_OUTPUT = 4000
+
+/**
+ * 模板里的 shell 块先打标记，只有带标记的块才会执行。
+ * 变量替换进来的文本（issue 正文、审查意见）即使是 `` !`cmd` `` 形态也只是数据。
+ */
+const SHELL_BLOCK_MARKER = '\u0001'
+
+function stripMarker(value: string): string {
+  return value.split(SHELL_BLOCK_MARKER).join('')
+}
+
+function sanitizeArgument(value: string): string {
+  return stripMarker(value)
+}
+
+function markShellBlocks(template: string): string {
+  return stripMarker(template).replace(
+    /!`([^`]*)`/g,
+    (_match: string, command: string) => `!${SHELL_BLOCK_MARKER}\`${command}\``,
+  )
+}
 
 const GIT_READ_ONLY = new Set([
   'log',
@@ -40,16 +62,23 @@ export interface PromptContext {
   targetBranch: string
   /** 修复阶段注入的未决审查意见；其它阶段为空。 */
   reviewComments?: string
+  /** 规划阶段的候选任务（JSON 文本）；其它阶段为空。 */
+  taskCandidates?: string
+  maxTasks?: string
+  trackerKind?: string
 }
 
 function variables(context: PromptContext): Record<string, string> {
   return {
-    TASK_TITLE: context.title,
-    TASK_GOAL: context.goal,
+    TASK_TITLE: sanitizeArgument(context.title),
+    TASK_GOAL: sanitizeArgument(context.goal),
     ISSUE_NUMBER: typeof context.issueNumber === 'number' ? String(context.issueNumber) : '',
-    SOURCE_BRANCH: context.sourceBranch,
-    TARGET_BRANCH: context.targetBranch,
-    REVIEW_COMMENTS: context.reviewComments ?? '',
+    SOURCE_BRANCH: sanitizeArgument(context.sourceBranch),
+    TARGET_BRANCH: sanitizeArgument(context.targetBranch),
+    REVIEW_COMMENTS: sanitizeArgument(context.reviewComments ?? ''),
+    TASK_CANDIDATES: sanitizeArgument(context.taskCandidates ?? ''),
+    MAX_TASKS: context.maxTasks ?? '',
+    TRACKER: sanitizeArgument(context.trackerKind ?? ''),
   }
 }
 
@@ -156,6 +185,8 @@ export interface ExpandDeps {
   cwd: string
   runCommand?: CommandExecutor
   maxOutputChars?: number
+  /** 只展开模板来源的 shell 块（带标记）；变量替换进来的同形态文本保持原样。 */
+  markedOnly?: boolean
 }
 
 export interface ExpandResult {
@@ -169,7 +200,9 @@ export async function expandPromptCommands(text: string, deps: ExpandDeps): Prom
   const max = deps.maxOutputChars ?? DEFAULT_MAX_OUTPUT
   const blocked: string[] = []
   const pieces: string[] = []
-  const pattern = /!`([^`]*)`/g
+  const pattern = deps.markedOnly
+    ? new RegExp(`!${SHELL_BLOCK_MARKER}\`([^\`]*)\``, 'g')
+    : /!`([^`]*)`/g
   let last = 0
   let match: RegExpExecArray | null
 
@@ -193,9 +226,16 @@ export async function expandPromptCommands(text: string, deps: ExpandDeps): Prom
     pieces.push(output)
   }
 
-  if (last === 0) return { text, blocked }
+  if (last === 0) return { text: stripMarker(text), blocked }
   pieces.push(text.slice(last))
-  return { text: pieces.join(''), blocked }
+  return { text: stripMarker(pieces.join('')), blocked }
+}
+
+/** 规划阶段的数据面：候选任务、产出上限与任务来源。 */
+export interface PlanPromptData {
+  candidates: FactoryPlanCandidate[]
+  maxTasks: number
+  tracker: string
 }
 
 export interface BuildPromptInput {
@@ -207,6 +247,8 @@ export interface BuildPromptInput {
   /** 命令展开的工作目录：任务工作树。 */
   worktree: string
   reviewComments?: string
+  /** 仅规划阶段提供；其它阶段缺省。 */
+  plan?: PlanPromptData
   deps?: { runCommand?: CommandExecutor; maxOutputChars?: number }
 }
 
@@ -214,7 +256,28 @@ export type BuildPromptResult =
   | { ok: true; text: string; blocked: string[] }
   | { ok: false; error: 'prompt-missing' | 'prompt-error'; detail?: string }
 
-/** 实现/审查/修复共用：读模板 → 注入变量 → 展开白名单命令。 */
+const CANDIDATE_GOAL_LIMIT = 4000
+
+/**
+ * 候选任务的纯文本 JSON。goal 是用户/issue 正文，按长度截断，
+ * 避免一个超长 body 把整段提示词挤掉。
+ */
+export function formatPlanCandidates(candidates: FactoryPlanCandidate[]): string {
+  return JSON.stringify(
+    candidates.map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      ...(typeof candidate.issueNumber === 'number' ? { issueNumber: candidate.issueNumber } : {}),
+      goal: candidate.goal.length > CANDIDATE_GOAL_LIMIT
+        ? `${candidate.goal.slice(0, CANDIDATE_GOAL_LIMIT)}…`
+        : candidate.goal,
+    })),
+    null,
+    2,
+  )
+}
+
+/** 实现/审查/修复/规划共用：读模板 → 注入变量 → 展开白名单命令。 */
 async function buildStagePrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
   if (!isSafeRelativePath(input.promptPath)) return { ok: false, error: 'prompt-missing' }
 
@@ -228,13 +291,17 @@ async function buildStagePrompt(input: BuildPromptInput): Promise<BuildPromptRes
     return { ok: false, error: 'prompt-missing' }
   }
 
-  const rendered = renderPromptTemplate(template, {
+  const candidates = input.plan ? formatPlanCandidates(input.plan.candidates) : undefined
+  const markedTemplate = markShellBlocks(template)
+  const rendered = renderPromptTemplate(markedTemplate, {
     title: input.task.title,
     goal: input.task.goal,
     issueNumber: input.task.issueNumber,
     sourceBranch: input.sourceBranch,
     targetBranch: input.targetBranch,
     reviewComments: input.reviewComments,
+    ...(candidates !== undefined ? { taskCandidates: candidates } : {}),
+    ...(input.plan ? { maxTasks: String(input.plan.maxTasks), trackerKind: input.plan.tracker } : {}),
   })
   if (!rendered.ok) {
     return {
@@ -244,8 +311,16 @@ async function buildStagePrompt(input: BuildPromptInput): Promise<BuildPromptRes
     }
   }
 
-  const expanded = await expandPromptCommands(rendered.text, {
+  // 模板没显式引用 {{TASK_CANDIDATES}} 时也要让规划器看到候选；
+  // 否则旧骨架（或手写模板）会要求它去“读 tracker”，却没有数据来源。
+  const text =
+    candidates !== undefined && !markedTemplate.includes('{{TASK_CANDIDATES}}')
+      ? `${rendered.text}\n\n## Candidate tasks\n\nOnly plan tasks from this list; ids must match exactly.\n\n<candidate-tasks>\n${candidates}\n</candidate-tasks>\n\n## Plan schema\n\n<plan>\n{ "tasks": [ { "id": "<candidate id>", "parallelizable": true, "dependsOn": [] } ] }\n</plan>\n`
+      : rendered.text
+
+  const expanded = await expandPromptCommands(text, {
     cwd: input.worktree,
+    markedOnly: true,
     ...(input.deps?.runCommand ? { runCommand: input.deps.runCommand } : {}),
     ...(input.deps?.maxOutputChars ? { maxOutputChars: input.deps.maxOutputChars } : {}),
   })
@@ -263,5 +338,10 @@ export function buildReviewPrompt(input: BuildPromptInput): Promise<BuildPromptR
 
 /** 修复阶段把未决意见拼进 `reviewComments` 变量。 */
 export function buildFixPrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
+  return buildStagePrompt(input)
+}
+
+/** 规划阶段：注入候选任务与产出上限，命令在工作树（仓库根）展开。 */
+export function buildPlanPrompt(input: BuildPromptInput): Promise<BuildPromptResult> {
   return buildStagePrompt(input)
 }
