@@ -210,6 +210,8 @@ export interface FactoryGithubAuthResult {
   canPush?: boolean
   issueCount?: number
   labelCount?: number
+  /** 失败时 GitHub 的 HTTP 状态码；向导据此提示 401/403/404 的排查方向。 */
+  status?: number
 }
 
 // ── GitHub Issues 任务源 ────────────────────────────────────────
