@@ -4,6 +4,7 @@
  * 负责三件事：
  * 1. 列出 open issues（标签过滤、分页上限、去重、领取态）；
  * 2. 领取前写一条含运行标识的幂等评论，重复领取会被识别并拒绝；
+ *    已结束/已消失运行留下的标记视为陈旧，不再阻止重新领取；
  * 3. 合并成功后回写摘要评论与关闭，两个开关彼此独立。
  *
  * 传输层由 `githubTracker` 注入（gh 或 REST），因此所有分支都能在单测里覆盖。
@@ -54,6 +55,11 @@ export interface GithubTrackerOptions {
   label?: string
   /** 本地未结束运行已领取的 issue 编号；与远端评论一起参与去重。 */
   locallyClaimed?: number[]
+  /**
+   * 远端领取标记是否仍占着该 issue：只有本地未结束、且该 issue 的任务
+   * 尚未完成/取消的运行才算。不传时退化为「任何标记都算占用」（旧行为）。
+   */
+  holdsClaim?: (issueNumber: number, runId: string) => boolean
 }
 
 export interface GithubTracker {
@@ -88,6 +94,7 @@ function toSummary(
 
 export function createGithubTracker(options: GithubTrackerOptions): GithubTracker {
   const localClaimed = new Set(options.locallyClaimed ?? [])
+  const holdsClaim = options.holdsClaim
 
   return {
     async list(input = {}) {
@@ -107,7 +114,10 @@ export function createGithubTracker(options: GithubTrackerOptions): GithubTracke
         seen.add(issue.number)
 
         const remoteMarkers = parseClaimMarkers((issue.comments ?? []).map((comment) => comment.body))
-        issues.push(toSummary(issue, localClaimed.has(issue.number) || remoteMarkers.length > 0))
+        const claimedRemotely = remoteMarkers.some(
+          (marker) => holdsClaim?.(issue.number, marker.runId) ?? true,
+        )
+        issues.push(toSummary(issue, localClaimed.has(issue.number) || claimedRemotely))
         if (issues.length >= limit) break
       }
       return { ok: true, issues }
@@ -119,7 +129,11 @@ export function createGithubTracker(options: GithubTrackerOptions): GithubTracke
         return { ok: false, reason: comments.reason }
       }
       const markers = parseClaimMarkers(comments.value.map((comment) => comment.body))
-      const other = markers.find((marker) => marker.runId !== input.runId)
+      const other = markers.find(
+        (marker) =>
+          marker.runId !== input.runId &&
+          (holdsClaim?.(input.issueNumber, marker.runId) ?? true),
+      )
       if (other) return { ok: false, reason: 'already-claimed', byRun: other.runId }
 
       if (markers.some((marker) => marker.runId === input.runId && marker.taskId === input.taskId)) {
