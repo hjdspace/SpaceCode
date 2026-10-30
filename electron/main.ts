@@ -159,7 +159,7 @@ if (existsSync(envPath)) {
   earlyLog(`No .env found at: ${envPath}`)
 }
 
-setupLinuxPlatform()
+setupLinuxPlatform().forEach(note => earlyLog(`Platform | ${note}`))
 
 // Windows: set AppUserModelId (see original comment in git history for details)
 if (process.platform === 'win32') {
@@ -235,7 +235,6 @@ app.whenReady().then(async () => {
   registerOfficeCliIPCHandlers()
   info('Startup', 'OfficeCLI IPC handlers registered')
 
-  void ensureOfficeCliInstalled()
   // 预热引擎 spawn 前的机器探测（注册表 PATH / Python 位置 / Git Bash）。这些探测
   // 原本每次 spawn 都同步跑在主进程事件循环上；启动时跑一次填好缓存，首条消息就
   // 不必为它们付延迟。fire-and-forget：探测失败会话照常起，只是退回原来越过缓存的成本。
@@ -428,6 +427,12 @@ app.whenReady().then(async () => {
   // ── Tray ──────────────────────────────────────────────────────
   createTray()
   info('Startup', `System tray created | total elapsed=${Date.now() - startTime}ms`)
+
+  // officecli 的首次同步是 33MB 拷贝（打包态从 AppImage 的 squashfs 读、写进家目录），
+  // 绝不能落在 createWindow → createTray 这段没有 await 的同步区间里 —— 那段时间
+  // 主进程不投递事件，ready-to-show 会跟着一起被拖住，窗口只剩背景色。
+  // 等首帧之后再做；会话 spawn 路径自己还会兜一次（sessionProcess.buildEnv）。
+  getMainWindow()?.once('ready-to-show', () => { void ensureOfficeCliInstalled() })
 
   // ── Global DevTools shortcut (production) ─────────────────────
   if (!isDev) {
