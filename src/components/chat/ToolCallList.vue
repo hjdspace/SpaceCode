@@ -37,6 +37,7 @@
             <component
               :is="specialComponents[tool.name]"
               :tool-call="tool"
+              :session-id="props.sessionId"
               @submit="handleToolSubmit(tool.id, $event)"
               @skip="handleToolSkip(tool.id)"
             />
@@ -94,6 +95,8 @@ import {
 
 const props = defineProps<{
   toolCalls: ToolCall[]
+  /** 这批工具卡所属会话；嵌入式面板里它不是 currentSessionId。 */
+  sessionId?: string
 }>()
 
 const emit = defineEmits<{
