@@ -83,6 +83,31 @@ describe('createGithubTracker.list', () => {
     ])
   })
 
+  it('treats claim comments from finished, cancelled or unknown runs as stale', async () => {
+    const api = fakeApi({
+      listIssues: vi.fn(async () =>
+        ok<GithubRawIssue[]>([
+          issue(1, { comments: [{ body: claimMarker('run-gone', 'issue-1') }] }),
+          issue(2, { comments: [{ body: claimMarker('run-live', 'issue-2') }] }),
+          issue(3, { comments: [{ body: claimMarker('run-ended-task', 'issue-3') }] }),
+        ]),
+      ),
+    })
+    const tracker = createGithubTracker({
+      api,
+      label: 'ready-for-agent',
+      holdsClaim: (_issueNumber, runId) => runId === 'run-live',
+    })
+    const result = await tracker.list()
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.issues.map((item) => [item.number, item.claimed])).toEqual([
+      [1, false],
+      [2, true],
+      [3, false],
+    ])
+  })
+
   it('passes the failure reason through untouched', async () => {
     const api = fakeApi({ listIssues: vi.fn(async () => fail('rate-limit')) })
     const tracker = createGithubTracker({ api })
@@ -115,6 +140,31 @@ describe('createGithubTracker.claim', () => {
       ok: false,
       reason: 'already-claimed',
       byRun: 'run-0',
+    })
+    expect(api.createComment).not.toHaveBeenCalled()
+  })
+
+  it('lets a new run reclaim an issue whose previous claim run has ended', async () => {
+    const api = fakeApi({
+      listComments: vi.fn(async () => ok([{ body: claimMarker('run-gone', 'issue-7') }])),
+    })
+    const tracker = createGithubTracker({ api, holdsClaim: (_issueNumber, runId) => runId === 'run-live' })
+    expect(await tracker.claim({ issueNumber: 7, runId: 'run-1', taskId: 'issue-7' })).toMatchObject({
+      ok: true,
+      idempotent: false,
+    })
+    expect(api.createComment).toHaveBeenCalledTimes(1)
+  })
+
+  it('still rejects an issue claimed by a run that is still active', async () => {
+    const api = fakeApi({
+      listComments: vi.fn(async () => ok([{ body: claimMarker('run-live', 'issue-7') }])),
+    })
+    const tracker = createGithubTracker({ api, holdsClaim: (_issueNumber, runId) => runId === 'run-live' })
+    expect(await tracker.claim({ issueNumber: 7, runId: 'run-1', taskId: 'issue-7' })).toMatchObject({
+      ok: false,
+      reason: 'already-claimed',
+      byRun: 'run-live',
     })
     expect(api.createComment).not.toHaveBeenCalled()
   })

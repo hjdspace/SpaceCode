@@ -62,6 +62,7 @@ export interface GithubTrackerServiceDeps {
     repoRoot: string,
     config: FactoryConfig,
     locallyClaimed: number[],
+    holdsClaim: (issueNumber: number, runId: string) => boolean,
   ) => Promise<GithubTrackerResolveResult>
   /** 事件出口；默认写入 runs/<runId>/events.jsonl。 */
   emit?: (repoRoot: string, runId: string, input: FactoryEventInput) => void
@@ -112,15 +113,17 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
     repoRoot: string,
     config: FactoryConfig,
     locallyClaimed: number[],
+    holdsClaim: (issueNumber: number, runId: string) => boolean,
   ): Promise<GithubTrackerResolveResult> {
-    if (deps.resolveTracker) return deps.resolveTracker(repoRoot, config, locallyClaimed)
-    return defaultResolve(repoRoot, config, locallyClaimed)
+    if (deps.resolveTracker) return deps.resolveTracker(repoRoot, config, locallyClaimed, holdsClaim)
+    return defaultResolve(repoRoot, config, locallyClaimed, holdsClaim)
   }
 
   async function defaultResolve(
     repoRoot: string,
     config: FactoryConfig,
     locallyClaimed: number[],
+    holdsClaim: (issueNumber: number, runId: string) => boolean,
   ): Promise<GithubTrackerResolveResult> {
     if (config.tracker.type !== 'github-issues') {
       return { ok: false, reason: 'unsupported' }
@@ -132,6 +135,7 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
         api: createGhApi({ repo: trackerConfig.repo, run: deps.runGh ?? defaultGhRunner }),
         label: trackerConfig.label,
         locallyClaimed,
+        holdsClaim,
       })
     const rest = (token: string): GithubTracker =>
       createGithubTracker({
@@ -142,6 +146,7 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
         }),
         label: trackerConfig.label,
         locallyClaimed,
+        holdsClaim,
       })
 
     if (trackerConfig.auth === 'gh') {
@@ -198,8 +203,13 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
     if (!config || config.tracker.type !== 'github-issues') {
       return { ok: false, reason: 'unsupported' }
     }
-    const locallyClaimed = [...claimedGithubIssues(repoRoot).keys()]
-    const resolved = await trackerFor(repoRoot, config, locallyClaimed)
+    const claimed = claimedGithubIssues(repoRoot)
+    const resolved = await trackerFor(
+      repoRoot,
+      config,
+      [...claimed.keys()],
+      (issueNumber, runId) => claimed.get(issueNumber)?.runId === runId,
+    )
     if (!resolved.ok) return { ok: false, reason: resolved.reason }
 
     return resolved.tracker.list({
@@ -232,7 +242,12 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
       }
     }
 
-    const resolved = await trackerFor(repoRoot, config, [...localClaimed.keys()])
+    const resolved = await trackerFor(
+      repoRoot,
+      config,
+      [...localClaimed.keys()],
+      (issueNumber, runId) => localClaimed.get(issueNumber)?.runId === runId,
+    )
     if (!resolved.ok) return { ok: false, reason: resolved.reason }
 
     const listed = await resolved.tracker.list({ label: config.tracker.label, limit: MAX_ISSUES })
@@ -385,7 +400,7 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
       return { ok: true, commented: alreadyCommented, closed: alreadyClosed }
     }
 
-    const resolved = await trackerFor(payload.repoRoot, config, [])
+    const resolved = await trackerFor(payload.repoRoot, config, [], () => false)
     if (!resolved.ok) return fail(resolved.reason)
 
     const body = buildMergeComment({

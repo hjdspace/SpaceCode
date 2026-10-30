@@ -11,6 +11,7 @@ import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
 import { createGithubTrackerService, type GithubTrackerServiceDeps } from '../githubTrackerService'
 import { createFactorySecretStore, type FactorySecretStore } from '../secrets'
 import { createGithubRun, readRunSnapshot, runDir, tasksFilePath } from '../runs'
+import { transitionTask, updateRun } from '../runtime'
 import { readEvents } from '../events'
 import type { FactoryGithubIssue, FactoryTask } from '@/shared/factory'
 import type { GithubTracker } from '../githubTracker'
@@ -210,6 +211,32 @@ describe('claimIssues', () => {
     const result = await service.claimIssues(dir, { issueNumbers: [1, 2], concurrency: 2 })
     if (!result.ok) throw new Error(`unexpected failure: ${result.reason}`)
     expect(result.snapshot.run.maxConcurrency).toBe(2)
+  })
+})
+
+describe('stale claims', () => {
+  beforeEach(() => seedConfig())
+
+  it('keeps a claim only while its run is unfinished and the issue task is not done', async () => {
+    seedClaimedRun(7, 'run-active')
+    seedClaimedRun(8, 'run-ended')
+    updateRun(dir, 'run-ended', { status: 'stopped' })
+    seedClaimedRun(9, 'run-mixed')
+    transitionTask(dir, 'run-mixed', 'issue-9', { lane: 'done' }, 'task.cancelled', {
+      cancelled: true,
+    })
+
+    const resolveTracker = vi.fn<NonNullable<GithubTrackerServiceDeps['resolveTracker']>>(
+      async () => ({ ok: true, tracker: makeTracker() }),
+    )
+    const service = makeService(makeTracker(), { resolveTracker })
+
+    await service.listIssues(dir)
+    const holdsClaim = resolveTracker.mock.calls[0][3]
+    expect(holdsClaim(7, 'run-active')).toBe(true)
+    expect(holdsClaim(7, 'run-ghost')).toBe(false)
+    expect(holdsClaim(8, 'run-ended')).toBe(false)
+    expect(holdsClaim(9, 'run-mixed')).toBe(false)
   })
 })
 

@@ -12,6 +12,7 @@ import { createBacklogItem } from '../backlog'
 import { createFactoryRun, createGithubRun, readRunSnapshot } from '../runs'
 import { transitionTask } from '../runtime'
 import { createFactoryRunner, type FactoryRunnerDeps, type SandboxSession } from '../factoryRunner'
+import { factorySessionId } from '../sessionId'
 import type { GitRunner } from '../worktree'
 import type { AgentPort } from '../agentEngineGateway'
 import type { ImplementInput, ImplementationResult } from '../implementer'
@@ -211,7 +212,7 @@ describe('startTask happy path', () => {
     await runner.whenIdle(runId)
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({
-      sessionId: 'fac-run-1-bl-1-impl',
+      sessionId: factorySessionId('fac-run-1-bl-1-impl'),
       worktreeAbsolute: join(dir, '.spacecode', 'worktrees', 'bl-1'),
       baseBranch: 'main',
       permissionMode: 'acceptEdits',
@@ -382,7 +383,7 @@ describe('review orchestration', () => {
     await runner.whenIdle(runId)
 
     expect(reviewInput).toMatchObject({
-      sessionId: 'fac-run-1-bl-1-review-1',
+      sessionId: factorySessionId('fac-run-1-bl-1-review-1'),
       prompt: 'review prompt',
       permissionMode: 'acceptEdits',
       worktreeAbsolute: join(dir, '.spacecode', 'worktrees', 'bl-1'),
@@ -660,11 +661,11 @@ describe('fix loop', () => {
 
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({
-      sessionId: 'fac-run-1-bl-1-fix',
+      sessionId: factorySessionId('fac-run-1-bl-1-fix'),
       prompt: 'fix prompt',
       verifyCommand: 'npm run test',
     })
-    expect(reviewInput).toMatchObject({ sessionId: 'fac-run-1-bl-1-review-2' })
+    expect(reviewInput).toMatchObject({ sessionId: factorySessionId('fac-run-1-bl-1-review-2') })
     expect(runner.readEvents(dir, runId).map((event) => event.code)).toContain('task.fix.started')
   })
 

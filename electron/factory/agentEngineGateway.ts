@@ -1,12 +1,13 @@
 /**
  * AgentPort：把「一个任务一个阶段」的回合映射到现有引擎会话。
  *
- * 会话 id 由调用方（实现阶段 `fac-<run>-<task>-impl`）生成；同一会话内的
- * 迭代复用上下文，只重复 sendMessage。config.cwd 固定为任务工作树，
- * 模型按引擎解析别名，权限模式来自运行配置。
+ * 会话 id 由调用方按阶段语义生成的可读标识派生为 UUID（见 `sessionId.ts`，
+ * 引擎只接受 UUID）；同一会话内的迭代复用上下文，只重复 sendMessage。
+ * config.cwd 固定为任务工作树，模型按引擎解析别名，权限模式来自运行配置。
  */
 import type { FactoryPermissionMode } from '@/shared/factory'
 import type { EngineSessionConfig, EngineType } from '../engine/engines/types'
+import { loadEngineSessionConfig, resolveEngineModelAlias } from '../engine/engineSessionConfig'
 
 export interface AgentRunOptions {
   /** 任务工作树；会话 cwd 与命令展开都以它为准。 */
@@ -78,14 +79,13 @@ function buildConfig(options: AgentRunOptions, deps: EngineAgentDeps): EngineSes
  * 工厂实现/审查/修复与规划阶段共用同一套入口。
  */
 export async function createDefaultAgentPort(): Promise<AgentPort> {
-  const [engine, factory, sessionConfig] = await Promise.all([
+  const [engine, factory] = await Promise.all([
     import('../engine/engineGateway'),
     import('../engine/engines/EngineFactory'),
-    import('../engine/engineSessionConfig'),
   ])
   return createEngineAgentPort({
-    loadSessionConfig: sessionConfig.loadEngineSessionConfig,
-    resolveModelAlias: sessionConfig.resolveEngineModelAlias,
+    loadSessionConfig: loadEngineSessionConfig,
+    resolveModelAlias: resolveEngineModelAlias,
     startSession: (sessionId, config) => engine.engineGateway.startSession(sessionId, config),
     sendMessage: (sessionId, content) => engine.engineGateway.sendMessage(sessionId, content),
     stop: (sessionId) => engine.engineGateway.stop(sessionId),

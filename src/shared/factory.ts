@@ -239,7 +239,7 @@ export interface FactoryGithubIssue {
   labels: string[]
   state: 'open' | 'closed'
   url?: string
-  /** 已存在领取标记（本地未结束运行或远端评论）。 */
+  /** 已存在领取标记（本地未结束运行，或指向未结束运行的远端评论）。 */
   claimed: boolean
 }
 
