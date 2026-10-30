@@ -161,10 +161,9 @@ export function error(scope: string, message: string, data?: any): void {
   writeLog('ERROR', scope, message, data, true)
 }
 
-/**
- * 记录 SDK 消息（来自子进程的 NDJSON 消息），始终写文件
- */
+/** 普通模式跳过增量流；结果、错误等结构化消息仍写主日志与会话日志。 */
 export function sdkMessage(sessionId: string, msgType: string, msg: any): void {
+  if (msgType === 'stream_event' && !_debugMode) return
   const shortSid = sessionId.slice(0, 8)
   const preview = truncate(safeStringify(msg), MAX_DATA_PREVIEW)
   const line = formatLine('INFO', 'SDK', `[${shortSid}] ${msgType} | ${preview}`)
@@ -178,10 +177,9 @@ export function sdkMessage(sessionId: string, msgType: string, msg: any): void {
   }
 }
 
-/**
- * 记录子进程原始输出（stdout/stderr），始终写文件
- */
+/** stdout 与 SDK 消息同源，仅 debug 模式保留原文；stderr 诊断行为不变。 */
 export function processRaw(sessionId: string, stream: 'stdout' | 'stderr', data: string): void {
+  if (stream === 'stdout' && !_debugMode) return
   const shortSid = sessionId.slice(0, 8)
   const preview = truncate(data.replace(/\n/g, '\\n'), MAX_DATA_PREVIEW)
   const level: LogLevel = stream === 'stdout' ? 'INFO' : 'DEBUG'

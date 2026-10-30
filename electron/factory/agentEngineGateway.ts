@@ -30,6 +30,7 @@ export interface AgentPort {
   run(sessionId: string, prompt: string, options: AgentRunOptions): Promise<AgentTurn>
   stop(sessionId: string): Promise<void>
   onEvent(listener: AgentEventListener): () => void
+  dispose?(): void
 }
 
 export interface EngineAgentDeps {
@@ -99,7 +100,7 @@ export function createEngineAgentPort(deps: EngineAgentDeps): AgentPort {
   const started = new Set<string>()
   const pending = new Map<string, (turn: AgentTurn) => void>()
 
-  deps.onRouteEvent((sessionId, eventType, data) => {
+  const unsubscribeRoute = deps.onRouteEvent((sessionId, eventType, data) => {
     for (const listener of listeners) listener(sessionId, eventType, data)
     const settle = pending.get(sessionId)
     if (!settle) return
@@ -160,6 +161,10 @@ export function createEngineAgentPort(deps: EngineAgentDeps): AgentPort {
       return () => {
         listeners.delete(listener)
       }
+    },
+
+    dispose() {
+      unsubscribeRoute()
     },
   }
 }

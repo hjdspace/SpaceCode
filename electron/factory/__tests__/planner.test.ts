@@ -19,6 +19,7 @@ interface FakeAgent extends AgentPort {
   prompts: string[]
   options: AgentRunOptions[]
   stopped: string[]
+  disposed: number
 }
 
 function fakeAgent(script: AgentTurn[]): FakeAgent {
@@ -29,6 +30,7 @@ function fakeAgent(script: AgentTurn[]): FakeAgent {
     prompts,
     options,
     stopped,
+    disposed: 0,
     async run(_sessionId, prompt, runOptions) {
       prompts.push(prompt)
       options.push(runOptions)
@@ -41,6 +43,9 @@ function fakeAgent(script: AgentTurn[]): FakeAgent {
     },
     onEvent() {
       return () => {}
+    },
+    dispose() {
+      this.disposed += 1
     },
   }
 }
@@ -114,6 +119,19 @@ describe('runPlanner', () => {
     expect(agent.prompts[0]).toContain('At most 10.')
     expect(agent.options[0]).toMatchObject({ cwd: dir, permissionMode: 'plan', model: 'claude-sonnet-4-5' })
     expect(agent.stopped).toHaveLength(1)
+  })
+
+  it('disposes an agent created for the planning session', async () => {
+    const agent = fakeAgent([turn(planOf([{ id: 'bl-1' }]))])
+
+    await runPlanner({
+      repoRoot: dir,
+      config,
+      candidates,
+      deps: { agentFactory: async () => agent },
+    })
+
+    expect(agent.disposed).toBe(1)
   })
 
   it('retries once in the same session with token-efficient feedback', async () => {

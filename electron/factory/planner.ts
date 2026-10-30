@@ -287,6 +287,7 @@ export async function runPlanner(input: PlannerInput): Promise<FactoryPlanResult
   }
 
   let agent: AgentPort
+  const ownsAgent = deps.agent === undefined
   try {
     agent = deps.agent ?? (await (deps.agentFactory ?? createDefaultAgentPort)())
   } catch (error) {
@@ -382,5 +383,6 @@ export async function runPlanner(input: PlannerInput): Promise<FactoryPlanResult
     input.signal?.removeEventListener('abort', onAbort)
     unsubscribe()
     await agent.stop(sessionId).catch(() => {})
+    if (ownsAgent) agent.dispose?.()
   }
 }

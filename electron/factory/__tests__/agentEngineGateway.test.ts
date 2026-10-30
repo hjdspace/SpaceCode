@@ -15,11 +15,13 @@ let deps: EngineAgentDeps
 let started: Array<{ sessionId: string; config: EngineSessionConfig }>
 let sent: Array<{ sessionId: string; content: string }>
 let stopped: string[]
+let routeUnsubscribeCount: number
 
 beforeEach(() => {
   started = []
   sent = []
   stopped = []
+  routeUnsubscribeCount = 0
   deps = {
     loadSessionConfig: (cwd) => ({ cwd, engineType: 'claude-code', model: 'base-model' }),
     resolveModelAlias: (model, engineType) => `${engineType ?? 'claude-code'}:${model}`,
@@ -35,7 +37,9 @@ beforeEach(() => {
     },
     onRouteEvent: (listener) => {
       route = listener
-      return () => {}
+      return () => {
+        routeUnsubscribeCount += 1
+      }
     },
   }
 })
@@ -112,5 +116,15 @@ describe('createEngineAgentPort', () => {
     unsubscribe()
     route('fac-1', 'tool_use', { name: 'Edit' })
     expect(seen).toHaveLength(1)
+  })
+
+  it('releases the global route subscription on dispose', () => {
+    const port = createEngineAgentPort(deps) as ReturnType<typeof createEngineAgentPort> & {
+      dispose?: () => void
+    }
+
+    port.dispose?.()
+
+    expect(routeUnsubscribeCount).toBe(1)
   })
 })

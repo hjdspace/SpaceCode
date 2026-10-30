@@ -453,3 +453,30 @@ describe('manual claims', () => {
     expect(await runner.startTask(dir, runId, ids[2])).toEqual({ ok: false, error: 'no-slot' })
   })
 })
+
+describe('agent lifecycle', () => {
+  it('disposes the host agent when the implementation flow finishes', async () => {
+    seedTasks(1, { concurrency: 1 })
+    const gate = createGate()
+    let disposeCount = 0
+    const runner = makeRunner(gate, {
+      agentFactory: async () => ({
+        ...agent(),
+        dispose: () => {
+          disposeCount += 1
+        },
+      }),
+      runImplementation: async () => ({
+        outcome: 'completed',
+        iterations: 1,
+        inputTokens: 0,
+        outputTokens: 0,
+      }),
+    })
+
+    await runner.resumeRun(dir, runId)
+    await runner.whenIdle(runId)
+
+    expect(disposeCount).toBe(1)
+  })
+})

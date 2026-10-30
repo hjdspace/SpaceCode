@@ -309,6 +309,26 @@ describe('implementation events', () => {
     expect(store.eventsLoading).toBe(false)
   })
 
+  it('keeps only the latest 500 task and run events', async () => {
+    mockRun(snapshot())
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    for (let seq = 1; seq <= 501; seq += 1) {
+      store.applyPush({ event: event(seq), snapshot: snapshot() })
+    }
+    for (let seq = 1001; seq <= 1501; seq += 1) {
+      store.applyPush({ event: event(seq, { taskId: null }), snapshot: snapshot() })
+    }
+
+    expect(store.selectedEvents).toHaveLength(500)
+    expect(store.selectedEvents[0].seq).toBe(2)
+    expect(store.selectedEvents[499].seq).toBe(501)
+    expect(store.runEvents).toHaveLength(500)
+    expect(store.runEvents[0].seq).toBe(1002)
+    expect(store.runEvents[499].seq).toBe(1501)
+  })
+
   it('keeps dirty-worktree as a confirmable action error', async () => {
     mockRun(snapshot())
     factoryApi.taskStart.mockResolvedValue({ ok: false, error: 'dirty-worktree', detail: '2' })

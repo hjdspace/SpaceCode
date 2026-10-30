@@ -493,8 +493,9 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
 
   /** 容器随回合收口而销毁，宿主工作树始终保留。 */
   function closeExecution(execution: Execution | null): void {
-    if (!execution?.sandbox) return
-    void execution.sandbox.close().catch(() => {})
+    if (!execution) return
+    execution.agent.dispose?.()
+    if (execution.sandbox) void execution.sandbox.close().catch(() => {})
   }
 
   /** 实现验证通过后发起全新审查会话；审查自己负责迁移与事件，这里只管提示词与会话。 */
@@ -715,6 +716,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     // 所以先停进程、再等它，等待才有上界。
     await entry.agent.stop(entry.sessionId).catch(() => {})
     await entry.promise
+    entry.agent.dispose?.()
   }
 
   /** 在既有工作树上开实现/修复会话；调用方负责先迁移状态与发事件。 */

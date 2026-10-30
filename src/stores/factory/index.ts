@@ -124,6 +124,7 @@ function toPlain<T>(value: T): T {
 const GH_LOGIN_POLL_INTERVAL_MS = 3000
 /** 授权流程（用户在浏览器里操作）的最长存活时间。 */
 const GH_LOGIN_POLL_TIMEOUT_MS = 5 * 60_000
+const EVENT_CACHE_LIMIT = 500
 
 export const useFactoryStore = defineStore('factory', () => {
   const loading = ref(false)
@@ -880,12 +881,24 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
+  function releaseRunEvents(runId: string): void {
+    const prefix = `${runId}:`
+    eventsByTask.value = Object.fromEntries(
+      Object.entries(eventsByTask.value).filter(([key]) => !key.startsWith(prefix)),
+    )
+    for (const key of seenEventSeqs) {
+      if (key.startsWith(prefix)) seenEventSeqs.delete(key)
+    }
+    if (run.value?.id === runId) runEvents.value = []
+  }
+
   /** 关闭页签只从视图移除；当前页签被关时切到相邻页签，全关则回到空态。 */
   async function closeRun(root: string, runId: string): Promise<void> {
     const index = runTabs.value.findIndex((item) => item.id === runId)
     if (index < 0) return
     const remaining = runTabs.value.filter((item) => item.id !== runId)
     runTabs.value = remaining
+    releaseRunEvents(runId)
     if (run.value?.id !== runId) return
 
     runRequest += 1
@@ -1073,12 +1086,20 @@ export const useFactoryStore = defineStore('factory', () => {
       if (event.taskId) {
         const cacheKey = eventKey(event.runId, event.taskId)
         const list = eventsByTask.value[cacheKey] ?? []
+        const next = [...list, event].sort((a, b) => a.seq - b.seq)
+        for (const evicted of next.slice(0, -EVENT_CACHE_LIMIT)) {
+          seenEventSeqs.delete(`${evicted.runId}:${evicted.seq}`)
+        }
         eventsByTask.value = {
           ...eventsByTask.value,
-          [cacheKey]: [...list, event].sort((a, b) => a.seq - b.seq),
+          [cacheKey]: next.slice(-EVENT_CACHE_LIMIT),
         }
       } else if (event.runId === run.value?.id) {
-        runEvents.value = [...runEvents.value, event].sort((a, b) => a.seq - b.seq)
+        const next = [...runEvents.value, event].sort((a, b) => a.seq - b.seq)
+        for (const evicted of next.slice(0, -EVENT_CACHE_LIMIT)) {
+          seenEventSeqs.delete(`${evicted.runId}:${evicted.seq}`)
+        }
+        runEvents.value = next.slice(-EVENT_CACHE_LIMIT)
       }
     }
 
@@ -1098,8 +1119,13 @@ export const useFactoryStore = defineStore('factory', () => {
     eventsError.value = null
     try {
       const events = await api.factory.taskEvents(root, runId, taskId)
-      eventsByTask.value = { ...eventsByTask.value, [eventKey(runId, taskId)]: events }
-      for (const event of events) seenEventSeqs.add(`${event.runId}:${event.seq}`)
+      const cacheKey = eventKey(runId, taskId)
+      for (const previous of eventsByTask.value[cacheKey] ?? []) {
+        seenEventSeqs.delete(`${previous.runId}:${previous.seq}`)
+      }
+      const retained = [...events].sort((a, b) => a.seq - b.seq).slice(-EVENT_CACHE_LIMIT)
+      eventsByTask.value = { ...eventsByTask.value, [cacheKey]: retained }
+      for (const event of retained) seenEventSeqs.add(`${event.runId}:${event.seq}`)
     } catch {
       eventsError.value = 'load-failed'
     } finally {

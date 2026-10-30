@@ -134,6 +134,7 @@ const PROXY_HAIKU_MODEL = 'claude-haiku-4-8'
 // 34 个超过 32,767），超过此预算就改用 --system-prompt-file 传参。预算低于 32,767 是给
 // 引号转义和 launch.args 留余量，同时也远低于 Linux 单个 argv 参数的 131,072 字节上限。
 const MAX_INLINE_ARGS_LENGTH = 24_000
+const MAX_STDERR_BUFFER_LENGTH = 8 * 1024
 
 export interface SessionConfig {
   cwd: string
@@ -624,7 +625,7 @@ export class SessionProcess extends EventEmitter {
     proc.stderr!.on('data', (data) => {
       if (generation !== this.processGeneration) return
       const dataStr = data.toString()
-      this.stderrBuffer += dataStr
+      this.stderrBuffer = (this.stderrBuffer + dataStr).slice(-MAX_STDERR_BUFFER_LENGTH)
       processRaw(this.sessionId, 'stderr', dataStr)
       this.emit('log', dataStr)
     })

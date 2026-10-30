@@ -348,6 +348,28 @@ describe('takeover', () => {
     expect(calls.stops).toContain(factorySessionId('fac-run-1-bl-1-takeover'))
   })
 
+  it('disposes the takeover agent when handing the task back', async () => {
+    seed()
+    withWorktree('implementing')
+    const calls: AgentCalls = { runs: [], stops: [] }
+    let disposeCount = 0
+    const runner = makeRunner({
+      agentFactory: async () => ({
+        ...agent(calls),
+        dispose: () => {
+          disposeCount += 1
+        },
+      }),
+      verify: verifyWith(testRun('pass')),
+    })
+
+    await runner.takeoverTask(dir, runId, 'bl-1')
+    await sleep(20)
+    await runner.returnTask(dir, runId, 'bl-1')
+
+    expect(disposeCount).toBe(1)
+  })
+
   it('接管回合卡在授权等待时交回仍能结束，不会把按钮留在「交回中」', async () => {
     seed()
     withWorktree('implementing')
