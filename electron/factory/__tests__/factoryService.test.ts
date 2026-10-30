@@ -3,7 +3,7 @@
  * IPC 编排层：预检阻断时绝不落盘；通过后配置/prompt/.gitignore 一次写齐；
  * token 认证沿用凭据库，不把凭据混进配置。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -163,5 +163,12 @@ describe('createFactoryService', () => {
   it('reports gh login as unsupported when the dependency is missing', async () => {
     const service = createFactoryService(makeDeps())
     await expect(service.startGhLogin()).resolves.toEqual({ ok: false, reason: 'unsupported' })
+  })
+
+  it('passes the claim label to token verification so counts can be shown', async () => {
+    const verifyToken = vi.fn(async () => ({ ok: true, reason: 'ok' as const }))
+    const service = createFactoryService(makeDeps({ verifyToken }))
+    await service.testGithubToken(dir, 'ghp_x', 'hjdspace/SpaceCode', 'ready-for-agent')
+    expect(verifyToken).toHaveBeenCalledWith('ghp_x', 'hjdspace/SpaceCode', 'ready-for-agent')
   })
 })
