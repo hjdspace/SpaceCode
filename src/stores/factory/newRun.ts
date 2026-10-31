@@ -39,6 +39,7 @@ export function githubCandidates(issues: readonly FactoryGithubIssue[]): NewRunC
 export interface PlannedCandidate {
   candidateId: string
   dependsOn: string[]
+  parallelizable: boolean
 }
 
 export function plannedCandidates(
@@ -55,6 +56,7 @@ export function plannedCandidates(
     dependsOn: task.dependsOn
       .map((dependency) => byTaskId.get(dependency))
       .filter((dependency): dependency is string => dependency !== undefined),
+    parallelizable: task.parallelizable,
   }))
 }
 

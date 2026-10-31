@@ -474,6 +474,7 @@ export default {
     plan: 'AI plan',
     planning: 'Planning…',
     planEmpty: 'No tasks can run in parallel right now.',
+    parallelizable: 'Parallelizable',
     dependsOn: 'Depends on: {ids}',
     planWarnings: {
       truncated: 'The plan exceeded the per-run limit; kept the first {max} task(s).',
@@ -743,6 +744,7 @@ export default {
       approved: 'Review approved',
       needs_changes: 'Review requested changes',
       parse_failed: 'Could not parse the review output',
+      timeout: 'Review session timed out',
       error: 'Review session failed: {message}',
       comment: {
         accepted: 'Accepted review comment {commentId}',
@@ -796,6 +798,7 @@ export default {
       dispatch: { failed: 'Failed to dispatch a task: {reason}' },
     },
     run: {
+      created: 'Run created ({tasks} task(s) · concurrency {maxConcurrency})',
       paused: 'Run paused ({running} task(s) finishing their current turn)',
       resumed: 'Run resumed',
       stopped: 'Run stopped ({stopped} tasks interrupted)',

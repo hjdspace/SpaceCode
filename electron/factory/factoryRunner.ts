@@ -559,6 +559,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         ? { model: stageConfig.model ?? runtime.agentModel }
         : {}),
       permissionMode: stageConfig.permissionMode,
+      timeoutMs: runtime.taskTimeoutSec * 1000,
       signal: controller.signal,
       deps: {
         agent,

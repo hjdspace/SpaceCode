@@ -472,6 +472,7 @@ export default {
     plan: 'AI 规划',
     planning: '规划中…',
     planEmpty: '本次没有可并行推进的任务。',
+    parallelizable: '可并行',
     dependsOn: '依赖：{ids}',
     planWarnings: {
       truncated: '计划超过单次上限，已保留前 {max} 项。',
@@ -741,6 +742,7 @@ export default {
       approved: '审查通过',
       needs_changes: '审查要求修改',
       parse_failed: '审查结果解析失败',
+      timeout: '审查会话超时',
       error: '审查会话出错：{message}',
       comment: {
         accepted: '已接受审查意见 {commentId}',
@@ -794,6 +796,7 @@ export default {
       dispatch: { failed: '派发任务失败：{reason}' },
     },
     run: {
+      created: '已创建运行（{tasks} 个任务 · 并发上限 {maxConcurrency}）',
       paused: '运行已暂停（{running} 个任务跑完当前回合）',
       resumed: '运行已恢复',
       stopped: '运行已停止（中断 {stopped} 个任务）',

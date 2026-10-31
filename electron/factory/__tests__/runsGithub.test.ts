@@ -15,6 +15,7 @@ import {
   readRunSnapshot,
   runDir,
 } from '../runs'
+import { readEvents } from '../events'
 import { transitionTask } from '../runtime'
 
 let dir: string
@@ -191,5 +192,24 @@ describe('createGithubRun', () => {
     if (!retried.ok) throw new Error('unexpected failure')
     expect(retried.snapshot.tasks[0]).toMatchObject({ runId: 'run-2', issueNumber: 42 })
     expect(claimedGithubIssues(dir).get(42)?.runId).toBe('run-2')
+  })
+
+  it('writes a run.created event into the run event log', () => {
+    const result = createGithubRun(
+      dir,
+      { runId: 'run-gh', tasks: [{ issueNumber: 42, title: '事件流首条', goal: '' }] },
+      runDeps(),
+    )
+    if (!result.ok) throw new Error('unexpected failure')
+
+    const events = readEvents(join(runDir(dir, 'run-gh'), 'events.jsonl'))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      runId: 'run-gh',
+      taskId: null,
+      code: 'run.created',
+      level: 'info',
+      params: { tasks: 1, maxConcurrency: 4 },
+    })
   })
 })

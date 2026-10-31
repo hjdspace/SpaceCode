@@ -196,6 +196,22 @@ describe('runReview', () => {
     })
   })
 
+  it('blocks with a readable reason when the review session times out', async () => {
+    seed()
+    const agent = fakeAgent([])
+    agent.run = () => new Promise<AgentTurn>(() => {})
+    const result = await runReview(input(agent, { timeoutMs: 20 }) as never)
+
+    expect(result).toMatchObject({ outcome: 'timeout' })
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({
+      lane: 'blocked',
+      stageIdx: 4,
+      attention: { reason: 'review.timeout', action: 'fix' },
+    })
+    expect(agent.stopped).toEqual(['fac-run-1-bl-1-review-1'])
+    expect(events).toContainEqual(expect.objectContaining({ code: 'review.timeout', level: 'warn' }))
+  })
+
   it('resolves stale comments when the follow-up review approves', async () => {
     seed({
       verdict: 'needs_changes',

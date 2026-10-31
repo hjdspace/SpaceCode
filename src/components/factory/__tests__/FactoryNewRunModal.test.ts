@@ -178,8 +178,8 @@ describe('FactoryNewRunModal', () => {
     const wrapper = mountModal()
     await wrapper.setProps({
       planned: [
-        { candidateId: 'bl-1', dependsOn: [] },
-        { candidateId: 'bl-2', dependsOn: ['bl-1'] },
+        { candidateId: 'bl-1', dependsOn: [], parallelizable: true },
+        { candidateId: 'bl-2', dependsOn: ['bl-1'], parallelizable: true },
       ],
     })
 
@@ -192,6 +192,20 @@ describe('FactoryNewRunModal', () => {
       ids: ['bl-1', 'bl-2'],
       dependencies: { 'bl-2': ['bl-1'] },
     })
+  })
+
+  it('shows the parallelizable badge only for planned tasks marked parallelizable', async () => {
+    const wrapper = mountModal()
+    await wrapper.setProps({
+      planned: [
+        { candidateId: 'bl-1', dependsOn: [], parallelizable: true },
+        { candidateId: 'bl-2', dependsOn: ['bl-1'], parallelizable: false },
+      ],
+    })
+
+    expect(wrapper.find('[data-new-run-parallel="bl-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-new-run-parallel="bl-1"]').text()).toBe('factory.newRun.parallelizable')
+    expect(wrapper.find('[data-new-run-parallel="bl-2"]').exists()).toBe(false)
   })
 
   it('explains an empty plan and renders plan errors', async () => {

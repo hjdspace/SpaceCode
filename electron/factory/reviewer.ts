@@ -9,7 +9,7 @@ import type { FactoryPermissionMode, FactoryReview, FactoryTask } from '@/shared
 import { patchTask, transitionTask } from './runtime'
 import { projectAgentEvent, type FactoryEventInput } from './events'
 import { mergeReviewComments, parseReviewOutput, REVIEW_RETRY_PROMPT } from './reviewParse'
-import type { AgentPort, AgentRunOptions } from './agentEngineGateway'
+import type { AgentPort, AgentRunOptions, AgentTurn } from './agentEngineGateway'
 
 export interface ReviewerDeps {
   agent: AgentPort
@@ -29,11 +29,13 @@ export interface ReviewInput {
   model?: string
   permissionMode: FactoryPermissionMode
   agent?: string
+  /** 单个审查回合的最长等待；超时后停掉会话并转阻塞。 */
+  timeoutMs?: number
   signal: AbortSignal
   deps: ReviewerDeps
 }
 
-export type ReviewOutcome = 'approved' | 'needs-changes' | 'parse-failed' | 'error' | 'stopped'
+export type ReviewOutcome = 'approved' | 'needs-changes' | 'parse-failed' | 'error' | 'timeout' | 'stopped'
 
 export interface ReviewResult {
   outcome: ReviewOutcome
@@ -96,19 +98,39 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
   let review: FactoryReview | undefined
   let message: string | undefined
 
+  /** 跑一个回合；超时返回 null，底层回合随后由 stop 收口。 */
+  const runTurn = async (prompt: string): Promise<AgentTurn | null> => {
+    const turnPromise = deps.agent.run(input.sessionId, prompt, options)
+    void turnPromise.catch(() => {})
+    if (input.timeoutMs === undefined) return turnPromise
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), input.timeoutMs)
+    })
+    try {
+      return await Promise.race([turnPromise, timeout])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+
   try {
     if (aborted) {
       outcome = 'stopped'
     } else {
-      let reply = await deps.agent.run(input.sessionId, input.prompt, options)
+      const reply = await runTurn(input.prompt)
 
       if (aborted) {
         outcome = 'stopped'
+      } else if (reply === null) {
+        outcome = 'timeout'
+        message = 'Review session timed out.'
       } else if (reply.isError) {
         outcome = 'error'
         message = reply.text
       } else {
-        let parsed = parse(reply.text)
+        let text = reply.text
+        let parsed = parse(text)
 
         if (!parsed.ok) {
           emit({
@@ -118,14 +140,18 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
             level: 'warn',
             ...(parsed.detail ? { params: { detail: parsed.detail } } : {}),
           })
-          reply = await deps.agent.run(input.sessionId, REVIEW_RETRY_PROMPT, options)
+          const retry = await runTurn(REVIEW_RETRY_PROMPT)
           if (aborted) {
             outcome = 'stopped'
-          } else if (reply.isError) {
+          } else if (retry === null) {
+            outcome = 'timeout'
+            message = 'Review session timed out.'
+          } else if (retry.isError) {
             outcome = 'error'
-            message = reply.text
+            message = retry.text
           } else {
-            parsed = parse(reply.text)
+            text = retry.text
+            parsed = parse(text)
           }
         }
 
@@ -138,7 +164,7 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
               level: 'warn',
               ...(parsed.detail ? { params: { detail: parsed.detail } } : {}),
             })
-            review = { verdict: 'needs_changes', summary: '', comments: [], at, raw: reply.text }
+            review = { verdict: 'needs_changes', summary: '', comments: [], at, raw: text }
             outcome = 'parse-failed'
           } else {
             const comments = mergeReviewComments(
@@ -174,9 +200,11 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
         ? 'review.needs_changes'
         : finalOutcome === 'parse-failed'
           ? 'review.parse_failed'
-          : finalOutcome === 'stopped'
-            ? 'stopped'
-            : 'review.error'
+          : finalOutcome === 'timeout'
+            ? 'review.timeout'
+            : finalOutcome === 'stopped'
+              ? 'stopped'
+              : 'review.error'
 
   if (input.signal.reason !== 'takeover') {
     transitionTask(
@@ -202,6 +230,8 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
       level: 'error',
       ...(message ? { params: { message } } : {}),
     })
+  } else if (finalOutcome === 'timeout') {
+    emit({ taskId: task.id, stage: 'review', code: 'review.timeout', level: 'warn' })
   } else if (finalOutcome === 'stopped') {
     emit({ taskId: task.id, stage: 'review', code: 'task.stopped', level: 'warn' })
   }

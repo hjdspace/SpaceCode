@@ -13,15 +13,15 @@ export type FactoryMergeBlockReason =
   | 'review-needs-changes'
   | 'open-blockers'
 
-export function openBlockerComments(review: FactoryReview | undefined): FactoryReviewComment[] {
-  if (!review) return []
-  return review.comments.filter((comment) => comment.status === 'open' && comment.severity === 'blocker')
-}
-
 /** 未决意见：待处理或已加入修复清单（忽略/已解决不算）。 */
 export function pendingComments(review: FactoryReview | undefined): FactoryReviewComment[] {
   if (!review) return []
   return review.comments.filter((comment) => comment.status === 'open' || comment.status === 'accepted')
+}
+
+/** 未决阻塞意见：接受只是加入修复清单，合并前必须解决或显式忽略。 */
+export function pendingBlockerComments(review: FactoryReview | undefined): FactoryReviewComment[] {
+  return pendingComments(review).filter((comment) => comment.severity === 'blocker')
 }
 
 export type MergeEligibility = { ok: true } | { ok: false; reasons: FactoryMergeBlockReason[] }
@@ -35,7 +35,7 @@ export function mergeEligibility(task: Pick<FactoryTask, 'tests' | 'review'>): M
   if (!task.review) reasons.push('review-missing')
   else {
     if (task.review.verdict !== 'approved') reasons.push('review-needs-changes')
-    if (openBlockerComments(task.review).length > 0) reasons.push('open-blockers')
+    if (pendingBlockerComments(task.review).length > 0) reasons.push('open-blockers')
   }
 
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons }

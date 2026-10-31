@@ -480,6 +480,16 @@ describe('approve and change requests', () => {
     expect(await runner.approveTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-eligible' })
   })
 
+  it('refuses to approve a blocker that was accepted for fixing', async () => {
+    seed()
+    toReviewing({
+      ...APPROVED_REVIEW,
+      comments: [{ id: 'c1', body: 'needs a guard', severity: 'blocker', status: 'accepted' }],
+    })
+    const runner = createFactoryRunner(deps())
+    expect(await runner.approveTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-eligible' })
+  })
+
   it('blocks the task when the user requests changes', async () => {
     seed()
     toReviewing(APPROVED_REVIEW)

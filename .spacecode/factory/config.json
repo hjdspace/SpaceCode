@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "revision": 1,
+  "repo": {
+    "root": ".",
+    "remote": "https://github.com/hjdspace/SpaceCode.git",
+    "baseBranch": "main"
+  },
+  "template": "parallel-planner-with-review",
+  "agent": {
+    "engineType": "claude-code",
+    "maxIterations": 5,
+    "maxConcurrency": 4
+  },
+  "sandbox": {
+    "type": "worktree",
+    "root": ".spacecode/worktrees"
+  },
+  "tracker": {
+    "type": "github-issues",
+    "repo": "hjdspace/SpaceCode",
+    "label": "ready-for-agent",
+    "auth": "gh",
+    "mergeMode": "local",
+    "commentIssue": true,
+    "closeIssue": true
+  },
+  "stages": {
+    "plan": {
+      "enabled": true,
+      "model": "deepseek-v4-flash",
+      "permissionMode": "plan",
+      "humanGate": false
+    },
+    "implement": {
+      "enabled": true,
+      "model": "deepseek-v4-flash",
+      "permissionMode": "bypassPermissions",
+      "humanGate": false
+    },
+    "verify": {
+      "enabled": true,
+      "permissionMode": "default",
+      "humanGate": false
+    },
+    "review": {
+      "enabled": true,
+      "model": "deepseek-v4-flash",
+      "permissionMode": "acceptEdits",
+      "humanGate": true
+    },
+    "merge": {
+      "enabled": true,
+      "model": "deepseek-v4-flash",
+      "permissionMode": "default",
+      "humanGate": true
+    }
+  },
+  "commands": {
+    "verify": "npm run test:changed"
+  },
+  "prompts": {
+    "plan": ".spacecode/factory/prompts/plan.md",
+    "implement": ".spacecode/factory/prompts/implement.md",
+    "review": ".spacecode/factory/prompts/review.md",
+    "fix": ".spacecode/factory/prompts/fix.md",
+    "merge-conflict": ".spacecode/factory/prompts/merge-conflict.md"
+  },
+  "limits": {
+    "taskTimeoutSec": 3600,
+    "idleTimeoutSec": 600,
+    "keepDoneRuns": 20
+  }
+}

@@ -39,6 +39,7 @@ import { readBacklog } from './backlog'
 import { DEFAULT_STAGES, readFactoryConfig, STAGE_KEYS } from './config'
 import { writeJsonAtomic } from './atomic'
 import { buildBranchName } from './worktree'
+import { openEventLog } from './events'
 
 export interface FactoryRunDeps {
   now?: () => Date
@@ -586,6 +587,15 @@ export function createFactoryRun(
   writeJsonAtomic(runFilePath(repoRoot, runId), run)
   writeJsonAtomic(tasksFilePath(repoRoot, runId), tasks)
 
+  // 运行创建是事件流的第一条：把「何时、多少任务、并发上限」落进 runs/<id>/events.jsonl，
+  // 渲染层按 factory.events.run.created 格式化，跨语言可重放。
+  openEventLog(join(runDir(repoRoot, runId), 'events.jsonl'), { runId, now: resolved.now }).append({
+    taskId: null,
+    code: 'run.created',
+    level: 'info',
+    params: { tasks: tasks.length, maxConcurrency },
+  })
+
   return { ok: true, snapshot: { run, tasks } }
 }
 
@@ -712,6 +722,13 @@ export function createGithubRun(
 
   writeJsonAtomic(runFilePath(repoRoot, runId), run)
   writeJsonAtomic(tasksFilePath(repoRoot, runId), projections)
+
+  openEventLog(join(runDir(repoRoot, runId), 'events.jsonl'), { runId, now: resolved.now }).append({
+    taskId: null,
+    code: 'run.created',
+    level: 'info',
+    params: { tasks: projections.length, maxConcurrency },
+  })
 
   return { ok: true, snapshot: { run, tasks: projections } }
 }
