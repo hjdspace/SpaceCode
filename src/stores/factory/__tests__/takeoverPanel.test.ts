@@ -65,6 +65,7 @@ function session(taskId = 'bl-1'): FactoryTakeoverSession {
     projectPath: 'D:/repo/.spacecode/worktrees/bl-1',
     title: '接管 · 修复会话恢复时序',
     content: '你已接管流水线任务。',
+    startTurn: true,
     activate: false,
   }
 }

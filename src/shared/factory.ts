@@ -573,6 +573,8 @@ export interface FactoryTakeoverSession {
   projectPath: string
   title: string
   content: string
+  startTurn: boolean
+  history?: unknown[]
   model?: string
   /**
    * 引擎实际跑着的阶段权限模式。渲染层会话记录缺了它，selectSession 的权限对账
@@ -777,6 +779,7 @@ export type FactoryTaskTranscriptResult =
       sessionId: string
       engineType: FactoryEngineType
       messages: unknown[]
+      running: boolean
     }
   | { ok: false; error: FactoryTranscriptError }
 

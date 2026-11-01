@@ -95,6 +95,8 @@ function pushFactorySession(session: FactoryTakeoverSession): void {
     __h5RemoteUserMessage: true,
     messageId: null,
     content: session.content,
+    startTurn: session.startTurn,
+    ...(session.history ? { history: session.history } : {}),
     projectPath: session.projectPath,
     title: session.title,
     timestamp: Date.now(),

@@ -312,6 +312,7 @@ export default {
     live: 'Live',
     running: 'Task in progress…',
     idle: 'This stage is not running',
+    paused: 'Taken over · background agent paused',
     loading: 'Reading the session…',
     empty: 'The session has no content yet.',
     noSession: 'This task has no session yet.',

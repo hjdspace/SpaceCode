@@ -952,6 +952,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     if (input.model) session.model = input.model
     if (session.messages.length === 0 && input.messages.length > 0) {
       session.messages = input.messages
+    } else if (input.messages.length > session.messages.length) {
+      session.messages.push(...input.messages.slice(session.messages.length))
     }
     session.processStatus = input.running ? 'active' : 'idle'
     session.lastActivityAt = Date.now()

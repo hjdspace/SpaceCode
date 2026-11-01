@@ -311,6 +311,7 @@ export default {
     live: '实时',
     running: '任务正在推进…',
     idle: '当前阶段未在运行',
+    paused: '已接管 · 后台 Agent 已暂停',
     loading: '正在读取会话…',
     empty: '会话还没有内容。',
     noSession: '该任务还没有会话记录。',

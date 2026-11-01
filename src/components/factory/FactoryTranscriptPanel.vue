@@ -102,6 +102,7 @@ const turnStore = useTurnStore()
  * 一个临时条目，让持久事件订阅把同一会话的流式输出写进聊天渲染链路。
  */
 const attachedId = ref<string | null>(null)
+const attachedMirror = ref(false)
 
 const attachedSession = computed(() =>
   attachedId.value ? sessionStore.getSession(attachedId.value) : undefined,
@@ -109,12 +110,14 @@ const attachedSession = computed(() =>
 const hasMessages = computed(() => (attachedSession.value?.messages.length ?? 0) > 0)
 
 const running = computed(() => {
+  if (props.transcript?.ok) return props.transcript.running
   if (showsTaskProgress(props.task)) return true
   const id = attachedId.value
   return id ? turnStore.getIsLoading(id) : false
 })
 
 const activityText = computed(() => {
+  if (props.task.takeover && !running.value) return t('factory.watch.paused')
   const event = props.lastEvent
   if (event) return t(`factory.events.${event.code}`, event.params ?? {})
   return running.value ? t('factory.watch.running') : t('factory.watch.idle')
@@ -146,8 +149,11 @@ function normalizeMessages(): Message[] {
 function releaseAttached(): void {
   const id = attachedId.value
   if (!id) return
+  const mirror = attachedMirror.value
   attachedId.value = null
-  // 只摘本地镜像；流水线的引擎进程不能因为面板关闭而被停掉。
+  attachedMirror.value = false
+  if (!mirror) return
+  // 只摘本地镜像；真实会话的 turn 仍归原聊天页或接管面板管理。
   turnStore.releaseObservedSession(id)
   sessionStore.detachObservedSession(id)
 }
@@ -155,8 +161,7 @@ function releaseAttached(): void {
 function attach(sessionId: string): void {
   const transcript = props.transcript
   if (!transcript?.ok || transcript.sessionId !== sessionId) return
-  if (attachedId.value === sessionId) return
-  releaseAttached()
+  if (attachedId.value !== sessionId) releaseAttached()
   const session = sessionStore.attachObservedSession({
     sessionId,
     title: props.task.title,
@@ -164,14 +169,16 @@ function attach(sessionId: string): void {
     messages: normalizeMessages(),
     running: running.value,
   })
-  // 同 id 的真实会话不归观察面板管：保持空态，不把用户会话变成只读镜像。
-  if (session?.observedSession) attachedId.value = sessionId
+  if (!session) return
+  attachedId.value = sessionId
+  attachedMirror.value = session.observedSession === true
 }
 
-/** 阶段推进时会换成新的会话 id：先释放旧镜像，再挂新会话并灌入其转录快照。 */
+/** 每次轮询都同步快照；阶段切换时先释放旧镜像，真实会话只做只读展示。 */
 watch(
-  () => (props.transcript?.ok ? props.transcript.sessionId : ''),
-  (sessionId) => {
+  () => props.transcript,
+  (transcript) => {
+    const sessionId = transcript?.ok ? transcript.sessionId : ''
     if (!sessionId) {
       releaseAttached()
       return

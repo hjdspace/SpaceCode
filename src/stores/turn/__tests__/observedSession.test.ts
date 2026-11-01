@@ -125,4 +125,20 @@ describe('observed factory sessions', () => {
     expect(fake.claudeCode.abort).not.toHaveBeenCalled()
     expect(sessionStore.getSession(OBS)?.messages.length).toBeGreaterThan(0)
   })
+
+  it('appends newer snapshots without overwriting live content or duplicating messages', async () => {
+    const { sessionStore } = await setup()
+    const session = sessionStore.getSession(OBS)!
+    session.messages[0]!.content = '实时流式内容'
+    const messages = [
+      { id: 'm-1', role: 'user' as const, content: '旧快照', timestamp: 0 },
+      { id: 'm-2', role: 'assistant' as const, content: '新回复', timestamp: 1 },
+    ]
+
+    sessionStore.attachObservedSession({ sessionId: OBS, title: '任务', messages })
+    sessionStore.attachObservedSession({ sessionId: OBS, title: '任务', messages })
+
+    expect(session.messages.map(message => message.id)).toEqual(['m-1', 'm-2'])
+    expect(session.messages[0]?.content).toBe('实时流式内容')
+  })
 })

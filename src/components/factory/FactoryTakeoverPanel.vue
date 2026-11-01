@@ -45,6 +45,18 @@
           <p v-if="verifyFailed" class="warn" data-takeover-verify-failed>
             {{ t('factory.takeoverPanel.verifyFailed') }}
           </p>
+          <p
+            v-if="verifyFailed && task.tests?.command"
+            class="warn verify-command"
+            data-takeover-verify-command
+          >
+            <code>{{ task.tests.command }}</code>
+          </p>
+          <pre
+            v-if="verifyFailed && task.tests?.detail"
+            class="verify-detail"
+            data-takeover-verify-detail
+          >{{ task.tests.detail }}</pre>
         </div>
         <button class="primary-btn" :disabled="returning" data-takeover-return @click="emit('return')">
           <CornerUpLeft :size="12" />
@@ -215,6 +227,22 @@ const sessionId = computed(() => props.task.takeover?.sessionId ?? '')
 
   .warn {
     margin-top: 4px;
+    color: var(--warning, #f59e0b);
+  }
+
+  .verify-command {
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+
+  .verify-detail {
+    max-width: 100%;
+    max-height: 120px;
+    margin: 6px 0 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
     color: var(--warning, #f59e0b);
   }
 }

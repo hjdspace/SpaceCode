@@ -28,6 +28,7 @@ export type AgentEventListener = (sessionId: string, eventType: string, data: un
 
 export interface AgentPort {
   run(sessionId: string, prompt: string, options: AgentRunOptions): Promise<AgentTurn>
+  attach?(sessionId: string): void
   stop(sessionId: string): Promise<void>
   onEvent(listener: AgentEventListener): () => void
   dispose?(): void
@@ -127,6 +128,9 @@ export function createEngineAgentPort(deps: EngineAgentDeps): AgentPort {
   })
 
   return {
+    attach(sessionId) {
+      sessions.add(sessionId)
+    },
     async run(sessionId, prompt, options) {
       sessions.add(sessionId)
       if (!started.has(sessionId)) {

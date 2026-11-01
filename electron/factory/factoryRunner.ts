@@ -191,6 +191,7 @@ export interface FactoryRunner {
 
 interface RunningTask {
   runId: string
+  sessionId?: string
   controller: AbortController
   promise: Promise<void>
 }
@@ -641,34 +642,22 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     }
   }
 
-  /**
-   * 接管会话从工作树开新会话，附带任务摘要；不依赖后台原会话是否还活着。
-   * activate=false：会话只在列表里落位，对话发生在看板内的接管面板，
-   * 而不是把中间面板切到主聊天。
-   */
   function takeoverSessionFor(
     task: FactoryTask,
     worktreeAbsolute: string,
+    sessionId: string,
+    history: unknown[],
     permissionMode?: FactoryPermissionMode,
   ): FactoryTakeoverSession {
-    const stage = task.lane === 'reviewing' ? '审查中' : '实现中'
-    const content = [
-      `你已接管流水线任务「${task.title}」。`,
-      task.goal ? `任务目标：${task.goal}` : '',
-      `当前阶段：${stage}；分支 ${task.branch}；工作树 ${task.worktree ?? worktreeAbsolute}。`,
-      '接管期间后台不推进该任务。请先确认当前工作树状态，再按用户指令继续；交回流水线时会先重跑验证。',
-    ]
-      .filter((line) => line !== '')
-      .join('\n')
     return {
-      sessionId: factorySessionId(`fac-${task.runId}-${task.id}-takeover`),
+      sessionId,
       taskId: task.id,
       projectPath: worktreeAbsolute,
       title: `接管 · ${task.title}`,
-      content,
+      content: '',
+      startTurn: false,
+      ...(history.length > 0 ? { history } : {}),
       ...(task.model ? { model: task.model } : {}),
-      // 面板据此显示并沿用阶段模式；缺了它，渲染层会把这条会话按全局默认档对账，
-      // 引擎被就地降级（见 handleRemoteUserMessage）。
       ...(permissionMode ? { permissionMode } : {}),
       activate: false,
     }
@@ -678,45 +667,56 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     deps.pushSession?.(session)
   }
 
-  /**
-   * 接管会话必须真的跑在引擎上。渲染层收到推送后开的那条 autonomous turn，
-   * 只有等本会话的引擎事件回流才会结算；少了这一步，用户在接管面板里发的第一条
-   * 消息会被「已有回合在飞」判掉，永远进不了引擎。简报即第一条正文，
-   * 权限模式与模型沿用领取时固化的实现阶段配置。
-   */
-  function startTakeoverTurn(
+  async function takeoverContextFor(
+    repoRoot: string,
+    task: FactoryTask,
+    worktreeAbsolute: string,
+    activeSessionId?: string,
+  ): Promise<{ sessionId: string; history: unknown[] }> {
+    const engineType = task.configSnapshot?.engineType ?? 'claude-code'
+    if (activeSessionId) {
+      try {
+        const full = await transcriptDeps.read(worktreeAbsolute, activeSessionId, engineType)
+        return {
+          sessionId: activeSessionId,
+          history: Array.isArray(full?.messages) ? full.messages : [],
+        }
+      } catch {
+        return { sessionId: activeSessionId, history: [] }
+      }
+    }
+
+    const latest = await readTranscript({
+      task,
+      worktreeAbsolute,
+      engineType,
+      deps: transcriptDeps,
+    })
+    if (latest.ok) return { sessionId: latest.sessionId, history: latest.messages }
+
+    if (task.lane === 'reviewing') {
+      const key = `${repoRoot}::${task.runId}::${task.id}`
+      const round = reviewRounds.get(key) ?? 1
+      return { sessionId: factorySessionId(`fac-${task.runId}-${task.id}-review-${round}`), history: [] }
+    }
+    return { sessionId: factorySessionId(`fac-${task.runId}-${task.id}-impl`), history: [] }
+  }
+
+  async function prepareTakeoverTurn(
     repoRoot: string,
     runId: string,
     task: FactoryTask,
     session: FactoryTakeoverSession,
-    worktreeAbsolute: string,
-    config: FactoryConfig,
-  ): void {
-    const runtime = stageRuntimeFor(task, config)
-    const stageConfig = runtime.stages.implement
-    const model = stageConfig.model ?? runtime.agentModel
-
-    void (async () => {
-      const agent = await makeAgent(repoRoot, runId, task.id, 'implement')
-      if (!agent) return
-      const entry = {
-        runId,
-        sessionId: session.sessionId,
-        agent,
-        promise: agent
-          .run(session.sessionId, session.content, {
-            cwd: worktreeAbsolute,
-            permissionMode: stageConfig.permissionMode,
-            ...(model ? { model } : {}),
-          })
-          .then(() => undefined)
-          .catch(() => undefined),
-      }
-      takeoverTurns.set(task.id, entry)
-      // 回合结束不等于会话结束：引擎进程还挂在这个会话上，用户在面板里续话靠它，
-      // 所以条目留到交回/停止运行才摘，届时由 stopTakeoverTurn 收口进程。
-      void entry.promise
-    })()
+  ): Promise<void> {
+    const agent = await makeAgent(repoRoot, runId, task.id, task.lane === 'reviewing' ? 'review' : 'implement')
+    if (!agent) return
+    agent.attach?.(session.sessionId)
+    takeoverTurns.set(task.id, {
+      runId,
+      sessionId: session.sessionId,
+      agent,
+      promise: Promise.resolve(),
+    })
   }
 
   /** 交回/停止运行前收口接管回合，同一个工作树不留第二个驱动。 */
@@ -794,7 +794,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       running.delete(taskId)
       void pumpRun(repoRoot, runId)
     })
-    running.set(taskId, { runId, controller, promise })
+    running.set(taskId, { runId, sessionId, controller, promise })
     return null
   }
 
@@ -1151,7 +1151,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       void pumpRun(repoRoot, runId)
     })
 
-    running.set(taskId, { runId, controller, promise })
+    running.set(taskId, { runId, sessionId, controller, promise })
 
     emit(repoRoot, runId, {
       taskId,
@@ -1335,22 +1335,21 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       if (!current) return { ok: false, error: 'task-not-found' }
       if (!takeoverEligible(current)) return { ok: false, error: 'not-takeover' }
 
-      // 重复接管幂等：沿用已有接管会话，不重复推送。
-      // 阶段配置先读一次：会话推送与引擎回合必须报同一个权限模式，否则面板显示
-      // 的和引擎跑着的不是同一档。
       const config = readFactoryConfig(repoRoot)
+      const stageKey = current.lane === 'reviewing' ? 'review' : 'implement'
       const permissionMode = config
-        ? stageRuntimeFor(current, config).stages.implement.permissionMode
+        ? stageRuntimeFor(current, config).stages[stageKey].permissionMode
         : undefined
       if (current.takeover) {
         return {
           ok: true,
           snapshot: fresh,
-          session: takeoverSessionFor(current, worktreeAbsolute, permissionMode),
+          session: takeoverSessionFor(current, worktreeAbsolute, current.takeover.sessionId, [], permissionMode),
         }
       }
 
-      const session = takeoverSessionFor(current, worktreeAbsolute, permissionMode)
+      const context = await takeoverContextFor(repoRoot, current, worktreeAbsolute, entry?.sessionId)
+      const session = takeoverSessionFor(current, worktreeAbsolute, context.sessionId, context.history, permissionMode)
       patchTask(repoRoot, runId, taskId, {
         takeover: { at: now().toISOString(), sessionId: session.sessionId },
       })
@@ -1361,7 +1360,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         level: 'warn',
       })
       pushTakeoverSession(session)
-      if (config) startTakeoverTurn(repoRoot, runId, current, session, worktreeAbsolute, config)
+      if (config) await prepareTakeoverTurn(repoRoot, runId, current, session)
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest, session } : { ok: false, error: 'task-not-found' }
@@ -1786,7 +1785,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         void pumpRun(repoRoot, runId)
       })
 
-      running.set(taskId, { runId, controller, promise })
+      running.set(taskId, { runId, sessionId, controller, promise })
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
@@ -1851,12 +1850,13 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       if (!task.worktree) return { ok: false, error: 'no-session' }
       const worktreeAbsolute = worktreeAbsolutePath(repoRoot, taskId)
       if (!existsSync(worktreeAbsolute)) return { ok: false, error: 'worktree-missing' }
-      return readTranscript({
+      const result = await readTranscript({
         task,
         worktreeAbsolute,
         engineType: task.configSnapshot?.engineType ?? 'claude-code',
         deps: transcriptDeps,
       })
+      return result.ok ? { ...result, running: running.has(taskId) } : result
     },
 
     async revealWorktree(repoRoot, runId, taskId) {

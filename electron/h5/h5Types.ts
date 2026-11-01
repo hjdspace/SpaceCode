@@ -55,6 +55,8 @@ export interface H5RemoteUserMessagePayload {
   __h5RemoteUserMessage: true
   messageId: string | null
   content: string
+  startTurn?: boolean
+  history?: unknown[]
   projectPath: string | null
   title: string | null
   timestamp: number

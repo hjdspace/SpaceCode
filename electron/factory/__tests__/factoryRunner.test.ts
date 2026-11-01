@@ -183,6 +183,40 @@ describe('startTask validation', () => {
   })
 })
 
+describe('task transcript', () => {
+  it('reports whether the pipeline still owns a running turn', async () => {
+    seed()
+    let releaseTurn: () => void = () => {}
+    const turnGate = new Promise<void>((resolve) => {
+      releaseTurn = resolve
+    })
+    const runner = createFactoryRunner(deps({
+      runImplementation: async () => {
+        await turnGate
+        return { outcome: 'completed', iterations: 1, inputTokens: 1, outputTokens: 1 }
+      },
+      transcript: {
+        stat: () => 1,
+        read: async () => ({ messages: [] }),
+      },
+    }))
+
+    await runner.startTask(dir, runId, 'bl-1', {})
+    mkdirSync(join(dir, '.spacecode', 'worktrees', 'bl-1'), { recursive: true })
+    await expect(runner.readTaskTranscript(dir, runId, 'bl-1')).resolves.toMatchObject({
+      ok: true,
+      running: true,
+    })
+
+    releaseTurn()
+    await runner.whenIdle(runId)
+    await expect(runner.readTaskTranscript(dir, runId, 'bl-1')).resolves.toMatchObject({
+      ok: true,
+      running: false,
+    })
+  })
+})
+
 describe('startTask happy path', () => {
   it('creates the worktree, records projection and runs the implementer', async () => {
     seed()

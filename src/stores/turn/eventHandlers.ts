@@ -32,6 +32,7 @@ import { i18n } from '@/i18n'
 import { mergeGenuiCardRecords, projectGenuiCards } from '@/lib/genui/cardProjection'
 import { applyGenuiCardBudget } from '@/lib/genui/cardLifecycle'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
+import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -567,7 +568,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   function handleRemoteUserMessage(sessionId: string, data: any): void {
     if (!sessionId) return
     const content = remoteUserContent(data)
-    if (!content.trim()) return
+    const startTurn = data?.startTurn !== false
+    if (startTurn && !content.trim()) return
 
     let session = sink.get(sessionId)
     if (!session) {
@@ -583,6 +585,14 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       if (data?.activate !== false && getCurrentSessionId() !== sessionId) {
         void selectSession(sessionId)
       }
+    }
+
+    if (!startTurn && session.messages.length === 0 && Array.isArray(data?.history)) {
+      session.messages = buildMessagesFromHistory(data.history).map((message, index) => ({
+        ...message,
+        id: message.id ?? `factory-history-${index}`,
+        timestamp: message.timestamp ?? 0,
+      }))
     }
 
     // 后台触发方（定时任务）指定的模型落到会话记录：输入框显示的是它，
@@ -618,7 +628,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       lastMessage.content === content &&
       Date.now() - (lastMessage.timestamp || 0) < 10_000
 
-    if (!hasExactMessage && !isRecentDuplicate) {
+    if (content.trim() && !hasExactMessage && !isRecentDuplicate) {
       sink.appendMessage(sessionId, {
         ...(messageId ? { id: messageId } : {}),
         role: 'user',
@@ -627,6 +637,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       })
     }
 
+    if (!startTurn) return
     const existing = turnStates.get(sessionId)
     if (existing) {
       return

@@ -132,6 +132,37 @@ describe('turn H5 remote user events', () => {
     reveals.stop()
   })
 
+  it('startTurn:false 恢复原会话历史但不追加简报或自动开回合', async () => {
+    const { useTurnStore } = await import('../turn')
+    const turnStore = useTurnStore()
+    const sessionStore = useChatSessionStore()
+    const main = sessionStore.createSession('主会话', 'D:/repo')
+
+    mockState.handlers.onUser({
+      sessionId: 'fac-run-1-bl-1-impl',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '',
+        startTurn: false,
+        history: [{
+          type: 'user',
+          uuid: 'u-1',
+          message: { role: 'user', content: [{ type: 'text', text: '原始任务上下文' }] },
+        }],
+        projectPath: 'D:/repo',
+        title: '接管 · 任务 1',
+        timestamp: Date.now(),
+        activate: false,
+      },
+    })
+
+    const session = sessionStore.getSession('fac-run-1-bl-1-impl')
+    expect(session?.messages.map((message) => message.content)).toEqual(['原始任务上下文'])
+    expect(turnStore.getIsLoading('fac-run-1-bl-1-impl')).toBe(false)
+    expect(sessionStore.currentSessionId).toBe(main.id)
+  })
+
   it('手机端消息仍会请求把会话切到前台', async () => {
     const { useTurnStore } = await import('../turn')
     useTurnStore()

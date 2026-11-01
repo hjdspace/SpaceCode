@@ -105,6 +105,7 @@ function transcript(
     sessionId: 'fac-run-1-bl-1-impl',
     engineType: 'claude-code',
     messages: rawTranscript(),
+    running: true,
     ...overrides,
   }
 }
@@ -184,9 +185,58 @@ describe('FactoryTranscriptPanel', () => {
     )
     expect(wrapper.find('[data-watch-live]').text()).toBe('factory.watch.live')
 
-    const idle = mountPanel({ task: task({ lane: 'done' }) })
+    const idle = mountPanel({ task: task({ lane: 'done' }), transcript: transcript({ running: false }) })
     expect(idle.find('[data-watch-activity]').text()).toBe('factory.watch.idle')
     expect(idle.find('[data-watch-live]').exists()).toBe(false)
+  })
+
+  it('shows a paused state instead of live while the task is taken over', () => {
+    const wrapper = mountPanel({
+      task: task({ takeover: { at: '2026-11-01T00:00:00Z', sessionId: 'fac-run-1-bl-1-impl' } }),
+      transcript: transcript({ running: false }),
+    })
+
+    expect(wrapper.find('[data-watch-activity]').text()).toBe('factory.watch.paused')
+    expect(wrapper.find('[data-watch-live]').exists()).toBe(false)
+  })
+
+  it('refreshes the mirror when a newer snapshot has the same session id', async () => {
+    const wrapper = mountPanel()
+    const messages = [
+      ...rawTranscript(),
+      {
+        type: 'user',
+        uuid: 'u-2',
+        timestamp: '2026-10-28T10:02:00Z',
+        message: { role: 'user', content: [{ type: 'text', text: '继续' }] },
+      },
+    ]
+
+    await wrapper.setProps({ transcript: transcript({ messages }) })
+
+    expect(observed.attachObservedSession).toHaveBeenCalledTimes(2)
+    expect(observed.attachObservedSession.mock.calls[1][0].messages).toHaveLength(3)
+  })
+
+  it('renders an existing real session read-only without releasing its turn on close', () => {
+    const id = 'fac-run-1-bl-1-impl'
+    observed.state.session = {
+      id,
+      messages: [{ id: 'm-1', role: 'user', content: '已有会话', timestamp: 0 }],
+      observedSession: false,
+    }
+    observed.attachObservedSession.mockImplementation(() => observed.state.session)
+
+    const wrapper = mountPanel()
+    expect(wrapper.find('[data-watch-live-body]').exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'ChatPanel' }).props()).toMatchObject({
+      sessionId: id,
+      readonly: true,
+    })
+
+    wrapper.unmount()
+    expect(observed.releaseObservedSession).not.toHaveBeenCalled()
+    expect(observed.detachObservedSession).not.toHaveBeenCalled()
   })
 
   it('shows the loading placeholder only before any transcript arrives', () => {
@@ -211,7 +261,7 @@ describe('FactoryTranscriptPanel', () => {
   })
 
   it('says the session is empty when a settled stage has no messages', () => {
-    const empty = transcript({ messages: [] })
+    const empty = transcript({ messages: [], running: false })
     expect(
       mountPanel({ task: task({ lane: 'done' }), transcript: empty })
         .find('[data-watch-empty]')
@@ -242,6 +292,7 @@ describe('FactoryTranscriptPanel', () => {
       sessionId: 'fac-run-1-bl-1-review',
       engineType: 'claude-code',
       messages: [],
+      running: true,
     }
 
     await wrapper.setProps({ transcript: next, task: task({ lane: 'reviewing' }) })

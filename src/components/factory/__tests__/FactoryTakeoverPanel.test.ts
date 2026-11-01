@@ -104,4 +104,21 @@ describe('FactoryTakeoverPanel', () => {
       'factory.takeoverPanel.verifyFailed',
     )
   })
+
+  it('展示交回验证的命令与真实失败详情', () => {
+    const wrapper = mountPanel({
+      verifyFailed: true,
+      task: takenOverTask({
+        tests: {
+          status: 'fail',
+          command: 'npm run test:changed',
+          at: '2026-11-01T14:00:00Z',
+          detail: 'spawn EINVAL',
+        },
+      }),
+    })
+
+    expect(wrapper.find('[data-takeover-verify-command]').text()).toContain('npm run test:changed')
+    expect(wrapper.find('[data-takeover-verify-detail]').text()).toBe('spawn EINVAL')
+  })
 })

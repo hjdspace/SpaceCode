@@ -107,6 +107,17 @@ describe('createEngineAgentPort', () => {
     expect(stopped).toEqual(['fac-stop'])
   })
 
+  it('can adopt an existing session and stop it without running a new turn', async () => {
+    const port = createEngineAgentPort(deps)
+
+    port.attach?.('fac-existing')
+    await port.stop('fac-existing')
+
+    expect(stopped).toEqual(['fac-existing'])
+    expect(started).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+  })
+
   it('forwards raw route events for projection', async () => {
     const port = createEngineAgentPort(deps)
     const seen: Array<{ sessionId: string; eventType: string }> = []
