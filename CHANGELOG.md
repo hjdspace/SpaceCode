@@ -1,3 +1,54 @@
+## [0.8.14](https://github.com/hjdspace/SpaceCode/compare/v0.8.13...v0.8.14) (2026-11-02)
+
+### Features
+
+- **factory:** 工厂（流水线）完整落地：入口与初始化向导配置基座、本地待办与运行创建、六泳道看板与运行标签页
+- **factory:** 工作树隔离、实现、验证、审查、合并闸门全链路，支持审查意见处理与修复重跑，以及本地合并
+- **factory:** GitHub Issues 任务源接入与合并回写，GitHub 登录与仓库列举，领取并发与同任务去重
+- **factory:** PR 模式交付与 Docker 沙箱单任务端到端
+- **factory:** 并发调度、暂停继续与阶段配置，并行任务规划、超时与事件流
+- **factory:** 任务接管：会话接管、交回验证与崩溃恢复，接管面板复用聊天链路，支持 429 自动重试
+- **factory:** 卡片当前动作行与只读观察面板，任务取消、新建运行弹窗与看板泳道聚焦
+- **mcp:** 本地 MCP 运行时探测与启动环境检测，补齐 package manager launcher 识别与 Windows 命令包装
+- **mcp:** 内置 MCP 预设按语言本地化安装，设置页展示本地化状态、生效命令与运行错误
+- **engine:** 桌面启动时预热引擎会话，新增 warmed 会话标识、空闲回收与启动反馈，思考态新增 starting 变体
+- **chat:** 长文本粘贴落盘为附件，附件卡片支持悬停预览与元信息，超长提示词外置到会话临时目录
+- **chat:** 点击系统通知可直接定位并展开对应会话
+- **voice:** 语音模型信息展示，安装失败路径的错误提示更明确
+- **preview:** 预览授权改为带 TTL 的 `GrantRecord`，H5 预览授权与沙箱 URL 解析统一
+- **design:** 设计系统预览弹窗与选择器样式统一改用 CSS 变量
+
+### Bug Fixes
+
+- **factory:** 修复残留分支与残留目录导致任务无法领取
+- **factory:** 修复 GitHub 登录轮询导致的进程堆积与状态不同步
+- **factory:** 修复接管交回挂死与实现阶段授权停摆
+- **factory:** 修复接管续话、观察同步与 Windows 交回验证
+- **factory:** 合并同任务并发领取，避免误报 worktree-busy
+- **factory:** 移除接管面板重复显示的任务目标
+- **preview:** 收紧 iframe sandbox 属性并移除 `allow-popups`，外链与 alert 行为收敛到沙箱 shim
+- **chat:** 修正附件与消息中文件引用的处理路径
+- **electron:** 修正 Windows 上 cdp-bridge.exe 与跨平台路径处理
+- **ui:** 原生 `select` 按主题声明 `color-scheme`，修复暗色主题下下拉弹层选项不可读
+- **engine:** 修复子进程启动失败时的进程归属
+- **factory:** 降低流水线长运行的内存与日志开销
+
+### Refactor
+
+- 预览协议常量、MIME 处理与沙箱协议注册统一，预览 URL 生成收敛
+- 设计导出 PDF 的调用与错误处理重构，GenUI 技能产物写入优化
+- 会话进程初始化与控制流重构，MCP 配置解析与命令查找收敛
+- 移除模型选择器的搜索功能及相关代码
+
+### Tests
+
+- 补齐 factory 全链路、预览授权、MCP 本地运行时、会话预热与粘贴附件相关用例，新增 factory 实现阶段集成测试
+
+### Docs
+
+- AGENTS.md 新增原生表单控件主题规则
+- 更新 GenUI H5 沙箱部署与发布验收文档
+
 ## [0.8.13](https://github.com/hjdspace/SpaceCode/compare/v0.8.12...v0.8.13) (2026-10-26)
 
 ### Features
