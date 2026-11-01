@@ -31,6 +31,7 @@ import {
   type FactoryTaskStartError,
   type FactoryTaskStartInput,
   type FactoryTaskStartResult,
+  type FactoryTaskTranscriptResult,
   type FactoryTakeoverResult,
   type FactoryReturnResult,
   type FactoryTakeoverSession,
@@ -65,6 +66,8 @@ import { runVerification, type VerifyInput, type VerifyResult } from './verify'
 import { executeMerge, runMergePreflight, type MergeWriteBackPayload } from './merge'
 import { createDefaultAgentPort, type AgentPort } from './agentEngineGateway'
 import { factorySessionId } from './sessionId'
+import { readTranscript, type TranscriptDeps } from './transcript'
+import { SessionHistoryManager, sessionTranscriptMtime } from '../session/sessionHistoryManager'
 import {
   createDockerSandboxProvider,
   createSandboxAgentPort,
@@ -120,6 +123,8 @@ export interface FactoryRunnerDeps {
   verify?: (input: VerifyInput) => Promise<VerifyResult>
   /** Docker 沙箱执行器；默认走 dockerSandbox，测试注入假容器。 */
   sandboxFactory?: SandboxFactory
+  /** 观察视图的会话读取；默认读引擎自己的转录文件。 */
+  transcript?: TranscriptDeps
 }
 
 export interface FactoryRunner {
@@ -168,6 +173,8 @@ export interface FactoryRunner {
     input: FactoryMergeExecuteInput,
   ): Promise<FactoryMergeResult>
   readEvents(repoRoot: string, runId: string, taskId?: string | null): FactoryEvent[]
+  /** 观察视图：读取任务当前阶段会话的转录（只读，不触碰后台回合）。 */
+  readTaskTranscript(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskTranscriptResult>
   revealWorktree(repoRoot: string, runId: string, taskId: string): Promise<FactoryWorktreeRevealResult>
   /** 配置保存后给当前未结束运行记一条事件；新值只影响之后领取的任务。 */
   recordConfigChange(
@@ -313,6 +320,11 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
   const implement = deps.runImplementation ?? runImplementation
   const review = deps.runReview ?? runReview
   const reveal = deps.revealPath ?? defaultReveal
+  const transcriptDeps: TranscriptDeps = deps.transcript ?? {
+    stat: sessionTranscriptMtime,
+    read: (projectPath, sessionId, engineType) =>
+      SessionHistoryManager.getFullSession(projectPath, sessionId, engineType),
+  }
 
   const running = new Map<string, RunningTask>()
   /**
@@ -1830,6 +1842,20 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     readEvents(repoRoot, runId, taskId) {
       return readEventLog(eventsPath(repoRoot, runId), {
         ...(taskId === undefined ? {} : { taskId }),
+      })
+    },
+
+    async readTaskTranscript(repoRoot, runId, taskId) {
+      const task = taskOf(repoRoot, runId, taskId)
+      if (!task) return { ok: false, error: 'task-not-found' }
+      if (!task.worktree) return { ok: false, error: 'no-session' }
+      const worktreeAbsolute = worktreeAbsolutePath(repoRoot, taskId)
+      if (!existsSync(worktreeAbsolute)) return { ok: false, error: 'worktree-missing' }
+      return readTranscript({
+        task,
+        worktreeAbsolute,
+        engineType: task.configSnapshot?.engineType ?? 'claude-code',
+        deps: transcriptDeps,
       })
     },
 

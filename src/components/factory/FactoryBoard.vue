@@ -23,6 +23,7 @@
           :run="run"
           :readonly="readonly"
           :busy="busy"
+          :last-event="lastEvents?.[task.id] ?? null"
           @select="emit('select', $event)"
           @action="(id, kind) => emit('action', id, kind)"
         />
@@ -37,7 +38,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { FactoryLane, FactoryRun, FactoryTask } from '@/shared/factory'
+import type { FactoryEvent, FactoryLane, FactoryRun, FactoryTask } from '@/shared/factory'
 import { FACTORY_LANES, tasksByLane, type FactoryCardActionKind } from '@/stores/factory/board'
 import FactoryCard from './FactoryCard.vue'
 
@@ -52,8 +53,10 @@ const props = withDefaults(
     readonly?: boolean
     /** 看板上正在执行中的快捷动作，避免同一动作重复点击。 */
     busy?: FactoryCardActionKind | null
+    /** 当前运行每个任务的最后一条事件：卡片据此显示「现在正在做什么」。 */
+    lastEvents?: Record<string, FactoryEvent>
   }>(),
-  { nowMs: () => Date.now(), readonly: false, busy: null },
+  { nowMs: () => Date.now(), readonly: false, busy: null, lastEvents: () => ({}) },
 )
 
 const emit = defineEmits<{

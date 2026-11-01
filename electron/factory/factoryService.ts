@@ -694,6 +694,7 @@ export function registerFactoryIPCHandlers(): void {
       return result
     },
     taskEvents: (root, runId, taskId) => runner.readEvents(root, runId, taskId),
+    taskTranscript: (root, runId, taskId) => runner.readTaskTranscript(root, runId, taskId),
     worktreeReveal: (root, runId, taskId) => runner.revealWorktree(root, runId, taskId),
   })
   info('Factory', 'Factory IPC handlers registered')

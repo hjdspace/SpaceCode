@@ -56,6 +56,12 @@
       <i :style="{ width: `${percent}%` }" />
     </div>
 
+    <div v-if="activityText" class="card-activity" data-card-activity>
+      <Loader2 v-if="pulsing" :size="11" class="spin" />
+      <Activity v-else :size="11" />
+      <span>{{ activityText }}</span>
+    </div>
+
     <div v-if="task.lane === 'blocked' && task.attention" class="card-alert">
       <AlertTriangle :size="13" />
       <span>{{ attentionText }}</span>
@@ -100,8 +106,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlertTriangle, Folder, GitBranch, GitPullRequest, Lock, MessageSquare } from 'lucide-vue-next'
-import type { FactoryRun, FactoryTask } from '@/shared/factory'
+import { Activity, AlertTriangle, Folder, GitBranch, GitPullRequest, Loader2, Lock, MessageSquare } from 'lucide-vue-next'
+import type { FactoryEvent, FactoryRun, FactoryTask } from '@/shared/factory'
 import {
   cardActions,
   cardDiffstat,
@@ -127,8 +133,10 @@ const props = withDefaults(
     readonly?: boolean
     /** 检查器与卡片共用的在途动作；同一种动作重复点击没有意义。 */
     busy?: FactoryCardActionKind | null
+    /** 该任务已缓存事件的最后一条：卡片用它回答「现在正在做什么」。 */
+    lastEvent?: FactoryEvent | null
   }>(),
-  { readonly: false, busy: null },
+  { readonly: false, busy: null, lastEvent: null },
 )
 
 const emit = defineEmits<{
@@ -149,6 +157,16 @@ const elapsedMs = computed(() => taskElapsedMs(props.task, props.nowMs))
 const actions = computed(() => cardActions(props.task))
 const chipText = computed(() => label(status.value))
 const mergedText = computed(() => (mergeMeta.value ? label(mergeMeta.value) : ''))
+
+/**
+ * 当前动作行只对跑动中的阶段有意义：事件码走检查器同一套 `factory.events.*` 文案，
+ * 这样卡片和事件流对同一条进展不会给出两种说法。
+ */
+const activityText = computed(() => {
+  const event = props.lastEvent
+  if (!event || !showsProgress.value) return ''
+  return t(`factory.events.${event.code}`, event.params ?? {})
+})
 
 /** 投影只给 i18n key + 参数，文案在这里落地。 */
 function label(meta: FactoryTaskStatus): string {
@@ -297,6 +315,37 @@ const attentionText = computed(() => {
     height: 100%;
     background: var(--lane-color, var(--accent-primary));
     transition: width var(--transition-normal);
+  }
+}
+
+/* 当前动作：单行省略，卡片高度不随工具名长短跳动。 */
+.card-activity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-secondary);
+
+  svg {
+    flex: 0 0 auto;
+    color: var(--lane-color, var(--accent-primary));
+  }
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

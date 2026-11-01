@@ -48,6 +48,7 @@ import type {
   FactoryTaskRetryInput,
   FactoryTaskStartInput,
   FactoryTaskStartResult,
+  FactoryTaskTranscriptResult,
   FactoryTakeoverResult,
   FactoryReturnResult,
 } from '@/shared/factory'
@@ -236,6 +237,14 @@ export const useFactoryStore = defineStore('factory', () => {
   /** 交回时重跑验证没过：面板保持打开并说明原因，下一次打开面板或接管别的任务时清掉。 */
   const takeoverVerifyFailed = ref(false)
 
+  // 观察视图：只读镜像当前阶段会话，后台回合照常推进
+  const watchTaskId = ref<string | null>(null)
+  const watchTranscript = ref<FactoryTaskTranscriptResult | null>(null)
+  const watchLoading = ref(false)
+  const watchError = ref<string | null>(null)
+  /** 观察面板的请求令牌：切任务/关面板之后，迟到的旧转录不能覆盖当前内容。 */
+  let watchRequest = 0
+
   // 审查阶段：批准/要求修改/修复与意见处理各自的重入保护
   const approving = ref(false)
   const fixing = ref(false)
@@ -275,6 +284,25 @@ export const useFactoryStore = defineStore('factory', () => {
     const taskId = selectedId.value
     if (!runId || !taskId) return []
     return eventsByTask.value[eventKey(runId, taskId)] ?? []
+  })
+
+  const watchTask = computed(() => findTask(tasks.value, watchTaskId.value))
+
+  /**
+   * 卡片当前动作行：取该任务已缓存事件的最后一条。缓存按运行隔离，
+   * 所以这里只收当前运行的前缀，避免同一条待办在旧运行里的事件串到新卡片上。
+   */
+  const lastEventByTask = computed<Record<string, FactoryEvent>>(() => {
+    const runId = run.value?.id
+    if (!runId) return {}
+    const prefix = `${runId}:`
+    const result: Record<string, FactoryEvent> = {}
+    for (const [key, list] of Object.entries(eventsByTask.value)) {
+      if (!key.startsWith(prefix)) continue
+      const last = list[list.length - 1]
+      if (last) result[key.slice(prefix.length)] = last
+    }
+    return result
   })
   const hasCommits = computed(() => (selectedTask.value?.commits?.length ?? 0) > 0)
   /** 批准按钮的资格：测试通过 + 审查通过 + 无未决阻塞意见。 */
@@ -793,6 +821,11 @@ export const useFactoryStore = defineStore('factory', () => {
     mergeError.value = null
     takeoverPanelTaskId.value = null
     takeoverVerifyFailed.value = false
+    watchTaskId.value = null
+    watchTranscript.value = null
+    watchLoading.value = false
+    watchError.value = null
+    watchRequest += 1
   }
 
   function applySnapshot(snapshot: FactoryRunSnapshot | null): void {
@@ -848,6 +881,7 @@ export const useFactoryStore = defineStore('factory', () => {
         // 列表只刷新摘要；当前运行的快照由 IPC 推送与动作回包保持最新。
         run.value = { ...run.value, ...activeSummary }
         syncRunTab(run.value)
+        await warmActiveTaskEvents(root, run.value.id, tasks.value)
         return
       }
       await selectRun(root, keep)
@@ -874,6 +908,7 @@ export const useFactoryStore = defineStore('factory', () => {
       applySnapshot(snapshot)
       const taskId = selectedId.value
       if (taskId) await loadEvents(root, snapshot.run.id, taskId)
+      await warmActiveTaskEvents(root, snapshot.run.id, snapshot.tasks)
     } catch {
       if (token === runRequest) runError.value = 'load-failed'
     } finally {
@@ -1133,6 +1168,28 @@ export const useFactoryStore = defineStore('factory', () => {
     }
   }
 
+  /**
+   * 卡片动作行要的是事件尾部。只为跑动中的任务预热，且不碰 eventsLoading/
+   * eventsError —— 那是检查器的错误面，预热失败不该在看板上报错。
+   */
+  async function warmActiveTaskEvents(root: string, runId: string, list: FactoryTask[]): Promise<void> {
+    const active = list.filter((task) => task.lane === 'implementing' || task.lane === 'reviewing')
+    await Promise.all(
+      active.map(async (task) => {
+        const cacheKey = eventKey(runId, task.id)
+        if (eventsByTask.value[cacheKey]?.length) return
+        try {
+          const events = await api.factory.taskEvents(root, runId, task.id)
+          const retained = [...events].sort((a, b) => a.seq - b.seq).slice(-EVENT_CACHE_LIMIT)
+          eventsByTask.value = { ...eventsByTask.value, [cacheKey]: retained }
+          for (const event of retained) seenEventSeqs.add(`${event.runId}:${event.seq}`)
+        } catch {
+          // 预热失败只意味着卡片少一行当前动作，检查器仍会按需加载并报错。
+        }
+      }),
+    )
+  }
+
   async function startTask(
     root: string,
     runId: string,
@@ -1329,6 +1386,48 @@ export const useFactoryStore = defineStore('factory', () => {
   /** 关闭面板不等于交回：任务的接管状态不受影响。 */
   function closeTakeoverPanel(): void {
     takeoverPanelTaskId.value = null
+  }
+
+  /** 打开只读观察：不暂停后台回合，也不影响接管/交回状态。 */
+  function openWatch(taskId: string): void {
+    if (watchTaskId.value !== taskId) {
+      watchTranscript.value = null
+      watchError.value = null
+    }
+    watchTaskId.value = taskId
+    // 第一次打开就先亮「读取中」，否则面板会先闪一下「还没有内容」。
+    watchLoading.value = watchTranscript.value === null
+    watchRequest += 1
+  }
+
+  function closeWatch(): void {
+    watchTaskId.value = null
+    watchTranscript.value = null
+    watchError.value = null
+    watchLoading.value = false
+    watchRequest += 1
+  }
+
+  /**
+   * 拉一次任务转录。轮询与手动刷新共用；切换任务或关闭面板后，
+   * 迟到的旧结果按令牌丢弃，不能把别的会话内容显示在当前面板里。
+   */
+  async function refreshWatch(root: string): Promise<void> {
+    const taskId = watchTaskId.value
+    const runId = run.value?.id
+    if (!root || !runId || !taskId) return
+    const token = ++watchRequest
+    if (!watchTranscript.value?.ok) watchLoading.value = true
+    try {
+      const result = await api.factory.taskTranscript(root, runId, taskId)
+      if (token !== watchRequest || watchTaskId.value !== taskId) return
+      if (result.ok) watchTranscript.value = result
+      watchError.value = result.ok ? null : result.error
+    } catch {
+      if (token === watchRequest) watchError.value = 'read-failed'
+    } finally {
+      if (token === watchRequest) watchLoading.value = false
+    }
   }
 
   async function retryTask(
@@ -1573,6 +1672,11 @@ export const useFactoryStore = defineStore('factory', () => {
     retrying.value = false
     takeoverPanelTaskId.value = null
     takeoverVerifyFailed.value = false
+    watchTaskId.value = null
+    watchTranscript.value = null
+    watchLoading.value = false
+    watchError.value = null
+    watchRequest += 1
     approving.value = false
     fixing.value = false
     updatingComment.value = false
@@ -1662,6 +1766,10 @@ export const useFactoryStore = defineStore('factory', () => {
     retrying,
     takeoverPanelTask,
     takeoverVerifyFailed,
+    watchTask,
+    watchTranscript,
+    watchLoading,
+    watchError,
     approving,
     fixing,
     updatingComment,
@@ -1678,6 +1786,7 @@ export const useFactoryStore = defineStore('factory', () => {
     canConfirmMerge,
     mergeTarget,
     selectedEvents,
+    lastEventByTask,
     hasCommits,
     selectedTask,
     selectedEligibility,
@@ -1745,6 +1854,9 @@ export const useFactoryStore = defineStore('factory', () => {
     returnTask,
     openTakeoverPanel,
     closeTakeoverPanel,
+    openWatch,
+    closeWatch,
+    refreshWatch,
     retryTask,
     updateComment,
     acceptComment,

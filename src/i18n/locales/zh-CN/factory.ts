@@ -306,6 +306,15 @@ export default {
     footnote: '接管期间后台不推进该任务；交回后从当前阶段继续。',
     verifyFailed: '验证未通过，任务仍是接管中。继续在会话里处理后再交回。',
   },
+  watch: {
+    readonly: '只读 · 不打断后台推进',
+    loading: '正在读取会话…',
+    empty: '会话还没有内容。',
+    noSession: '该任务还没有会话记录。',
+    worktreeMissing: '工作树已不存在，无法读取会话。',
+    loadFailed: '读取会话记录失败。',
+    close: '关闭观察面板',
+  },
   modelUnknown: '未配置模型',
   laneEmpty: '暂无任务',
 
@@ -641,6 +650,7 @@ export default {
     /** 卡片快捷动作用短标签：泳道列窄，长文案会顶穿卡片。 */
     review: '审查',
     view: '查看',
+    observe: '观察',
     mergeShort: '合并',
     retryShort: '重试',
     remove: '移除',

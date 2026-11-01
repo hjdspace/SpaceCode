@@ -127,6 +127,7 @@
                 :now-ms="nowMs"
                 :readonly="store.readonly"
                 :busy="boardBusy"
+                :last-events="store.lastEventByTask"
                 @select="store.selectTask"
                 @action="handleCardAction"
               />
@@ -245,6 +246,15 @@
       @create="handleCreateNewRun"
     />
 
+    <FactoryTranscriptPanel
+      v-if="store.watchTask"
+      :task="store.watchTask"
+      :transcript="store.watchTranscript"
+      :loading="store.watchLoading"
+      :error="store.watchError"
+      @close="store.closeWatch()"
+    />
+
     <FactoryTakeoverPanel
       v-if="store.takeoverPanelTask"
       :task="store.takeoverPanelTask"
@@ -257,7 +267,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Workflow, AlertTriangle, Loader2 } from 'lucide-vue-next'
 import type { FactoryLane, FactoryPlanResult } from '@/shared/factory'
@@ -282,6 +292,12 @@ import FactoryMergeDialog from './FactoryMergeDialog.vue'
 import FactoryTakeoverPanel from './FactoryTakeoverPanel.vue'
 import FactoryConfigModal from './FactoryConfigModal.vue'
 import FactoryNewRunModal from './FactoryNewRunModal.vue'
+
+/**
+ * 观察面板会把聊天渲染链路（MessageItem / AgentTimeline / 工具卡片）一起拉进来。
+ * 它只是可选浮层，按需加载，避免看板首次渲染就付这份代价。
+ */
+const FactoryTranscriptPanel = defineAsyncComponent(() => import('./FactoryTranscriptPanel.vue'))
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -466,6 +482,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (clock) clearInterval(clock)
   clock = null
+  stopWatchPolling()
 })
 
 watch(root, async (value, previous) => {
@@ -486,6 +503,31 @@ watch(
     if (!root.value || !store.run || !selected) return
     if (store.inspectorTab !== 'events') return
     void store.loadEvents(root.value, store.run.id, selected.id)
+  },
+)
+
+/**
+ * 观察面板不需要主进程推送：转录只读，隔几秒拉一次即可，
+ * 主进程按 mtime 命中缓存，内容没变时不会重复解析 JSONL。
+ */
+const WATCH_POLL_MS = 3000
+let watchTimer: ReturnType<typeof setInterval> | null = null
+
+function stopWatchPolling(): void {
+  if (!watchTimer) return
+  clearInterval(watchTimer)
+  watchTimer = null
+}
+
+watch(
+  () => store.watchTask?.id ?? null,
+  (taskId) => {
+    stopWatchPolling()
+    if (!taskId || !root.value) return
+    void store.refreshWatch(root.value)
+    watchTimer = setInterval(() => {
+      if (root.value) void store.refreshWatch(root.value)
+    }, WATCH_POLL_MS)
   },
 )
 
@@ -619,6 +661,9 @@ async function handleCardAction(taskId: string, kind: FactoryCardActionKind): Pr
     case 'view':
       store.selectTask(taskId)
       return
+    case 'observe':
+      store.openWatch(taskId)
+      return
     case 'review':
       store.selectTask(taskId)
       store.setInspectorTab('review')
@@ -634,8 +679,14 @@ async function handleCardAction(taskId: string, kind: FactoryCardActionKind): Pr
       break
     case 'takeover':
       result = await store.takeoverTask(value, runId, taskId)
+      if (result.ok) {
+        // 接管打开的是新的实时会话；观察面板留在下面只会遮住它。
+        store.closeWatch()
+        return
+      }
       break
     case 'takeover-panel':
+      store.closeWatch()
       store.openTakeoverPanel(taskId)
       return
     case 'return':

@@ -31,6 +31,7 @@ const { factoryApi } = vi.hoisted(() => ({
     taskStop: vi.fn(),
     taskCancel: vi.fn(),
     taskEvents: vi.fn(),
+    taskTranscript: vi.fn(),
     worktreeReveal: vi.fn(),
     onEvent: vi.fn(() => () => {}),
   },
@@ -329,6 +330,32 @@ describe('implementation events', () => {
     expect(store.runEvents[499].seq).toBe(1501)
   })
 
+  it('exposes the last cached event per task for the card action line', async () => {
+    mockRun(snapshot())
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    store.applyPush({ event: event(1), snapshot: snapshot() })
+    store.applyPush({ event: event(2, { params: { target: 'src/a.ts' } }), snapshot: snapshot() })
+
+    expect(store.lastEventByTask['bl-1'].seq).toBe(2)
+    expect(store.lastEventByTask['bl-2']).toBeUndefined()
+  })
+
+  it('warms the event tail of running tasks so their cards can show an action', async () => {
+    const snap = snapshot()
+    snap.tasks[1] = { ...snap.tasks[1], lane: 'implementing', worktree: '.spacecode/worktrees/bl-2' }
+    mockRun(snap)
+    factoryApi.taskEvents.mockImplementation((_root: string, _runId: string, taskId: string) =>
+      Promise.resolve(taskId === 'bl-2' ? [event(1, { taskId: 'bl-2' }), event(2, { taskId: 'bl-2' })] : []),
+    )
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    expect(factoryApi.taskEvents).toHaveBeenCalledWith('/repo', 'run-1', 'bl-2')
+    expect(store.lastEventByTask['bl-2'].seq).toBe(2)
+  })
+
   it('keeps dirty-worktree as a confirmable action error', async () => {
     mockRun(snapshot())
     factoryApi.taskStart.mockResolvedValue({ ok: false, error: 'dirty-worktree', detail: '2' })
@@ -538,5 +565,66 @@ describe('config modal', () => {
       '/repo',
       expect.objectContaining({ confirmGateOff: true }),
     )
+  })
+})
+
+describe('watch transcript', () => {
+  const transcript = {
+    ok: true as const,
+    sessionId: 'fac-run-1-bl-1-impl',
+    engineType: 'claude-code' as const,
+    messages: [{ type: 'user', message: { role: 'user', content: 'hi' } }],
+  }
+
+  it('loads the transcript for the watched task and clears it on close', async () => {
+    mockRun(snapshot())
+    factoryApi.taskTranscript.mockResolvedValue(transcript)
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    store.openWatch('bl-1')
+    expect(store.watchTask?.id).toBe('bl-1')
+    await store.refreshWatch('/repo')
+
+    expect(factoryApi.taskTranscript).toHaveBeenCalledWith('/repo', 'run-1', 'bl-1')
+    expect(store.watchTranscript).toEqual(transcript)
+    expect(store.watchLoading).toBe(false)
+
+    store.closeWatch()
+    expect(store.watchTask).toBeNull()
+    expect(store.watchTranscript).toBeNull()
+  })
+
+  it('drops a transcript that arrives after the panel was closed', async () => {
+    mockRun(snapshot())
+    let settle: (value: unknown) => void = () => {}
+    factoryApi.taskTranscript.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve
+      }),
+    )
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    store.openWatch('bl-1')
+    const pending = store.refreshWatch('/repo')
+    store.closeWatch()
+    settle(transcript)
+    await pending
+
+    expect(store.watchTranscript).toBeNull()
+  })
+
+  it('keeps the failure code for the panel instead of throwing', async () => {
+    mockRun(snapshot())
+    factoryApi.taskTranscript.mockResolvedValue({ ok: false, error: 'worktree-missing' })
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+
+    store.openWatch('bl-1')
+    await store.refreshWatch('/repo')
+
+    expect(store.watchError).toBe('worktree-missing')
+    expect(store.watchLoading).toBe(false)
   })
 })

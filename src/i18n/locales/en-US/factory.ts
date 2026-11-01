@@ -307,6 +307,15 @@ export default {
     footnote: 'The pipeline does not advance this task while it is taken over; returning resumes it from the current stage.',
     verifyFailed: 'Verification failed, so the task stays taken over. Keep working in the chat, then return it again.',
   },
+  watch: {
+    readonly: 'Read-only · the pipeline keeps running',
+    loading: 'Reading the session…',
+    empty: 'The session has no content yet.',
+    noSession: 'This task has no session yet.',
+    worktreeMissing: 'The worktree is gone, so the session cannot be read.',
+    loadFailed: 'Failed to read the session.',
+    close: 'Close watch panel',
+  },
   modelUnknown: 'No model configured',
   laneEmpty: 'No tasks',
 
@@ -643,6 +652,7 @@ export default {
     /** Card quick actions need short labels; lanes are narrow. */
     review: 'Review',
     view: 'View',
+    observe: 'Watch',
     mergeShort: 'Merge',
     retryShort: 'Retry',
     remove: 'Remove',

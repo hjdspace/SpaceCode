@@ -765,6 +765,21 @@ export interface FactoryEventPush {
   snapshot: FactoryRunSnapshot
 }
 
+export type FactoryTranscriptError = 'task-not-found' | 'no-session' | 'worktree-missing' | 'read-failed'
+
+/**
+ * 观察视图：任务当前阶段会话的转录。`messages` 是引擎 JSONL 的原始条目，
+ * 由渲染层复用 `buildMessagesFromHistory` 解析，保证与聊天页同一套渲染。
+ */
+export type FactoryTaskTranscriptResult =
+  | {
+      ok: true
+      sessionId: string
+      engineType: FactoryEngineType
+      messages: unknown[]
+    }
+  | { ok: false; error: FactoryTranscriptError }
+
 export type FactoryTaskStartError =
   | 'task-not-found'
   | 'not-queued'

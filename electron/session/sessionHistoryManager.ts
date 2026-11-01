@@ -348,6 +348,31 @@ function mergeEngineSessions(lists: SessionLite[][]): SessionLite[] {
   )
 }
 
+/**
+ * 只读会话转录文件的 mtime；工厂观察用它挑「当前该看哪个阶段会话」。
+ * 不解析内容 —— 轮询时每 2s 对十来个候选做一次 stat 是可接受的。
+ */
+export function sessionTranscriptMtime(
+  projectPath: string,
+  sessionId: string,
+  engineType?: HistoryEngineType,
+): number | null {
+  if (engineType === 'pi' || (!engineType && findPiSessionRecord(sessionId))) {
+    const record = findPiSessionRecord(sessionId)
+    if (!record || !fs.existsSync(record.sessionFile)) return null
+    try {
+      return fs.statSync(record.sessionFile).mtimeMs
+    } catch {
+      return null
+    }
+  }
+  try {
+    return fs.statSync(path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)).mtimeMs
+  } catch {
+    return null
+  }
+}
+
 export const SessionHistoryManager = {
   async listProjectSessions(cwd: string): Promise<SessionLite[]> {
     const claudeSessions = await loadSameProjectSessions(cwd)

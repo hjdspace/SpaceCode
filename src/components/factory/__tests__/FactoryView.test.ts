@@ -26,6 +26,7 @@ const { factoryApi } = vi.hoisted(() => ({
     runList: vi.fn(),
     runGet: vi.fn(),
     taskEvents: vi.fn(),
+    taskTranscript: vi.fn(),
     taskCancel: vi.fn(),
     taskTakeover: vi.fn(),
     taskReturn: vi.fn(),
@@ -178,6 +179,31 @@ const TakeoverPanelStub = defineComponent({
   },
 })
 
+/** 观察面板只报它收到的任务与读取状态：聊天渲染在 FactoryTranscriptPanel 自己的用例里验证。 */
+const TranscriptPanelStub = defineComponent({
+  name: 'FactoryTranscriptPanel',
+  props: {
+    task: { type: Object as PropType<FactoryTask>, required: true },
+    transcript: { type: Object as PropType<unknown>, default: null },
+    loading: { type: Boolean, default: false },
+    error: { type: String, default: null },
+  },
+  emits: ['close'],
+  setup(props, { emit }) {
+    return () =>
+      h(
+        'div',
+        {
+          'data-watch-panel-stub': '',
+          'data-watch-task': props.task.id,
+          'data-watch-loading': String(props.loading),
+          'data-watch-error': props.error ?? '',
+        },
+        [h('button', { 'data-watch-close-stub': '', onClick: () => emit('close') })],
+      )
+  },
+})
+
 /** 看板只暴露 focusLane，并用 select/action 模拟点卡片；检查器只报收起/展开。 */
 const BoardStub = defineComponent({
   name: 'FactoryBoard',
@@ -222,6 +248,10 @@ const BoardStub = defineComponent({
           h('button', {
             'data-board-takeover-panel': '',
             onClick: () => emit('action', 'bl-1', 'takeover-panel'),
+          }),
+          h('button', {
+            'data-board-observe': '',
+            onClick: () => emit('action', 'bl-1', 'observe'),
           }),
         ],
       )
@@ -273,6 +303,7 @@ const stubs = {
   FactoryBoard: BoardStub,
   FactoryInspector: InspectorStub,
   FactoryTakeoverPanel: TakeoverPanelStub,
+  FactoryTranscriptPanel: TranscriptPanelStub,
   FactoryBacklogPanel: true,
   FactoryGithubPanel: true,
   FactoryMergeDialog: true,
@@ -298,6 +329,12 @@ beforeEach(() => {
   factoryApi.context.mockResolvedValue(context)
   factoryApi.backlogList.mockResolvedValue(backlog)
   factoryApi.taskEvents.mockResolvedValue([])
+  factoryApi.taskTranscript.mockResolvedValue({
+    ok: true,
+    sessionId: 'fac-run-1-bl-1-impl',
+    engineType: 'claude-code',
+    messages: [],
+  })
   factoryApi.runList.mockResolvedValue([snapshot('run-1').run])
   factoryApi.runGet.mockImplementation((_root: string, id: string) =>
     Promise.resolve(snapshot(id)),
@@ -444,6 +481,40 @@ describe('FactoryView takeover panel', () => {
     const panel = wrapper.find('[data-takeover-panel-stub]')
     expect(panel.exists()).toBe(true)
     expect(panel.attributes('data-panel-verify-failed')).toBe('true')
+  })
+})
+
+describe('FactoryView watch panel', () => {
+  it('opens the read-only panel from the card without driving the pipeline', async () => {
+    factoryApi.runGet.mockImplementation((_root: string, id: string) =>
+      Promise.resolve(snapshot(id, 'running', [boardTask()])),
+    )
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-board-observe]').trigger('click')
+    await flushPromises()
+
+    const panel = wrapper.find('[data-watch-panel-stub]')
+    expect(panel.exists()).toBe(true)
+    expect(panel.attributes('data-watch-task')).toBe('bl-1')
+    expect(factoryApi.taskTranscript).toHaveBeenCalledWith(ROOT, 'run-1', 'bl-1')
+    // 观察不是接管：后台回合与任务状态都不动。
+    expect(factoryApi.taskTakeover).not.toHaveBeenCalled()
+    expect(factoryApi.taskCancel).not.toHaveBeenCalled()
+  })
+
+  it('closes the panel without changing the task', async () => {
+    factoryApi.runGet.mockImplementation((_root: string, id: string) =>
+      Promise.resolve(snapshot(id, 'running', [boardTask()])),
+    )
+    const wrapper = await mountView()
+
+    await wrapper.find('[data-board-observe]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-watch-close-stub]').trigger('click')
+
+    expect(wrapper.find('[data-watch-panel-stub]').exists()).toBe(false)
+    expect(factoryApi.taskReturn).not.toHaveBeenCalled()
   })
 })
 
