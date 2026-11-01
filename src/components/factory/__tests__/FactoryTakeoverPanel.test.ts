@@ -56,15 +56,12 @@ function mountPanel(props: Record<string, unknown> = {}) {
 }
 
 describe('FactoryTakeoverPanel', () => {
-  it('展示任务标题、分支、工作树与任务摘要', () => {
+  it('展示任务标题、分支与工作树', () => {
     const wrapper = mountPanel()
 
     expect(wrapper.find('[data-takeover-title]').text()).toBe('登录态在刷新后丢失')
     expect(wrapper.find('[data-takeover-branch]').text()).toContain('agent/task-bl-1')
     expect(wrapper.find('[data-takeover-branch]').text()).toContain('.spacecode/worktrees/bl-1')
-    expect(wrapper.find('[data-takeover-goal]').text()).toBe(
-      '修复 sessionRestore 的恢复顺序，并补一条回归测试。',
-    )
   })
 
   it('显著标明后台 Agent 已暂停', () => {

@@ -34,8 +34,6 @@
         </button>
       </header>
 
-      <p v-if="task.goal" class="takeover-goal" data-takeover-goal>{{ task.goal }}</p>
-
       <!-- 接管会话就是一条普通聊天会话：历史、流式回复、工具与权限确认全部沿用现有链路。 -->
       <div class="takeover-chat">
         <ChatPanel :session-id="sessionId" compact />
@@ -188,16 +186,6 @@ const sessionId = computed(() => props.task.takeover?.sessionId ?? '')
     color: var(--text-primary);
     background: var(--surface-glass-hover);
   }
-}
-
-.takeover-goal {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--surface-border);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-muted);
 }
 
 .takeover-chat {
