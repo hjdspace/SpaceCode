@@ -308,6 +308,9 @@ export default {
   },
   watch: {
     readonly: '只读 · 不打断后台推进',
+    live: '实时',
+    running: '任务正在推进…',
+    idle: '当前阶段未在运行',
     loading: '正在读取会话…',
     empty: '会话还没有内容。',
     noSession: '该任务还没有会话记录。',
@@ -715,7 +718,11 @@ export default {
       started: '任务开始，分支 {branch}',
       stopped: '任务已停止，工作树保留',
       prompt: { error: '提示词渲染失败：{detail}' },
-      agent: { error: 'Agent 错误：{message}' },
+      agent: {
+        error: 'Agent 错误：{message}',
+        retry: '遇到可恢复错误，{delay} 秒后自动重试（第 {attempt}/{max} 次）',
+        recovered: '自动重试 {attempt} 次后恢复',
+      },
       implementation: {
         started: '开始实现循环',
         completed: '实现完成，等待下一阶段',

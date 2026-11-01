@@ -33,7 +33,7 @@
             </div>
             <div v-if="index < displayToolCalls.length - 1" class="timeline-line"></div>
           </div>
-          <div class="timeline-content">
+          <div class="timeline-content" :inert="props.readonly ? true : undefined">
             <component
               :is="specialComponents[tool.name]"
               :tool-call="tool"
@@ -97,6 +97,8 @@ const props = defineProps<{
   toolCalls: ToolCall[]
   /** 这批工具卡所属会话；嵌入式面板里它不是 currentSessionId。 */
   sessionId?: string
+  /** 只读镜像：特殊工具卡里的应答入口不接收点击。 */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{

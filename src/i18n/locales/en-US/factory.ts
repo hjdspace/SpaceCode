@@ -309,6 +309,9 @@ export default {
   },
   watch: {
     readonly: 'Read-only · the pipeline keeps running',
+    live: 'Live',
+    running: 'Task in progress…',
+    idle: 'This stage is not running',
     loading: 'Reading the session…',
     empty: 'The session has no content yet.',
     noSession: 'This task has no session yet.',
@@ -717,7 +720,11 @@ export default {
       started: 'Task started on branch {branch}',
       stopped: 'Task stopped; the worktree was kept',
       prompt: { error: 'Prompt rendering failed: {detail}' },
-      agent: { error: 'Agent error: {message}' },
+      agent: {
+        error: 'Agent error: {message}',
+        retry: 'Recoverable error; retrying in {delay}s ({attempt}/{max})',
+        recovered: 'Recovered after {attempt} retries',
+      },
       implementation: {
         started: 'Implementation loop started',
         completed: 'Implementation finished',

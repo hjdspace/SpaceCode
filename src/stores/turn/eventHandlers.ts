@@ -358,6 +358,12 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   } = opts
 
   const { turnStates, beginTurn, endTurn } = stateMachine
+  /**
+   * 流水线观察会话：引擎由主进程流水线驱动，渲染层只是镜像。
+   * 通知、自动重试、产物预览这类"有副作用"的分支一律绕开 —— 否则
+   * 一个后台任务会在观察面板里抢焦点，甚至和流水线自己的重试打架。
+   */
+  const isObserved = (sessionId: string): boolean => sink.get(sessionId)?.observedSession === true
   /** 已经自动预览过的交付物，避免每轮结束都把同一个文件重新弹一次。 */
   const autoPreviewedPaths = new Set<string>()
 
@@ -1236,7 +1242,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               sink.persist(sessionId)
 
               // 工具刚产出交付物（Write 了 xlsx / 跑了 officecli 命令）→ 创建即打开预览
-              if (!toolResult.is_error) {
+              if (!toolResult.is_error && !isObserved(sessionId)) {
                 recordWriteToLedger(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
                 maybeAutoPreviewArtifact(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
               }
@@ -1249,6 +1255,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
   const handleResult = (sessionId: string, ts: TurnState, result: any) => {
     const isError = !!result?.is_error
+    const observed = isObserved(sessionId)
     const resultText = typeof result?.result === 'string' ? result.result : ''
     const looksLikeApiError = /^API Error:/i.test(resultText)
 
@@ -1381,7 +1388,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               : undefined
         }
 
-        contextUsage.refresh(sessionId)
+        if (!observed) contextUsage.refresh(sessionId)
         traceEvent({
           sessionId,
           messageId: ts.assistantMessageId,
@@ -1453,7 +1460,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
         sink.persist(sessionId)
 
-        if (s.workingDirectory) {
+        if (!observed && s.workingDirectory) {
           const workingDir = s.workingDirectory
           const scanWorkspaceRoot = needsWorkspaceRootScan(s.mode)
           const turnStart = ts.sendStartTime
@@ -1497,7 +1504,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         const hasExternalWriter = msg.toolCalls?.some(tc =>
           COMMAND_TOOLS.has(tc.name) || tc.name === 'Agent' || tc.name === 'Task')
         const projectRoot = hasExternalWriter ? getProjectRoot() : null
-        if (hasExternalWriter && projectRoot && !msg.metadata?.commandFiles) {
+        if (!observed && hasExternalWriter && projectRoot && !msg.metadata?.commandFiles) {
           const turnStart = ts.sendStartTime
           const targetMsgId = ts.assistantMessageId
           void (async () => {
@@ -1522,7 +1529,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           })()
         }
 
-        void loadTurnCheckpoints(sessionId, s.workingDirectory, true)
+        if (!observed) void loadTurnCheckpoints(sessionId, s.workingDirectory, true)
       }
     }
 
@@ -1531,7 +1538,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     // ── Goal 续跑等跨 turn 编排钩子（仅成功结算时触发）──
     // finalText 优先取 result.result，为空时回退到消息累积内容。
-    if (onTurnCompleted) {
+    if (!observed && onTurnCompleted) {
       const s = sink.get(sessionId)
       const fallbackText = s?.messages.find(m => m.id === ts.assistantMessageId)?.content || ''
       try {
@@ -1549,7 +1556,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     }
 
     // ── Play notification sound when a task completes successfully ──
-    const soundEnabled = isSoundOnTaskComplete()
+    const soundEnabled = !observed && isSoundOnTaskComplete()
     logger.info('ChatStore', `[${sessionId.slice(0, 8)}] task complete, soundOnTaskComplete=${soundEnabled}`)
     if (soundEnabled) {
       try { playTaskCompleteSound() } catch (e) {
@@ -1560,7 +1567,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     // ── Show desktop system notification when a task completes successfully ──
     // 去重：同一 session 在 NOTIFICATION_DEBOUNCE_MS 内只通知一次，
     // 防止残留事件创建幽灵 turn 后再次触发 handleResult 导致重复通知。
-    const desktopNotifyEnabled = isDesktopNotifyOnTaskComplete()
+    const desktopNotifyEnabled = !observed && isDesktopNotifyOnTaskComplete()
     if (desktopNotifyEnabled) {
       const lastNotified = notifiedSessions.get(sessionId)
       const now = Date.now()
@@ -1628,7 +1635,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const engineRetriesExhausted =
       (error as { engineRetriesExhausted?: boolean }).engineRetriesExhausted === true
 
-    if (!engineRetriesExhausted && autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
+    // 观察会话的重试归主进程流水线：渲染层再 abort+重发会和它抢同一个引擎会话。
+    if (!isObserved(sessionId) && !engineRetriesExhausted && autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
       const claudeCode = getClaudeCode()
       if (claudeCode) {
         try { claudeCode.abort(sessionId) } catch { /* ignore */ }

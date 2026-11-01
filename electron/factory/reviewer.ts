@@ -9,6 +9,7 @@ import type { FactoryPermissionMode, FactoryReview, FactoryTask } from '@/shared
 import { patchTask, transitionTask } from './runtime'
 import { projectAgentEvent, type FactoryEventInput } from './events'
 import { mergeReviewComments, parseReviewOutput, REVIEW_RETRY_PROMPT } from './reviewParse'
+import { runTurnWithRetry } from './turnRetry'
 import type { AgentPort, AgentRunOptions, AgentTurn } from './agentEngineGateway'
 
 export interface ReviewerDeps {
@@ -17,6 +18,11 @@ export interface ReviewerDeps {
   appendLog?: (taskId: string, text: string) => void
   now?: () => Date
   parse?: typeof parseReviewOutput
+  /** 测试注入：重试退避等待与抖动源；生产走真实 setTimeout / Math.random。 */
+  retry?: {
+    wait?: (ms: number, signal: AbortSignal) => Promise<void>
+    random?: () => number
+  }
 }
 
 export interface ReviewInput {
@@ -98,19 +104,47 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
   let review: FactoryReview | undefined
   let message: string | undefined
 
-  /** 跑一个回合；超时返回 null，底层回合随后由 stop 收口。 */
+  /** 跑一个回合（含可恢复错误的自动重试）；超时返回 null，底层回合随后由 stop 收口。 */
   const runTurn = async (prompt: string): Promise<AgentTurn | null> => {
-    const turnPromise = deps.agent.run(input.sessionId, prompt, options)
-    void turnPromise.catch(() => {})
-    if (input.timeoutMs === undefined) return turnPromise
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), input.timeoutMs)
+    const retryAbort = new AbortController()
+    const relayAbort = (): void => retryAbort.abort()
+    input.signal.addEventListener('abort', relayAbort, { once: true })
+    const attempt = runTurnWithRetry({
+      run: () => deps.agent.run(input.sessionId, prompt, options),
+      signal: retryAbort.signal,
+      onRetry: ({ attempt: retryAttempt, max, delayMs }) => emit({
+        taskId: task.id,
+        stage: 'review',
+        code: 'task.agent.retry',
+        level: 'warn',
+        params: { attempt: retryAttempt, max, delay: Math.max(1, Math.round(delayMs / 1000)) },
+      }),
+      onRecovered: (attempts) => emit({
+        taskId: task.id,
+        stage: 'review',
+        code: 'task.agent.recovered',
+        level: 'ok',
+        params: { attempt: attempts },
+      }),
+      ...(deps.retry?.wait ? { wait: deps.retry.wait } : {}),
+      ...(deps.retry?.random ? { random: deps.retry.random } : {}),
     })
+    void attempt.catch(() => {})
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      return await Promise.race([turnPromise, timeout])
+      if (input.timeoutMs === undefined) return (await attempt).turn
+      const timeout = new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          // 超时即取消重试：否则退避等待里还会继续往后跑。
+          retryAbort.abort()
+          resolve(null)
+        }, input.timeoutMs)
+      })
+      const raced = await Promise.race([attempt, timeout])
+      return raced === null ? null : raced.turn
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      input.signal.removeEventListener('abort', relayAbort)
     }
   }
 

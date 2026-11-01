@@ -923,6 +923,56 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return session
   }
 
+  /**
+   * 把流水线阶段会话挂成只读镜像：会话只存在于内存，引擎由主进程流水线持有。
+   * 消息只在首次挂载时灌入转录快照，之后由 turn store 的持久订阅按同一 sessionId
+   * 实时追加 —— 轮询不会覆盖已经流式写入的内容。
+   */
+  function attachObservedSession(input: {
+    sessionId: string
+    title: string
+    engineType?: SessionEngineType
+    model?: string
+    messages: Message[]
+    running?: boolean
+  }): Session | null {
+    const existing = sessions.value.find(s => s.id === input.sessionId)
+    // 同 id 的真实会话不归观察面板管：宁可只读旧内容，也不把它变成临时镜像。
+    if (existing && !existing.observedSession) return existing
+
+    const session = existing ?? createSession(
+      input.title,
+      undefined,
+      input.sessionId,
+      { ephemeral: true, activate: false },
+    )
+    session.ephemeral = true
+    session.observedSession = true
+    if (input.engineType) session.engineType = input.engineType
+    if (input.model) session.model = input.model
+    if (session.messages.length === 0 && input.messages.length > 0) {
+      session.messages = input.messages
+    }
+    session.processStatus = input.running ? 'active' : 'idle'
+    session.lastActivityAt = Date.now()
+    return session
+  }
+
+  /** 释放观察镜像：只摘本地条目，绝不停引擎（那个会话属于流水线）。 */
+  function detachObservedSession(sessionId: string): void {
+    const index = sessions.value.findIndex(s => s.id === sessionId)
+    if (index < 0) return
+    const removed = sessions.value[index]
+    if (!removed?.observedSession) return
+    sessions.value.splice(index, 1)
+    hydratedSessionIds.delete(sessionId)
+    sessionDrafts.value.delete(sessionId)
+    if (currentSessionId.value === sessionId) {
+      currentSessionId.value = sessions.value.find(s => !s.ephemeral)?.id || null
+    }
+    saveToStorage()
+  }
+
   // initClaudeCodeSession 的 per-session single-flight：预热与首条消息并发时共享同一次
   // 初始化，防止两侧各拉一个引擎进程（double-spawn / --session-id already in use）。
   const initInFlight = new Map<string, Promise<void>>()
@@ -2648,6 +2698,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     currentAgent,
     availableAgents,
     createSession,
+    attachObservedSession,
+    detachObservedSession,
     initClaudeCodeSession,
     warmupSession,
     addMessage,

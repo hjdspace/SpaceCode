@@ -252,6 +252,7 @@
       :transcript="store.watchTranscript"
       :loading="store.watchLoading"
       :error="store.watchError"
+      :last-event="watchLastEvent"
       @close="store.closeWatch()"
     />
 
@@ -328,6 +329,12 @@ const repoLabel = computed(() =>
 function handleFocusLane(lane: FactoryLane): void {
   boardRef.value?.focusLane(lane)
 }
+
+/** 观察面板状态条：该任务最近一条事件，说明后台现在推进到哪一步。 */
+const watchLastEvent = computed(() => {
+  const task = store.watchTask
+  return task ? store.lastEventByTask[task.id] ?? null : null
+})
 
 /** 未结束的运行仍占着这些待办；停止后才能重新领取。 */
 const claimedIds = computed(() => {

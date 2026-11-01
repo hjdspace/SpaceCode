@@ -220,6 +220,42 @@ describe('runImplementation', () => {
       attention: { reason: 'agent.error', action: 'fix' },
     })
   })
+
+  it('retries a rate-limited turn on the same session before continuing', async () => {
+    const agent = fakeAgent([
+      { text: 'API Error: 429 {"error":{"message":"inference exceeds tpm/rpm limit"}}', isError: true, inputTokens: 0, outputTokens: 0 },
+      { text: 'done <promise>COMPLETE</promise>', isError: false, inputTokens: 5, outputTokens: 1 },
+    ])
+    const runInput = input(agent) as Record<string, unknown> & { deps: Record<string, unknown> }
+    runInput.deps.retry = { wait: async () => {}, random: () => 0 }
+
+    const result = await runImplementation(runInput as never)
+
+    expect(result).toMatchObject({ outcome: 'completed', iterations: 1 })
+    expect(agent.prompts).toHaveLength(2)
+    expect(agent.stopped).toEqual(['fac-run-1-bl-1-impl'])
+    expect(events.map((event) => event.code)).toEqual(
+      expect.arrayContaining(['task.agent.retry', 'task.agent.recovered']),
+    )
+  })
+
+  it('still blocks when the retry budget is exhausted', async () => {
+    const agent = fakeAgent(Array.from({ length: 6 }, () => (
+      { text: 'API Error: 429 rate limit', isError: true, inputTokens: 0, outputTokens: 0 }
+    )))
+    const runInput = input(agent) as Record<string, unknown> & { deps: Record<string, unknown> }
+    runInput.deps.retry = { wait: async () => {}, random: () => 0 }
+
+    const result = await runImplementation(runInput as never)
+
+    expect(result).toMatchObject({ outcome: 'error' })
+    expect(agent.prompts).toHaveLength(6)
+    expect(readRunSnapshot(dir, runId)!.tasks[0]).toMatchObject({
+      lane: 'blocked',
+      attention: { reason: 'agent.error', action: 'fix' },
+    })
+    expect(events.filter((event) => event.code === 'task.agent.retry')).toHaveLength(5)
+  })
 })
 
 function verified(

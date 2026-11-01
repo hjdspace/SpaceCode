@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { ErrorCategory, type ClassifiedError, type ErrorContext, type ToastItem, type ErrorLogEntry } from '@/types'
 import { i18n } from '@/i18n'
 import { isEngineBlockedPayload, parseEngineBlockedError, type EngineBlockedPayload } from '@/shared/engineErrors'
+import { extractRetryAfterMs, readHttpStatus } from '@/shared/agentRetry'
 
 const electronAPI = window.electronAPI
 
@@ -35,19 +36,6 @@ const CATEGORY_MESSAGES: Record<ErrorCategory, string> = {
   [ErrorCategory.UNKNOWN]: '发生意外错误，请重试或联系支持。',
 }
 
-function extractRetryAfter(msg: string, error: unknown): number | undefined {
-  const match = msg.match(/retry[_-]?after[:\s]+(\d+)/i)
-  if (match) return parseInt(match[1], 10) * 1000
-  if (error && typeof error === 'object' && 'headers' in error) {
-    const headers = (error as any).headers
-    if (headers?.get) {
-      const val = headers.get('retry-after')
-      if (val) return parseInt(val, 10) * 1000
-    }
-  }
-  return undefined
-}
-
 /**
  * 网关报"不支持某参数"时，把参数名原样挑出来告诉用户 —— 否则用户只看到一句
  * 400，不知道该去关哪个开关（思考模式就是最常见的那个）。
@@ -61,46 +49,6 @@ function extractUnsupportedParamsHint(msg: string): string {
     .filter(Boolean)
   if (names.length === 0) return ''
   return ` 该服务不接受参数 ${names.map(n => `「${n}」`).join('、')}，请在设置里关闭对应能力或换一个支持它的接口。`
-}
-
-/**
- * HTTP 状态码识别：结构化字段优先，文本兜底只认带上下文的四种写法 —— 行首裸码（Pi/Bedrock
- * 与 SDK 的 `429 slow down`、`403 model is not available…`）、状态字段（`API Error: 429`、
- * `status code 403`）、赋值（`"code":429`）、原因短语（`401 Unauthorized`）。多条都命中时
- * 取正文里最早出现的那个：引擎总是把真实状态码写在开头。
- *
- * 裸 `includes('429')` 会被模型名（foo-429、qwen-500b）、URL 端口、正文里的 token 数命中 ——
- * 确定性的 400 拒绝因此被当成可重试限流自动重发 5 次，一次正常失败被当成不可重试的鉴权错误。
- */
-const STATUS_LEADING = /^[\s[("]*(\d{3})(?!\d)/i
-const STATUS_FIELD = /\b(?:api[\s_]?error|http[\s_]?(?:error|status)|http|error[\s_]?code|status[\s_]?code|response[\s_]?status|status)[^A-Za-z0-9]{0,4}(\d{3})(?!\d)/i
-const STATUS_ASSIGNMENT = /\bcode["']?\s*[:=]\s*["']?(\d{3})(?!\d)/i
-const STATUS_REASON = /\b(\d{3})\s+(?:too many requests|unauthorized|forbidden|bad request|internal server error|bad gateway|service unavailable|gateway time(?:d )?out)/i
-const STATUS_TEXT_PATTERNS: readonly RegExp[] = [STATUS_LEADING, STATUS_FIELD, STATUS_ASSIGNMENT, STATUS_REASON]
-
-function toHttpStatus(raw: unknown): number | undefined {
-  const value = typeof raw === 'number'
-    ? raw
-    : typeof raw === 'string' && /^\d{3}$/.test(raw.trim()) ? Number(raw.trim()) : NaN
-  return value >= 100 && value <= 599 ? value : undefined
-}
-
-function readHttpStatus(msg: string, error: unknown): number | undefined {
-  if (error && typeof error === 'object') {
-    const { status, statusCode } = error as { status?: unknown; statusCode?: unknown }
-    const structured = toHttpStatus(status) ?? toHttpStatus(statusCode)
-    if (structured !== undefined) return structured
-  }
-  let earliest: { code: number; index: number } | undefined
-  for (const pattern of STATUS_TEXT_PATTERNS) {
-    const hit = pattern.exec(msg)
-    if (!hit) continue
-    const code = toHttpStatus(hit[1])
-    if (code !== undefined && (earliest === undefined || hit.index < earliest.index)) {
-      earliest = { code, index: hit.index }
-    }
-  }
-  return earliest?.code
 }
 
 /**
@@ -261,7 +209,7 @@ function classifyError(error: unknown, context?: ErrorContext): ClassifiedError 
       ? `429 Rate Limit · ${friendlyDetail}`
       : msg
     return make(ErrorCategory.RATE_LIMIT, {
-      retryDelay: extractRetryAfter(msg, error),
+      retryDelay: extractRetryAfterMs(msg, error),
       retryable: true,
       technicalDetail,
     })

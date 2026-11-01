@@ -12,6 +12,7 @@ import { collectWorktreeState, type WorktreeState } from './worktree'
 import { patchTask, transitionTask } from './runtime'
 import { projectAgentEvent, type FactoryEventInput } from './events'
 import { runVerification, type VerifyInput, type VerifyResult } from './verify'
+import { runTurnWithRetry } from './turnRetry'
 import type { AgentPort } from './agentEngineGateway'
 
 const COMPLETE_SIGNAL = /<\s*promise\s*>\s*COMPLETE\s*<\s*\/\s*promise\s*>/i
@@ -27,6 +28,11 @@ export interface ImplementerDeps {
   appendLog?: (taskId: string, text: string) => void
   now?: () => Date
   verify?: VerifyFn
+  /** 测试注入：重试退避等待与抖动源；生产走真实 setTimeout / Math.random。 */
+  retry?: {
+    wait?: (ms: number, signal: AbortSignal) => Promise<void>
+    random?: () => number
+  }
 }
 
 export interface ImplementInput {
@@ -146,12 +152,32 @@ export async function runImplementation(input: ImplementInput): Promise<Implemen
 
       iterations = attempt
       const prompt = attempt === 1 ? input.prompt : resumePrompt
-      const turn = await deps.agent.run(input.sessionId, prompt, {
-        cwd: input.worktreeAbsolute,
-        permissionMode: input.permissionMode,
-        ...(input.model ? { model: input.model } : {}),
-        ...(input.agent ? { agent: input.agent } : {}),
+      const retried = await runTurnWithRetry({
+        run: () => deps.agent.run(input.sessionId, prompt, {
+          cwd: input.worktreeAbsolute,
+          permissionMode: input.permissionMode,
+          ...(input.model ? { model: input.model } : {}),
+          ...(input.agent ? { agent: input.agent } : {}),
+        }),
+        signal: input.signal,
+        onRetry: ({ attempt: retryAttempt, max, delayMs }) => emit({
+          taskId: task.id,
+          stage: 'implement',
+          code: 'task.agent.retry',
+          level: 'warn',
+          params: { attempt: retryAttempt, max, delay: Math.max(1, Math.round(delayMs / 1000)) },
+        }),
+        onRecovered: (attempts) => emit({
+          taskId: task.id,
+          stage: 'implement',
+          code: 'task.agent.recovered',
+          level: 'ok',
+          params: { attempt: attempts },
+        }),
+        ...(deps.retry?.wait ? { wait: deps.retry.wait } : {}),
+        ...(deps.retry?.random ? { random: deps.retry.random } : {}),
       })
+      const turn = retried.turn
 
       inputTokens += turn.inputTokens
       outputTokens += turn.outputTokens
@@ -168,7 +194,7 @@ export async function runImplementation(input: ImplementInput): Promise<Implemen
         })
       }
 
-      if (aborted) {
+      if (retried.stopped || aborted) {
         outcome = 'stopped'
         break
       }
