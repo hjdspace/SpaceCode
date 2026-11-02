@@ -369,19 +369,8 @@
         </div>
       </div>
 
-      <div v-else-if="engineRetryState" class="timeline-waiting">
-        <ThinkingState
-          :start-time="engineRetryState.startedAt + engineRetryState.delayMs"
-          variant="responding"
-        />
-      </div>
-
-      <!-- 等待 LLM 下一轮响应：工具调用结束后的间隙指示（修复2） -->
-      <div v-else-if="isWaitingForLlm && !engineRetryState" class="timeline-waiting">
-        <ThinkingState
-          :start-time="turnStartTimestamp"
-          variant="responding"
-        />
+      <div v-else-if="showActivityIndicator" class="timeline-waiting">
+        <LoadingState :labels="activityLabels" :start-time="turnStartMs" />
       </div>
 
     </div>
@@ -409,7 +398,8 @@ import { type ExtensionDialog } from '@/services/extensionDialogService'
 import MarkdownRenderer from '../common/MarkdownRenderer.vue'
 import ErrorCard from '../common/ErrorCard.vue'
 import TurnSummaryBar from './TurnSummaryBar.vue'
-import ThinkingState from './ThinkingState.vue'
+import LoadingState from './LoadingState.vue'
+import { useActivityLabels } from '@/composables/useTurnActivity'
 import ReasoningCard from './ReasoningCard.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
 import { formatDurationMs } from '@/utils/formatDuration'
@@ -488,6 +478,12 @@ const props = defineProps<{
   dialogs?: ExtensionDialog[]
   /** 本条时间线所属会话；嵌入式面板里它不是 currentSessionId。 */
   sessionId?: string
+  /**
+   * 回合发起时刻（epoch ms，即触发本轮的用户消息 timestamp）。
+   * 常驻活动指示器以此为计时起点，跨阶段连续累加、切页重建不归零；
+   * 不传则回退到本组最近活动时刻。
+   */
+  turnStartTime?: number
   /** 只读镜像（观察面板）：授权、错误重试与特殊工具卡的应答入口都不生效。 */
   readonly?: boolean
 }>()
@@ -1146,35 +1142,41 @@ const overallStatus = computed(() => {
   return 'completed'
 })
 
-// ── 等待 LLM 下一轮响应检测 ──
-// loading 期间，若本 turn 已有可见内容，但没有任何进行中的活动
-// （工具执行 / 推理 / 非空流式文本），也没有等待用户裁决的权限请求，
-// 则说明工具结果已返回、正在等待 LLM 生成下一段响应（或引擎内部重试）。
-// 该间隙此前完全没有行内指示，用户只能看到静止的已完成工具组。
-const isWaitingForLlm = computed(() => {
+// ── 常驻活动指示器 ──
+// 回合在跑就一直挂在时间线末尾，覆盖推理 / 出文 / 工具执行 / 等下一轮全部阶段。
+//
+// 这里此前只认「工具跑完后的空闲间隙」，把 running 工具排除在外，理由是
+// 「工具已有自身视觉指示」。但那个 12px spinner 混在「N 个工具调用」摘要行里
+// 几乎看不出在动，一条跑两分钟的命令会让整条时间线静止，被读成任务已经结束。
+const showActivityIndicator = computed(() => {
   if (!props.loading) return false
-  const msgs = props.messages
-  if (!msgs.length) return false
-  // 无可见内容时属于"等待首个 token"，由 MessageList 的 ThinkingState 负责
-  const hasContent = msgs.some(m =>
+  // 重试倒计时卡自带剩余秒数，自己会说话；倒计时归零后回到轮询提示
+  if (engineRetryState.value && engineRetrySeconds.value > 0) return false
+  // 无任何可见内容时属于「等待首个 token」，由 MessageList 的占位行负责
+  if (!hasVisibleContent.value) return false
+  // 卡在用户裁决上时不能说「进行中」—— 权限卡 / 扩展对话框才是此刻的承重 UI
+  if (isAwaitingUser.value) return false
+  return true
+})
+
+const hasVisibleContent = computed(() =>
+  props.messages.some(m =>
     (m.content?.trim() ?? '') !== '' ||
     (m.reasoning?.content?.trim() ?? '') !== '' ||
     (m.toolCalls?.length ?? 0) > 0,
-  )
-  if (!hasContent) return false
-  for (const m of msgs) {
-    // 运行中/挂起的工具（含等待权限裁决的）已有自身的视觉指示（spinner / 权限卡片），
-    // 不属于空闲等待
-    if (m.toolCalls?.some(tc => tc.status === 'running' || tc.status === 'pending')) return false
-    for (const ev of m.timelineEvents || []) {
-      if (ev.status !== 'running' && ev.status !== 'pending') continue
-      // 纯空白的 text 占位事件不可见（LLM 在工具调用间常输出 "\n"），不算活动
-      if (ev.type === 'text' && !ev.content?.trim()) continue
-      return false
+  ),
+)
+
+const isAwaitingUser = computed(() => {
+  for (const m of props.messages) {
+    for (const tc of m.toolCalls || []) {
+      if (getPendingPermission(tc.id)) return true
     }
   }
-  return true
+  return (props.dialogs || []).some(d => d.state === 'pending')
 })
+
+const activityLabels = useActivityLabels()
 
 // ── Engine 内部重试状态检测 ──
 // 当 engine 在 API 调用期间遇到 429/529 等错误并自动重试时，
@@ -1200,23 +1202,6 @@ const engineRetryState = computed(() => {
 const engineRetrySeconds = computed(() => {
   if (!engineRetryState.value) return 0
   return Math.max(0, Math.ceil((engineRetryState.value.startedAt + engineRetryState.value.delayMs - now.value) / 1000))
-})
-
-// 等待指示行的计时起点：本组内最近一次活动的结束时刻 ——
-// 取工具结果返回时间（toolCalls.endTime）与最后一个时间线事件创建时间的最大值，
-// 即当前这轮"等待 LLM 响应"间隙的开始，每轮等待各自从 0 计时、不累加此前轮次。
-// 使用持久化在消息上的时间戳而非组件挂载时刻，跨页面/会话切换重建后计时不归零。
-const turnStartTimestamp = computed(() => {
-  let latest = props.messages[0]?.timestamp || 0
-  for (const m of props.messages) {
-    for (const tc of m.toolCalls || []) {
-      if (tc.endTime && tc.endTime > latest) latest = tc.endTime
-    }
-    for (const ev of m.timelineEvents || []) {
-      if (ev.timestamp > latest) latest = ev.timestamp
-    }
-  }
-  return latest
 })
 
 // ========== 优化3: 使用更轻量的监听替代deep watch ==========
@@ -1287,12 +1272,49 @@ onUnmounted(() => {
   }
 })
 
-const turnStartTime = computed(() => props.messages[0]?.timestamp || Date.now())
+/**
+ * 回合起点：本组第一条 assistant 消息与触发它的用户消息，取更早的那个。
+ *
+ * 更早者胜出是因为两者各有盲区：引擎冷启动期间助手消息还没建（用户消息更早），
+ * 而历史分组拿到的是全会话最后一条用户消息的时刻（比本组晚，不能用）。
+ */
+const turnStartMs = computed(() => {
+  const groupStart = props.messages[0]?.timestamp || 0
+  const promptStart = props.turnStartTime || 0
+  if (groupStart && promptStart) return Math.min(groupStart, promptStart)
+  return groupStart || promptStart || Date.now()
+})
 
-const totalElapsedMs = computed(() => {
-  if (overallStatus.value === 'running') {
-    return Math.max(0, now.value - turnStartTime.value)
+/**
+ * 本组最晚的一次活动落点：每段 result 的收口时刻（timestamp + duration）、
+ * 推理结束、工具返回、时间线事件时间戳里取最大。全部是持久化在消息上的值，
+ * 重新载入历史会话后算出来的数与当场看到的一致。
+ */
+const settledEndMs = computed(() => {
+  let end = 0
+  for (const m of props.messages) {
+    if (m.timestamp && m.metadata?.duration) end = Math.max(end, m.timestamp + m.metadata.duration)
+    if (m.reasoning?.endTime && m.reasoning.endTime > end) end = m.reasoning.endTime
+    for (const tc of m.toolCalls || []) {
+      if (tc.endTime && tc.endTime > end) end = tc.endTime
+    }
+    for (const ev of m.timelineEvents || []) {
+      if (ev.timestamp > end) end = ev.timestamp
+    }
   }
+  return end
+})
+
+// 总用时：运行中与收口必须用同一把尺子。
+//
+// 引擎在长任务里会分多段 result —— 后台任务通知、排队消息投递都会切出一段，
+// 每段 metadata.duration 只覆盖它自己那十几秒。此前收口直接取最后一段的 duration，
+// 于是跑了近 40 分钟的任务在结算瞬间从 39m 跳成 17.9s，还小于同一张卡上的
+// 「思考中 24m 08s」，自相矛盾。改为按回合锚点算整段跨度。
+const totalElapsedMs = computed(() => {
+  const start = turnStartMs.value
+  if (overallStatus.value === 'running') return Math.max(0, now.value - start)
+  if (settledEndMs.value > start) return settledEndMs.value - start
   const finalMsg = props.messages.find(m => m.id === getFinalMetadataMessageId(props.messages))
   return finalMsg?.metadata?.duration || 0
 })

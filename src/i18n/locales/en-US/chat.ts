@@ -60,12 +60,16 @@ export default {
   ready: 'Ready',
   notConfigured: 'Not Configured',
   thoughtFor: 'Thought for {duration}s',
-  thinkingState: {
-    active: 'Thinking',
-    reasoningLabel: 'Reasoning',
-    responding: 'Responding',
+  turnActivity: {
     starting: 'Starting engine',
     mcpFailed: 'MCP connection failed: {names}',
+    pool: {
+      thinking: 'Thinking…',
+      reasoning: 'Reasoning…',
+      organizing: 'Organizing information…',
+      clarifying: 'Clarifying the problem…',
+      reviewing: 'Reviewing the approach…',
+    },
   },
   toolChips: {
     toolCalls: '{count} tool calls',
