@@ -157,6 +157,22 @@ describe('run tabs', () => {
     expect(factoryApi.runGet).toHaveBeenCalledTimes(calls)
   })
 
+  it('releases cached events and dedupe keys when a run tab closes', async () => {
+    const store = useFactoryStore()
+    await store.loadRun('/repo')
+    const pushed = { event: event('run-1', 't1-a', 1), snapshot: snapshot(run1, ['t1-a', 't1-b']) }
+    store.applyPush(pushed)
+    expect(store.eventsByTask['run-1:t1-a']).toHaveLength(1)
+
+    await store.closeRun('/repo', 'run-1')
+
+    expect(store.eventsByTask['run-1:t1-a']).toBeUndefined()
+
+    await store.loadRun('/repo')
+    store.applyPush(pushed)
+    expect(store.eventsByTask['run-1:t1-a']).toHaveLength(1)
+  })
+
   it('selects the neighbor when the active tab closes', async () => {
     const store = useFactoryStore()
     await store.loadRun('/repo')

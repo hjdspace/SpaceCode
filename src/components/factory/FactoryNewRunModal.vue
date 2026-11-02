@@ -47,7 +47,12 @@
                 :data-new-run-check="candidate.id"
               />
               <span class="item-text">
-                <span class="item-title">{{ candidate.title }}</span>
+                <span class="item-title">
+                  {{ candidate.title }}
+                  <span v-if="parallelizableOf(candidate.id)" class="parallel-badge" :data-new-run-parallel="candidate.id">
+                    {{ t('factory.newRun.parallelizable') }}
+                  </span>
+                </span>
                 <span
                   v-if="dependencyLabels(candidate.id)"
                   class="item-detail"
@@ -283,6 +288,17 @@ function dependencyLabels(id: string): string {
   return deps.map((dependency) => titles.get(dependency) ?? dependency).join('、')
 }
 
+/** 并行性来自规划结果；用户未规划时不展示徽标。 */
+const parallelizableMap = computed(() => {
+  const map = new Map<string, boolean>()
+  for (const item of props.planned) map.set(item.candidateId, item.parallelizable)
+  return map
+})
+
+function parallelizableOf(id: string): boolean {
+  return parallelizableMap.value.get(id) === true
+}
+
 /** 输入框清空或非法时回退到配置的默认并发，再收敛到服务端接受的区间。 */
 function normalizedConcurrency(): number {
   const value = concurrency.value
@@ -448,6 +464,20 @@ function submit(): void {
   font-size: var(--text-sm, 12px);
   color: var(--text-primary);
   word-break: break-word;
+}
+
+.parallel-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  vertical-align: middle;
 }
 
 .item-detail {

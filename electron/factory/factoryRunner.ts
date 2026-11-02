@@ -19,6 +19,7 @@ import {
   type FactoryMergePreflightResult,
   type FactoryMergeResult,
   type FactoryPrReadyResult,
+  type FactoryPermissionMode,
   type FactoryReviewComment,
   type FactoryReviewCommentInput,
   type FactoryRunStopResult,
@@ -30,6 +31,7 @@ import {
   type FactoryTaskStartError,
   type FactoryTaskStartInput,
   type FactoryTaskStartResult,
+  type FactoryTaskTranscriptResult,
   type FactoryTakeoverResult,
   type FactoryReturnResult,
   type FactoryTakeoverSession,
@@ -64,6 +66,8 @@ import { runVerification, type VerifyInput, type VerifyResult } from './verify'
 import { executeMerge, runMergePreflight, type MergeWriteBackPayload } from './merge'
 import { createDefaultAgentPort, type AgentPort } from './agentEngineGateway'
 import { factorySessionId } from './sessionId'
+import { readTranscript, type TranscriptDeps } from './transcript'
+import { SessionHistoryManager, sessionTranscriptMtime } from '../session/sessionHistoryManager'
 import {
   createDockerSandboxProvider,
   createSandboxAgentPort,
@@ -119,6 +123,8 @@ export interface FactoryRunnerDeps {
   verify?: (input: VerifyInput) => Promise<VerifyResult>
   /** Docker 沙箱执行器；默认走 dockerSandbox，测试注入假容器。 */
   sandboxFactory?: SandboxFactory
+  /** 观察视图的会话读取；默认读引擎自己的转录文件。 */
+  transcript?: TranscriptDeps
 }
 
 export interface FactoryRunner {
@@ -167,6 +173,8 @@ export interface FactoryRunner {
     input: FactoryMergeExecuteInput,
   ): Promise<FactoryMergeResult>
   readEvents(repoRoot: string, runId: string, taskId?: string | null): FactoryEvent[]
+  /** 观察视图：读取任务当前阶段会话的转录（只读，不触碰后台回合）。 */
+  readTaskTranscript(repoRoot: string, runId: string, taskId: string): Promise<FactoryTaskTranscriptResult>
   revealWorktree(repoRoot: string, runId: string, taskId: string): Promise<FactoryWorktreeRevealResult>
   /** 配置保存后给当前未结束运行记一条事件；新值只影响之后领取的任务。 */
   recordConfigChange(
@@ -183,6 +191,7 @@ export interface FactoryRunner {
 
 interface RunningTask {
   runId: string
+  sessionId?: string
   controller: AbortController
   promise: Promise<void>
 }
@@ -312,8 +321,19 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
   const implement = deps.runImplementation ?? runImplementation
   const review = deps.runReview ?? runReview
   const reveal = deps.revealPath ?? defaultReveal
+  const transcriptDeps: TranscriptDeps = deps.transcript ?? {
+    stat: sessionTranscriptMtime,
+    read: (projectPath, sessionId, engineType) =>
+      SessionHistoryManager.getFullSession(projectPath, sessionId, engineType),
+  }
 
   const running = new Map<string, RunningTask>()
+  /**
+   * 正在领取中的任务：手动点击与调度泵可能同时领取同一条任务。
+   * 工作树 checkout 期间 git 会短暂锁住目录，第二个请求若不排队就会拿到
+   * `worktree-busy`；这里让它们共享同一次领取的结果。
+   */
+  const startingTasks = new Map<string, Promise<FactoryTaskStartResult>>()
   /**
    * 接管会话的引擎回合，与后台实现/审查回合分表存放：调度器把「接管中」
    * 单独计入并发（见 scheduler.dispatchDecision），混进 running 会重复占槽。
@@ -486,8 +506,9 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
 
   /** 容器随回合收口而销毁，宿主工作树始终保留。 */
   function closeExecution(execution: Execution | null): void {
-    if (!execution?.sandbox) return
-    void execution.sandbox.close().catch(() => {})
+    if (!execution) return
+    execution.agent.dispose?.()
+    if (execution.sandbox) void execution.sandbox.close().catch(() => {})
   }
 
   /** 实现验证通过后发起全新审查会话；审查自己负责迁移与事件，这里只管提示词与会话。 */
@@ -551,6 +572,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         ? { model: stageConfig.model ?? runtime.agentModel }
         : {}),
       permissionMode: stageConfig.permissionMode,
+      timeoutMs: runtime.taskTimeoutSec * 1000,
       signal: controller.signal,
       deps: {
         agent,
@@ -620,28 +642,23 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     }
   }
 
-  /**
-   * 接管会话从工作树开新会话，附带任务摘要；不依赖后台原会话是否还活着。
-   * activate=false：会话只在列表里落位，对话发生在看板内的接管面板，
-   * 而不是把中间面板切到主聊天。
-   */
-  function takeoverSessionFor(task: FactoryTask, worktreeAbsolute: string): FactoryTakeoverSession {
-    const stage = task.lane === 'reviewing' ? '审查中' : '实现中'
-    const content = [
-      `你已接管流水线任务「${task.title}」。`,
-      task.goal ? `任务目标：${task.goal}` : '',
-      `当前阶段：${stage}；分支 ${task.branch}；工作树 ${task.worktree ?? worktreeAbsolute}。`,
-      '接管期间后台不推进该任务。请先确认当前工作树状态，再按用户指令继续；交回流水线时会先重跑验证。',
-    ]
-      .filter((line) => line !== '')
-      .join('\n')
+  function takeoverSessionFor(
+    task: FactoryTask,
+    worktreeAbsolute: string,
+    sessionId: string,
+    history: unknown[],
+    permissionMode?: FactoryPermissionMode,
+  ): FactoryTakeoverSession {
     return {
-      sessionId: factorySessionId(`fac-${task.runId}-${task.id}-takeover`),
+      sessionId,
       taskId: task.id,
       projectPath: worktreeAbsolute,
       title: `接管 · ${task.title}`,
-      content,
+      content: '',
+      startTurn: false,
+      ...(history.length > 0 ? { history } : {}),
       ...(task.model ? { model: task.model } : {}),
+      ...(permissionMode ? { permissionMode } : {}),
       activate: false,
     }
   }
@@ -650,54 +667,69 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     deps.pushSession?.(session)
   }
 
-  /**
-   * 接管会话必须真的跑在引擎上。渲染层收到推送后开的那条 autonomous turn，
-   * 只有等本会话的引擎事件回流才会结算；少了这一步，用户在接管面板里发的第一条
-   * 消息会被「已有回合在飞」判掉，永远进不了引擎。简报即第一条正文，
-   * 权限模式与模型沿用领取时固化的实现阶段配置。
-   */
-  function startTakeoverTurn(
+  async function takeoverContextFor(
+    repoRoot: string,
+    task: FactoryTask,
+    worktreeAbsolute: string,
+    activeSessionId?: string,
+  ): Promise<{ sessionId: string; history: unknown[] }> {
+    const engineType = task.configSnapshot?.engineType ?? 'claude-code'
+    if (activeSessionId) {
+      try {
+        const full = await transcriptDeps.read(worktreeAbsolute, activeSessionId, engineType)
+        return {
+          sessionId: activeSessionId,
+          history: Array.isArray(full?.messages) ? full.messages : [],
+        }
+      } catch {
+        return { sessionId: activeSessionId, history: [] }
+      }
+    }
+
+    const latest = await readTranscript({
+      task,
+      worktreeAbsolute,
+      engineType,
+      deps: transcriptDeps,
+    })
+    if (latest.ok) return { sessionId: latest.sessionId, history: latest.messages }
+
+    if (task.lane === 'reviewing') {
+      const key = `${repoRoot}::${task.runId}::${task.id}`
+      const round = reviewRounds.get(key) ?? 1
+      return { sessionId: factorySessionId(`fac-${task.runId}-${task.id}-review-${round}`), history: [] }
+    }
+    return { sessionId: factorySessionId(`fac-${task.runId}-${task.id}-impl`), history: [] }
+  }
+
+  async function prepareTakeoverTurn(
     repoRoot: string,
     runId: string,
     task: FactoryTask,
     session: FactoryTakeoverSession,
-    worktreeAbsolute: string,
-    config: FactoryConfig,
-  ): void {
-    const runtime = stageRuntimeFor(task, config)
-    const stageConfig = runtime.stages.implement
-    const model = stageConfig.model ?? runtime.agentModel
-
-    void (async () => {
-      const agent = await makeAgent(repoRoot, runId, task.id, 'implement')
-      if (!agent) return
-      const entry = {
-        runId,
-        sessionId: session.sessionId,
-        agent,
-        promise: agent
-          .run(session.sessionId, session.content, {
-            cwd: worktreeAbsolute,
-            permissionMode: stageConfig.permissionMode,
-            ...(model ? { model } : {}),
-          })
-          .then(() => undefined)
-          .catch(() => undefined),
-      }
-      takeoverTurns.set(task.id, entry)
-      // 回合结束不等于会话结束：引擎进程还挂在这个会话上，用户在面板里续话靠它，
-      // 所以条目留到交回/停止运行才摘，届时由 stopTakeoverTurn 收口进程。
-      void entry.promise
-    })()
+  ): Promise<void> {
+    const agent = await makeAgent(repoRoot, runId, task.id, task.lane === 'reviewing' ? 'review' : 'implement')
+    if (!agent) return
+    agent.attach?.(session.sessionId)
+    takeoverTurns.set(task.id, {
+      runId,
+      sessionId: session.sessionId,
+      agent,
+      promise: Promise.resolve(),
+    })
   }
 
   /** 交回/停止运行前收口接管回合，同一个工作树不留第二个驱动。 */
   async function stopTakeoverTurn(repoRoot: string, runId: string, taskId: string): Promise<void> {
     const entry = takeoverTurns.get(taskId)
     if (!entry || entry.runId !== runId) return
-    await entry.promise
     takeoverTurns.delete(taskId)
+    // 顺序不能反：接管会话可能正停在 can_use_tool 授权等待上，那种回合永远不会自己
+    // 结束，先 await 会把交回与停止运行一起挂死。stop() 会以 stopped 结算在途 promise，
+    // 所以先停进程、再等它，等待才有上界。
     await entry.agent.stop(entry.sessionId).catch(() => {})
+    await entry.promise
+    entry.agent.dispose?.()
   }
 
   /** 在既有工作树上开实现/修复会话；调用方负责先迁移状态与发事件。 */
@@ -762,7 +794,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       running.delete(taskId)
       void pumpRun(repoRoot, runId)
     })
-    running.set(taskId, { runId, controller, promise })
+    running.set(taskId, { runId, sessionId, controller, promise })
     return null
   }
 
@@ -875,7 +907,27 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     return promise
   }
 
-  async function startTaskInternal(
+  /**
+   * 同一任务的并发领取合并为一次：第二次调用直接等第一次的结果，
+   * 不再对正在 checkout 的工作树报告 `worktree-busy`。
+   */
+  function startTaskInternal(
+    repoRoot: string,
+    runId: string,
+    taskId: string,
+    input: FactoryTaskStartInput = {},
+  ): Promise<FactoryTaskStartResult> {
+    const key = `${repoRoot}::${runId}::${taskId}`
+    const inflight = startingTasks.get(key)
+    if (inflight) return inflight
+    const promise = performStartTask(repoRoot, runId, taskId, input).finally(() => {
+      startingTasks.delete(key)
+    })
+    startingTasks.set(key, promise)
+    return promise
+  }
+
+  async function performStartTask(
     repoRoot: string,
     runId: string,
     taskId: string,
@@ -1099,7 +1151,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       void pumpRun(repoRoot, runId)
     })
 
-    running.set(taskId, { runId, controller, promise })
+    running.set(taskId, { runId, sessionId, controller, promise })
 
     emit(repoRoot, runId, {
       taskId,
@@ -1283,12 +1335,21 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       if (!current) return { ok: false, error: 'task-not-found' }
       if (!takeoverEligible(current)) return { ok: false, error: 'not-takeover' }
 
-      // 重复接管幂等：沿用已有接管会话，不重复推送。
+      const config = readFactoryConfig(repoRoot)
+      const stageKey = current.lane === 'reviewing' ? 'review' : 'implement'
+      const permissionMode = config
+        ? stageRuntimeFor(current, config).stages[stageKey].permissionMode
+        : undefined
       if (current.takeover) {
-        return { ok: true, snapshot: fresh, session: takeoverSessionFor(current, worktreeAbsolute) }
+        return {
+          ok: true,
+          snapshot: fresh,
+          session: takeoverSessionFor(current, worktreeAbsolute, current.takeover.sessionId, [], permissionMode),
+        }
       }
 
-      const session = takeoverSessionFor(current, worktreeAbsolute)
+      const context = await takeoverContextFor(repoRoot, current, worktreeAbsolute, entry?.sessionId)
+      const session = takeoverSessionFor(current, worktreeAbsolute, context.sessionId, context.history, permissionMode)
       patchTask(repoRoot, runId, taskId, {
         takeover: { at: now().toISOString(), sessionId: session.sessionId },
       })
@@ -1299,8 +1360,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         level: 'warn',
       })
       pushTakeoverSession(session)
-      const config = readFactoryConfig(repoRoot)
-      if (config) startTakeoverTurn(repoRoot, runId, current, session, worktreeAbsolute, config)
+      if (config) await prepareTakeoverTurn(repoRoot, runId, current, session)
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest, session } : { ok: false, error: 'task-not-found' }
@@ -1725,7 +1785,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
         void pumpRun(repoRoot, runId)
       })
 
-      running.set(taskId, { runId, controller, promise })
+      running.set(taskId, { runId, sessionId, controller, promise })
 
       const latest = readRunSnapshot(repoRoot, runId)
       return latest ? { ok: true, snapshot: latest } : { ok: false, error: 'task-not-found' }
@@ -1782,6 +1842,21 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
       return readEventLog(eventsPath(repoRoot, runId), {
         ...(taskId === undefined ? {} : { taskId }),
       })
+    },
+
+    async readTaskTranscript(repoRoot, runId, taskId) {
+      const task = taskOf(repoRoot, runId, taskId)
+      if (!task) return { ok: false, error: 'task-not-found' }
+      if (!task.worktree) return { ok: false, error: 'no-session' }
+      const worktreeAbsolute = worktreeAbsolutePath(repoRoot, taskId)
+      if (!existsSync(worktreeAbsolute)) return { ok: false, error: 'worktree-missing' }
+      const result = await readTranscript({
+        task,
+        worktreeAbsolute,
+        engineType: task.configSnapshot?.engineType ?? 'claude-code',
+        deps: transcriptDeps,
+      })
+      return result.ok ? { ...result, running: running.has(taskId) } : result
     },
 
     async revealWorktree(repoRoot, runId, taskId) {

@@ -16,7 +16,7 @@
     <div v-if="showDetail" class="error-detail">
       <pre>{{ error.technicalDetail }}</pre>
     </div>
-    <div class="error-actions">
+    <div class="error-actions" v-if="!readonly">
       <button v-if="error.retryable" class="action-btn retry-btn" @click="$emit('retry')">
         <RefreshCw :size="12" />
         <span>{{ t('errors.retry') }}</span>
@@ -40,6 +40,8 @@ const { t } = useI18n()
 
 const props = defineProps<{
   error: ClassifiedError
+  /** 只读镜像：隐藏重试/忽略按钮。 */
+  readonly?: boolean
 }>()
 
 defineEmits<{

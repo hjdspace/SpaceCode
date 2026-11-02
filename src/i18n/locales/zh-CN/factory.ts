@@ -306,6 +306,19 @@ export default {
     footnote: '接管期间后台不推进该任务；交回后从当前阶段继续。',
     verifyFailed: '验证未通过，任务仍是接管中。继续在会话里处理后再交回。',
   },
+  watch: {
+    readonly: '只读 · 不打断后台推进',
+    live: '实时',
+    running: '任务正在推进…',
+    idle: '当前阶段未在运行',
+    paused: '已接管 · 后台 Agent 已暂停',
+    loading: '正在读取会话…',
+    empty: '会话还没有内容。',
+    noSession: '该任务还没有会话记录。',
+    worktreeMissing: '工作树已不存在，无法读取会话。',
+    loadFailed: '读取会话记录失败。',
+    close: '关闭观察面板',
+  },
   modelUnknown: '未配置模型',
   laneEmpty: '暂无任务',
 
@@ -472,6 +485,7 @@ export default {
     plan: 'AI 规划',
     planning: '规划中…',
     planEmpty: '本次没有可并行推进的任务。',
+    parallelizable: '可并行',
     dependsOn: '依赖：{ids}',
     planWarnings: {
       truncated: '计划超过单次上限，已保留前 {max} 项。',
@@ -535,6 +549,7 @@ export default {
       default: '每次确认',
       plan: '只读规划',
       acceptEdits: '自动接受编辑',
+      bypassPermissions: '完全信任（自动放行）',
     },
     errors: {
       'invalid-config': '配置校验未通过，请修正下方字段。',
@@ -556,7 +571,7 @@ export default {
           model: '该阶段模型无法按当前引擎解析。',
         },
         implement: {
-          permissionMode: '实现阶段只允许每次确认或自动接受编辑。',
+          permissionMode: '实现阶段只允许每次确认、自动接受编辑或完全信任。',
           model: '该阶段模型无法按当前引擎解析。',
         },
         verify: {
@@ -616,6 +631,7 @@ export default {
   actions: {
     start: '立即开始',
     starting: '启动中…',
+    preparingWorktree: '正在建立工作树，完成后自动进入实现阶段。',
     stop: '停止',
     stopping: '停止中…',
     confirmDirty: '仍然开始',
@@ -638,6 +654,7 @@ export default {
     /** 卡片快捷动作用短标签：泳道列窄，长文案会顶穿卡片。 */
     review: '审查',
     view: '查看',
+    observe: '观察',
     mergeShort: '合并',
     retryShort: '重试',
     remove: '移除',
@@ -702,7 +719,11 @@ export default {
       started: '任务开始，分支 {branch}',
       stopped: '任务已停止，工作树保留',
       prompt: { error: '提示词渲染失败：{detail}' },
-      agent: { error: 'Agent 错误：{message}' },
+      agent: {
+        error: 'Agent 错误：{message}',
+        retry: '遇到可恢复错误，{delay} 秒后自动重试（第 {attempt}/{max} 次）',
+        recovered: '自动重试 {attempt} 次后恢复',
+      },
       implementation: {
         started: '开始实现循环',
         completed: '实现完成，等待下一阶段',
@@ -739,6 +760,7 @@ export default {
       approved: '审查通过',
       needs_changes: '审查要求修改',
       parse_failed: '审查结果解析失败',
+      timeout: '审查会话超时',
       error: '审查会话出错：{message}',
       comment: {
         accepted: '已接受审查意见 {commentId}',
@@ -792,6 +814,7 @@ export default {
       dispatch: { failed: '派发任务失败：{reason}' },
     },
     run: {
+      created: '已创建运行（{tasks} 个任务 · 并发上限 {maxConcurrency}）',
       paused: '运行已暂停（{running} 个任务跑完当前回合）',
       resumed: '运行已恢复',
       stopped: '运行已停止（中断 {stopped} 个任务）',

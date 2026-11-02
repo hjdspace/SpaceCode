@@ -10,11 +10,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const fsProbe = vi.hoisted(() => ({ appended: [] as string[] }))
+const electronProbe = vi.hoisted(() => ({ debug: false }))
 
 vi.mock('electron', () => ({
   app: {
     getPath: () => '/home/tester',
-    commandLine: { hasSwitch: () => false },
+    commandLine: { hasSwitch: () => electronProbe.debug },
     isPackaged: false,
   },
 }))
@@ -52,6 +53,7 @@ function brokenConsole(method: 'log' | 'warn' | 'error') {
 
 beforeEach(() => {
   fsProbe.appended.length = 0
+  electronProbe.debug = false
 })
 
 describe('writeLog 的 console 镜像', () => {
@@ -116,5 +118,36 @@ describe('writeLog 的 console 镜像', () => {
     expect(logSpy).not.toHaveBeenCalled()
     expect(fsProbe.appended.join('')).toContain('after stdio failure')
     logSpy.mockRestore()
+  })
+})
+
+describe('流式日志落盘', () => {
+  it('普通模式跳过原始 stdout 与 stream_event，但保留 result', async () => {
+    const logger = await freshLogger()
+    logger.setSessionLogPath('session-stream')
+    fsProbe.appended.length = 0
+
+    logger.processRaw('session-stream', 'stdout', '{"type":"stream_event"}\n')
+    logger.sdkMessage('session-stream', 'stream_event', { type: 'stream_event' })
+
+    expect(fsProbe.appended).toHaveLength(0)
+
+    logger.sdkMessage('session-stream', 'result', { type: 'result', result: 'ok' })
+    expect(fsProbe.appended).toHaveLength(2)
+    expect(fsProbe.appended.join('')).toContain('result')
+  })
+
+  it('debug 模式保留原始 stdout 与 stream_event 详细流', async () => {
+    electronProbe.debug = true
+    const logger = await freshLogger()
+    logger.setSessionLogPath('session-debug')
+    fsProbe.appended.length = 0
+
+    logger.processRaw('session-debug', 'stdout', '{"type":"stream_event"}\n')
+    logger.sdkMessage('session-debug', 'stream_event', { type: 'stream_event' })
+
+    expect(fsProbe.appended).toHaveLength(4)
+    expect(fsProbe.appended.join('')).toContain('PROCESS')
+    expect(fsProbe.appended.join('')).toContain('stream_event')
   })
 })

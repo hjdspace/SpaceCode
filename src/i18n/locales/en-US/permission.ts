@@ -52,6 +52,8 @@ export default {
     status: {
       dangerWarning: '⚠️ Requires Confirmation',
       requestPending: 'Awaiting approval...',
+      // Read-only mirror: the pipeline process resolves approvals on its own
+      readonlyPending: 'Pending (read-only view)',
     },
     errors: {
       allowFailed: 'Failed to approve permission',

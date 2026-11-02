@@ -183,6 +183,40 @@ describe('startTask validation', () => {
   })
 })
 
+describe('task transcript', () => {
+  it('reports whether the pipeline still owns a running turn', async () => {
+    seed()
+    let releaseTurn: () => void = () => {}
+    const turnGate = new Promise<void>((resolve) => {
+      releaseTurn = resolve
+    })
+    const runner = createFactoryRunner(deps({
+      runImplementation: async () => {
+        await turnGate
+        return { outcome: 'completed', iterations: 1, inputTokens: 1, outputTokens: 1 }
+      },
+      transcript: {
+        stat: () => 1,
+        read: async () => ({ messages: [] }),
+      },
+    }))
+
+    await runner.startTask(dir, runId, 'bl-1', {})
+    mkdirSync(join(dir, '.spacecode', 'worktrees', 'bl-1'), { recursive: true })
+    await expect(runner.readTaskTranscript(dir, runId, 'bl-1')).resolves.toMatchObject({
+      ok: true,
+      running: true,
+    })
+
+    releaseTurn()
+    await runner.whenIdle(runId)
+    await expect(runner.readTaskTranscript(dir, runId, 'bl-1')).resolves.toMatchObject({
+      ok: true,
+      running: false,
+    })
+  })
+})
+
 describe('startTask happy path', () => {
   it('creates the worktree, records projection and runs the implementer', async () => {
     seed()
@@ -215,7 +249,7 @@ describe('startTask happy path', () => {
       sessionId: factorySessionId('fac-run-1-bl-1-impl'),
       worktreeAbsolute: join(dir, '.spacecode', 'worktrees', 'bl-1'),
       baseBranch: 'main',
-      permissionMode: 'acceptEdits',
+      permissionMode: 'bypassPermissions',
       prompt: 'rendered prompt',
     })
     expect(calls.some((args) => args[0] === 'worktree' && args[1] === 'add')).toBe(true)
@@ -225,6 +259,42 @@ describe('startTask happy path', () => {
       expect.arrayContaining(['task.started', 'worktree.created']),
     )
     expect(events[0].runId).toBe('run-1')
+  })
+
+  it('merges a concurrent second start into the in-flight worktree creation', async () => {
+    seed()
+    const calls: string[][] = []
+    let signalAddStarted: () => void = () => {}
+    let releaseAdd: () => void = () => {}
+    const addStarted = new Promise<void>((resolve) => {
+      signalAddStarted = resolve
+    })
+    const addGate = new Promise<void>((resolve) => {
+      releaseAdd = resolve
+    })
+    const git: GitRunner = async (args) => {
+      calls.push(args)
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        signalAddStarted()
+        await addGate
+      }
+      if (args[0] === 'worktree' && args[1] === 'list') return { ok: true, stdout: '', stderr: '' }
+      if (args[0] === 'status') return { ok: true, stdout: '', stderr: '' }
+      if (args[0] === 'rev-parse') return { ok: true, stdout: 'abc\n', stderr: '' }
+      return { ok: true, stdout: '', stderr: '' }
+    }
+    const runner = createFactoryRunner(deps({ git }))
+
+    const first = runner.startTask(dir, runId, 'bl-1', {})
+    await addStarted
+    const second = runner.startTask(dir, runId, 'bl-1', {})
+    releaseAdd()
+
+    const [a, b] = await Promise.all([first, second])
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(calls.filter((args) => args[0] === 'worktree' && args[1] === 'add')).toHaveLength(1)
+    await runner.whenIdle(runId)
   })
 
   it('reuses an existing worktree on retry and emits worktree.reused', async () => {
@@ -439,6 +509,16 @@ describe('approve and change requests', () => {
     toReviewing({
       ...APPROVED_REVIEW,
       comments: [{ id: 'c1', body: 'needs a guard', severity: 'blocker', status: 'open' }],
+    })
+    const runner = createFactoryRunner(deps())
+    expect(await runner.approveTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-eligible' })
+  })
+
+  it('refuses to approve a blocker that was accepted for fixing', async () => {
+    seed()
+    toReviewing({
+      ...APPROVED_REVIEW,
+      comments: [{ id: 'c1', body: 'needs a guard', severity: 'blocker', status: 'accepted' }],
     })
     const runner = createFactoryRunner(deps())
     expect(await runner.approveTask(dir, runId, 'bl-1')).toEqual({ ok: false, error: 'not-eligible' })

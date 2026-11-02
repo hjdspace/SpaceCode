@@ -307,6 +307,19 @@ export default {
     footnote: 'The pipeline does not advance this task while it is taken over; returning resumes it from the current stage.',
     verifyFailed: 'Verification failed, so the task stays taken over. Keep working in the chat, then return it again.',
   },
+  watch: {
+    readonly: 'Read-only · the pipeline keeps running',
+    live: 'Live',
+    running: 'Task in progress…',
+    idle: 'This stage is not running',
+    paused: 'Taken over · background agent paused',
+    loading: 'Reading the session…',
+    empty: 'The session has no content yet.',
+    noSession: 'This task has no session yet.',
+    worktreeMissing: 'The worktree is gone, so the session cannot be read.',
+    loadFailed: 'Failed to read the session.',
+    close: 'Close watch panel',
+  },
   modelUnknown: 'No model configured',
   laneEmpty: 'No tasks',
 
@@ -474,6 +487,7 @@ export default {
     plan: 'AI plan',
     planning: 'Planning…',
     planEmpty: 'No tasks can run in parallel right now.',
+    parallelizable: 'Parallelizable',
     dependsOn: 'Depends on: {ids}',
     planWarnings: {
       truncated: 'The plan exceeded the per-run limit; kept the first {max} task(s).',
@@ -537,6 +551,7 @@ export default {
       default: 'Confirm each action',
       plan: 'Read-only planning',
       acceptEdits: 'Auto-accept edits',
+      bypassPermissions: 'Full trust (auto-approve)',
     },
     errors: {
       'invalid-config': 'The configuration failed validation; fix the fields below.',
@@ -558,7 +573,7 @@ export default {
           model: 'This stage model cannot be resolved for the current engine.',
         },
         implement: {
-          permissionMode: 'The implement stage allows confirm-each-action or auto-accept edits.',
+          permissionMode: 'The implement stage allows confirm-each-action, auto-accept edits, or full trust.',
           model: 'This stage model cannot be resolved for the current engine.',
         },
         verify: {
@@ -618,6 +633,7 @@ export default {
   actions: {
     start: 'Start now',
     starting: 'Starting…',
+    preparingWorktree: 'Creating the worktree — implementation starts automatically when ready.',
     stop: 'Stop',
     stopping: 'Stopping…',
     confirmDirty: 'Start anyway',
@@ -640,6 +656,7 @@ export default {
     /** Card quick actions need short labels; lanes are narrow. */
     review: 'Review',
     view: 'View',
+    observe: 'Watch',
     mergeShort: 'Merge',
     retryShort: 'Retry',
     remove: 'Remove',
@@ -704,7 +721,11 @@ export default {
       started: 'Task started on branch {branch}',
       stopped: 'Task stopped; the worktree was kept',
       prompt: { error: 'Prompt rendering failed: {detail}' },
-      agent: { error: 'Agent error: {message}' },
+      agent: {
+        error: 'Agent error: {message}',
+        retry: 'Recoverable error; retrying in {delay}s ({attempt}/{max})',
+        recovered: 'Recovered after {attempt} retries',
+      },
       implementation: {
         started: 'Implementation loop started',
         completed: 'Implementation finished',
@@ -741,6 +762,7 @@ export default {
       approved: 'Review approved',
       needs_changes: 'Review requested changes',
       parse_failed: 'Could not parse the review output',
+      timeout: 'Review session timed out',
       error: 'Review session failed: {message}',
       comment: {
         accepted: 'Accepted review comment {commentId}',
@@ -794,6 +816,7 @@ export default {
       dispatch: { failed: 'Failed to dispatch a task: {reason}' },
     },
     run: {
+      created: 'Run created ({tasks} task(s) · concurrency {maxConcurrency})',
       paused: 'Run paused ({running} task(s) finishing their current turn)',
       resumed: 'Run resumed',
       stopped: 'Run stopped ({stopped} tasks interrupted)',

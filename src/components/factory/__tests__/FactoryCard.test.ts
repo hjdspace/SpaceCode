@@ -216,9 +216,40 @@ describe('FactoryCard', () => {
       worktree: '.spacecode/worktrees/bl-1',
     })
     expect(blocked.findAll('[data-card-action]').map((item) => item.attributes('data-card-action'))).toEqual([
+      'observe',
       'retry',
       'cancel',
     ])
+  })
+
+  it('shows the latest event as the current action while the task is running', () => {
+    const wrapper = mountCard({ lane: 'implementing', stageIdx: 2 }, run(), {
+      lastEvent: {
+        seq: 9,
+        at: '2026-10-28T10:03:00Z',
+        runId: 'run-1',
+        taskId: 'bl-1',
+        code: 'agent.edit',
+        level: 'info',
+        params: { target: 'src/a.ts' },
+      },
+    })
+    expect(wrapper.find('[data-card-activity]').text()).toBe(
+      'factory.events.agent.edit|{"target":"src/a.ts"}',
+    )
+  })
+
+  it('leaves the action line out when the lane is not running or there is no event yet', () => {
+    const event = {
+      seq: 9,
+      at: '2026-10-28T10:03:00Z',
+      runId: 'run-1',
+      taskId: 'bl-1',
+      code: 'agent.read',
+      level: 'info' as const,
+    }
+    expect(mountCard({ lane: 'queued' }, run(), { lastEvent: event }).find('[data-card-activity]').exists()).toBe(false)
+    expect(mountCard({ lane: 'implementing' }, run()).find('[data-card-activity]').exists()).toBe(false)
   })
 
   it('emits the action with the task id without selecting through it', async () => {

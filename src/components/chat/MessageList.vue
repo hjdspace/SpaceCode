@@ -18,7 +18,8 @@
             <MessageItem
               :message="item.group!.messages[0]"
               :session-id="props.sessionId"
-              :can-rewind="mode !== 'design' && item.group!.messages[0].id !== props.messages[props.messages.length - 1]?.id"
+              :readonly="props.readonly"
+              :can-rewind="!props.readonly && mode !== 'design' && item.group!.messages[0].id !== props.messages[props.messages.length - 1]?.id"
               @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
               @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
               @rewind="(msg) => emit('rewind', msg)"
@@ -31,6 +32,7 @@
               :messages="item.group!.messages"
               :dialogs="dialogsForGroup(item.group!)"
               :session-id="props.sessionId"
+              :readonly="props.readonly"
               :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
               :mode="mode === 'design' ? 'design' : undefined"
               @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
@@ -44,8 +46,10 @@
               @submit-form="(answers: Record<string, unknown>) => emit('submitForm', answers)"
               @select-next="(prompt: string) => emit('selectNext', prompt)"
             />
-            <!-- 生成式 UI 卡片：属于本组消息，渲染在时间线之后 -->
-            <GenuiCardGroup :messages="item.group!.messages" />
+            <!-- 生成式 UI 卡片：属于本组消息，渲染在时间线之后。只读面板保留卡片但禁用提交。 -->
+            <div :inert="props.readonly ? true : undefined">
+              <GenuiCardGroup :messages="item.group!.messages" />
+            </div>
           </div>
           <CurrentTurnChangeCard
             v-else-if="mode !== 'design' && item.type === 'turn-card'"
@@ -65,6 +69,7 @@
             v-for="dialog in ungroupedDialogs"
             :key="dialog.dialogId"
             :dialog="dialog"
+            :inert="props.readonly ? true : undefined"
           />
         </div>
 
@@ -138,6 +143,11 @@ const props = defineProps<{
    * - 不传：走原 MessageItem + AgentTimeline 渲染
    */
   mode?: 'design'
+  /**
+   * 只读镜像（流水线观察面板）：隐藏回退/编辑/授权等交互，也不触发
+   * turn checkpoints 之类的当前会话副作用 —— 它渲染的往往不是 currentSessionId。
+   */
+  readonly?: boolean
 }>()
 
 interface MessageGroup {
@@ -551,6 +561,7 @@ const hasCompletedTurns = computed(() => completedTurnTargets.value.length > 0)
 let _turnCheckpointsTimeout: ReturnType<typeof setTimeout> | null = null
 
 function debouncedLoadTurnCheckpoints(sessionId: string) {
+  if (props.readonly) return
   if (_turnCheckpointsTimeout) {
     clearTimeout(_turnCheckpointsTimeout)
   }
@@ -593,7 +604,7 @@ onMounted(async () => {
   }
 
   const sessionId = sessionStore.currentSessionId
-  if (sessionId && !props.loading && hasCompletedTurns.value) {
+  if (!props.readonly && sessionId && !props.loading && hasCompletedTurns.value) {
     await sessionStore.loadTurnCheckpoints(sessionId)
   }
 

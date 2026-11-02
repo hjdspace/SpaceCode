@@ -50,6 +50,15 @@ describe('validateStagePolicies', () => {
     config.stages.verify.model = 'claude-opus-4-5'
     expect(validateStagePolicies(config)).toContain('stages.verify.model')
   })
+
+  it('完全信任只开给实现阶段', () => {
+    // 其余阶段仍逐次审批：规划要只读、合并要人看，放开自动放行等于把闸门拆了。
+    for (const key of ['plan', 'verify', 'review', 'merge'] as const) {
+      const config = clone(base())
+      config.stages[key].permissionMode = 'bypassPermissions'
+      expect(validateStagePolicies(config)).toContain(`stages.${key}.permissionMode`)
+    }
+  })
 })
 
 describe('updateFactoryConfig', () => {

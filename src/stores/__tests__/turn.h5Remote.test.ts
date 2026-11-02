@@ -132,6 +132,37 @@ describe('turn H5 remote user events', () => {
     reveals.stop()
   })
 
+  it('startTurn:false 恢复原会话历史但不追加简报或自动开回合', async () => {
+    const { useTurnStore } = await import('../turn')
+    const turnStore = useTurnStore()
+    const sessionStore = useChatSessionStore()
+    const main = sessionStore.createSession('主会话', 'D:/repo')
+
+    mockState.handlers.onUser({
+      sessionId: 'fac-run-1-bl-1-impl',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '',
+        startTurn: false,
+        history: [{
+          type: 'user',
+          uuid: 'u-1',
+          message: { role: 'user', content: [{ type: 'text', text: '原始任务上下文' }] },
+        }],
+        projectPath: 'D:/repo',
+        title: '接管 · 任务 1',
+        timestamp: Date.now(),
+        activate: false,
+      },
+    })
+
+    const session = sessionStore.getSession('fac-run-1-bl-1-impl')
+    expect(session?.messages.map((message) => message.content)).toEqual(['原始任务上下文'])
+    expect(turnStore.getIsLoading('fac-run-1-bl-1-impl')).toBe(false)
+    expect(sessionStore.currentSessionId).toBe(main.id)
+  })
+
   it('手机端消息仍会请求把会话切到前台', async () => {
     const { useTurnStore } = await import('../turn')
     useTurnStore()
@@ -206,6 +237,60 @@ describe('turn H5 remote user events', () => {
 
     expect(sessionStore.sessions.find(s => s.id === 'cron-model-session')?.model).toBe('deepseek-v4-flash')
     expect(turnStore.getIsLoading('cron-model-session')).toBe(true)
+  })
+
+  it('payload 带 permissionMode 时写进会话记录，会话不被全局默认档降级', async () => {
+    const { useTurnStore } = await import('../turn')
+    const { usePermissionPolicyStore } = await import('../permissionPolicy')
+    const { useSettingsStore } = await import('../settings')
+    useTurnStore()
+    const sessionStore = useChatSessionStore()
+    // 全局档故意与推送档不同：会话记录没拿到模式时，对账就会拿这一档去改正在跑的引擎。
+    useSettingsStore().permissionMode = 'plan'
+
+    mockState.handlers.onUser({
+      sessionId: 'fac-run-1-bl-1-takeover',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '你已接管流水线任务「任务 1」。',
+        projectPath: 'D:/repo',
+        title: '接管 · 任务 1',
+        timestamp: Date.now(),
+        activate: false,
+        permissionMode: 'bypassPermissions',
+      },
+    })
+
+    const policy = usePermissionPolicyStore()
+    expect(sessionStore.getSession('fac-run-1-bl-1-takeover')?.permissionMode).toBe('bypassPermissions')
+    expect(policy.getPermissionMode('fac-run-1-bl-1-takeover')).toBe('bypassPermissions')
+  })
+
+  it('用户在面板里自己切过模式后，重复推送不改写他的选择', async () => {
+    const { useTurnStore } = await import('../turn')
+    useTurnStore()
+    const sessionStore = useChatSessionStore()
+    const push = (permissionMode: string) =>
+      mockState.handlers.onUser({
+        sessionId: 'fac-run-1-bl-2-takeover',
+        data: {
+          __h5RemoteUserMessage: true,
+          messageId: null,
+          content: '接管简报',
+          projectPath: 'D:/repo',
+          title: '接管 · 任务 2',
+          timestamp: Date.now(),
+          activate: false,
+          permissionMode,
+        },
+      })
+
+    push('bypassPermissions')
+    sessionStore.getSession('fac-run-1-bl-2-takeover')!.permissionMode = 'acceptEdits'
+    push('bypassPermissions')
+
+    expect(sessionStore.getSession('fac-run-1-bl-2-takeover')?.permissionMode).toBe('acceptEdits')
   })
 
   it('can create a phone-side session when crypto.randomUUID is unavailable', () => {

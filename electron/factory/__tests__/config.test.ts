@@ -62,9 +62,32 @@ describe('buildFactoryConfig', () => {
     expect(c.prompts['merge-conflict']).toBe('.spacecode/factory/prompts/merge-conflict.md')
     expect(Object.keys(c.prompts)).toHaveLength(5)
     expect(c.stages.plan.permissionMode).toBe('plan')
+    // 实现阶段默认完全信任：acceptEdits 仍会为 Bash 发授权请求，无人值守会停在授权卡上。
+    expect(c.stages.implement.permissionMode).toBe('bypassPermissions')
     expect(c.stages.implement.enabled).toBe(true)
     expect(c.stages.merge.humanGate).toBe(true)
     expect(c.limits.keepDoneRuns).toBe(20)
+  })
+
+  it('实现阶段接受完全信任，未知模式按字段报错', () => {
+    const config = validConfig()
+    const trusted = validateFactoryConfig({
+      ...config,
+      stages: { ...config.stages, implement: { ...config.stages.implement, permissionMode: 'bypassPermissions' } },
+    })
+    expect(trusted.ok && trusted.config.stages.implement.permissionMode).toBe('bypassPermissions')
+
+    const kept = validateFactoryConfig({
+      ...config,
+      stages: { ...config.stages, implement: { ...config.stages.implement, permissionMode: 'acceptEdits' } },
+    })
+    expect(kept.ok && kept.config.stages.implement.permissionMode).toBe('acceptEdits')
+
+    const unknown = validateFactoryConfig({
+      ...config,
+      stages: { ...config.stages, implement: { ...config.stages.implement, permissionMode: 'yolo' as never } },
+    })
+    expect(!unknown.ok && unknown.errors).toContain('stages.implement.permissionMode')
   })
 
   it('keeps maxTasksPerRun optional and rejects invalid values', () => {

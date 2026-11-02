@@ -158,6 +158,12 @@ jobs:
           fi
 
       - name: Build frontend and proxy
+        env:
+          # vue-tsc --noEmit 在 macOS arm64 runner（默认约 2GB 堆）上会
+          # "Ineffective mark-compacts near heap limit" OOM 退出（exit 134）。
+          # 类型检查范围随 factory 模块显著增长，这里显式抬高堆上限；
+          # 其他平台同样适用，Node 只按实际需要分配，不会因此吃满 4GB。
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build:all
 
       # build.extraResources 把 resources/cua-driver 拷进 <resources>/cua-driver，

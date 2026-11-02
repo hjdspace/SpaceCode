@@ -46,6 +46,7 @@ import type {
   FactoryTaskRetryInput,
   FactoryTaskStartInput,
   FactoryTaskStartResult,
+  FactoryTaskTranscriptResult,
   FactoryWorktreeRevealResult,
 } from '@/shared/factory'
 
@@ -225,6 +226,10 @@ export const factoryNamespace = defineNamespace({
     taskEvents: {
       req: [] as unknown as [repoRoot: string, runId: string, taskId?: string | null],
       res: null as unknown as FactoryEvent[],
+    },
+    taskTranscript: {
+      req: [] as unknown as [repoRoot: string, runId: string, taskId: string],
+      res: null as unknown as FactoryTaskTranscriptResult,
     },
     worktreeReveal: {
       req: [] as unknown as [repoRoot: string, runId: string, taskId: string],

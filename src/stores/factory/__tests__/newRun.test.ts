@@ -86,10 +86,21 @@ describe('plan projections', () => {
 
   it('keeps local task ids and maps dependencies into candidate space', () => {
     expect(plannedCandidates('local', tasks)).toEqual([
-      { candidateId: 'bl-1', dependsOn: [] },
-      { candidateId: 'bl-2', dependsOn: ['bl-1'] },
+      { candidateId: 'bl-1', dependsOn: [], parallelizable: true },
+      { candidateId: 'bl-2', dependsOn: ['bl-1'], parallelizable: true },
     ])
     expect(runDependencies('local', { 'bl-2': ['bl-1'] })).toEqual({ 'bl-2': ['bl-1'] })
+  })
+
+  it('carries the parallelizable flag through for the modal badge', () => {
+    const mixed: FactoryPlanTask[] = [
+      { id: 'bl-1', title: 'A', dependsOn: [], parallelizable: true },
+      { id: 'bl-2', title: 'B', dependsOn: ['bl-1'], parallelizable: false },
+    ]
+    expect(plannedCandidates('local', mixed)).toEqual([
+      { candidateId: 'bl-1', dependsOn: [], parallelizable: true },
+      { candidateId: 'bl-2', dependsOn: ['bl-1'], parallelizable: false },
+    ])
   })
 
   it('translates GitHub task ids to issue numbers and back', () => {
@@ -98,8 +109,8 @@ describe('plan projections', () => {
       { id: 'issue-13', issueNumber: 13, title: 'B', dependsOn: ['issue-12'], parallelizable: true },
     ]
     expect(plannedCandidates('github-issues', issues)).toEqual([
-      { candidateId: '12', dependsOn: [] },
-      { candidateId: '13', dependsOn: ['12'] },
+      { candidateId: '12', dependsOn: [], parallelizable: true },
+      { candidateId: '13', dependsOn: ['12'], parallelizable: true },
     ])
     expect(runDependencies('github-issues', { '13': ['12'] })).toEqual({
       'issue-13': ['issue-12'],

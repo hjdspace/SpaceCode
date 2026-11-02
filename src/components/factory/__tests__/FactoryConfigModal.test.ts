@@ -96,7 +96,7 @@ describe('FactoryConfigModal', () => {
     const options = (key: string) =>
       wrapper.find(`[data-config-permission="${key}"]`).findAll('option').map((option) => option.attributes('value'))
     expect(options('plan')).toEqual(['plan'])
-    expect(options('implement')).toEqual(['default', 'acceptEdits'])
+    expect(options('implement')).toEqual(['default', 'acceptEdits', 'bypassPermissions'])
     expect(options('review')).toEqual(['default', 'acceptEdits'])
     expect(options('merge')).toEqual(['default', 'acceptEdits'])
   })

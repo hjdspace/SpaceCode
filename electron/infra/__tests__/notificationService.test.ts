@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({
   handlers: {} as Record<string, (event: unknown, options: unknown) => void>,
@@ -49,6 +49,19 @@ vi.mock('../logger', () => ({ info: vi.fn(), warn: vi.fn() }))
 import { registerNotificationIPCHandlers } from '../notificationService'
 
 describe('notification click routing', () => {
+  // Linux 上 showSystemNotification 会改走 notify-send / gdbus 分支，不会构造
+  // Electron Notification，click 监听也就不会注册；用例在 ubuntu CI 上会恒失败。
+  // 这里固定平台为 darwin，让用例只覆盖 Electron 原生通知这条路径。
+  const originalPlatform = process.platform
+
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+  })
+
   it('returns the waiting session id to the renderer when the toast is clicked', () => {
     const send = vi.fn()
     const target = {

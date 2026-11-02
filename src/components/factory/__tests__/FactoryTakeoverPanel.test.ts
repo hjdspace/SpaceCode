@@ -56,15 +56,12 @@ function mountPanel(props: Record<string, unknown> = {}) {
 }
 
 describe('FactoryTakeoverPanel', () => {
-  it('展示任务标题、分支、工作树与任务摘要', () => {
+  it('展示任务标题、分支与工作树', () => {
     const wrapper = mountPanel()
 
     expect(wrapper.find('[data-takeover-title]').text()).toBe('登录态在刷新后丢失')
     expect(wrapper.find('[data-takeover-branch]').text()).toContain('agent/task-bl-1')
     expect(wrapper.find('[data-takeover-branch]').text()).toContain('.spacecode/worktrees/bl-1')
-    expect(wrapper.find('[data-takeover-goal]').text()).toBe(
-      '修复 sessionRestore 的恢复顺序，并补一条回归测试。',
-    )
   })
 
   it('显著标明后台 Agent 已暂停', () => {
@@ -106,5 +103,22 @@ describe('FactoryTakeoverPanel', () => {
     expect(wrapper.find('[data-takeover-verify-failed]').text()).toBe(
       'factory.takeoverPanel.verifyFailed',
     )
+  })
+
+  it('展示交回验证的命令与真实失败详情', () => {
+    const wrapper = mountPanel({
+      verifyFailed: true,
+      task: takenOverTask({
+        tests: {
+          status: 'fail',
+          command: 'npm run test:changed',
+          at: '2026-11-01T14:00:00Z',
+          detail: 'spawn EINVAL',
+        },
+      }),
+    })
+
+    expect(wrapper.find('[data-takeover-verify-command]').text()).toContain('npm run test:changed')
+    expect(wrapper.find('[data-takeover-verify-detail]').text()).toBe('spawn EINVAL')
   })
 })

@@ -68,19 +68,27 @@ export type VerifyExecutor = (
   options: VerifyExecOptions,
 ) => Promise<VerifyExecResult>
 
+function quoteWindowsToken(token: string): string {
+  if (token === '') return '""'
+  if (!/[ \t"&|<>^();%!]/.test(token)) return token
+  return `"${token.replace(/"/g, '\\"')}"`
+}
+
 const defaultExec: VerifyExecutor = (argv, cwd, options) =>
   new Promise((resolveResult) => {
     const [command, ...rest] = argv
-    // Windows 的包管理器是 .cmd 包装器，直接 execFile('npm') 会 ENOENT。
-    const file = process.platform === 'win32' && PACKAGE_MANAGERS.has(command) ? `${command}.cmd` : command
+    // Windows 的 .cmd 必须由 shell 解释；shell 模式下自行引用并拼接，args 保持为空。
+    const useShell = process.platform === 'win32' && PACKAGE_MANAGERS.has(command)
+    const file = useShell ? `${command}.cmd` : command
     execFile(
-      file,
-      rest,
+      useShell ? [file, ...rest].map(quoteWindowsToken).join(' ') : file,
+      useShell ? [] : rest,
       {
         cwd,
         timeout: options.timeoutMs,
         maxBuffer: VERIFY_MAX_BUFFER,
         env: options.env,
+        shell: useShell,
         ...(options.signal ? { signal: options.signal } : {}),
       },
       (error, stdout, stderr) => {

@@ -183,6 +183,37 @@ describe('prepareWorktree', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('moves an unregistered leftover directory aside and rebuilds the worktree', async () => {
+    const moved: Array<[string, string]> = []
+    const { git, calls } = fakeGit([{ stdout: '' }, { ok: true }])
+    const result = await prepareWorktree(input, {
+      git,
+      pathExists: () => true,
+      isSymlink: () => false,
+      rename: (from, to) => moved.push([from, to]),
+      now: () => new Date('2026-11-01T13:02:30.987Z'),
+    })
+
+    expect(result).toMatchObject({ ok: true, worktree: { reused: false, branch: 'agent/task-bl-1' } })
+    expect(moved).toEqual([[expectedAbsolute, `${expectedAbsolute}.stale-2026-11-01T13-02-30-987Z`]])
+    expect(calls[1].args).toEqual(['worktree', 'add', '-b', 'agent/task-bl-1', expectedAbsolute, 'main'])
+  })
+
+  it('blocks when the leftover directory cannot be moved aside', async () => {
+    const { git, calls } = fakeGit([])
+    const result = await prepareWorktree(input, {
+      git,
+      pathExists: () => true,
+      isSymlink: () => false,
+      rename: () => {
+        throw new Error('EBUSY')
+      },
+    })
+
+    expect(result).toEqual({ ok: false, error: 'worktree-mismatch', detail: '.spacecode/worktrees/bl-1' })
+    expect(calls).toHaveLength(1)
+  })
+
   it('blocks when the task branch is already checked out elsewhere', async () => {
     const list = `worktree D:/repo/.spacecode/worktrees/other\nHEAD abc\nbranch refs/heads/agent/task-bl-1\n\n`
     const { git, calls } = fakeGit([{ stdout: list }])
@@ -209,9 +240,14 @@ describe('prepareWorktree', () => {
       await prepareWorktree(input, { git: notRepo.git, pathExists: () => false, isSymlink: () => false }),
     ).toMatchObject({ ok: false, error: 'not-git-repo' })
 
-    const occupied = fakeGit([{ stdout: '' }, { ok: false, stderr: "fatal: a branch named 'agent/task-bl-1' already exists" }])
+    const raced = fakeGit([
+      { stdout: '' },
+      { ok: false, stderr: "fatal: a branch named 'agent/task-bl-1' already exists" },
+      { ok: false },
+      { ok: false, stderr: "fatal: 'agent/task-bl-1' is already checked out at 'D:/repo/.spacecode/worktrees/other'" },
+    ])
     expect(
-      await prepareWorktree(input, { git: occupied.git, pathExists: () => false, isSymlink: () => false }),
+      await prepareWorktree(input, { git: raced.git, pathExists: () => false, isSymlink: () => false }),
     ).toMatchObject({ ok: false, error: 'branch-in-use' })
 
     const longPath = fakeGit([{ stdout: '' }, { ok: false, stderr: 'error: unable to create file: Filename too long' }])
@@ -222,6 +258,50 @@ describe('prepareWorktree', () => {
       platform: 'win32',
     })
     expect(result).toMatchObject({ ok: false, error: 'path-too-long' })
+  })
+
+  it('reattaches a leftover branch that still has unmerged commits', async () => {
+    const { git, calls } = fakeGit([
+      { stdout: '' },
+      { ok: false, stderr: "Preparing worktree (new branch 'agent/task-bl-1')\nfatal: a branch named 'agent/task-bl-1' already exists" },
+      { ok: false },
+      { ok: true },
+    ])
+    const result = await prepareWorktree(input, { git, pathExists: () => false, isSymlink: () => false })
+
+    expect(result).toEqual({
+      ok: true,
+      worktree: {
+        absolute: expectedAbsolute,
+        relative: '.spacecode/worktrees/bl-1',
+        branch: 'agent/task-bl-1',
+        reused: false,
+      },
+    })
+    expect(calls.map((call) => call.args)).toEqual([
+      ['worktree', 'list', '--porcelain'],
+      ['worktree', 'add', '-b', 'agent/task-bl-1', expectedAbsolute, 'main'],
+      ['merge-base', '--is-ancestor', 'refs/heads/agent/task-bl-1', 'main'],
+      ['worktree', 'add', expectedAbsolute, 'agent/task-bl-1'],
+    ])
+  })
+
+  it('rebuilds a leftover branch that the base branch already contains', async () => {
+    const { git, calls } = fakeGit([
+      { stdout: '' },
+      { ok: false, stderr: "fatal: a branch named 'agent/task-bl-1' already exists" },
+      { ok: true },
+      { ok: true },
+      { ok: true },
+    ])
+    const result = await prepareWorktree(input, { git, pathExists: () => false, isSymlink: () => false })
+
+    expect(result).toMatchObject({ ok: true, worktree: { reused: false, branch: 'agent/task-bl-1' } })
+    expect(calls.map((call) => call.args).slice(2)).toEqual([
+      ['merge-base', '--is-ancestor', 'refs/heads/agent/task-bl-1', 'main'],
+      ['branch', '-D', 'agent/task-bl-1'],
+      ['worktree', 'add', '-b', 'agent/task-bl-1', expectedAbsolute, 'main'],
+    ])
   })
 
   it('reports a timed-out checkout as git-timeout instead of git-error', async () => {

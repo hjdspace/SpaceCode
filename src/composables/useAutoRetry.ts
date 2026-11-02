@@ -2,6 +2,13 @@ import { ref } from 'vue'
 import type { Ref } from 'vue'
 import type { RetryState } from '@/types'
 import { ErrorCategory } from '@/types'
+import {
+  computeRetryDelayMs,
+  INITIAL_RETRY_DELAY_MS as DEFAULT_INITIAL_RETRY_DELAY_MS,
+  MAX_RETRIES as DEFAULT_MAX_RETRIES,
+  MAX_RETRY_DELAY_MS as DEFAULT_MAX_RETRY_DELAY_MS,
+  RETRY_JITTER_MS as DEFAULT_RETRY_JITTER_MS,
+} from '@/shared/agentRetry'
 
 export interface UseAutoRetryOptions {
   maxRetries?: number
@@ -54,20 +61,20 @@ export function extractErrorCode(technicalDetail: string, category: ErrorCategor
  * 被过早归零，界面永远停留在 (1/5)。
  */
 export function useAutoRetry(options: UseAutoRetryOptions = {}): UseAutoRetryReturn {
-  const MAX_RETRIES = options.maxRetries ?? 5
-  const INITIAL_RETRY_DELAY_MS = options.initialDelayMs ?? 2_000
-  const MAX_RETRY_DELAY_MS = options.maxDelayMs ?? 60_000
-  const RETRY_JITTER_MS = options.jitterMs ?? 1_000
+  const MAX_RETRIES = options.maxRetries ?? DEFAULT_MAX_RETRIES
+  const INITIAL_RETRY_DELAY_MS = options.initialDelayMs ?? DEFAULT_INITIAL_RETRY_DELAY_MS
+  const MAX_RETRY_DELAY_MS = options.maxDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS
+  const RETRY_JITTER_MS = options.jitterMs ?? DEFAULT_RETRY_JITTER_MS
 
   const retryStates = ref<Map<string, RetryState>>(new Map())
 
   function computeRetryDelay(retryDelayHint?: number, attempt: number = 0): number {
-    if (retryDelayHint && retryDelayHint > 0) {
-      return Math.min(retryDelayHint, MAX_RETRY_DELAY_MS)
-    }
-    const exponential = Math.min(INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt), MAX_RETRY_DELAY_MS)
-    const jitter = Math.random() * RETRY_JITTER_MS
-    return Math.round(exponential + jitter)
+    return computeRetryDelayMs(attempt, {
+      ...(retryDelayHint !== undefined ? { hintMs: retryDelayHint } : {}),
+      initialDelayMs: INITIAL_RETRY_DELAY_MS,
+      maxDelayMs: MAX_RETRY_DELAY_MS,
+      jitterMs: RETRY_JITTER_MS,
+    })
   }
 
   function shouldAutoRetry(sessionId: string, retryable: boolean, userAbortedSessions: Set<string>): boolean {

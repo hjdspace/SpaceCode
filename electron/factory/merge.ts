@@ -345,7 +345,19 @@ export async function runMergePreflight(
   taskId: string,
   deps: MergeDeps = {},
 ): Promise<FactoryMergePreflightResult> {
-  return computePreflight(repoRoot, runId, taskId, deps)
+  const result = await computePreflight(repoRoot, runId, taskId, deps)
+  // 弹窗打开的预检也要进事件流，否则用户只看到弹窗里的结论、运行记录里没有痕迹。
+  if (result.ok) {
+    const emit = deps.emit ?? defaultEmitter(repoRoot, runId, deps.now ?? (() => new Date()))
+    emit({
+      taskId,
+      stage: 'merge',
+      code: 'merge.preflight',
+      level: result.preflight.blockers.length > 0 ? 'warn' : 'info',
+      params: { commits: result.preflight.commits, target: result.preflight.targetBranch },
+    })
+  }
+  return result
 }
 
 function blockerToError(blockers: FactoryMergeBlocker[]): FactoryMergeError {

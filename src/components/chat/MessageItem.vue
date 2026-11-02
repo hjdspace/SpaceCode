@@ -66,6 +66,7 @@
           v-if="message.toolCalls?.length"
           :tool-calls="message.toolCalls"
           :session-id="props.sessionId"
+          :readonly="props.readonly"
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
         />
@@ -124,6 +125,7 @@
             <RotateCcw :size="13" />
           </button>
           <button
+            v-if="!readonly"
             class="action-button"
             :title="t('chat.editMessage')"
             :aria-label="t('chat.editMessage')"
@@ -205,6 +207,8 @@ const props = defineProps<{
   canRewind?: boolean
   /** 消息所属会话；嵌入式面板里它不是 currentSessionId。 */
   sessionId?: string
+  /** 只读镜像（观察面板）：不提供编辑/回退/工具应答入口。 */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{

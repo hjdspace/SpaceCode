@@ -17,6 +17,7 @@ import { createFactoryRun, readRunSnapshot } from '../runs'
 import { transitionTask } from '../runtime'
 import { readEvents } from '../events'
 import { executeMerge, runMergePreflight, type MergeWriteBackPayload } from '../merge'
+import { defaultGitRunner, type GitRunner } from '../worktree'
 import type { FactoryMergeExecuteInput, FactoryReview, FactoryTestRun } from '@/shared/factory'
 import type { VerifyResult } from '../verify'
 
@@ -128,6 +129,12 @@ function snapshotTask() {
   return readRunSnapshot(dir, runId)?.tasks.find((task) => task.id === taskId) ?? null
 }
 
+function eventCodes() {
+  return readEvents(join(dir, '.spacecode', 'factory', 'runs', runId, 'events.jsonl'), { taskId }).map(
+    (event) => event.code,
+  )
+}
+
 function mergeInput(overrides: Partial<FactoryMergeExecuteInput> = {}): FactoryMergeExecuteInput {
   return { mode: 'merge', confirmed: true, ...overrides }
 }
@@ -226,6 +233,82 @@ describe('merge preflight', () => {
     if (!result.ok) return
     expect(result.preflight.workspaceClean).toBe(false)
     expect(result.preflight.blockers).toContain('workspace-dirty')
+  })
+
+  it('records the dialog preflight in the run event stream', async () => {
+    const result = await runMergePreflight(dir, runId, taskId, { runVerify: passVerify })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(eventCodes()).toContain('merge.preflight')
+  })
+
+  it('blocks a task whose branch has no commits', async () => {
+    git(worktreePath(), ['reset', '--hard', 'main'])
+    const result = await runMergePreflight(dir, runId, taskId, { runVerify: passVerify })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.preflight.commits).toBe(0)
+    expect(result.preflight.blockers).toContain('no-commits')
+  })
+
+  it('blocks when the configured base branch does not exist', async () => {
+    git(dir, ['branch', '-m', 'main', 'trunk'])
+    const result = await runMergePreflight(dir, runId, taskId, { runVerify: passVerify })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.preflight.blockers).toContain('base-missing')
+  })
+
+  it('falls back to the legacy merge-tree when --write-tree is unsupported', async () => {
+    const calls: string[][] = []
+    const gitRunner: GitRunner = async (args, cwd) => {
+      calls.push(args)
+      if (args[0] === 'merge-tree' && args[1] === '--write-tree') {
+        return {
+          ok: false,
+          stdout: '',
+          stderr: "error: unknown option `write-tree'\nusage: git merge-tree <base-tree> <branch1> <branch2>",
+        }
+      }
+      if (args[0] === 'merge-tree') {
+        return { ok: true, stdout: '<<<<<<< .our\nbase\n=======\nfeature\n>>>>>>> .their\n', stderr: '' }
+      }
+      return defaultGitRunner(args, cwd)
+    }
+
+    const result = await runMergePreflight(dir, runId, taskId, {
+      git: gitRunner,
+      runVerify: passVerify,
+      emit: () => {},
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.preflight.conflicts).toBe(true)
+    expect(result.preflight.blockers).toContain('conflict')
+    expect(calls.filter((args) => args[0] === 'merge-tree')).toHaveLength(2)
+    expect(git(dir, ['status', '--porcelain']).trim()).toBe('')
+  })
+
+  it('reports a legible git error when neither merge-tree form works', async () => {
+    const gitRunner: GitRunner = async (args, cwd) => {
+      if (args[0] === 'merge-tree' && args[1] === '--write-tree') {
+        return { ok: false, stdout: '', stderr: "error: unknown option `write-tree'" }
+      }
+      if (args[0] === 'merge-tree') {
+        return { ok: false, stdout: '', stderr: 'fatal: bad object HEAD' }
+      }
+      return defaultGitRunner(args, cwd)
+    }
+
+    const result = await runMergePreflight(dir, runId, taskId, {
+      git: gitRunner,
+      runVerify: passVerify,
+      emit: () => {},
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.preflight.blockers).toContain('git-error')
+    expect(result.preflight.detail).toContain('bad object')
   })
 })
 
@@ -389,5 +472,28 @@ describe('execute merge', () => {
       taskId,
     }).map((event) => event.code)
     expect(codes).toContain('merge.writeback.error')
+  })
+
+  it('rolls the target branch back and blocks when the merge command fails', async () => {
+    const before = git(dir, ['rev-parse', 'main']).trim()
+    const gitRunner: GitRunner = async (args, cwd) => {
+      if (args[0] === 'merge' && args[1] === '--squash') {
+        return { ok: false, stdout: '', stderr: 'pre-commit hook rejected the commit' }
+      }
+      return defaultGitRunner(args, cwd)
+    }
+
+    const result = await executeMerge(dir, runId, taskId, mergeInput({ mode: 'squash' }), {
+      git: gitRunner,
+      runVerify: passVerify,
+      emit: () => {},
+    })
+
+    expect(result).toMatchObject({ ok: false, error: 'merge-failed' })
+    expect(git(dir, ['rev-parse', 'main']).trim()).toBe(before)
+    expect(git(dir, ['status', '--porcelain']).trim()).toBe('')
+    expect(snapshotTask()?.lane).toBe('blocked')
+    expect(existsSync(worktreePath())).toBe(true)
+    expect(gitOk(dir, ['rev-parse', '--verify', branch])).toBe(true)
   })
 })

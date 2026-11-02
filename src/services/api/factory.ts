@@ -26,6 +26,7 @@ import type {
   FactoryTakeoverResult,
   FactoryTaskActionResult,
   FactoryTaskStartResult,
+  FactoryTaskTranscriptResult,
   FactoryWorktreeRevealResult,
 } from '@/shared/factory'
 import { createRendererApi, createEventApi } from '@/shared/rendererApi'
@@ -117,6 +118,7 @@ const invokeApi = createRendererApi(
     runResume: () => failedControl,
     configSave: () => failedConfigSave,
     taskEvents: () => [],
+    taskTranscript: (): FactoryTaskTranscriptResult => ({ ok: false, error: 'no-session' }),
     worktreeReveal: () => failedReveal,
   },
 )

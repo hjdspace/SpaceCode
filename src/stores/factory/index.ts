@@ -48,6 +48,7 @@ import type {
   FactoryTaskRetryInput,
   FactoryTaskStartInput,
   FactoryTaskStartResult,
+  FactoryTaskTranscriptResult,
   FactoryTakeoverResult,
   FactoryReturnResult,
 } from '@/shared/factory'
@@ -120,6 +121,12 @@ function toPlain<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+/** 登录轮询间隔：`gh auth status` 单次可能耗时数秒，间隔不能小于它。 */
+const GH_LOGIN_POLL_INTERVAL_MS = 3000
+/** 授权流程（用户在浏览器里操作）的最长存活时间。 */
+const GH_LOGIN_POLL_TIMEOUT_MS = 5 * 60_000
+const EVENT_CACHE_LIMIT = 500
+
 export const useFactoryStore = defineStore('factory', () => {
   const loading = ref(false)
   const loaded = ref(false)
@@ -158,7 +165,12 @@ export const useFactoryStore = defineStore('factory', () => {
   const wizardToken = ref('')
   const ghChecking = ref(false)
   const ghLogin = ref<{ running: boolean; code?: string; url?: string; error?: string }>({ running: false })
-  let ghLoginPoll: ReturnType<typeof setInterval> | null = null
+  /** 下一次轮询的定时器；串行链上只有一枚。 */
+  let ghLoginPoll: ReturnType<typeof setTimeout> | null = null
+  /** 每次启动/停止递增：旧的轮询链看到序号变了就自行退出。 */
+  let ghLoginPollEpoch = 0
+  /** 正在飞的登录态探测：并发调用共享同一次 `gh auth status`。 */
+  let ghAuthCheck: Promise<boolean> | null = null
 
   // 看板：本地待办 + 当前运行投影 + 检查器选中
   const backlog = ref<FactoryBacklogItem[]>([])
@@ -225,6 +237,14 @@ export const useFactoryStore = defineStore('factory', () => {
   /** 交回时重跑验证没过：面板保持打开并说明原因，下一次打开面板或接管别的任务时清掉。 */
   const takeoverVerifyFailed = ref(false)
 
+  // 观察视图：只读镜像当前阶段会话，后台回合照常推进
+  const watchTaskId = ref<string | null>(null)
+  const watchTranscript = ref<FactoryTaskTranscriptResult | null>(null)
+  const watchLoading = ref(false)
+  const watchError = ref<string | null>(null)
+  /** 观察面板的请求令牌：切任务/关面板之后，迟到的旧转录不能覆盖当前内容。 */
+  let watchRequest = 0
+
   // 审查阶段：批准/要求修改/修复与意见处理各自的重入保护
   const approving = ref(false)
   const fixing = ref(false)
@@ -264,6 +284,25 @@ export const useFactoryStore = defineStore('factory', () => {
     const taskId = selectedId.value
     if (!runId || !taskId) return []
     return eventsByTask.value[eventKey(runId, taskId)] ?? []
+  })
+
+  const watchTask = computed(() => findTask(tasks.value, watchTaskId.value))
+
+  /**
+   * 卡片当前动作行：取该任务已缓存事件的最后一条。缓存按运行隔离，
+   * 所以这里只收当前运行的前缀，避免同一条待办在旧运行里的事件串到新卡片上。
+   */
+  const lastEventByTask = computed<Record<string, FactoryEvent>>(() => {
+    const runId = run.value?.id
+    if (!runId) return {}
+    const prefix = `${runId}:`
+    const result: Record<string, FactoryEvent> = {}
+    for (const [key, list] of Object.entries(eventsByTask.value)) {
+      if (!key.startsWith(prefix)) continue
+      const last = list[list.length - 1]
+      if (last) result[key.slice(prefix.length)] = last
+    }
+    return result
   })
   const hasCommits = computed(() => (selectedTask.value?.commits?.length ?? 0) > 0)
   /** 批准按钮的资格：测试通过 + 审查通过 + 无未决阻塞意见。 */
@@ -342,6 +381,10 @@ export const useFactoryStore = defineStore('factory', () => {
     preflight.value = null
     preflightError.value = null
     ghLogin.value = { running: false }
+    // gh 登录态必须在打开这一刻重新确认。context 是页面挂载时的快照，
+    // 期间在终端登录/退出、token 失效都反映不过来，界面会一直停在旧状态，
+    // 只能靠手动刷新才发现。
+    if (context.value) void checkGhAuth()
     // 上次的草稿还在（关页签回看过板）就接着用它；全新会话才回填磁盘上的配置。
     if (!options.fresh && Object.keys(draft.value).length > 0) {
       wizardOpen.value = true
@@ -490,31 +533,53 @@ export const useFactoryStore = defineStore('factory', () => {
     return true
   }
 
+  /**
+   * 探测 `gh` 登录态。并发调用共享同一次 IPC：`gh auth status` 超时时若每次都
+   * 新起一个，几秒内的轮询会堆出多个 gh 子进程，内存随之放大。
+   */
+  function startGhAuthCheck(): Promise<boolean> {
+    return Promise.resolve()
+      .then(() => api.factory.checkGhAuth())
+      .then((result: FactoryGithubAuthResult) => {
+        // 只在登录态真的变了才替换 context：每次无脑换对象会让下游依赖
+        // context 的 watch/computed 每轮都重算。
+        if (context.value && context.value.ghLoggedIn !== result.ok) {
+          context.value = { ...context.value, ghLoggedIn: result.ok }
+        }
+        if (result.ok) {
+          stopGhLoginPolling()
+          ghLogin.value = { running: false }
+        }
+        return result.ok
+      })
+      .catch(() => false)
+      .finally(() => {
+        ghAuthCheck = null
+      })
+  }
+
   async function checkGhAuth(options: { quiet?: boolean } = {}): Promise<boolean> {
     if (!options.quiet) ghChecking.value = true
     try {
-      const result = await api.factory.checkGhAuth()
-      if (context.value) context.value = { ...context.value, ghLoggedIn: result.ok }
-      if (result.ok) {
-        stopGhLoginPolling()
-        ghLogin.value = { running: false }
-      }
-      return result.ok
-    } catch {
-      return false
+      ghAuthCheck ??= startGhAuthCheck()
+      return await ghAuthCheck
     } finally {
       if (!options.quiet) ghChecking.value = false
     }
   }
 
   function stopGhLoginPolling(): void {
-    if (ghLoginPoll) clearInterval(ghLoginPoll)
+    ghLoginPollEpoch++
+    if (ghLoginPoll) clearTimeout(ghLoginPoll)
     ghLoginPoll = null
   }
 
   /**
    * 发起 `gh auth login --web`：主进程返回浏览器里要输入的一次性代码，
-   * 之后每 3 秒检查一次登录状态，授权完成即收尾。
+   * 之后轮询登录状态，授权完成即收尾。
+   *
+   * 轮询用「上一次返回后才排下一次」的串行链，而不是固定间隔的 setInterval：
+   * `gh auth status` 单次可达 10s，固定间隔会在它还没返回时再叠一次，进程越堆越多。
    */
   async function startGhLogin(): Promise<void> {
     if (ghLogin.value.running) return
@@ -536,15 +601,21 @@ export const useFactoryStore = defineStore('factory', () => {
       ...(result.url ? { url: result.url } : {}),
     }
     stopGhLoginPolling()
+    const epoch = ghLoginPollEpoch
     const startedAt = Date.now()
-    ghLoginPoll = setInterval(async () => {
-      if (Date.now() - startedAt > 5 * 60_000) {
+    const tick = async (): Promise<void> => {
+      if (epoch !== ghLoginPollEpoch) return
+      if (Date.now() - startedAt > GH_LOGIN_POLL_TIMEOUT_MS) {
         stopGhLoginPolling()
         ghLogin.value = { running: false, error: 'timeout' }
         return
       }
       if (await checkGhAuth({ quiet: true })) return
-    }, 3000)
+      // 探测期间可能已经关闭向导/重新发起登录，过期的链不再续命。
+      if (epoch !== ghLoginPollEpoch) return
+      ghLoginPoll = setTimeout(() => void tick(), GH_LOGIN_POLL_INTERVAL_MS)
+    }
+    ghLoginPoll = setTimeout(() => void tick(), GH_LOGIN_POLL_INTERVAL_MS)
   }
 
   async function loadBacklog(root: string): Promise<void> {
@@ -750,6 +821,11 @@ export const useFactoryStore = defineStore('factory', () => {
     mergeError.value = null
     takeoverPanelTaskId.value = null
     takeoverVerifyFailed.value = false
+    watchTaskId.value = null
+    watchTranscript.value = null
+    watchLoading.value = false
+    watchError.value = null
+    watchRequest += 1
   }
 
   function applySnapshot(snapshot: FactoryRunSnapshot | null): void {
@@ -805,6 +881,7 @@ export const useFactoryStore = defineStore('factory', () => {
         // 列表只刷新摘要；当前运行的快照由 IPC 推送与动作回包保持最新。
         run.value = { ...run.value, ...activeSummary }
         syncRunTab(run.value)
+        await warmActiveTaskEvents(root, run.value.id, tasks.value)
         return
       }
       await selectRun(root, keep)
@@ -831,11 +908,23 @@ export const useFactoryStore = defineStore('factory', () => {
       applySnapshot(snapshot)
       const taskId = selectedId.value
       if (taskId) await loadEvents(root, snapshot.run.id, taskId)
+      await warmActiveTaskEvents(root, snapshot.run.id, snapshot.tasks)
     } catch {
       if (token === runRequest) runError.value = 'load-failed'
     } finally {
       if (token === runRequest) runLoading.value = false
     }
+  }
+
+  function releaseRunEvents(runId: string): void {
+    const prefix = `${runId}:`
+    eventsByTask.value = Object.fromEntries(
+      Object.entries(eventsByTask.value).filter(([key]) => !key.startsWith(prefix)),
+    )
+    for (const key of seenEventSeqs) {
+      if (key.startsWith(prefix)) seenEventSeqs.delete(key)
+    }
+    if (run.value?.id === runId) runEvents.value = []
   }
 
   /** 关闭页签只从视图移除；当前页签被关时切到相邻页签，全关则回到空态。 */
@@ -844,6 +933,7 @@ export const useFactoryStore = defineStore('factory', () => {
     if (index < 0) return
     const remaining = runTabs.value.filter((item) => item.id !== runId)
     runTabs.value = remaining
+    releaseRunEvents(runId)
     if (run.value?.id !== runId) return
 
     runRequest += 1
@@ -1031,12 +1121,20 @@ export const useFactoryStore = defineStore('factory', () => {
       if (event.taskId) {
         const cacheKey = eventKey(event.runId, event.taskId)
         const list = eventsByTask.value[cacheKey] ?? []
+        const next = [...list, event].sort((a, b) => a.seq - b.seq)
+        for (const evicted of next.slice(0, -EVENT_CACHE_LIMIT)) {
+          seenEventSeqs.delete(`${evicted.runId}:${evicted.seq}`)
+        }
         eventsByTask.value = {
           ...eventsByTask.value,
-          [cacheKey]: [...list, event].sort((a, b) => a.seq - b.seq),
+          [cacheKey]: next.slice(-EVENT_CACHE_LIMIT),
         }
       } else if (event.runId === run.value?.id) {
-        runEvents.value = [...runEvents.value, event].sort((a, b) => a.seq - b.seq)
+        const next = [...runEvents.value, event].sort((a, b) => a.seq - b.seq)
+        for (const evicted of next.slice(0, -EVENT_CACHE_LIMIT)) {
+          seenEventSeqs.delete(`${evicted.runId}:${evicted.seq}`)
+        }
+        runEvents.value = next.slice(-EVENT_CACHE_LIMIT)
       }
     }
 
@@ -1056,13 +1154,40 @@ export const useFactoryStore = defineStore('factory', () => {
     eventsError.value = null
     try {
       const events = await api.factory.taskEvents(root, runId, taskId)
-      eventsByTask.value = { ...eventsByTask.value, [eventKey(runId, taskId)]: events }
-      for (const event of events) seenEventSeqs.add(`${event.runId}:${event.seq}`)
+      const cacheKey = eventKey(runId, taskId)
+      for (const previous of eventsByTask.value[cacheKey] ?? []) {
+        seenEventSeqs.delete(`${previous.runId}:${previous.seq}`)
+      }
+      const retained = [...events].sort((a, b) => a.seq - b.seq).slice(-EVENT_CACHE_LIMIT)
+      eventsByTask.value = { ...eventsByTask.value, [cacheKey]: retained }
+      for (const event of retained) seenEventSeqs.add(`${event.runId}:${event.seq}`)
     } catch {
       eventsError.value = 'load-failed'
     } finally {
       eventsLoading.value = false
     }
+  }
+
+  /**
+   * 卡片动作行要的是事件尾部。只为跑动中的任务预热，且不碰 eventsLoading/
+   * eventsError —— 那是检查器的错误面，预热失败不该在看板上报错。
+   */
+  async function warmActiveTaskEvents(root: string, runId: string, list: FactoryTask[]): Promise<void> {
+    const active = list.filter((task) => task.lane === 'implementing' || task.lane === 'reviewing')
+    await Promise.all(
+      active.map(async (task) => {
+        const cacheKey = eventKey(runId, task.id)
+        if (eventsByTask.value[cacheKey]?.length) return
+        try {
+          const events = await api.factory.taskEvents(root, runId, task.id)
+          const retained = [...events].sort((a, b) => a.seq - b.seq).slice(-EVENT_CACHE_LIMIT)
+          eventsByTask.value = { ...eventsByTask.value, [cacheKey]: retained }
+          for (const event of retained) seenEventSeqs.add(`${event.runId}:${event.seq}`)
+        } catch {
+          // 预热失败只意味着卡片少一行当前动作，检查器仍会按需加载并报错。
+        }
+      }),
+    )
   }
 
   async function startTask(
@@ -1261,6 +1386,48 @@ export const useFactoryStore = defineStore('factory', () => {
   /** 关闭面板不等于交回：任务的接管状态不受影响。 */
   function closeTakeoverPanel(): void {
     takeoverPanelTaskId.value = null
+  }
+
+  /** 打开只读观察：不暂停后台回合，也不影响接管/交回状态。 */
+  function openWatch(taskId: string): void {
+    if (watchTaskId.value !== taskId) {
+      watchTranscript.value = null
+      watchError.value = null
+    }
+    watchTaskId.value = taskId
+    // 第一次打开就先亮「读取中」，否则面板会先闪一下「还没有内容」。
+    watchLoading.value = watchTranscript.value === null
+    watchRequest += 1
+  }
+
+  function closeWatch(): void {
+    watchTaskId.value = null
+    watchTranscript.value = null
+    watchError.value = null
+    watchLoading.value = false
+    watchRequest += 1
+  }
+
+  /**
+   * 拉一次任务转录。轮询与手动刷新共用；切换任务或关闭面板后，
+   * 迟到的旧结果按令牌丢弃，不能把别的会话内容显示在当前面板里。
+   */
+  async function refreshWatch(root: string): Promise<void> {
+    const taskId = watchTaskId.value
+    const runId = run.value?.id
+    if (!root || !runId || !taskId) return
+    const token = ++watchRequest
+    if (!watchTranscript.value?.ok) watchLoading.value = true
+    try {
+      const result = await api.factory.taskTranscript(root, runId, taskId)
+      if (token !== watchRequest || watchTaskId.value !== taskId) return
+      if (result.ok) watchTranscript.value = result
+      watchError.value = result.ok ? null : result.error
+    } catch {
+      if (token === watchRequest) watchError.value = 'read-failed'
+    } finally {
+      if (token === watchRequest) watchLoading.value = false
+    }
   }
 
   async function retryTask(
@@ -1505,6 +1672,11 @@ export const useFactoryStore = defineStore('factory', () => {
     retrying.value = false
     takeoverPanelTaskId.value = null
     takeoverVerifyFailed.value = false
+    watchTaskId.value = null
+    watchTranscript.value = null
+    watchLoading.value = false
+    watchError.value = null
+    watchRequest += 1
     approving.value = false
     fixing.value = false
     updatingComment.value = false
@@ -1594,6 +1766,10 @@ export const useFactoryStore = defineStore('factory', () => {
     retrying,
     takeoverPanelTask,
     takeoverVerifyFailed,
+    watchTask,
+    watchTranscript,
+    watchLoading,
+    watchError,
     approving,
     fixing,
     updatingComment,
@@ -1610,6 +1786,7 @@ export const useFactoryStore = defineStore('factory', () => {
     canConfirmMerge,
     mergeTarget,
     selectedEvents,
+    lastEventByTask,
     hasCommits,
     selectedTask,
     selectedEligibility,
@@ -1677,6 +1854,9 @@ export const useFactoryStore = defineStore('factory', () => {
     returnTask,
     openTakeoverPanel,
     closeTakeoverPanel,
+    openWatch,
+    closeWatch,
+    refreshWatch,
     retryTask,
     updateComment,
     acceptComment,

@@ -52,6 +52,8 @@ export default {
     status: {
       dangerWarning: '⚠️ 需要确认',
       requestPending: '等待审批...',
+      // 观察面板只读镜像：审批由主进程流水线按其免打扰策略处理
+      readonlyPending: '等待处理（只读观察）',
     },
     errors: {
       allowFailed: '批准权限失败',

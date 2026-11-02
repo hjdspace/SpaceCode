@@ -12,6 +12,12 @@ import {
   type VerifyExecutor,
 } from '../verify'
 
+const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }))
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>()
+  return { ...actual, execFile: execFileMock }
+})
+
 function executor(result: {
   code: number | null
   stdout?: string
@@ -135,5 +141,29 @@ describe('runVerification', () => {
     const result = await runVerification({ command: 'npm test', cwd: '/repo' }, { exec })
     expect(result.status).toBe('fail')
     expect(result.detail).toContain('spawn npm ENOENT')
+  })
+
+  it('runs Windows package managers through a safely quoted shell command line', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      callback(null, 'all good\n', '')
+    })
+    try {
+      const result = await runVerification({
+        command: 'npm run test:changed -- "src/some file.test.ts"',
+        cwd: 'D:/repo',
+      })
+
+      expect(result.status).toBe('pass')
+      expect(execFileMock).toHaveBeenCalledWith(
+        'npm.cmd run test:changed -- "src/some file.test.ts"',
+        [],
+        expect.objectContaining({ shell: true }),
+        expect.any(Function),
+      )
+    } finally {
+      platform.mockRestore()
+      execFileMock.mockReset()
+    }
   })
 })

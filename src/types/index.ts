@@ -308,6 +308,12 @@ export interface Session {
   agentUnapplied?: string
   /** 侧边任务会话：不落盘、不出现在会话列表，关闭应用即消失。 */
   ephemeral?: boolean
+  /**
+   * 流水线观察面板挂进来的只读镜像会话：引擎仍由主进程流水线驱动，
+   * 这里只消费同一会话的事件做流式渲染。不落盘、不可交互，
+   * 也不得触发桌面通知或渲染层自动重试。
+   */
+  observedSession?: boolean
 }
 
 export interface SessionStartupFingerprint {

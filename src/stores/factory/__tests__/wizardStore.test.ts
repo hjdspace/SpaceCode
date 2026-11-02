@@ -154,6 +154,51 @@ describe('wizard store IPC boundary', () => {
       vi.useRealTimers()
     }
   })
+
+  /**
+   * 登录轮询每 3 秒跑一次。登录态没变就不许换 context 对象：换成新对象会让
+   * 向导里依赖 context 的 watch/computed 每轮重算，内存与渲染压力随轮询累积。
+   */
+  it('keeps the same context object while the gh login state is unchanged', async () => {
+    const store = useFactoryStore()
+    store.context = setupContext
+    const snapshot = store.context
+
+    await store.checkGhAuth()
+    await store.checkGhAuth()
+
+    expect(store.context).toBe(snapshot)
+    expect(factoryApi.checkGhAuth).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * `gh auth status` 单次可达 10s。固定间隔轮询会在它还没返回时再叠一次，
+   * 堆出多个 gh 子进程；串行链要求上一次返回后才排下一次。
+   */
+  it('does not stack gh auth checks while one poll is still pending', async () => {
+    vi.useFakeTimers()
+    const store = useFactoryStore()
+    store.context = setupContext
+    let resolveCheck!: (value: { ok: boolean; reason: 'gh-not-logged-in' }) => void
+    factoryApi.checkGhAuth.mockImplementation(
+      () => new Promise((resolve) => { resolveCheck = resolve }),
+    )
+    try {
+      await store.startGhLogin()
+      await vi.advanceTimersByTimeAsync(3000)
+      // 第一次探测还挂着：再走两个轮询周期也不该发第二次 IPC。
+      await vi.advanceTimersByTimeAsync(3000)
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(factoryApi.checkGhAuth).toHaveBeenCalledTimes(1)
+
+      resolveCheck({ ok: false, reason: 'gh-not-logged-in' })
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(factoryApi.checkGhAuth).toHaveBeenCalledTimes(2)
+    } finally {
+      store.closeWizard()
+      vi.useRealTimers()
+    }
+  })
 })
 
 /** 一份各步都校验通过的草稿，供步骤导航与会话用例共用。 */
@@ -254,6 +299,21 @@ describe('wizard session', () => {
     expect(store.wizardOpen).toBe(true)
     expect(store.step).toBe(2)
     expect(store.draft.tracker).toMatchObject({ repo: 'mine/keep', label: 'mine' })
+  })
+
+  it('re-checks gh login state on every wizard open instead of trusting the mount-time snapshot', async () => {
+    const store = useFactoryStore()
+    store.context = { ...setupContext, ghLoggedIn: true }
+    store.draft = filledDraft
+    store.step = 3
+    store.closeWizard()
+    factoryApi.checkGhAuth.mockResolvedValue({ ok: false, reason: 'gh-not-logged-in' })
+
+    await store.openWizard('/repo')
+    await vi.waitFor(() => expect(store.context?.ghLoggedIn).toBe(false))
+    expect(factoryApi.checkGhAuth).toHaveBeenCalledTimes(1)
+    // 只补登录态，不重新拉整份上下文。
+    expect(factoryApi.context).not.toHaveBeenCalled()
   })
 
   it('re-runs preflight when the session resumes on the preflight step', async () => {

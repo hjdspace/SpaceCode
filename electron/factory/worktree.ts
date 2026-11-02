@@ -6,7 +6,7 @@
  * 之前先做白名单与符号链接校验，绝不把用户输入直接拼进 shell。
  */
 import { execFile } from 'child_process'
-import { existsSync, lstatSync } from 'fs'
+import { existsSync, lstatSync, renameSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import {
   FACTORY_SANDBOX_WORKTREE_ROOT,
@@ -56,6 +56,8 @@ export interface WorktreeDeps {
   git?: GitRunner
   pathExists?: (path: string) => boolean
   isSymlink?: (path: string) => boolean
+  rename?: (from: string, to: string) => void
+  now?: () => Date
   platform?: NodeJS.Platform
 }
 
@@ -244,6 +246,30 @@ export type PrepareWorktreeResult =
       detail?: string
     }
 
+/** 分支还在、但已没有工作树占用：上一次运行的目录被清掉后留下的残留。 */
+function isLeftoverBranch(stderr: string): boolean {
+  return /a branch named .* already exists/i.test(stderr)
+}
+
+/**
+ * 分支名由任务唯一确定，`-b` 撞名不代表分支被别的任务占用。
+ * 分支已被基础分支包含 → 没有独有提交，重建一条干净的，避免从旧提交继续；
+ * 否则检出原分支，保留上次未合并的进度。
+ */
+async function reattachBranch(
+  input: PrepareWorktreeInput,
+  absolute: string,
+  git: GitRunner,
+): Promise<GitExecResult> {
+  const branchRef = `refs/heads/${input.branch}`
+  const contained = await git(['merge-base', '--is-ancestor', branchRef, input.baseBranch], input.repoRoot)
+  if (!contained.ok) return git(['worktree', 'add', absolute, input.branch], input.repoRoot)
+
+  const deleted = await git(['branch', '-D', input.branch], input.repoRoot)
+  if (!deleted.ok) return deleted
+  return git(['worktree', 'add', '-b', input.branch, absolute, input.baseBranch], input.repoRoot)
+}
+
 function samePath(a: string, b: string, platform: NodeJS.Platform): boolean {
   const left = resolve(a)
   const right = resolve(b)
@@ -270,6 +296,8 @@ export async function prepareWorktree(
   const platform = deps.platform ?? process.platform
   const git = deps.git ?? defaultGit
   const pathExists = deps.pathExists ?? existsSync
+  const rename = deps.rename ?? renameSync
+  const now = deps.now ?? (() => new Date())
 
   const pathResult = resolveWorktreePath(input.repoRoot, input.taskId, deps)
   if (!pathResult.ok) return { ok: false, error: pathResult.error }
@@ -281,16 +309,25 @@ export async function prepareWorktree(
 
   const existingAtPath = entries.find((entry) => samePath(entry.path, absolute, platform))
   if (pathExists(absolute)) {
-    if (!existingAtPath) return { ok: false, error: 'worktree-mismatch', detail: relative }
-    if (existingAtPath.branch !== `refs/heads/${input.branch}`) {
-      return {
-        ok: false,
-        error: 'worktree-mismatch',
-        detail: `${relative} @ ${existingAtPath.branch ?? 'detached'}`,
+    if (!existingAtPath) {
+      // 目录在、Git 却不认它是工作树：这是沙箱路径里的残留（例如工厂被当成项目
+      // 在旧工作树里初始化过一次）。挪到旁边保留文件，再重建，别让任务永久卡死。
+      try {
+        rename(absolute, `${absolute}.stale-${now().toISOString().replace(/[:.]/g, '-')}`)
+      } catch {
+        return { ok: false, error: 'worktree-mismatch', detail: relative }
       }
+    } else {
+      if (existingAtPath.branch !== `refs/heads/${input.branch}`) {
+        return {
+          ok: false,
+          error: 'worktree-mismatch',
+          detail: `${relative} @ ${existingAtPath.branch ?? 'detached'}`,
+        }
+      }
+      if (existingAtPath.locked) return { ok: false, error: 'worktree-busy', detail: relative }
+      return { ok: true, worktree: { absolute, relative, branch: input.branch, reused: true } }
     }
-    if (existingAtPath.locked) return { ok: false, error: 'worktree-busy', detail: relative }
-    return { ok: true, worktree: { absolute, relative, branch: input.branch, reused: true } }
   }
 
   if (existingAtPath) {
@@ -301,10 +338,11 @@ export async function prepareWorktree(
   const occupied = entries.find((entry) => entry.branch === `refs/heads/${input.branch}`)
   if (occupied) return { ok: false, error: 'branch-in-use', detail: occupied.path }
 
-  const add = await git(
-    ['worktree', 'add', '-b', input.branch, absolute, input.baseBranch],
-    input.repoRoot,
-  )
+  const addBranch = (): Promise<GitExecResult> =>
+    git(['worktree', 'add', '-b', input.branch, absolute, input.baseBranch], input.repoRoot)
+
+  let add = await addBranch()
+  if (!add.ok && isLeftoverBranch(add.stderr)) add = await reattachBranch(input, absolute, git)
   if (!add.ok) return failure(add, platform)
 
   return { ok: true, worktree: { absolute, relative, branch: input.branch, reused: false } }

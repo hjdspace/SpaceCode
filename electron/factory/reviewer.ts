@@ -9,7 +9,8 @@ import type { FactoryPermissionMode, FactoryReview, FactoryTask } from '@/shared
 import { patchTask, transitionTask } from './runtime'
 import { projectAgentEvent, type FactoryEventInput } from './events'
 import { mergeReviewComments, parseReviewOutput, REVIEW_RETRY_PROMPT } from './reviewParse'
-import type { AgentPort, AgentRunOptions } from './agentEngineGateway'
+import { runTurnWithRetry } from './turnRetry'
+import type { AgentPort, AgentRunOptions, AgentTurn } from './agentEngineGateway'
 
 export interface ReviewerDeps {
   agent: AgentPort
@@ -17,6 +18,11 @@ export interface ReviewerDeps {
   appendLog?: (taskId: string, text: string) => void
   now?: () => Date
   parse?: typeof parseReviewOutput
+  /** 测试注入：重试退避等待与抖动源；生产走真实 setTimeout / Math.random。 */
+  retry?: {
+    wait?: (ms: number, signal: AbortSignal) => Promise<void>
+    random?: () => number
+  }
 }
 
 export interface ReviewInput {
@@ -29,11 +35,13 @@ export interface ReviewInput {
   model?: string
   permissionMode: FactoryPermissionMode
   agent?: string
+  /** 单个审查回合的最长等待；超时后停掉会话并转阻塞。 */
+  timeoutMs?: number
   signal: AbortSignal
   deps: ReviewerDeps
 }
 
-export type ReviewOutcome = 'approved' | 'needs-changes' | 'parse-failed' | 'error' | 'stopped'
+export type ReviewOutcome = 'approved' | 'needs-changes' | 'parse-failed' | 'error' | 'timeout' | 'stopped'
 
 export interface ReviewResult {
   outcome: ReviewOutcome
@@ -96,19 +104,67 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
   let review: FactoryReview | undefined
   let message: string | undefined
 
+  /** 跑一个回合（含可恢复错误的自动重试）；超时返回 null，底层回合随后由 stop 收口。 */
+  const runTurn = async (prompt: string): Promise<AgentTurn | null> => {
+    const retryAbort = new AbortController()
+    const relayAbort = (): void => retryAbort.abort()
+    input.signal.addEventListener('abort', relayAbort, { once: true })
+    const attempt = runTurnWithRetry({
+      run: () => deps.agent.run(input.sessionId, prompt, options),
+      signal: retryAbort.signal,
+      onRetry: ({ attempt: retryAttempt, max, delayMs }) => emit({
+        taskId: task.id,
+        stage: 'review',
+        code: 'task.agent.retry',
+        level: 'warn',
+        params: { attempt: retryAttempt, max, delay: Math.max(1, Math.round(delayMs / 1000)) },
+      }),
+      onRecovered: (attempts) => emit({
+        taskId: task.id,
+        stage: 'review',
+        code: 'task.agent.recovered',
+        level: 'ok',
+        params: { attempt: attempts },
+      }),
+      ...(deps.retry?.wait ? { wait: deps.retry.wait } : {}),
+      ...(deps.retry?.random ? { random: deps.retry.random } : {}),
+    })
+    void attempt.catch(() => {})
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      if (input.timeoutMs === undefined) return (await attempt).turn
+      const timeout = new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          // 超时即取消重试：否则退避等待里还会继续往后跑。
+          retryAbort.abort()
+          resolve(null)
+        }, input.timeoutMs)
+      })
+      const raced = await Promise.race([attempt, timeout])
+      return raced === null ? null : raced.turn
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      input.signal.removeEventListener('abort', relayAbort)
+    }
+  }
+
   try {
     if (aborted) {
       outcome = 'stopped'
     } else {
-      let reply = await deps.agent.run(input.sessionId, input.prompt, options)
+      const reply = await runTurn(input.prompt)
 
       if (aborted) {
         outcome = 'stopped'
+      } else if (reply === null) {
+        outcome = 'timeout'
+        message = 'Review session timed out.'
       } else if (reply.isError) {
         outcome = 'error'
         message = reply.text
       } else {
-        let parsed = parse(reply.text)
+        let text = reply.text
+        let parsed = parse(text)
 
         if (!parsed.ok) {
           emit({
@@ -118,14 +174,18 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
             level: 'warn',
             ...(parsed.detail ? { params: { detail: parsed.detail } } : {}),
           })
-          reply = await deps.agent.run(input.sessionId, REVIEW_RETRY_PROMPT, options)
+          const retry = await runTurn(REVIEW_RETRY_PROMPT)
           if (aborted) {
             outcome = 'stopped'
-          } else if (reply.isError) {
+          } else if (retry === null) {
+            outcome = 'timeout'
+            message = 'Review session timed out.'
+          } else if (retry.isError) {
             outcome = 'error'
-            message = reply.text
+            message = retry.text
           } else {
-            parsed = parse(reply.text)
+            text = retry.text
+            parsed = parse(text)
           }
         }
 
@@ -138,7 +198,7 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
               level: 'warn',
               ...(parsed.detail ? { params: { detail: parsed.detail } } : {}),
             })
-            review = { verdict: 'needs_changes', summary: '', comments: [], at, raw: reply.text }
+            review = { verdict: 'needs_changes', summary: '', comments: [], at, raw: text }
             outcome = 'parse-failed'
           } else {
             const comments = mergeReviewComments(
@@ -174,9 +234,11 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
         ? 'review.needs_changes'
         : finalOutcome === 'parse-failed'
           ? 'review.parse_failed'
-          : finalOutcome === 'stopped'
-            ? 'stopped'
-            : 'review.error'
+          : finalOutcome === 'timeout'
+            ? 'review.timeout'
+            : finalOutcome === 'stopped'
+              ? 'stopped'
+              : 'review.error'
 
   if (input.signal.reason !== 'takeover') {
     transitionTask(
@@ -202,6 +264,8 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
       level: 'error',
       ...(message ? { params: { message } } : {}),
     })
+  } else if (finalOutcome === 'timeout') {
+    emit({ taskId: task.id, stage: 'review', code: 'review.timeout', level: 'warn' })
   } else if (finalOutcome === 'stopped') {
     emit({ taskId: task.id, stage: 'review', code: 'task.stopped', level: 'warn' })
   }

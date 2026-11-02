@@ -148,9 +148,14 @@ export function createTurnStateMachine(opts: TurnStateMachineOptions): TurnState
     // 新建会话尚未有任何消息时，不因 CLI 初始化事件自动创建 turn，
     // 避免会话在用户发送消息前就显示转圈。
     // 后台 agent 自动续跑仅对已有消息的会话生效，不影响该路径。
+    // 观察会话例外：它的消息由转录快照灌入，可能挂载时还没内容，
+    // 但引擎已经在同一会话上跑 —— 丢掉首个事件会让输出从此接不上。
     const session = sink.get(sessionId)
-    if (!session || session.messages.length === 0) {
+    if (!session) {
       // 返回一个已结算的空 turn，使调用方因 ts.settled 提前返回
+      return createSettledTurn()
+    }
+    if (session.messages.length === 0 && !session.observedSession) {
       return createSettledTurn()
     }
 

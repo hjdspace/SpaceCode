@@ -431,6 +431,16 @@ describe('SessionProcess exit cleanup', () => {  it('cancels an open permission 
     expect(errors[0].message).toBe('EACCES')
   })
 
+  it('keeps only the latest 8 KiB of stderr for exit diagnostics', () => {
+    proc = wired()
+
+    proc._child.stderr.emit('data', Buffer.from('x'.repeat(9000), 'utf8'))
+    proc._child.stderr.emit('data', Buffer.from('latest-error', 'utf8'))
+
+    expect(proc.stderrBuffer).toHaveLength(8192)
+    expect(proc.stderrBuffer.endsWith('latest-error')).toBe(true)
+  })
+
   it('rejects a pending setModel control request when the process dies before answering', async () => {
     proc = wired()
 

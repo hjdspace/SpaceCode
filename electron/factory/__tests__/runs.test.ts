@@ -10,6 +10,7 @@ import { tmpdir } from 'os'
 import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'
 import { createBacklogItem } from '../backlog'
 import { createFactoryRun, listRecentRuns, readLatestRun, readRunSnapshot, runDir } from '../runs'
+import { readEvents } from '../events'
 import type { FactoryBacklogItem } from '@/shared/factory'
 
 let dir: string
@@ -197,6 +198,21 @@ describe('createFactoryRun', () => {
     if (!result.ok) throw new Error('unexpected failure')
     expect(result.snapshot.run.maxConcurrency).toBe(4)
     expect(result.snapshot.tasks[0]).toMatchObject({ model: '', maxIterations: 5 })
+  })
+
+  it('writes a run.created event into the run event log', () => {
+    const backlog = seedBacklog(['事件流首条'])
+    const result = createFactoryRun(dir, { taskIds: [backlog[0].id] }, runDeps())
+    if (!result.ok) throw new Error('unexpected failure')
+
+    const events = readEvents(join(runDir(dir, result.snapshot.run.id), 'events.jsonl'))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      runId: result.snapshot.run.id,
+      taskId: null,
+      code: 'run.created',
+      level: 'info',
+    })
   })
 })
 

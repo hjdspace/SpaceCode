@@ -742,6 +742,30 @@ export function useTurnStore(injectedApi?: any) {
       }
     }
 
+    /**
+     * 释放观察镜像的渲染状态：引擎不动（那个会话仍归流水线），
+     * 只清掉本地 turn、加载标记与等待中的授权/对话框，
+     * 避免面板关掉后还留着幽灵状态。
+     */
+    function releaseObservedSession(sessionId: string): void {
+      pendingSendMessages.delete(sessionId)
+      userAbortedSessions.delete(sessionId)
+      loadingSessions.value.set(sessionId, false)
+      streamingContents.value.set(sessionId, '')
+      engineStartingSessions.value.delete(sessionId)
+      engineMcpFailures.value.delete(sessionId)
+      autoRetry.cancelRetry(sessionId)
+      autoRetry.removeRetryState(sessionId)
+      permissionService.removeSession(sessionId)
+      extensionDialogService.clear(sessionId)
+      const ts = turnStates.get(sessionId)
+      if (ts) {
+        ts.settled = true
+        ts.resolve?.()
+        endTurn(sessionId, ts)
+      }
+    }
+
     async function retryLastMessage(): Promise<void> {
       const sid = sessionStore.currentSessionId
       if (!sid) return
@@ -1288,8 +1312,9 @@ export function useTurnStore(injectedApi?: any) {
           permissionService.addPermissionRequest(sid, request)
           // 会话此刻停住等用户处理，立刻通知（不等本轮 result）
           const notifyResult = notifyWaitingForUser(sid, request, {
-            // 旧存档 appearance 无此键 → 视为默认开启（与 UI 默认值一致），仅显式 false 才关闭
-            enabled: () => settingsStore.appearance?.desktopNotifyOnWaiting !== false,
+            // 旧存档 appearance 无此键 → 视为默认开启（与 UI 默认值一致），仅显式 false 才关闭。
+            // 观察会话是只读镜像，用户无法代为授权，通知只会变成噪音。
+            enabled: () => settingsStore.appearance?.desktopNotifyOnWaiting !== false && !sink.get(sid)?.observedSession,
             sessionTitle: () => sessionTitle(sid),
           })
           sessionStore.logger.info('ChatStore', `waiting notification | sessionId=${sid.slice(0, 8)} | tool=${req.toolName} | result=${notifyResult}`)
@@ -1319,8 +1344,9 @@ export function useTurnStore(injectedApi?: any) {
           sessionStore.logger.info('ChatStore', `extension_dialog_request | sessionId=${sid.slice(0, 8)} | dialogId=${request.dialogId.slice(0, 8)} | method=${request.method} | options=${request.options?.length ?? 0}`)
           extensionDialogService.open(sid, { ...request, ...captureDialogAnchor(sid) })
           const notifyResult = notifyExtensionDialogWaiting(sid, request, {
-            // 与工具授权共用同一个开关；旧存档没这个键时按默认开启算
-            enabled: () => settingsStore.appearance?.desktopNotifyOnWaiting !== false,
+            // 与工具授权共用同一个开关；旧存档没这个键时按默认开启算。
+            // 观察会话同样压掉：只读面板答不了 pi 的对话框。
+            enabled: () => settingsStore.appearance?.desktopNotifyOnWaiting !== false && !sink.get(sid)?.observedSession,
             sessionTitle: () => sessionTitle(sid),
           })
           sessionStore.logger.info('ChatStore', `waiting notification | sessionId=${sid.slice(0, 8)} | dialog=${request.dialogId.slice(0, 8)} | result=${notifyResult}`)
@@ -1345,6 +1371,7 @@ export function useTurnStore(injectedApi?: any) {
       pendingPermissions,
       sendMessage,
       abort,
+      releaseObservedSession,
       retryLastMessage,
       sendGoalSteering,
       sendGoalContinuation,

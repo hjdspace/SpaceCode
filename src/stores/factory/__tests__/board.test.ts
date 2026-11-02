@@ -495,17 +495,22 @@ describe('card quick actions', () => {
     expect(kindsOf(task())).toEqual(['start', 'cancel'])
   })
 
-  it('offers takeover on an implementing card', () => {
-    expect(kindsOf(task({ lane: 'implementing', worktree }))).toEqual(['takeover'])
+  it('offers takeover on an implementing card, plus the read-only watch', () => {
+    expect(kindsOf(task({ lane: 'implementing', worktree }))).toEqual(['observe', 'takeover'])
   })
 
   it('swaps takeover for return once the card is taken over', () => {
-    expect(kindsOf(task({ lane: 'implementing', worktree, takeover }))).toEqual(['return'])
-    expect(kindsOf(task({ lane: 'reviewing', worktree, takeover }))).toEqual(['review', 'return'])
+    expect(kindsOf(task({ lane: 'implementing', worktree, takeover }))).toEqual(['observe', 'return'])
+    expect(kindsOf(task({ lane: 'reviewing', worktree, takeover }))).toEqual([
+      'observe',
+      'review',
+      'return',
+    ])
   })
 
   it('offers review and takeover on a reviewing card', () => {
     expect(kindsOf(task({ lane: 'reviewing', stageIdx: 4, worktree }))).toEqual([
+      'observe',
       'review',
       'takeover',
     ])
@@ -521,13 +526,18 @@ describe('card quick actions', () => {
 
   it('offers the agent fix and abandon on a blocked card that owes comments', () => {
     expect(kindsOf(task({ lane: 'blocked', stageIdx: 4, worktree, review: needsChanges }))).toEqual([
+      'observe',
       'fix',
       'cancel',
     ])
   })
 
   it('falls back to retry when the block has nothing to hand the agent', () => {
-    expect(kindsOf(task({ lane: 'blocked', stageIdx: 2, worktree }))).toEqual(['retry', 'cancel'])
+    expect(kindsOf(task({ lane: 'blocked', stageIdx: 2, worktree }))).toEqual([
+      'observe',
+      'retry',
+      'cancel',
+    ])
     expect(kindsOf(task({ lane: 'blocked', stageIdx: 2 }))).toEqual(['cancel'])
   })
 
@@ -540,7 +550,7 @@ describe('card quick actions', () => {
     const queued = cardActions(task())
     const blocked = cardActions(task({ lane: 'blocked', worktree }))
     expect(queued[1].labelKey).toBe('factory.actions.remove')
-    expect(blocked[1].labelKey).toBe('factory.actions.abandon')
+    expect(blocked[blocked.length - 1].labelKey).toBe('factory.actions.abandon')
     expect(cancelLabelKey(task())).toBe('factory.actions.remove')
     expect(cancelLabelKey(task({ lane: 'blocked' }))).toBe('factory.actions.abandon')
   })
@@ -548,7 +558,9 @@ describe('card quick actions', () => {
   it('marks only the forward step of each lane as primary', () => {
     const queued = cardActions(task())
     expect(queued.map((action) => action.variant)).toEqual(['primary', 'danger'])
-    expect(cardActions(task({ lane: 'blocked', worktree }))[0].variant).toBe('primary')
+    const blocked = cardActions(task({ lane: 'blocked', worktree }))
+    expect(blocked.find((action) => action.kind === 'retry')?.variant).toBe('primary')
+    expect(blocked.find((action) => action.kind === 'observe')?.variant).toBe('ghost')
     expect(cardActions(task({ lane: 'mergeable', worktree }))[0].variant).toBe('primary')
   })
 

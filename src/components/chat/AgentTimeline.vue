@@ -124,6 +124,7 @@
                     v-if="event.specialComponent"
                     :key="`card-${getSpecialComponentKey(event)}`"
                     class="tool-group__card"
+                    :inert="props.readonly ? true : undefined"
                   >
                     <component
                       :is="event.specialComponent"
@@ -247,14 +248,16 @@
 
             <!-- Tool call event with special component -->
             <template v-else-if="item.event!.type === 'tool_call' && shouldRenderSpecialComponent(item.event!)">
-              <component
-                :is="item.event!.specialComponent"
-                :key="getSpecialComponentKey(item.event!)"
-                :tool-call="toolOf(item.event!)!"
-                :now="toolNeedsNow(item.event!) ? now : undefined"
-                @submit="handleToolSubmit(toolOf(item.event!)!.id, $event)"
-                @skip="handleToolSkip(toolOf(item.event!)!.id)"
-              />
+              <div :inert="props.readonly ? true : undefined">
+                <component
+                  :is="item.event!.specialComponent"
+                  :key="getSpecialComponentKey(item.event!)"
+                  :tool-call="toolOf(item.event!)!"
+                  :now="toolNeedsNow(item.event!) ? now : undefined"
+                  @submit="handleToolSubmit(toolOf(item.event!)!.id, $event)"
+                  @skip="handleToolSkip(toolOf(item.event!)!.id)"
+                />
+              </div>
               <PermissionRequestCard
                 v-if="!SELF_PERMISSION_TOOL_NAMES.has(toolOf(item.event!)!.name) && getPendingPermission(toolOf(item.event!)!.id)"
                 :message-id="item.event!.messageId!"
@@ -262,6 +265,7 @@
                 :tool-name="getPendingPermission(toolOf(item.event!)!.id)!.toolName"
                 :input="getPendingPermission(toolOf(item.event!)!.id)!.input"
                 :session-id="props.sessionId"
+                :readonly="props.readonly"
               />
             </template>
 
@@ -318,6 +322,7 @@
                   :tool-name="getPendingPermission(toolOf(item.event!)!.id)!.toolName"
                   :input="getPendingPermission(toolOf(item.event!)!.id)!.input"
                   :session-id="props.sessionId"
+                  :readonly="props.readonly"
                 />
               </div>
             </template>
@@ -336,6 +341,7 @@
             <template v-else-if="item.event!.type === 'error' && item.event!.classifiedError">
               <ErrorCard
                 :error="item.event!.classifiedError"
+                :readonly="props.readonly"
                 @retry="handleRetry"
                 @dismiss="handleDismissError"
               />
@@ -343,7 +349,7 @@
 
             <!-- pi 扩展对话框：会话级的一次提问，没有 toolCall 可挂，只能自己成一条 (#54) -->
             <template v-else-if="item.event!.type === 'extension_dialog' && item.event!.dialog">
-              <ExtensionDialogCard :dialog="item.event!.dialog" />
+              <ExtensionDialogCard :dialog="item.event!.dialog" :inert="props.readonly ? true : undefined" />
             </template>
           </div>
         </div>
@@ -481,6 +487,8 @@ const props = defineProps<{
   dialogs?: ExtensionDialog[]
   /** 本条时间线所属会话；嵌入式面板里它不是 currentSessionId。 */
   sessionId?: string
+  /** 只读镜像（观察面板）：授权、错误重试与特殊工具卡的应答入口都不生效。 */
+  readonly?: boolean
 }>()
 
 const expandedEvents = reactive<Record<string, boolean>>({})

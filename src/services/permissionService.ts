@@ -95,6 +95,14 @@ export class PermissionService {
     return this.pendingPermissions.value
   }
 
+  /** 观察镜像被释放时清掉它的待处理授权，别让卡片挂在一个已经没有渲染面的会话上。 */
+  removeSession(sessionId: string): void {
+    if (!this.pendingPermissions.value.has(sessionId)) return
+    const next = new Map(this.pendingPermissions.value)
+    next.delete(sessionId)
+    this.pendingPermissions.value = next
+  }
+
   setPendingPermissions(map: Map<string, Map<string, PermissionRequest>>): void {
     this.pendingPermissions.value = map
   }

@@ -56,7 +56,7 @@
     </div>
 
     <!-- 操作按钮区 -->
-    <div class="card-actions" v-if="status === 'pending'">
+    <div class="card-actions" v-if="status === 'pending' && !readonly">
       <button 
         class="action-btn deny" 
         @click="handleDeny" 
@@ -84,6 +84,12 @@
         <Check :size="16" />
         {{ t('permission.card.actions.allow') }}
       </button>
+    </div>
+
+    <!-- 只读观察：授权由主会话处理，这里只说明卡片为何停住 -->
+    <div class="card-status" v-else-if="status === 'pending'">
+      <Eye :size="16" />
+      <span class="status-text">{{ t('permission.card.status.readonlyPending') }}</span>
     </div>
 
     <!-- 处理状态反馈 -->
@@ -114,7 +120,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { 
-  Check, X, CheckCheck, Loader2, CheckCircle, XCircle,
+  Check, X, CheckCheck, Loader2, CheckCircle, XCircle, Eye,
   FileEdit, Terminal as TerminalIcon, FileText as FileTextIcon, Shield,
   ClipboardCheck
 } from 'lucide-vue-next'
@@ -132,6 +138,8 @@ interface Props {
    * currentSessionId，缺这一层就会把应答送到用户正在看的另一条会话上。
    */
   sessionId?: string
+  /** 只读镜像（观察面板）：不提供允许/拒绝，只说明正在等待授权。 */
+  readonly?: boolean
 }
 
 const props = defineProps<Props>()

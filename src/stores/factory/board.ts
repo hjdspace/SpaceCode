@@ -133,6 +133,17 @@ export function canReturnTask(task: FactoryTask): boolean {
   return isTakenOver(task)
 }
 
+/**
+ * 可以观察：任务已经有（或曾有）后台会话。接管中看的是接管会话本身，
+ * 队列没跑过、已完成且工作树可能已被清理，都不给入口。
+ */
+export function canWatchTask(task: FactoryTask): boolean {
+  if (task.cancelled === true) return false
+  if (task.lane === 'queued' || task.lane === 'done') return false
+  return Boolean(task.worktree) || isTakenOver(task)
+}
+
+
 export type FactoryAttentionKind = 'merge' | 'review'
 
 export interface FactoryAttentionStatus {
@@ -316,6 +327,8 @@ export type FactoryCardActionKind =
   | 'fix'
   | 'retry'
   | 'view'
+  /** 只读观察：看当前阶段会话的转录，不暂停后台推进。 */
+  | 'observe'
 
 export interface FactoryCardAction {
   kind: FactoryCardActionKind
@@ -366,11 +379,17 @@ export function cardActions(task: FactoryTask): FactoryCardAction[] {
   switch (task.lane) {
     case 'queued':
       return [action('start', 'start', 'primary'), cancelAction(task)]
-    case 'implementing':
-      if (canReturnTask(task)) return [action('return', 'return', 'primary')]
-      return canTakeOver(task) ? [action('takeover', 'takeover', 'primary')] : []
+    case 'implementing': {
+      const items: FactoryCardAction[] = []
+      if (canWatchTask(task)) items.push(action('observe', 'observe', 'ghost'))
+      if (canReturnTask(task)) items.push(action('return', 'return', 'primary'))
+      else if (canTakeOver(task)) items.push(action('takeover', 'takeover', 'primary'))
+      return items
+    }
     case 'reviewing': {
-      const items = [action('review', 'review', 'primary')]
+      const items = canWatchTask(task)
+        ? [action('observe', 'observe', 'ghost'), action('review', 'review', 'primary')]
+        : [action('review', 'review', 'primary')]
       if (canReturnTask(task)) items.push(action('return', 'return', 'ghost'))
       else if (canTakeOver(task)) items.push(action('takeover', 'takeover', 'ghost'))
       return items
@@ -379,6 +398,7 @@ export function cardActions(task: FactoryTask): FactoryCardAction[] {
       return [action('merge', 'mergeShort', 'primary')]
     case 'blocked': {
       const items: FactoryCardAction[] = []
+      if (canWatchTask(task)) items.push(action('observe', 'observe', 'ghost'))
       // 有未决意见才谈得上「让 Agent 修」；其余阻塞（停止、验证失败、冲突）走重试。
       if (canFixTask(task)) items.push(action('fix', 'fix', 'primary'))
       else if (canRetryTask(task)) items.push(action('retry', 'retryShort', 'primary'))

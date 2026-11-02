@@ -10,6 +10,7 @@ import {
   FACTORY_BACKLOG_PATH,
   FACTORY_PROMPT_KEYS,
   FACTORY_SANDBOX_WORKTREE_ROOT,
+  isFactoryPermissionMode,
   type FactoryConfig,
   type FactoryPromptKey,
   type FactorySandboxConfig,
@@ -34,7 +35,9 @@ const STAGE_KEYS: readonly FactoryStageKey[] = ['plan', 'implement', 'verify', '
 
 const DEFAULT_STAGES: Record<FactoryStageKey, FactoryStageConfig> = {
   plan: { enabled: true, permissionMode: 'plan', humanGate: false },
-  implement: { enabled: true, permissionMode: 'acceptEdits', humanGate: false },
+  // 实现阶段默认完全信任：acceptEdits 只自动放行编辑，Bash 仍会发 can_use_tool，
+  // 无人值守的实现回合会停在授权卡上直到被接管或停止。
+  implement: { enabled: true, permissionMode: 'bypassPermissions', humanGate: false },
   verify: { enabled: true, permissionMode: 'default', humanGate: false },
   review: { enabled: true, permissionMode: 'acceptEdits', humanGate: true },
   merge: { enabled: true, permissionMode: 'default', humanGate: true },
@@ -213,14 +216,14 @@ function checkStages(raw: unknown, errors: string[]): Record<FactoryStageKey, Fa
   for (const key of STAGE_KEYS) {
     const item = isPlainObject(source[key]) ? (source[key] as Record<string, unknown>) : {}
     const fallback = DEFAULT_STAGES[key]
-    const mode = item.permissionMode
-    if (mode !== undefined && mode !== 'default' && mode !== 'plan' && mode !== 'acceptEdits') {
+    const mode = isFactoryPermissionMode(item.permissionMode) ? item.permissionMode : undefined
+    if (item.permissionMode !== undefined && mode === undefined) {
       errors.push(`stages.${key}.permissionMode`)
     }
     stages[key] = {
       enabled: item.enabled !== false,
       ...(typeof item.model === 'string' && item.model.trim() ? { model: item.model.trim() } : {}),
-      permissionMode: mode === 'plan' || mode === 'default' || mode === 'acceptEdits' ? mode : fallback.permissionMode,
+      permissionMode: mode ?? fallback.permissionMode,
       humanGate: item.humanGate === true || (item.humanGate === undefined && fallback.humanGate),
       ...(typeof item.maxIterations === 'number' ? { maxIterations: item.maxIterations } : {}),
     }

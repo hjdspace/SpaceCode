@@ -31,6 +31,8 @@ import { api } from '@/services/electronAPI'
 import { i18n } from '@/i18n'
 import { mergeGenuiCardRecords, projectGenuiCards } from '@/lib/genui/cardProjection'
 import { applyGenuiCardBudget } from '@/lib/genui/cardLifecycle'
+import type { PermissionMode } from '@/shared/channels/claudeCode'
+import { buildMessagesFromHistory } from '@/utils/sessionRestore'
 
 // ── 收窄的依赖接口（接口隔离：handler 只看到它需要的子集）──
 
@@ -357,6 +359,12 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   } = opts
 
   const { turnStates, beginTurn, endTurn } = stateMachine
+  /**
+   * 流水线观察会话：引擎由主进程流水线驱动，渲染层只是镜像。
+   * 通知、自动重试、产物预览这类"有副作用"的分支一律绕开 —— 否则
+   * 一个后台任务会在观察面板里抢焦点，甚至和流水线自己的重试打架。
+   */
+  const isObserved = (sessionId: string): boolean => sink.get(sessionId)?.observedSession === true
   /** 已经自动预览过的交付物，避免每轮结束都把同一个文件重新弹一次。 */
   const autoPreviewedPaths = new Set<string>()
 
@@ -560,7 +568,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   function handleRemoteUserMessage(sessionId: string, data: any): void {
     if (!sessionId) return
     const content = remoteUserContent(data)
-    if (!content.trim()) return
+    const startTurn = data?.startTurn !== false
+    if (startTurn && !content.trim()) return
 
     let session = sink.get(sessionId)
     if (!session) {
@@ -578,10 +587,25 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       }
     }
 
+    if (!startTurn && session.messages.length === 0 && Array.isArray(data?.history)) {
+      session.messages = buildMessagesFromHistory(data.history).map((message, index) => ({
+        ...message,
+        id: message.id ?? `factory-history-${index}`,
+        timestamp: message.timestamp ?? 0,
+      }))
+    }
+
     // 后台触发方（定时任务）指定的模型落到会话记录：输入框显示的是它，
     // 用户在该会话续话时 initClaudeCodeSession 也会按它重启引擎，而不是退回全局默认
     if (typeof data?.model === 'string' && data.model && !session.model) {
       session.model = data.model
+    }
+
+    // 权限模式同理，但它还多一层责任：引擎已由推送方（流水线接管）按阶段配置起好，
+    // 会话记录若不记下同一档，selectSession 的权限对账会拿全局默认值下发，把这条
+    // 正在跑的会话就地降级 —— 接管会话被降到 plan 后连 Bash 都要逐次审批。
+    if (typeof data?.permissionMode === 'string' && data.permissionMode && !session.permissionMode) {
+      session.permissionMode = data.permissionMode as PermissionMode
     }
 
     // activate:false 的推送方（定时任务、看板接管面板）只要会话落进列表；
@@ -604,7 +628,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       lastMessage.content === content &&
       Date.now() - (lastMessage.timestamp || 0) < 10_000
 
-    if (!hasExactMessage && !isRecentDuplicate) {
+    if (content.trim() && !hasExactMessage && !isRecentDuplicate) {
       sink.appendMessage(sessionId, {
         ...(messageId ? { id: messageId } : {}),
         role: 'user',
@@ -613,6 +637,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       })
     }
 
+    if (!startTurn) return
     const existing = turnStates.get(sessionId)
     if (existing) {
       return
@@ -1228,7 +1253,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               sink.persist(sessionId)
 
               // 工具刚产出交付物（Write 了 xlsx / 跑了 officecli 命令）→ 创建即打开预览
-              if (!toolResult.is_error) {
+              if (!toolResult.is_error && !isObserved(sessionId)) {
                 recordWriteToLedger(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
                 maybeAutoPreviewArtifact(sessionId, toolName, updatedToolCalls[toolCallIndex].input)
               }
@@ -1241,6 +1266,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
   const handleResult = (sessionId: string, ts: TurnState, result: any) => {
     const isError = !!result?.is_error
+    const observed = isObserved(sessionId)
     const resultText = typeof result?.result === 'string' ? result.result : ''
     const looksLikeApiError = /^API Error:/i.test(resultText)
 
@@ -1373,7 +1399,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
               : undefined
         }
 
-        contextUsage.refresh(sessionId)
+        if (!observed) contextUsage.refresh(sessionId)
         traceEvent({
           sessionId,
           messageId: ts.assistantMessageId,
@@ -1445,7 +1471,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
         sink.persist(sessionId)
 
-        if (s.workingDirectory) {
+        if (!observed && s.workingDirectory) {
           const workingDir = s.workingDirectory
           const scanWorkspaceRoot = needsWorkspaceRootScan(s.mode)
           const turnStart = ts.sendStartTime
@@ -1489,7 +1515,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         const hasExternalWriter = msg.toolCalls?.some(tc =>
           COMMAND_TOOLS.has(tc.name) || tc.name === 'Agent' || tc.name === 'Task')
         const projectRoot = hasExternalWriter ? getProjectRoot() : null
-        if (hasExternalWriter && projectRoot && !msg.metadata?.commandFiles) {
+        if (!observed && hasExternalWriter && projectRoot && !msg.metadata?.commandFiles) {
           const turnStart = ts.sendStartTime
           const targetMsgId = ts.assistantMessageId
           void (async () => {
@@ -1514,7 +1540,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           })()
         }
 
-        void loadTurnCheckpoints(sessionId, s.workingDirectory, true)
+        if (!observed) void loadTurnCheckpoints(sessionId, s.workingDirectory, true)
       }
     }
 
@@ -1523,7 +1549,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
 
     // ── Goal 续跑等跨 turn 编排钩子（仅成功结算时触发）──
     // finalText 优先取 result.result，为空时回退到消息累积内容。
-    if (onTurnCompleted) {
+    if (!observed && onTurnCompleted) {
       const s = sink.get(sessionId)
       const fallbackText = s?.messages.find(m => m.id === ts.assistantMessageId)?.content || ''
       try {
@@ -1541,7 +1567,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     }
 
     // ── Play notification sound when a task completes successfully ──
-    const soundEnabled = isSoundOnTaskComplete()
+    const soundEnabled = !observed && isSoundOnTaskComplete()
     logger.info('ChatStore', `[${sessionId.slice(0, 8)}] task complete, soundOnTaskComplete=${soundEnabled}`)
     if (soundEnabled) {
       try { playTaskCompleteSound() } catch (e) {
@@ -1552,7 +1578,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     // ── Show desktop system notification when a task completes successfully ──
     // 去重：同一 session 在 NOTIFICATION_DEBOUNCE_MS 内只通知一次，
     // 防止残留事件创建幽灵 turn 后再次触发 handleResult 导致重复通知。
-    const desktopNotifyEnabled = isDesktopNotifyOnTaskComplete()
+    const desktopNotifyEnabled = !observed && isDesktopNotifyOnTaskComplete()
     if (desktopNotifyEnabled) {
       const lastNotified = notifiedSessions.get(sessionId)
       const now = Date.now()
@@ -1620,7 +1646,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     const engineRetriesExhausted =
       (error as { engineRetriesExhausted?: boolean }).engineRetriesExhausted === true
 
-    if (!engineRetriesExhausted && autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
+    // 观察会话的重试归主进程流水线：渲染层再 abort+重发会和它抢同一个引擎会话。
+    if (!isObserved(sessionId) && !engineRetriesExhausted && autoRetry.shouldAutoRetry(sessionId, classified.retryable, userAbortedSessions)) {
       const claudeCode = getClaudeCode()
       if (claudeCode) {
         try { claudeCode.abort(sessionId) } catch { /* ignore */ }

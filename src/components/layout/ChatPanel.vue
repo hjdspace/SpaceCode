@@ -63,7 +63,7 @@
           :class="{ 'with-env-panel': sessionContext.showEnvPanel, 'chat-main-reserved': chatMainReservesEnvPanel, 'chat-main-hidden': sessionContext.rightPanelFullscreen }"
         >
           <div class="chat-panel-body">
-            <NoProjectHome v-if="showNoProjectWelcome" />
+            <NoProjectHome v-if="showNoProjectWelcome && !readonly" />
 
             <template v-else>
               <TeammateTranscriptHeader
@@ -74,10 +74,11 @@
 
               <!-- Hero 展示时隐藏 MessageList，避免其空状态提示与 Hero 同时渲染、平分高度 -->
               <MessageList
-                v-show="!showWelcomeHero"
+                v-show="readonly || !showWelcomeHero"
                 :messages="paneMessages"
                 :loading="paneIsLoading"
                 :session-id="paneSessionId"
+                :readonly="readonly"
                 @tool-submit="handleToolSubmit"
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"
@@ -85,7 +86,7 @@
               />
 
               <WelcomeHero
-                v-if="showWelcomeHero"
+                v-if="showWelcomeHero && !readonly"
                 :title="t('chat.welcomeHero.title')"
                 :subtitle="t('chat.welcomeHero.subtitle')"
                 :project-path="paneWorkingDirectory"
@@ -93,13 +94,13 @@
                 @select="handleWelcomeTaskSelect"
               />
 
-              <RecommendedPrompts />
-              <WorkAssistantShortcuts />
+              <RecommendedPrompts v-if="!readonly" />
+              <WorkAssistantShortcuts v-if="!readonly" />
             </template>
           </div>
 
           <TeamStatusBar
-            v-if="!showNoProjectWelcome"
+            v-if="!readonly && !showNoProjectWelcome"
             :team-context="paneTeamContext"
             :viewing-agent-task-id="paneViewedAgentTaskId"
             @view-teammate="sessionStore.viewTeammateTranscript"
@@ -111,6 +112,7 @@
           />
 
           <ChatInput
+            v-if="!readonly"
             @send="handleSend"
             @slash-command="handleSlashCommand"
             @update:model="handleModelChange"
@@ -127,7 +129,7 @@
             :session-id="paneSessionId || undefined"
             :compact="compact"
           />
-          <ToastNotification v-if="!compact" />
+          <ToastNotification v-if="!compact && !readonly" />
 
           <!-- Work 模式自动路由：多助手匹配时的选择弹窗 -->
           <WorkAssistantPicker
@@ -372,6 +374,11 @@ const props = defineProps<{
    * 同时切断对 sessionContext / diff 弹窗等全局单例的写入，避免与主面板互相覆盖。
    */
   compact?: boolean
+  /**
+   * 只读镜像（流水线观察面板）：隐藏输入框与所有可改变会话的操作，
+   * 仅保留消息流。配合 compact 使用。
+   */
+  readonly?: boolean
 }>()
 
 /** 用 prop 或 current 解析出本 pane 实际绑定的会话 id（可能为空字符串） */
@@ -389,6 +396,10 @@ const paneRawMessages = computed(() =>
 )
 const paneIsLoading = computed(() =>
   paneSessionId.value ? turnStore.getIsLoading(paneSessionId.value) : false
+)
+/** 只读镜像会话（流水线观察）：不向渲染层缓存写上下文用量，用量归主进程流水线管。 */
+const paneIsObserved = computed(() =>
+  props.sessionId ? sessionStore.getSession(paneSessionId.value)?.observedSession === true : false
 )
 const paneWorkingDirectory = computed(() =>
   props.sessionId ? sessionStore.getWorkingDirectory(paneSessionId.value) : sessionStore.workingDirectory
@@ -1045,7 +1056,7 @@ const currentModel = ref('')
 onMounted(async () => {
   await initLLMService()
   currentModel.value = settingsStore.lastSelectedModel || settingsStore.config.model || ''
-  if (paneSessionId.value) {
+  if (paneSessionId.value && !paneIsObserved.value) {
     contextUsageStore.refresh(paneSessionId.value)
   }
 
@@ -1076,7 +1087,7 @@ watch(
       contextUsageStore.clear()
       return
     }
-    if (loading) return
+    if (loading || paneIsObserved.value) return
     if (!prev || prev[0] !== sid || prev[1] === true) {
       contextUsageStore.refresh(sid)
     }
