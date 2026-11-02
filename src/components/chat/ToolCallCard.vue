@@ -12,7 +12,7 @@
         <Terminal v-else :size="14" />
       </div>
       <span class="tool-name">{{ displayName }}</span>
-      <span v-if="duration" class="tool-duration">{{ duration }}s</span>
+      <span v-if="duration" class="tool-duration">{{ duration }}</span>
       <ChevronDown :size="14" class="expand-icon" :class="{ 'is-expanded': isExpanded }" />
     </div>
     
@@ -66,6 +66,7 @@ import type { ToolCall } from '@/types'
 import { Loader2, Check, X, Terminal, ChevronDown } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatDurationMs } from '@/utils/formatDuration'
 import BashToolCard from './BashToolCard.vue'
 import FileWriteToolCard from './FileWriteToolCard.vue'
 import FileEditToolCard from './FileEditToolCard.vue'
@@ -113,7 +114,7 @@ const displayName = computed(() => {
 const duration = computed(() => {
   if (!props.toolCall.startTime) return null
   const end = props.toolCall.endTime || Date.now()
-  return ((end - props.toolCall.startTime) / 1000).toFixed(1)
+  return formatDurationMs(end - props.toolCall.startTime)
 })
 
 const unifiedDiffFiles = computed<ParsedDiffFile[]>(() => {

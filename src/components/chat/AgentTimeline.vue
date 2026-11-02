@@ -162,7 +162,7 @@
                       <span v-if="toolTarget(event)" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(toolOf(event)?.name) }">
                         {{ toolTarget(event) }}
                       </span>
-                      <span v-if="toolDuration(event)" class="tool-row__duration">{{ toolDuration(event) }}s</span>
+                      <span v-if="toolDuration(event)" class="tool-row__duration">{{ toolDuration(event) }}</span>
                     </button>
 
                     <!-- detail panel with grid animation -->
@@ -297,7 +297,7 @@
                   <span v-if="toolTarget(item.event!)" class="tool-row__chip" :class="{ 'tool-row__chip--mono': isMonoTool(toolOf(item.event!)?.name) }">
                     {{ toolTarget(item.event!) }}
                   </span>
-                  <span v-if="toolDuration(item.event!)" class="tool-row__duration">{{ toolDuration(item.event!) }}s</span>
+                  <span v-if="toolDuration(item.event!)" class="tool-row__duration">{{ toolDuration(item.event!) }}</span>
                 </button>
 
                 <div class="detail-panel" :class="{ 'detail-panel--open': expandedEvents[item.event!.id] }">
@@ -333,7 +333,7 @@
                 <span v-if="item.event!.metadata?.model" class="meta-tag">{{ item.event!.metadata.model }}</span>
                 <span v-if="item.event!.metadata?.inputTokens" class="meta-tag">↑{{ item.event!.metadata.inputTokens }}</span>
                 <span v-if="item.event!.metadata?.outputTokens" class="meta-tag">↓{{ item.event!.metadata.outputTokens }}</span>
-                <span v-if="item.event!.metadata?.duration" class="meta-tag">{{ (item.event!.metadata.duration / 1000).toFixed(1) }}s</span>
+                <span v-if="item.event!.metadata?.duration" class="meta-tag">{{ formatDurationMs(item.event!.metadata.duration) }}</span>
               </div>
             </template>
 
@@ -412,6 +412,7 @@ import TurnSummaryBar from './TurnSummaryBar.vue'
 import ThinkingState from './ThinkingState.vue'
 import ReasoningCard from './ReasoningCard.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
+import { formatDurationMs } from '@/utils/formatDuration'
 import { extractEditParts } from '@/lib/editInput'
 import { errorHandler } from '@/services/errorHandler'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -1138,7 +1139,10 @@ const overallStatus = computed(() => {
   const isStreaming = props.loading && !!lastMsg
   if (isStreaming) return 'running'
   if (timelineEvents.value.some(e => e.status === 'running' || e.status === 'pending')) return 'running'
-  if (timelineEvents.value.some(e => e.status === 'error')) return 'error'
+  // 回合级失败只认 type==='error'（由 msg.metadata.error 投影而来）。
+  // 工具事件的 status==='error' 抄的是 tool_result.is_error，是单次调用的历史痕迹：
+  // LLM 报错后重试成功是常态，收口时不会回改它 —— 拿它判整轮，成功交付的任务会永久挂红。
+  if (timelineEvents.value.some(e => e.type === 'error')) return 'error'
   return 'completed'
 })
 
@@ -1293,17 +1297,8 @@ const totalElapsedMs = computed(() => {
   return finalMsg?.metadata?.duration || 0
 })
 
-const timerText = computed(() => {
-  const ms = totalElapsedMs.value
-  if (ms <= 0) return '0.0s'
-  if (overallStatus.value === 'running') {
-    const totalSec = Math.floor(ms / 1000)
-    const mins = Math.floor(totalSec / 60)
-    const secs = totalSec % 60
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-  }
-  return `${(ms / 1000).toFixed(1)}s`
-})
+// 运行中与收口用同一档位：秒表样式在收口瞬间会跳成另一种格式，且超一小时会写成 `75:00`。
+const timerText = computed(() => formatDurationMs(totalElapsedMs.value))
 
 const finalMetadata = computed(() => {
   const finalMsg = props.messages.find(m => m.id === getFinalMetadataMessageId(props.messages))
@@ -1370,7 +1365,7 @@ function getToolDuration(tool: ToolCall): string | null {
   if (!tool.startTime) return null
   // now 每秒推进（overallStatus 为 running 时），运行中的耗时才不会停在建卡那一刻
   const end = tool.endTime || now.value
-  return ((end - tool.startTime) / 1000).toFixed(1)
+  return formatDurationMs(end - tool.startTime)
 }
 
 function formatInput(tool: ToolCall): string {

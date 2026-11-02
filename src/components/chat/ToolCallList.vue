@@ -59,7 +59,7 @@
             <div class="timeline-row" @click="toggleItem(tool.id)">
               <span class="timeline-tool-name">{{ getToolLabel(tool.name) }}</span>
               <span v-if="getToolTarget(tool)" class="timeline-target">{{ getToolTarget(tool) }}</span>
-              <span v-if="getToolDuration(tool)" class="timeline-duration">{{ getToolDuration(tool) }}s</span>
+              <span v-if="getToolDuration(tool)" class="timeline-duration">{{ getToolDuration(tool) }}</span>
               <ChevronDown
                 v-if="tool.output || hasDetailContent(tool)"
                 :size="12"
@@ -88,6 +88,7 @@ import type { ToolCall } from '@/types'
 import type { Component } from 'vue'
 import { computed, markRaw, onMounted, reactive, ref, watch } from 'vue'
 import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/index'
+import { formatDurationMs } from '@/utils/formatDuration'
 import {
   Loader2, Check, X, ChevronDown, CheckCircle2, XCircle, CircleDot,
   Terminal, FileText, FileEdit, Search, Globe, Wand2, Bot, Folder, Code, MessageCircleQuestion
@@ -173,7 +174,7 @@ function getToolTarget(tool: ToolCall): string {
 function getToolDuration(tool: ToolCall): string | null {
   if (!tool.startTime) return null
   const end = tool.endTime || Date.now()
-  return ((end - tool.startTime) / 1000).toFixed(1)
+  return formatDurationMs(end - tool.startTime)
 }
 
 function hasDetailContent(tool: ToolCall): boolean {

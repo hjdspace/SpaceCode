@@ -3,7 +3,7 @@
     <div class="bash-header" @click="toggle">
       <Terminal :size="14" />
       <span class="cmd">{{ toolCall.input.command }}</span>
-      <span v-if="duration" class="dur">{{ duration }}s</span>
+      <span v-if="duration" class="dur">{{ duration }}</span>
     </div>
     <div v-show="expanded" class="bash-body">
       <pre v-if="stdout" class="stdout">{{ stdout }}</pre>
@@ -16,13 +16,14 @@
 import { ref, computed } from 'vue'
 import { Terminal } from 'lucide-vue-next'
 import type { ToolCall } from '@/types'
+import { formatDurationMs } from '@/utils/formatDuration'
 const props = defineProps<{ toolCall: ToolCall }>()
 const expanded = ref(true)
 const toggle = () => { expanded.value = !expanded.value }
 const duration = computed(() => {
-  if (!props.toolCall.startTime) return 0
+  if (!props.toolCall.startTime) return null
   const end = props.toolCall.endTime || Date.now()
-  return ((end - props.toolCall.startTime) / 1000).toFixed(1)
+  return formatDurationMs(end - props.toolCall.startTime)
 })
 const output = computed(() => props.toolCall.output || '')
 const stdout = computed(() => output.value.split('\n--- stderr ---\n')[0] || '')

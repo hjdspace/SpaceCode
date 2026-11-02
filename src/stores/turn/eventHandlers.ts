@@ -1442,7 +1442,9 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
           messageId: ts.assistantMessageId,
           actor: 'system',
           type: 'final_summary',
-          status: errors.length > 0 ? 'failed' : 'completed',
+          // 走到这里说明回合已成功收口（失败路径早在 handleError 返回了）。
+          // 工具级报错由 errorCount / error 字段记账，不能翻成整轮 failed。
+          status: 'completed',
           title: 'Session turn summary',
           artifacts: fileChanges.length > 0 ? fileChanges : undefined,
           evidence: verifications.length > 0 ? verifications : undefined,

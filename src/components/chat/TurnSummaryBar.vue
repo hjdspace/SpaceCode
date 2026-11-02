@@ -32,6 +32,7 @@
 import type { MessageMetadata } from '@/types'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatDurationMs } from '@/utils/formatDuration'
 
 const props = defineProps<{
   /** 消息元数据，提供 model / inputTokens / outputTokens / duration */
@@ -56,16 +57,12 @@ const effectiveDurationMs = computed(() => {
   return props.metadata?.duration || 0
 })
 
-const durationText = computed(() => {
-  const ms = effectiveDurationMs.value
-  if (ms <= 0) return '0.0s'
-  return `${(ms / 1000).toFixed(1)}s`
-})
+const durationText = computed(() => formatDurationMs(effectiveDurationMs.value))
 
 const reasoningText = computed(() => {
   const ms = props.reasoningDurationMs
   if (!ms || ms <= 0) return ''
-  return `${(ms / 1000).toFixed(1)}s`
+  return formatDurationMs(ms)
 })
 
 const tokenText = computed(() => {

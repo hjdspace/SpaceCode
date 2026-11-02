@@ -13,7 +13,7 @@
         <span class="tool-target">{{ headerTarget }}</span>
       </template>
       <span v-if="statusBadge" class="task-status-badge" :class="statusBadgeClass" :title="badgeTitle">{{ statusBadge }}</span>
-      <span v-if="duration" class="tool-meta">{{ duration }}s</span>
+      <span v-if="duration" class="tool-meta">{{ duration }}</span>
       <div class="tool-actions">
         <ChevronDown :size="14" class="tool-chevron" :class="{ 'is-expanded': isExpanded }" />
       </div>
@@ -177,6 +177,7 @@ import { FileOutput, ChevronDown, Clock, Loader2, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
+import { formatDurationMs } from '@/utils/formatDuration'
 
 const props = defineProps<{ toolCall: ToolCall; now?: number }>()
 const isExpanded = ref(false)
@@ -192,7 +193,7 @@ const duration = computed(() => {
   if (!props.toolCall.startTime) return null
   // 父级传入每秒刷新的 now，运行中才会走秒；未传时维持原行为
   const end = props.toolCall.endTime || props.now || Date.now()
-  return ((end - props.toolCall.startTime) / 1000).toFixed(1)
+  return formatDurationMs(end - props.toolCall.startTime)
 })
 
 // ── 输入参数 ──

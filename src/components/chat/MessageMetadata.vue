@@ -3,13 +3,14 @@
   <div v-if="showMetadata" class="message-metadata">
     <span v-if="metadata?.model">{{ metadata.model }}</span>
     <span v-if="tokenText">{{ tokenText }}</span>
-    <span v-if="metadata?.duration">{{ (metadata.duration / 1000).toFixed(1) }}s</span>
+    <span v-if="metadata?.duration">{{ formatDurationMs(metadata.duration) }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { MessageMetadata } from '@/types'
 import { computed } from 'vue'
+import { formatDurationMs } from '@/utils/formatDuration'
 
 const props = defineProps<{
   metadata?: MessageMetadata

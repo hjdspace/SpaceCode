@@ -102,6 +102,7 @@ import { useI18n } from 'vue-i18n'
 import { parseAgentToolOutput, extractAgentDisplayText, isAgentLaunchResult } from '@/services/teamTranscriptService'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import AgentTimeline from '@/components/chat/AgentTimeline.vue'
+import { formatDurationMs } from '@/utils/formatDuration'
 import { ArrowLeft, X, Bot, Clock, FileText, MessageCircle, Loader2 } from 'lucide-vue-next'
 
 const appStore = useAppStore()
@@ -229,12 +230,7 @@ onUnmounted(() => {
   if (timer) { clearInterval(timer); timer = null }
 })
 
-const formattedElapsed = computed(() => {
-  const s = elapsed.value
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return m > 0 ? `${m}m ${sec}s` : `${sec}s`
-})
+const formattedElapsed = computed(() => formatDurationMs(elapsed.value * 1000))
 
 // Clean up on panel close
 watch(() => appStore.subagentPanelState, (state) => {

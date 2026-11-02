@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { formatDurationMs } from '@/utils/formatDuration'
 
 export type LoadingVariant = 'Drive' | 'Dots' | 'Orbit'
 
@@ -48,11 +49,7 @@ onBeforeUnmount(() => {
   if (timer !== undefined) window.clearInterval(timer)
 })
 
-const elapsed = computed(() => {
-  const total = deciseconds.value / 10
-  if (total < 60) return `${total.toFixed(1)}s`
-  return `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`
-})
+const elapsed = computed(() => formatDurationMs(deciseconds.value * 100))
 
 const pattern = computed(() => patterns[props.variant])
 </script>

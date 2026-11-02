@@ -9,7 +9,7 @@
         <span class="tool-separator">·</span>
         <span class="tool-target">{{ commandPreview }}</span>
       </template>
-      <span v-if="duration" class="tool-meta">{{ duration }}s</span>
+      <span v-if="duration" class="tool-meta">{{ duration }}</span>
       <div class="tool-actions">
         <button
           v-if="canUseTerminal"
@@ -68,6 +68,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
 import { hasBufferingOutputPipe } from '@/utils/commandOutputBuffering'
+import { formatDurationMs } from '@/utils/formatDuration'
 
 const props = defineProps<{ toolCall: ToolCall; now?: number }>()
 
@@ -120,7 +121,7 @@ const duration = computed(() => {
   if (!props.toolCall.startTime) return null
   // 父级传入每秒刷新的 now，运行中才会走秒；未传时维持原行为
   const end = props.toolCall.endTime || props.now || Date.now()
-  return ((end - props.toolCall.startTime) / 1000).toFixed(1)
+  return formatDurationMs(end - props.toolCall.startTime)
 })
 
 const MAX_OUTPUT_LEN = 3000
