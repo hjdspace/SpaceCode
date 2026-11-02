@@ -50,7 +50,7 @@
 
         <!-- 转录按时间顺序渲染：主 Agent 下发的任务输入（user 角色）用右侧气泡呈现，
              连续的子代理输出交给 AgentTimeline -->
-        <template v-for="segment in panelSegments" :key="segment.id">
+        <template v-for="(segment, segmentIndex) in panelSegments" :key="segment.id">
           <div v-if="segment.kind === 'user'" class="user-bubble-row">
             <div class="user-bubble">
               <p class="user-bubble-text">{{ segment.content }}</p>
@@ -59,13 +59,13 @@
           <div v-else class="activity-section">
             <AgentTimeline
               :messages="segment.messages"
-              :loading="isRunning"
+              :loading="isRunning && segmentIndex === panelSegments.length - 1"
             />
           </div>
         </template>
 
-        <!-- Running indicator: three bouncing dots, same as main chat -->
-        <div v-if="isRunning && streamMessages.length" class="typing-indicator">
+        <!-- 末段是任务气泡时时间线不在末尾，活动指示行无处可挂，仍用这组点占位 -->
+        <div v-if="isRunning && streamMessages.length && lastSegmentKind !== 'timeline'" class="typing-indicator">
           <div class="dot"></div>
           <div class="dot"></div>
           <div class="dot"></div>
@@ -167,6 +167,9 @@ const isRunning = computed(() => {
   const tc = toolCall.value
   return tc?.status === 'running' || tc?.status === 'pending'
 })
+
+/** 只有末段是「还在跑」的那一段；此前每段都吃 isRunning，活动指示会重复挂 N 行 */
+const lastSegmentKind = computed(() => panelSegments.value[panelSegments.value.length - 1]?.kind ?? null)
 
 const statusClass = computed(() => {
   const tc = toolCall.value
