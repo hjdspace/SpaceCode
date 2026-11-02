@@ -19,7 +19,7 @@ const i18n = createI18n({
   messages: { 'zh-CN': zhCN, 'en-US': enUS },
 })
 
-const STUBS = ['MarkdownRenderer', 'ReasoningCard', 'TurnSummaryBar', 'ThinkingState', 'ErrorCard']
+const STUBS = ['MarkdownRenderer', 'ReasoningCard', 'TurnSummaryBar', 'LoadingState', 'ErrorCard']
 const COMMAND = 'npm run test:coverage'
 const PARTIAL_COMMAND = 'npm run'
 
