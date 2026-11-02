@@ -43,7 +43,7 @@ const STUBS = {
   CurrentTurnChangeCard: true,
   ArtifactSummaryCard: true,
   ConversationMinimap: true,
-  ThinkingState: true,
+  LoadingState: true,
 }
 
 function assistant(id: string): Message {
