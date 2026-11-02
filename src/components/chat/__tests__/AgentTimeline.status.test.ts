@@ -17,7 +17,7 @@ const i18n = createI18n({
 const rootPinia = createPinia()
 config.global.plugins = [i18n, rootPinia]
 
-const STUBS = ['MarkdownRenderer', 'ReasoningCard', 'TurnSummaryBar', 'ThinkingState', 'ErrorCard']
+const STUBS = ['MarkdownRenderer', 'ReasoningCard', 'TurnSummaryBar', 'LoadingState', 'ErrorCard']
 
 function mountTimeline(messages: Message[]) {
   return mount(AgentTimeline, {
