@@ -34,6 +34,7 @@
               :session-id="props.sessionId"
               :readonly="props.readonly"
               :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
+              :turn-start-time="turnStartTime"
               :mode="mode === 'design' ? 'design' : undefined"
               @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
               @tool-skip="(tId) => emit('toolSkip', item.group!.id, tId)"
@@ -74,10 +75,11 @@
         </div>
 
         <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
-          <ThinkingState
+          <LoadingState
+            :labels="engineStarting ? undefined : activityLabels"
+            :label="engineStarting ? startingLabel : undefined"
             :start-time="turnStartTime"
-            :variant="engineStarting ? 'starting' : undefined"
-            :mcp-failed-names="mcpFailedNames"
+            :note="mcpFailedText"
           />
         </div>
     </div>
@@ -97,7 +99,7 @@ import GenuiCardGroup from '@/components/genui/GenuiCardGroup.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
 import ConversationMinimap from './ConversationMinimap.vue'
-import ThinkingState from './ThinkingState.vue'
+import LoadingState from './LoadingState.vue'
 import ExtensionDialogCard from './tools/ExtensionDialogCard.vue'
 import { extensionDialogService, type ExtensionDialog } from '@/services/extensionDialogService'
 import { MessageSquare } from 'lucide-vue-next'
@@ -105,6 +107,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { registerSelectionHost } from '@/composables/useSelectionActions'
+import { useActivityLabels } from '@/composables/useTurnActivity'
 import {
   assignTurnCardsToGroups,
   getCompletedTurnTargets,
@@ -273,7 +276,7 @@ const ungroupedDialogs = computed<ExtensionDialog[]>(() => {
 
 // loading=true 时判断是否已有 assistant 内容可渲染。
 // 当 LLM 首个 token 到达后，assistant 消息会获得 content / reasoning / toolCalls，
-// AgentTimeline 即可接管展示，ThinkingState 占位动画不再需要。
+// AgentTimeline 即可接管展示（含其末尾的常驻活动指示行），本组件的占位行不再需要。
 // 此外，当 engine 内部重试时（429/529），assistant 消息的 metadata.retryState
 // 会被写入，此时也应由 AgentTimeline 接管展示重试提示。
 const hasVisibleAssistantContent = computed(() => {
@@ -296,8 +299,8 @@ const hasVisibleAssistantContent = computed(() => {
 })
 
 // 当前 turn 的发起时间：最后一条用户消息的 timestamp。
-// ThinkingState 以此为计时起点 —— 组件因页面切换被卸载重建后，
-// 计时仍从消息发送时刻起算，不会归零重计。
+// 活动指示行（占位行与 AgentTimeline 末尾那行）以此为计时起点 —— 组件因页面切换
+// 被卸载重建后，计时与文案轮询仍从消息发送时刻起算，不会归零重计。
 const turnStartTime = computed(() => {
   const msgs = props.messages
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -306,10 +309,19 @@ const turnStartTime = computed(() => {
   return msgs[msgs.length - 1]?.timestamp || Date.now()
 })
 
-// 引擎冷启动阶段：发送后尚未收到 system/init 时，等待状态显示「正在启动引擎」
+// 引擎冷启动阶段：发送后尚未收到 system/init 时，等待状态固定显示「正在启动引擎」，
+// 不轮询 —— 此刻连引擎都还没起来，报"思考中"是假的。
 const engineStarting = computed(() => turnStore.isEngineStarting(props.sessionId))
 // 最近一次 system/init 中连接失败的 MCP server 名单
 const mcpFailedNames = computed(() => turnStore.getMcpFailures(props.sessionId))
+
+const activityLabels = useActivityLabels()
+const startingLabel = computed(() => t('chat.turnActivity.starting'))
+const mcpFailedText = computed(() =>
+  mcpFailedNames.value.length
+    ? t('chat.turnActivity.mcpFailed', { names: mcpFailedNames.value.join(', ') })
+    : undefined,
+)
 
 // 若某助手分组的回合产生了产物，返回对应的产物卡片项，否则 null。
 // 卡片是否出现只取决于本轮有没有收集到文件 —— 三种模式都可能有交付物
