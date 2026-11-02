@@ -60,12 +60,16 @@ export default {
   ready: '就绪',
   notConfigured: '未配置',
   thoughtFor: '思考了 {duration}s',
-  thinkingState: {
-    active: '正在思考',
-    reasoningLabel: '推理中',
-    responding: '正在回复',
+  turnActivity: {
     starting: '正在启动引擎',
     mcpFailed: 'MCP 连接失败：{names}',
+    pool: {
+      thinking: '思考中…',
+      reasoning: '推理中…',
+      organizing: '整理信息中…',
+      clarifying: '理清问题中…',
+      reviewing: '梳理思路中…',
+    },
   },
   toolChips: {
     toolCalls: '{count} 个工具调用',
