@@ -24,7 +24,7 @@ const i18n = createI18n({
   messages: { 'zh-CN': {}, 'en-US': {} },
 })
 
-const STUBS = ['MarkdownRenderer', 'ReasoningCard', 'TurnSummaryBar', 'ThinkingState', 'ErrorCard']
+const STUBS = ['MarkdownRenderer', 'ReasoningCard', 'TurnSummaryBar', 'LoadingState', 'ErrorCard']
 
 function makeMessages(names: string[]): Message[] {
   return [{
