@@ -152,9 +152,9 @@
             <FolderOpen :size="18" />
           </button>
 
-          <!-- Work 模式：助手画廊入口（按需弹出） -->
+          <!-- Work 模式：助手画廊入口（按需弹出）。宿主可通过 showWorkGalleryAction 隐藏 -->
           <button
-            v-if="appStore.mode === 'work'"
+            v-if="appStore.mode === 'work' && showWorkGalleryAction"
             type="button"
             class="toolbar-btn work-context-chip"
             :title="t('work.galleryEntry')"
@@ -411,10 +411,16 @@ const props = withDefaults(defineProps<{
   showActions?: boolean
   /** false = Enter / Ctrl+Enter 不再触发 send，交回浏览器默认换行 */
   enterSubmits?: boolean
+  /** false = 隐藏 Work 助手画廊入口（如 Super Agent Router 宿主不是普通 work 会话） */
+  showWorkGalleryAction?: boolean
+  /** 宿主裁剪：从斜杠命令菜单隐藏的内置命令名（含别名），只影响菜单不裁剪派发能力 */
+  excludedCommands?: string[]
 }>(), {
   draftScope: 'session',
   showActions: true,
   enterSubmits: true,
+  showWorkGalleryAction: true,
+  excludedCommands: () => [],
 })
 
 // ── Stores ───────────────────────────────────────────────────────
@@ -440,6 +446,7 @@ const { selectedModel, initialize: initializeModelSelector } = modelSelector
 // Slash commands
 const slashCommands = useSlashCommands({
   workingDirectory: () => props.workingDirectory || '',
+  excludeCommands: () => props.excludedCommands,
 })
 const {
   slashTriggerPosition, slashMenuPosition,
