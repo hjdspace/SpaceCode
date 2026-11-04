@@ -15,6 +15,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
+  SuperAgentAttentionView,
   SuperAgentDispatchResult,
   SuperAgentHealthItem,
   SuperAgentQueueSnapshot,
@@ -55,6 +56,11 @@ const probe = vi.hoisted(() => ({
   loadQueue: vi.fn().mockResolvedValue(undefined),
   watchQueue: vi.fn().mockReturnValue(() => {}),
   queue: null as SuperAgentQueueSnapshot | null,
+  // ── Attention 气泡（T08 #78，并发会话维护）：仅补桩保证挂载流程可跑 ──
+  loadAttentions: vi.fn().mockResolvedValue(undefined),
+  watchAttentions: vi.fn().mockReturnValue(() => {}),
+  attentionBubbles: [] as SuperAgentAttentionView[],
+  attentionCount: 0,
   // ── 工单看板（T06 #76，并发会话维护）：仅补桩保证挂载流程可跑 ──
   loadTickets: vi.fn().mockResolvedValue(undefined),
   watchTickets: vi.fn().mockReturnValue(() => {}),
@@ -126,6 +132,10 @@ vi.mock('@/stores/superAgent', () => ({
     loadTickets: probe.loadTickets,
     watchTickets: probe.watchTickets,
     get ticketBoard() { return probe.ticketBoard },
+    loadAttentions: probe.loadAttentions,
+    watchAttentions: probe.watchAttentions,
+    get attentionBubbles() { return probe.attentionBubbles },
+    get attentionCount() { return probe.attentionCount },
   }),
 }))
 

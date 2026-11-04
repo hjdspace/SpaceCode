@@ -24,6 +24,8 @@ export type SuperAgentErrorCode =
   | 'askerWithoutQuestion'
   | 'notAsker'
   | 'notAnswerable'
+  // refused：Attention 问答（T08 #78）
+  | 'invalidAnswer'
   // refused：接管与交还（T09 #79）
   | 'takeoverRequired'
   | 'invalidWorkerMessage'
@@ -64,6 +66,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   askerWithoutQuestion: 'refused',
   notAsker: 'refused',
   notAnswerable: 'refused',
+  invalidAnswer: 'refused',
   takeoverRequired: 'refused',
   invalidWorkerMessage: 'refused',
   reportMissing: 'refused',

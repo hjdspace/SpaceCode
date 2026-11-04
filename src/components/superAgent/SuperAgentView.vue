@@ -13,19 +13,30 @@
         <TicketPlus :size="14" />
         <span>{{ t('superAgent.dispatch.openLabel') }}</span>
       </button>
-      <button
-        class="health-chip"
-        :class="{ open: superAgentStore.healthPanelOpen }"
-        type="button"
-        data-testid="super-agent-health-entry"
-        @click="superAgentStore.toggleHealthPanel()"
-      >
-        <HeartPulse :size="14" />
-        <span>{{ t('superAgent.health.entry') }}</span>
-        <span v-if="superAgentStore.healthProblemCount > 0" class="count">
-          {{ superAgentStore.healthProblemCount }}
+      <div class="entry-group">
+        <!-- 待处理 Attention 计数（T08 #78）：按工单去重，与侧边栏徽章同源 -->
+        <span
+          v-if="superAgentStore.attentionCount > 0"
+          class="pending-chip"
+          data-testid="super-agent-attention-count"
+        >
+          <MessageCircleQuestion :size="14" />
+          <span>{{ t('superAgent.attention.pendingCount', { count: superAgentStore.attentionCount }) }}</span>
         </span>
-      </button>
+        <button
+          class="health-chip"
+          :class="{ open: superAgentStore.healthPanelOpen }"
+          type="button"
+          data-testid="super-agent-health-entry"
+          @click="superAgentStore.toggleHealthPanel()"
+        >
+          <HeartPulse :size="14" />
+          <span>{{ t('superAgent.health.entry') }}</span>
+          <span v-if="superAgentStore.healthProblemCount > 0" class="count">
+            {{ superAgentStore.healthProblemCount }}
+          </span>
+        </button>
+      </div>
     </header>
 
     <!-- 新建工单表单（T05）：独立于普通发送 —— 普通发送只对话 Router，只有这里建单。 -->
@@ -93,6 +104,16 @@
 
     <SuperAgentHealth v-if="superAgentStore.healthPanelOpen" :problems="superAgentStore.healthProblems" />
 
+    <!-- Attention 非模态问答气泡（T08 #78）：工单卡片上方的薄层区块；
+         open 展示就地回答入口，answered 折叠保留审计，withdrawn 已被过滤。 -->
+    <div v-if="superAgentStore.attentionBubbles.length" class="attention-bubbles" data-testid="super-agent-attentions">
+      <AttentionBubble
+        v-for="bubble in superAgentStore.attentionBubbles"
+        :key="bubble.attentionId"
+        :attention="bubble"
+      />
+    </div>
+
     <!-- 工单卡片（T06 #76）：时间线上方薄层区块，不侵入时间线组件内部；
          key=ticketId 保证 Report 只原位更新现有卡片，不重复发气泡。 -->
     <div v-if="ticketCards.length" class="ticket-cards" data-testid="super-agent-tickets">
@@ -151,7 +172,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HeartPulse, Sparkles, TicketPlus } from 'lucide-vue-next'
+import { HeartPulse, MessageCircleQuestion, Sparkles, TicketPlus } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -162,6 +183,7 @@ import type { SuperAgentQueueEntry, SuperAgentTicketCard } from '@/shared/channe
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
+import AttentionBubble from './AttentionBubble.vue'
 import WorkerTaskCard from './WorkerTaskCard.vue'
 import { buildOutgoingMessage } from '@/lib/composer-outgoing'
 import {
@@ -208,6 +230,8 @@ let stopWatchingHealth: (() => void) | null = null
 let stopWatchingQueue: (() => void) | null = null
 // ── 工单卡片（T06 #76）：全量拉取 + ticket-updated/progress 订阅 ──
 let stopWatchingTickets: (() => void) | null = null
+// ── Attention 气泡（T08 #78）：全量拉取 + asked/answered/withdrawn 订阅 ──
+let stopWatchingAttentions: (() => void) | null = null
 
 onMounted(async () => {
   const repoRoot = appStore.projectRoot
@@ -217,9 +241,11 @@ onMounted(async () => {
   await superAgentStore.loadHealth(repoRoot)
   await superAgentStore.loadQueue(repoRoot)
   await superAgentStore.loadTickets(repoRoot)
+  await superAgentStore.loadAttentions(repoRoot)
   stopWatchingHealth = superAgentStore.watchHealth()
   stopWatchingQueue = superAgentStore.watchQueue()
   stopWatchingTickets = superAgentStore.watchTickets()
+  stopWatchingAttentions = superAgentStore.watchAttentions()
 })
 
 onUnmounted(() => {
@@ -229,6 +255,8 @@ onUnmounted(() => {
   stopWatchingQueue = null
   stopWatchingTickets?.()
   stopWatchingTickets = null
+  stopWatchingAttentions?.()
+  stopWatchingAttentions = null
 })
 
 /** 看板卡片（T06）：排序沿用主进程投影（createdAt 升序）。 */
@@ -478,11 +506,31 @@ async function handleToolSkip(messageId: string, toolId: string) {
   background: var(--bg-primary);
 }
 
-// ── 顶部操作区（T13 健康入口 + T05 新建工单入口）──
+// ── 顶部操作区（T13 健康入口 + T05 新建工单入口 + T08 待处理计数）──
 .health-entry {
   display: flex;
   justify-content: space-between;
   padding: 6px 12px 0;
+}
+
+.entry-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+// 待处理 Attention 计数（T08 #78）：非交互状态展示，与侧边栏徽章同源
+.pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--accent-primary);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--accent-primary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .health-chip,
@@ -641,6 +689,14 @@ async function handleToolSkip(messageId: string, toolId: string) {
 }
 
 .super-agent-health {
+  margin: 6px 12px 0;
+}
+
+// ── Attention 气泡（T08 #78）：工单卡片上方薄层区块，纵排 ──
+.attention-bubbles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin: 6px 12px 0;
 }
 

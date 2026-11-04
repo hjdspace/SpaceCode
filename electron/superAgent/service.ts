@@ -32,6 +32,10 @@
  */
 import { randomUUID } from 'crypto'
 import type {
+  SuperAgentAttentionAnswerCommand,
+  SuperAgentAttentionAnswerResult,
+  SuperAgentAttentionBoard,
+  SuperAgentAttentionEvent,
   SuperAgentBindResult,
   SuperAgentDispatchCommand,
   SuperAgentDispatchResult,
@@ -54,6 +58,10 @@ import { createSuperAgentDomain, type SuperAgentDomain } from './domain'
 import type { SuperAgentReportKind, SuperAgentTicket } from './model'
 import { superAgentError, serializeSuperAgentError } from './errors'
 import {
+  createSuperAgentAttentionProjector,
+  type SuperAgentAttentionProjector,
+} from './attentionProjector'
+import {
   createSuperAgentHealthTracker,
   type SuperAgentHealthFailureInput,
   type SuperAgentHealthTracker,
@@ -72,6 +80,8 @@ interface ProjectState {
   scheduler: ReturnType<typeof createSuperAgentScheduler>
   /** T06 #76：卡片投影（ticket.updated / ticket.progress 的主进程归一化源）。 */
   projector: SuperAgentProgressProjector
+  /** T08 #78：Attention 投影（attention.asked/answered/withdrawn 广播源）。 */
+  attentionProjector: SuperAgentAttentionProjector
   /** 正在被只读镜像观察的 ticketId；Executor 接入后据此决定是否广播转录事件。 */
   observedWorkers: Set<string>
   /** T09 #79：当前接管态；每项目同时至多一个，交还/关闭标签时清空。 */
@@ -89,6 +99,8 @@ export interface SuperAgentServiceOptions {
   onTicketProgress?: (repoRoot: string, progress: SuperAgentTicketProgress) => void
   /** T09 #79：接管/交还时回调（IPC 层据此广播 takeover-changed）。 */
   onTakeoverChanged?: (repoRoot: string, event: SuperAgentTakeoverChangedEvent) => void
+  /** T08 #78：Attention 变化时回调（IPC 层据此广播 attention-asked/answered/withdrawn）。 */
+  onAttentionEvent?: (repoRoot: string, event: SuperAgentAttentionEvent) => void
   /** Worker 启动接缝；null/缺省 = Executor 未接入，工单保持排队。 */
   launcher?: WorkerLauncher | null
   /** T09 #79：接管输入投递接缝；null/缺省 = Executor 未接入，不假投递。 */
@@ -158,6 +170,16 @@ export interface SuperAgentService {
     repoRoot: string,
     command: SuperAgentWorkerMessageCommand,
   ): Promise<SuperAgentWorkerMessageResult>
+  /** T08 #78：Attention 气泡全量看板（含已回答的审计折叠项）。 */
+  attentions(repoRoot: string): SuperAgentAttentionBoard
+  /**
+   * T08 #78：就地回答 Attention —— 回答作为领域 Input 投递给对应 Worker；
+   * 幂等键 requestId，Attention 保持 open 直到 Worker 用 answers 认领。
+   */
+  attentionAnswer(
+    repoRoot: string,
+    command: SuperAgentAttentionAnswerCommand,
+  ): SuperAgentAttentionAnswerResult
   recordHealthSuccess(repoRoot: string, category: SuperAgentHealthCategory): void
   recordHealthFailure(
     repoRoot: string,
@@ -183,13 +205,21 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         onTicketUpdated: (event) => options.onTicketUpdated?.(repoRoot, event),
         onTicketProgress: (progress) => options.onTicketProgress?.(repoRoot, progress),
       })
+      const attentionProjector = createSuperAgentAttentionProjector({
+        domain,
+        repoRoot,
+        onAttentionEvent: (event) => options.onAttentionEvent?.(repoRoot, event),
+      })
       const scheduler = createSuperAgentScheduler({
         domain,
         repoRoot,
         launcher: options.launcher ?? null,
         onQueueChanged: (snapshot) => options.onQueueChanged?.(repoRoot, snapshot),
         onPreparingChanged: (ticketId, preparing) => projector.setPreparing(ticketId, preparing),
-        onDomainChanged: () => projector.sync(),
+        onDomainChanged: () => {
+          projector.sync()
+          attentionProjector.sync()
+        },
         onLaunchError: (ticketId, err) => {
           // launch 失败计入健康（effect:launch），错误信息带 ticketId 便于追溯
           health.recordFailure('effect:launch', {
@@ -205,6 +235,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         domain,
         scheduler,
         projector,
+        attentionProjector,
         observedWorkers: new Set(),
         takeover: null,
       }
@@ -264,7 +295,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       asOf: Date.now(),
       staleAfterMs: STALE_AFTER_MS,
       router: project.router ? { ...project.router } : null,
-      attention: { unanswered: 0 },
+      // T08 #78：按工单去重的待处理 Attention 数（徽章/顶部计数联动）。
+      attention: { unanswered: project.attentionProjector.pendingTickets() },
     }
   }
 
@@ -304,6 +336,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       // T06 #76：新建工单是领域事实，派生卡片即时投影（launcher 为 null 时
       // scheduler 不会回调 onDomainChanged，这里兜底）
       project.projector.sync()
+      project.attentionProjector.sync()
       return {
         ticketId: outcome.ticket.ticketId,
         assignmentId: outcome.assignment.assignmentId,
@@ -355,6 +388,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       }
       // Report 是领域事实：卡片即时投影（现有卡片原位更新，不重复发气泡）
       project.projector.sync()
+      // question/answers 变化驱动 Attention 气泡（T08 #78）
+      project.attentionProjector.sync()
       return {
         ticketId: assignment.ticketId,
         reportId: result.report.reportId,
@@ -471,6 +506,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           }
           // Input 状态变化是领域事实：卡片即时投影
           project.projector.sync()
+          // uncertain 会产生 delivery Attention：气泡同步投影（T08 #78）
+          project.attentionProjector.sync()
         }
       }
 
@@ -482,6 +519,35 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         delivered: input.status === 'delivered' || input.status === 'read',
         gated: added.gated,
         duplicate: added.duplicate,
+      }
+    },
+
+    attentions(repoRoot) {
+      const project = projectOf(repoRoot)
+      // 读路径先同步一次：与 tickets 一致的自愈语义，保证看板不落后于领域事实
+      project.attentionProjector.sync()
+      return project.attentionProjector.board()
+    },
+
+    attentionAnswer(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      // 回答经 domain.ts 既有接缝（answerAttention → addInput）落库并投递；
+      // 协议失败抛稳定错误码（notAttention/notQuestion/invalidAnswer），由 IPC 层序列化
+      const answered = project.domain.answerAttention({
+        attentionId: command.attentionId,
+        requestId: command.requestId,
+        text: command.text,
+      })
+      // 回答已追加到 open Attention 的 answers：气泡视图刷新（asked）
+      project.attentionProjector.sync()
+      return {
+        attentionId: command.attentionId,
+        ticketId: answered.attention.ticketId,
+        inputId: answered.input.inputId,
+        status: answered.input.status,
+        delivered: answered.delivered,
+        gated: answered.gated,
+        duplicate: answered.duplicate,
       }
     },
 

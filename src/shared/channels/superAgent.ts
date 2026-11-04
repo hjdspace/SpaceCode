@@ -9,9 +9,12 @@
  *   workerUnbind — 关闭镜像标签：只停观察，不影响后台推进（T07 #77）
  *   workerTakeover / workerRelease — 接管/交还 Worker 面板态，不改调度（T09 #79）
  *   workerMessage    — 接管输入：先落 Domain Input 再按调度投递，requestId 对账（T09 #79）
+ *   attentions       — Attention 气泡全量看板（T08 #78）
+ *   attentionAnswer  — 就地回答：先落 Domain Input 再投递给对应 Worker（T08 #78）
  * 事件：
  *   health-changed — 健康项变化时广播（repoRoot, report）
  *   takeover-changed — 接管/交还广播（repoRoot, event），takeover=null 表示已交还（T09 #79）
+ *   attention-asked / attention-answered / attention-withdrawn — Attention 变化广播（T08 #78）
  *
  * 前缀 `super-agent:`。preload、renderer API、主进程 handler 均从这里派生。
  */
@@ -246,6 +249,63 @@ export interface SuperAgentTakeoverChangedEvent {
   takeover: SuperAgentTakeoverState | null
 }
 
+// ── Attention 问答链路（T08 #78）─────────────────────────────────
+
+/** Attention 气泡视图：工单溯源 + 问题 + 状态；answered 折叠保留审计。 */
+export interface SuperAgentAttentionView {
+  attentionId: string
+  ticketId: string
+  /** 工单标题，气泡溯源展示用。 */
+  ticketTitle: string
+  assignmentId: string
+  kind: 'question' | 'permission' | 'delivery'
+  question: string
+  askedAt: string
+  status: 'open' | 'answered' | 'withdrawn'
+  /** 已提交（含已认领）的回答 inputId，按提交顺序。 */
+  answers: string[]
+  answeredAt: string | null
+}
+
+/** attentions 通道返回的完整 Attention 看板。 */
+export interface SuperAgentAttentionBoard {
+  repoRoot: string
+  attentions: SuperAgentAttentionView[]
+  /** 按工单去重后的待处理数（徽章/顶部计数）。 */
+  pendingTickets: number
+}
+
+/** attention-changed 事件载荷：直接应用全量视图即幂等。 */
+export interface SuperAgentAttentionEvent {
+  repoRoot: string
+  /** asked（新建或 open 期间视图更新，如补充回答）/ answered（认领关闭）/ withdrawn（替换/结束撤回）。 */
+  reason: 'asked' | 'answered' | 'withdrawn'
+  /** 触发本次事件的 Attention 视图。 */
+  attention: SuperAgentAttentionView
+  /** 全量视图（含已回答的审计折叠项）。 */
+  attentions: SuperAgentAttentionView[]
+  /** 按工单去重后的待处理数（徽章/顶部计数）。 */
+  pendingTickets: number
+}
+
+/** 就地回答命令：回答作为领域 Input 投递给对应 Worker；requestId 为幂等键。 */
+export interface SuperAgentAttentionAnswerCommand {
+  requestId: string
+  attentionId: string
+  text: string
+}
+
+export interface SuperAgentAttentionAnswerResult {
+  attentionId: string
+  ticketId: string
+  inputId: string
+  status: 'pending' | 'delivered' | 'read' | 'failed' | 'uncertain'
+  delivered: boolean
+  /** 被 blocked/failed 闸门拦下：只落库，不投递。 */
+  gated: boolean
+  duplicate: boolean
+}
+
 // ── 健康模型（T13 #83）───────────────────────────────────────────
 
 /**
@@ -352,6 +412,15 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string, command: SuperAgentWorkerMessageCommand],
       res: null as unknown as SuperAgentWorkerMessageResult,
     },
+    // Attention 问答链路（T08 #78）：非模态气泡 + 就地回答。
+    attentions: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentAttentionBoard,
+    },
+    attentionAnswer: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentAttentionAnswerCommand],
+      res: null as unknown as SuperAgentAttentionAnswerResult,
+    },
   },
   events: {
     onHealthChanged: {
@@ -373,6 +442,20 @@ export const superAgentNamespace = defineNamespace({
     onTakeoverChanged: {
       channel: 'takeover-changed',
       args: [] as unknown as [repoRoot: string, event: SuperAgentTakeoverChangedEvent],
+    },
+    // Attention 问答链路（T08 #78）：question 触发 asked，认领触发 answered，
+    // 替换/结束撤回触发 withdrawn；payload 携带全量视图，直接应用即幂等。
+    onAttentionAsked: {
+      channel: 'attention-asked',
+      args: [] as unknown as [repoRoot: string, event: SuperAgentAttentionEvent],
+    },
+    onAttentionAnswered: {
+      channel: 'attention-answered',
+      args: [] as unknown as [repoRoot: string, event: SuperAgentAttentionEvent],
+    },
+    onAttentionWithdrawn: {
+      channel: 'attention-withdrawn',
+      args: [] as unknown as [repoRoot: string, event: SuperAgentAttentionEvent],
     },
   },
 })

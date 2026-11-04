@@ -25,6 +25,11 @@
  *  - 注册 workerTakeover / workerRelease / workerMessage（接管与交还）通道；
  *  - 接管/交还经 takeover-changed 事件广播到所有窗口，多面板不互抢；
  *    workerMessage 只做入口校验，先落库再投递的对账规则在 service。
+ *
+ * T08 #78：
+ *  - 注册 attentions（气泡看板只读拉取）与 attentionAnswer（就地回答）通道；
+ *  - Attention 变化经 attention-asked / attention-answered / attention-withdrawn
+ *    事件广播到所有窗口；payload 携带全量视图，Renderer 直接应用即幂等。
  */
 import { BrowserWindow, ipcMain } from 'electron'
 import { eventChannels } from '@/shared/channelMap'
@@ -32,6 +37,8 @@ import { registerHandlers } from '@/shared/handlerRegistry'
 import {
   SUPER_AGENT_PREFIX,
   superAgentNamespace,
+  type SuperAgentAttentionAnswerCommand,
+  type SuperAgentAttentionEvent,
   type SuperAgentDispatchCommand,
   type SuperAgentHealthReport,
   type SuperAgentQueueSnapshot,
@@ -95,6 +102,28 @@ function requireWorkerMessageCommand(input: unknown): SuperAgentWorkerMessageCom
   return input as SuperAgentWorkerMessageCommand
 }
 
+/**
+ * 就地回答命令入口校验（T08 #78）：requestId/attentionId 必须是非空字符串；
+ * text 必须是非空字符串（领域层 invalidAnswer 兜底同样校验）。
+ */
+function requireAttentionAnswerCommand(input: unknown): SuperAgentAttentionAnswerCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('attention answer command is required')
+  }
+  const command = input as Record<string, unknown>
+  if (
+    typeof command.requestId !== 'string' ||
+    command.requestId.trim() === '' ||
+    typeof command.attentionId !== 'string' ||
+    command.attentionId.trim() === '' ||
+    typeof command.text !== 'string' ||
+    command.text.trim() === ''
+  ) {
+    throw new Error('invalid attention answer command')
+  }
+  return input as SuperAgentAttentionAnswerCommand
+}
+
 /** health.changed 广播：所有未销毁窗口都能收到，Renderer 无需轮询。 */
 function broadcastHealthChanged(repoRoot: string, report: SuperAgentHealthReport): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -140,6 +169,24 @@ function broadcastTakeoverChanged(repoRoot: string, event: SuperAgentTakeoverCha
   }
 }
 
+/**
+ * Attention 变化广播（T08 #78）：asked/answered/withdrawn 共用同一载荷结构
+ * （全量视图 + 按工单去重的待处理数），所有窗口直接应用即幂等。
+ */
+function broadcastAttentionEvent(repoRoot: string, event: SuperAgentAttentionEvent): void {
+  const channel =
+    event.reason === 'answered'
+      ? SUPER_AGENT_EVENTS.onAttentionAnswered
+      : event.reason === 'withdrawn'
+        ? SUPER_AGENT_EVENTS.onAttentionWithdrawn
+        : SUPER_AGENT_EVENTS.onAttentionAsked
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, repoRoot, event)
+    }
+  }
+}
+
 /** 创建接好 health.changed / queue-changed 广播的服务；独立导出以便测试广播链路。 */
 export function createBroadcastingSuperAgentService(): SuperAgentService {
   return createSuperAgentService({
@@ -148,6 +195,7 @@ export function createBroadcastingSuperAgentService(): SuperAgentService {
     onTicketUpdated: broadcastTicketUpdated,
     onTicketProgress: broadcastTicketProgress,
     onTakeoverChanged: broadcastTakeoverChanged,
+    onAttentionEvent: broadcastAttentionEvent,
   })
 }
 
@@ -217,6 +265,15 @@ export function registerSuperAgentIPCHandlers(
       const root = requireRepoRoot(repoRoot)
       const req = requireWorkerMessageCommand(command)
       return runNoted(service, root, () => service.workerMessage(root, req))
+    },
+    attentions: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.attentions(root))
+    },
+    attentionAnswer: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireAttentionAnswerCommand(command)
+      return runNoted(service, root, () => service.attentionAnswer(root, req))
     },
   })
 }

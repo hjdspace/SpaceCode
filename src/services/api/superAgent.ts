@@ -67,6 +67,16 @@ const invokeApi = createRendererApi(
       // 非桌面环境没有引擎投递链路；拒绝而不是假装成功
       throw new Error('worker message is only available in desktop')
     },
+    attentions: () => ({
+      // 非桌面环境没有 Attention 运行时：空看板、待处理 0，与主进程初始状态一致
+      repoRoot: '',
+      attentions: [],
+      pendingTickets: 0,
+    }),
+    attentionAnswer: () => {
+      // 回答依赖主进程领域落库与投递链路，非桌面环境明确拒绝
+      throw new Error('attention answer is only available in desktop')
+    },
   },
 )
 

@@ -266,3 +266,103 @@ describe('registerSuperAgentIPCHandlers takeover & giveback（T09 #79）', () =>
   })
 })
 
+describe('registerSuperAgentIPCHandlers attention QA（T08 #78）', () => {
+  const DISPATCH = { requestId: 'dispatch-1', title: '修复登录', text: '登录按钮无响应' }
+  const ATTENTION_ASKED_CHANNEL = `${SUPER_AGENT_PREFIX}attention-asked`
+  const ATTENTION_ANSWERED_CHANNEL = `${SUPER_AGENT_PREFIX}attention-answered`
+
+  it('registers attentions and attentionAnswer on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}attentions`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}attentionAnswer`,
+      expect.any(Function),
+    )
+  })
+
+  it('serves the attention board and rejects malformed answer commands at the entry', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const board = await invoke('attentions', '/repo/a')
+    expect(board).toEqual({ repoRoot: '/repo/a', attentions: [], pendingTickets: 0 })
+
+    await expect(invokeDispatch('attentionAnswer', '/repo/a', null)).rejects.toThrow(
+      /attention answer/,
+    )
+    await expect(
+      invokeDispatch('attentionAnswer', '/repo/a', {
+        requestId: 'a-1',
+        attentionId: 'attention-1',
+        text: ' ',
+      }),
+    ).rejects.toThrow(/attention answer/)
+  })
+
+  it('broadcasts attention-asked / attention-answered through the broadcasting service', async () => {
+    const service = createBroadcastingSuperAgentService()
+    const dispatched = service.dispatch('/repo/a', DISPATCH)
+    service.workerTakeover('/repo/a', dispatched.ticketId)
+    const asker = await service.workerMessage('/repo/a', {
+      requestId: 'ask-1',
+      ticketId: dispatched.ticketId,
+      text: '旧接口还要保留吗？',
+    })
+    probe.send.mockClear()
+
+    service.workerReport('/repo/a', {
+      text: `\`\`\`super-agent:report\n${JSON.stringify({
+        assignmentId: dispatched.assignmentId,
+        reportId: 'rep-1',
+        kind: 'blocked',
+        summary: '等待确认',
+        question: '旧接口还要保留吗？',
+        askedBy: asker.inputId,
+      })}\n\`\`\``,
+    })
+    expect(probe.send).toHaveBeenCalledWith(
+      ATTENTION_ASKED_CHANNEL,
+      '/repo/a',
+      expect.objectContaining({
+        repoRoot: '/repo/a',
+        reason: 'asked',
+        pendingTickets: 1,
+      }),
+    )
+
+    const board = service.attentions('/repo/a')
+    const attentionId = board.attentions[0].attentionId
+    probe.send.mockClear()
+    const answered = await service.attentionAnswer('/repo/a', {
+      requestId: 'answer-1',
+      attentionId,
+      text: '保留，别删',
+    })
+    expect(answered.delivered).toBe(true)
+    // 回答只是刷新 open 视图：仍走 asked 通道
+    expect(probe.send).toHaveBeenCalledWith(
+      ATTENTION_ASKED_CHANNEL,
+      '/repo/a',
+      expect.objectContaining({ reason: 'asked' }),
+    )
+
+    probe.send.mockClear()
+    service.workerReport('/repo/a', {
+      text: `\`\`\`super-agent:report\n${JSON.stringify({
+        assignmentId: dispatched.assignmentId,
+        reportId: 'rep-2',
+        kind: 'waiting',
+        summary: '已按回答继续',
+        answers: [answered.inputId],
+      })}\n\`\`\``,
+    })
+    expect(probe.send).toHaveBeenCalledWith(
+      ATTENTION_ANSWERED_CHANNEL,
+      '/repo/a',
+      expect.objectContaining({ reason: 'answered', pendingTickets: 0 }),
+    )
+  })
+})

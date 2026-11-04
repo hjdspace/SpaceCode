@@ -150,6 +150,25 @@ export interface FailDeliveryInput {
   at?: string
 }
 
+/** T08 #78：人对 Attention 气泡的就地回答 —— 落成领域 Input 并投递给对应 Worker。 */
+export interface AnswerAttentionCommand {
+  attentionId: string
+  /** UI 幂等键。 */
+  requestId: string
+  text: string
+  at?: string
+}
+
+/** T08 #78：回答结果。Attention 保持 open，直到 Worker 用 answers 认领。 */
+export interface AnswerAttentionResult {
+  attention: SuperAgentAttention
+  input: SuperAgentInput
+  /** 被 blocked/failed 闸门拦下：只落库，不投递。 */
+  gated: boolean
+  delivered: boolean
+  duplicate: boolean
+}
+
 /** T09 #79：可证明未接受才允许重投 —— 把已投未读的 Input 退回 pending。 */
 export interface RequeueInputInput {
   inputId: string
@@ -225,6 +244,8 @@ export interface SuperAgentDomain {
   launchAssignment(input: LaunchAssignmentInput): SuperAgentAssignment
   endAssignment(input: EndAssignmentInput): SuperAgentAssignment
   addInput(command: AddInputCommand): AddInputResult
+  /** T08 #78：就地回答 Attention，回答作为领域 Input 投递给对应 Worker。 */
+  answerAttention(command: AnswerAttentionCommand): AnswerAttentionResult
   requeueInput(input: RequeueInputInput): SuperAgentInput
   deliverInput(input: DeliverInputInput): SuperAgentInput
   markInputUncertain(input: MarkInputUncertainInput): MarkInputUncertainResult
@@ -701,6 +722,71 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return { input, gated, delivered, duplicate: false }
   }
 
+  /**
+   * T08 #78：就地回答 Attention。回答经 addInput 既有接缝落成领域 Input 并
+   * 投递给对应 Worker；Attention 保持 open 直到 Worker 用 answers 认领，
+   * 认领前允许补充回答（追加到 attention.answers）。
+   */
+  function answerAttention(command: AnswerAttentionCommand): AnswerAttentionResult {
+    const attention = state.attentions[command.attentionId]
+    if (!attention) {
+      throw superAgentError('notAttention', { attentionId: command.attentionId })
+    }
+
+    // 幂等重试：返回原输入与 Attention 当前状态（可能已被认领/撤回）。
+    const key = idempotencyKey('request', command.requestId)
+    const existing = state.idempotency[key]
+    if (existing) {
+      if (existing.kind !== 'input') throw superAgentError('conflict', { key: existing.kind })
+      const input = state.inputs[existing.id]
+      if (
+        !input ||
+        input.ticketId !== attention.ticketId ||
+        input.kind !== 'text' ||
+        !input.human ||
+        input.text !== command.text
+      ) {
+        throw superAgentError('conflict', { key: existing.kind })
+      }
+      return {
+        attention,
+        input,
+        delivered: input.status === 'delivered' || input.status === 'read',
+        gated: input.status === 'pending',
+        duplicate: true,
+      }
+    }
+
+    if (attention.status !== 'open') {
+      throw superAgentError('notAttention', { attentionId: command.attentionId })
+    }
+    if (attention.kind !== 'question') {
+      throw superAgentError('notQuestion', { attentionId: command.attentionId })
+    }
+    if (command.text.trim() === '') {
+      throw superAgentError('invalidAnswer', { attentionId: command.attentionId })
+    }
+
+    const added = addInput({
+      ticketId: attention.ticketId,
+      requestId: command.requestId,
+      kind: 'text',
+      human: true,
+      text: command.text,
+      at: command.at,
+    })
+    if (!attention.answers.includes(added.input.inputId)) {
+      attention.answers.push(added.input.inputId)
+    }
+    return {
+      attention,
+      input: added.input,
+      delivered: added.delivered,
+      gated: added.gated,
+      duplicate: added.duplicate,
+    }
+  }
+
   /** T09 #79：requestId 对账可证明未接受（已投未读退回 pending）时才允许重投。 */
   function requeueInput(input: RequeueInputInput): SuperAgentInput {
     const target = state.inputs[input.inputId]
@@ -945,7 +1031,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
         (candidate) =>
           candidate.ticketId === ticket.ticketId &&
           candidate.status === 'open' &&
-          candidate.askedBy === inputId,
+          (candidate.askedBy === inputId || candidate.answers.includes(inputId)),
       )
       if (!attention) {
         throw superAgentError('notAnswerable', { ticketId: ticket.ticketId, inputId })
@@ -982,10 +1068,11 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
           if (
             attention.ticketId === ticket.ticketId &&
             attention.status === 'open' &&
-            attention.askedBy === inputId
+            (attention.askedBy === inputId || attention.answers.includes(inputId))
           ) {
             attention.status = 'answered'
-            attention.answers = [inputId]
+            // 认领的回答并入审计：保留已提交的补充回答，不覆盖。
+            if (!attention.answers.includes(inputId)) attention.answers.push(inputId)
             attention.answeredAt = at
             attentionId = attention.attentionId
             if (ticket.attentionId === attention.attentionId) ticket.attentionId = null
@@ -996,25 +1083,37 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     }
 
     if (question !== null) {
-      // 新问题替换旧问题：旧的未发出问题必须撤回，不能出现两条矛盾气泡。
-      withdrawOpenAttentions(ticket)
-      const attention: SuperAgentAttention = {
-        attentionId: newId('attention'),
-        ticketId: ticket.ticketId,
-        assignmentId: assignment.assignmentId,
-        kind: 'question',
-        question,
-        askedBy: askedBy as string,
-        askedAt: at,
-        status: 'open',
-        answers: [],
-        answeredAt: null,
-        sessionId: null,
-        requestId: null,
+      // 相同问题只提醒一次：同工单同文本的问题仍处于 open 时不新建、不撤回。
+      const existingOpen = Object.values(state.attentions).find(
+        (candidate) =>
+          candidate.ticketId === ticket.ticketId &&
+          candidate.kind === 'question' &&
+          candidate.status === 'open' &&
+          candidate.question === question,
+      )
+      if (existingOpen) {
+        attentionId = existingOpen.attentionId
+      } else {
+        // 新问题替换旧问题：旧的未发出问题必须撤回，不能出现两条矛盾气泡。
+        withdrawOpenAttentions(ticket)
+        const attention: SuperAgentAttention = {
+          attentionId: newId('attention'),
+          ticketId: ticket.ticketId,
+          assignmentId: assignment.assignmentId,
+          kind: 'question',
+          question,
+          askedBy: askedBy as string,
+          askedAt: at,
+          status: 'open',
+          answers: [],
+          answeredAt: null,
+          sessionId: null,
+          requestId: null,
+        }
+        state.attentions[attention.attentionId] = attention
+        ticket.attentionId = attention.attentionId
+        attentionId = attention.attentionId
       }
-      state.attentions[attention.attentionId] = attention
-      ticket.attentionId = attention.attentionId
-      attentionId = attention.attentionId
     } else if (command.kind === 'ready') {
       withdrawOpenAttentions(ticket)
       attentionId = null
@@ -1043,6 +1142,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     launchAssignment,
     endAssignment,
     addInput,
+    answerAttention,
     requeueInput,
     deliverInput,
     markInputUncertain,

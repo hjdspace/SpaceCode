@@ -26,12 +26,21 @@
  * T09 #79：takeover 是接管态镜像 —— workerTakeover/workerRelease 切换，
  * takeover-changed 事件同步所有面板（多面板不互抢）。sendWorkerMessage 把
  * 接管输入交给主进程先落库再投递（requestId 对账），不直连引擎。
+ *
+ * T08 #78：attentionBoard 是 Attention 气泡镜像 —— attentions 通道全量拉取 +
+ * attention-asked/answered/withdrawn 事件增量应用（payload 本身携带全量视图，
+ * 直接应用即幂等，无需水位对账）。attentionCount 按工单去重联动徽章；
+ * answerAttention 把就地回答交给主进程落成领域 Input 再投递给对应 Worker。
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/services/electronAPI'
 import { i18n } from '@/i18n'
 import type {
+  SuperAgentAttentionAnswerCommand,
+  SuperAgentAttentionAnswerResult,
+  SuperAgentAttentionBoard,
+  SuperAgentAttentionView,
   SuperAgentBindResult,
   SuperAgentDispatchCommand,
   SuperAgentDispatchResult,
@@ -61,11 +70,25 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   const workerMirrors = ref<Record<string, SuperAgentWorkerMirror>>({})
   /** T09 #79：当前接管态镜像；null = 未接管。每项目同时至多一个。 */
   const takeover = ref<SuperAgentTakeoverState | null>(null)
+  /** T08 #78：Attention 气泡看板镜像（含已回答的审计折叠项）。 */
+  const attentionBoard = ref<SuperAgentAttentionBoard | null>(null)
 
   /** T09 #79：当前被接管的 ticketId；面板据此切换只读/可写。 */
   const takeoverTicketId = computed(() => takeover.value?.ticketId ?? null)
 
-  const attentionCount = computed(() => snapshot.value?.attention.unanswered ?? 0)
+  /** 待处理 Attention：按工单去重，与主进程徽章计数同源。 */
+  const attentionCount = computed(
+    () => attentionBoard.value?.pendingTickets ?? snapshot.value?.attention.unanswered ?? 0,
+  )
+  /** 全部非撤回气泡：open 展示回答入口，answered 折叠保留审计。 */
+  const attentionBubbles = computed(() =>
+    (attentionBoard.value?.attentions ?? []).filter(
+      (view: SuperAgentAttentionView) => view.status !== 'withdrawn',
+    ),
+  )
+  const openAttentions = computed(() =>
+    attentionBubbles.value.filter((view: SuperAgentAttentionView) => view.status === 'open'),
+  )
   const healthProblemCount = computed(() => healthReport.value?.problemCount ?? 0)
   /** 面板问题列表：error 级且未由工单卡片呈现的项。 */
   const healthProblems = computed(() =>
@@ -192,6 +215,26 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     return api.superAgent.workerMessage(repoRoot, command)
   }
 
+  /** 全量拉取 Attention 气泡看板（T08 #78）：初始加载共用。 */
+  async function loadAttentions(repoRoot: string): Promise<SuperAgentAttentionBoard> {
+    const next = await api.superAgent.attentions(repoRoot)
+    attentionBoard.value = next
+    return next
+  }
+
+  /**
+   * 就地回答 Attention（T08 #78）：主进程先落领域 Input 再投递给对应 Worker
+   * （requestId 对账）；成功后重拉看板，保证与事件广播的到达顺序无关。
+   */
+  async function answerAttention(
+    repoRoot: string,
+    command: SuperAgentAttentionAnswerCommand,
+  ): Promise<SuperAgentAttentionAnswerResult> {
+    const result = await api.superAgent.attentionAnswer(repoRoot, command)
+    await loadAttentions(repoRoot)
+    return result
+  }
+
   /** 订阅 health.changed；只接受当前绑定项目的报告，返回退订函数。 */
   function watchHealth(): () => void {
     return api.superAgent.onHealthChanged((repoRoot, report) => {
@@ -252,6 +295,33 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     })
   }
 
+  /**
+   * 订阅 attention-asked / answered / withdrawn（T08 #78），返回退订函数。
+   *
+   * 三个事件的 payload 都携带全量视图与按工单去重的待处理数，直接应用即幂等，
+   * 不需要水位对账；只接受当前绑定项目的事件。
+   */
+  function watchAttentions(): () => void {
+    const apply = (repoRoot: string, attentions: SuperAgentAttentionView[], pendingTickets: number) => {
+      if (snapshot.value?.repoRoot !== repoRoot) return
+      attentionBoard.value = { repoRoot, attentions, pendingTickets }
+    }
+    const offAsked = api.superAgent.onAttentionAsked((repoRoot, event) => {
+      apply(repoRoot, event.attentions, event.pendingTickets)
+    })
+    const offAnswered = api.superAgent.onAttentionAnswered((repoRoot, event) => {
+      apply(repoRoot, event.attentions, event.pendingTickets)
+    })
+    const offWithdrawn = api.superAgent.onAttentionWithdrawn((repoRoot, event) => {
+      apply(repoRoot, event.attentions, event.pendingTickets)
+    })
+    return () => {
+      offAsked()
+      offAnswered()
+      offWithdrawn()
+    }
+  }
+
   function toggleHealthPanel(): void {
     healthPanelOpen.value = !healthPanelOpen.value
   }
@@ -270,12 +340,17 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     workerMirrors,
     takeover,
     takeoverTicketId,
+    attentionBoard,
+    attentionBubbles,
+    openAttentions,
     bind,
     loadState,
     loadHealth,
     dispatch,
     loadQueue,
     loadTickets,
+    loadAttentions,
+    answerAttention,
     bindWorker,
     unbindWorker,
     takeoverWorker,
@@ -285,6 +360,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     watchQueue,
     watchTickets,
     watchTakeover,
+    watchAttentions,
     toggleHealthPanel,
   }
 })
