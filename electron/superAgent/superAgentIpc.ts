@@ -15,6 +15,11 @@
  * T07 #77：
  *  - 注册 workerBind / workerUnbind（Worker 只读镜像）通道；
  *  - workerBind 幂等返回稳定 sessionId 与代次分段快照，workerUnbind 只停镜像。
+ *
+ * T06 #76：
+ *  - 注册 tickets（全量卡片看板只读拉取）通道；
+ *  - 卡片投影经 ticket-updated / ticket-progress 事件广播到所有窗口；
+ *    ticket.updated 携带领域 seq 水位，Renderer 断档时全量重拉 tickets。
  */
 import { BrowserWindow, ipcMain } from 'electron'
 import { eventChannels } from '@/shared/channelMap'
@@ -25,6 +30,8 @@ import {
   type SuperAgentDispatchCommand,
   type SuperAgentHealthReport,
   type SuperAgentQueueSnapshot,
+  type SuperAgentTicketProgress,
+  type SuperAgentTicketUpdateEvent,
 } from '@/shared/channels/superAgent'
 import { createSuperAgentService, type SuperAgentService } from './service'
 
@@ -80,11 +87,31 @@ function broadcastQueueChanged(repoRoot: string, snapshot: SuperAgentQueueSnapsh
   }
 }
 
+/** ticket-updated 广播：领域事实变化即时推卡片（含 fromSeq/toSeq 水位）。 */
+function broadcastTicketUpdated(repoRoot: string, event: SuperAgentTicketUpdateEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(SUPER_AGENT_EVENTS.onTicketUpdated, repoRoot, event)
+    }
+  }
+}
+
+/** ticket-progress 广播：1 秒节流后的轻量进度，所有窗口可见。 */
+function broadcastTicketProgress(repoRoot: string, progress: SuperAgentTicketProgress): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(SUPER_AGENT_EVENTS.onTicketProgress, repoRoot, progress)
+    }
+  }
+}
+
 /** 创建接好 health.changed / queue-changed 广播的服务；独立导出以便测试广播链路。 */
 export function createBroadcastingSuperAgentService(): SuperAgentService {
   return createSuperAgentService({
     onHealthChanged: broadcastHealthChanged,
     onQueueChanged: broadcastQueueChanged,
+    onTicketUpdated: broadcastTicketUpdated,
+    onTicketProgress: broadcastTicketProgress,
   })
 }
 
@@ -125,6 +152,10 @@ export function registerSuperAgentIPCHandlers(
     queue: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.queue(root))
+    },
+    tickets: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.tickets(root))
     },
     workerBind: (repoRoot: unknown, ticketId: unknown) => {
       const root = requireRepoRoot(repoRoot)

@@ -8,6 +8,8 @@
  *    问题列表只含 error 且未反映在工单卡片的项，面板开关可切换；
  *  - 派工与队列（T05）：dispatch 走 IPC 幂等命令并刷新队列，queue-changed
  *    只更新当前项目，loadQueue 拉取队列快照。
+ *  - 工单卡片（T06 #76）：loadTickets 全量拉取看板；ticket-updated 水位一致
+ *    时原位应用（幂等）、断档时全量重拉；ticket-progress 断档不重拉、只存最新。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -15,6 +17,9 @@ import type {
   SuperAgentHealthItem,
   SuperAgentHealthReport,
   SuperAgentQueueSnapshot,
+  SuperAgentTicketCard,
+  SuperAgentTicketProgress,
+  SuperAgentTicketUpdateEvent,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { useSuperAgentStore } from '../index'
@@ -28,6 +33,9 @@ const mocks = vi.hoisted(() => ({
   dispatch: vi.fn(),
   queue: vi.fn(),
   onQueueChanged: vi.fn(),
+  tickets: vi.fn(),
+  onTicketUpdated: vi.fn(),
+  onTicketProgress: vi.fn(),
   workerBind: vi.fn(),
   workerUnbind: vi.fn(),
   traceEvent: vi.fn(),
@@ -44,6 +52,10 @@ vi.mock('@/services/electronAPI', () => ({
       dispatch: mocks.dispatch,
       queue: mocks.queue,
       onQueueChanged: mocks.onQueueChanged,
+      tickets: mocks.tickets,
+      onTicketUpdated: mocks.onTicketUpdated,
+      onTicketProgress: mocks.onTicketProgress,
+      workerBind: mocks.workerBind,
       workerUnbind: mocks.workerUnbind,
     },
     claudeCode: {
@@ -384,3 +396,134 @@ describe('superAgent store dispatch & queue（T05 #75）', () => {
   })
 })
 
+function ticketCard(overrides: Partial<SuperAgentTicketCard> = {}): SuperAgentTicketCard {
+  return {
+    ticketId: 'ticket-1',
+    title: '修复登录',
+    state: 'working',
+    assignmentId: 'assignment-1',
+    generation: 1,
+    scopePaths: [],
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    ended: null,
+    ...overrides,
+  }
+}
+
+function ticketProgress(overrides: Partial<SuperAgentTicketProgress> = {}): SuperAgentTicketProgress {
+  return {
+    repoRoot: 'D:/repo',
+    seq: 1,
+    ticketId: 'ticket-1',
+    state: 'working',
+    assignmentId: 'assignment-1',
+    currentTool: 'Edit',
+    elapsedMs: 1000,
+    toolCalls: 3,
+    lastActivityAt: '2026-01-01T00:00:01Z',
+    ...overrides,
+  }
+}
+
+describe('superAgent store 工单卡片（T06 #76）', () => {
+  it('loadTickets mirrors the full board with the domain seq watermark', async () => {
+    const { superAgent } = loadStores()
+    mocks.tickets.mockResolvedValue({ repoRoot: 'D:/repo', seq: 5, tickets: [ticketCard()] })
+
+    await superAgent.loadTickets('D:/repo')
+
+    expect(mocks.tickets).toHaveBeenCalledWith('D:/repo')
+    expect(superAgent.ticketBoard?.seq).toBe(5)
+    expect(superAgent.ticketBoard?.tickets).toHaveLength(1)
+  })
+
+  it('applies ticket-updated in place when the seq watermark matches', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+    mocks.tickets.mockResolvedValue({ repoRoot: 'D:/repo', seq: 2, tickets: [ticketCard({ state: 'queued' })] })
+    await superAgent.loadTickets('D:/repo')
+
+    let listener: ((repoRoot: string, event: SuperAgentTicketUpdateEvent) => void) | undefined
+    mocks.onTicketUpdated.mockImplementation((cb) => {
+      listener = cb
+      return () => {}
+    })
+    superAgent.watchTickets()
+
+    // 水位衔接（fromSeq === 本地 seq）：直接应用全量卡片，Report 原位更新
+    const updated = [ticketCard({ state: 'working' })]
+    listener?.('D:/repo', { repoRoot: 'D:/repo', fromSeq: 2, toSeq: 3, tickets: updated })
+    expect(superAgent.ticketBoard?.seq).toBe(3)
+    expect(superAgent.ticketBoard?.tickets).toEqual(updated)
+    expect(mocks.tickets).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-pulls the full board when the domain seq watermark gaps', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+    mocks.tickets.mockResolvedValue({ repoRoot: 'D:/repo', seq: 2, tickets: [ticketCard()] })
+    await superAgent.loadTickets('D:/repo')
+
+    let listener: ((repoRoot: string, event: SuperAgentTicketUpdateEvent) => void) | undefined
+    mocks.onTicketUpdated.mockImplementation((cb) => {
+      listener = cb
+      return () => {}
+    })
+    superAgent.watchTickets()
+
+    // fromSeq(5) !== 本地 seq(2)：领域断档，全量重拉而不是错位应用
+    mocks.tickets.mockResolvedValue({ repoRoot: 'D:/repo', seq: 6, tickets: [ticketCard({ state: 'idle' })] })
+    listener?.('D:/repo', { repoRoot: 'D:/repo', fromSeq: 5, toSeq: 6, tickets: [ticketCard({ state: 'review' })] })
+    await vi.waitFor(() => expect(superAgent.ticketBoard?.seq).toBe(6))
+    expect(mocks.tickets).toHaveBeenCalledTimes(2)
+    expect(superAgent.ticketBoard?.tickets[0].state).toBe('idle')
+  })
+
+  it('keeps only the latest ticket-progress and never re-pulls on progress gaps', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+
+    let listener: ((repoRoot: string, progress: SuperAgentTicketProgress) => void) | undefined
+    mocks.onTicketProgress.mockImplementation((cb) => {
+      listener = cb
+      return () => {}
+    })
+    superAgent.watchTickets()
+
+    // 投影 seq 跳跃（节流丢帧）不触发重拉，只应用最新进度
+    listener?.('D:/repo', ticketProgress({ seq: 1, currentTool: 'Read' }))
+    listener?.('D:/repo', ticketProgress({ seq: 7, currentTool: 'Bash' }))
+
+    expect(superAgent.ticketProgress['ticket-1']?.currentTool).toBe('Bash')
+    expect(superAgent.ticketProgress['ticket-1']?.seq).toBe(7)
+    expect(mocks.tickets).not.toHaveBeenCalled()
+  })
+
+  it('ignores ticket events for other repo roots', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+
+    let updated: ((repoRoot: string, event: SuperAgentTicketUpdateEvent) => void) | undefined
+    let progress: ((repoRoot: string, payload: SuperAgentTicketProgress) => void) | undefined
+    mocks.onTicketUpdated.mockImplementation((cb) => {
+      updated = cb
+      return () => {}
+    })
+    mocks.onTicketProgress.mockImplementation((cb) => {
+      progress = cb
+      return () => {}
+    })
+    superAgent.watchTickets()
+
+    updated?.('D:/other', { repoRoot: 'D:/other', fromSeq: 0, toSeq: 1, tickets: [] })
+    progress?.('D:/other', ticketProgress({ repoRoot: 'D:/other' }))
+
+    expect(superAgent.ticketBoard).toBeNull()
+    expect(superAgent.ticketProgress['ticket-1']).toBeUndefined()
+  })
+})

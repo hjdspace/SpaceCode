@@ -93,6 +93,16 @@
 
     <SuperAgentHealth v-if="superAgentStore.healthPanelOpen" :problems="superAgentStore.healthProblems" />
 
+    <!-- 工单卡片（T06 #76）：时间线上方薄层区块，不侵入时间线组件内部；
+         key=ticketId 保证 Report 只原位更新现有卡片，不重复发气泡。 -->
+    <div v-if="ticketCards.length" class="ticket-cards" data-testid="super-agent-tickets">
+      <WorkerTaskCard
+        v-for="card in ticketCards"
+        :key="card.ticketId"
+        :card="card"
+        :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+      />
+    </div>
 
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
          loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。 -->
@@ -148,10 +158,11 @@ import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { useSuperAgentStore } from '@/stores/superAgent'
 import { createUuid } from '@/utils/uuid'
-import type { SuperAgentQueueEntry } from '@/shared/channels/superAgent'
+import type { SuperAgentQueueEntry, SuperAgentTicketCard } from '@/shared/channels/superAgent'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
+import WorkerTaskCard from './WorkerTaskCard.vue'
 import { buildOutgoingMessage } from '@/lib/composer-outgoing'
 import {
   generateCostMessage,
@@ -195,6 +206,8 @@ const workingDirectory = computed(() =>
 // ── 健康上报（T13 #83）：拉取 + 订阅 health.changed，渲染端只读 ──
 let stopWatchingHealth: (() => void) | null = null
 let stopWatchingQueue: (() => void) | null = null
+// ── 工单卡片（T06 #76）：全量拉取 + ticket-updated/progress 订阅 ──
+let stopWatchingTickets: (() => void) | null = null
 
 onMounted(async () => {
   const repoRoot = appStore.projectRoot
@@ -203,8 +216,10 @@ onMounted(async () => {
   await superAgentStore.loadState(repoRoot)
   await superAgentStore.loadHealth(repoRoot)
   await superAgentStore.loadQueue(repoRoot)
+  await superAgentStore.loadTickets(repoRoot)
   stopWatchingHealth = superAgentStore.watchHealth()
   stopWatchingQueue = superAgentStore.watchQueue()
+  stopWatchingTickets = superAgentStore.watchTickets()
 })
 
 onUnmounted(() => {
@@ -212,8 +227,14 @@ onUnmounted(() => {
   stopWatchingHealth = null
   stopWatchingQueue?.()
   stopWatchingQueue = null
+  stopWatchingTickets?.()
+  stopWatchingTickets = null
 })
 
+/** 看板卡片（T06）：排序沿用主进程投影（createdAt 升序）。 */
+const ticketCards = computed<SuperAgentTicketCard[]>(() =>
+  superAgentStore.ticketBoard?.tickets ?? [],
+)
 
 // ── 显式派工（T05 #75）：「新建工单」独立动作，普通发送不建单 ──
 const dispatchFormOpen = ref(false)
@@ -620,6 +641,14 @@ async function handleToolSkip(messageId: string, toolId: string) {
 }
 
 .super-agent-health {
+  margin: 6px 12px 0;
+}
+
+// ── 工单卡片（T06 #76）：时间线上方薄层区块，单行卡片纵排 ──
+.ticket-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin: 6px 12px 0;
 }
 

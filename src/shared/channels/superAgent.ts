@@ -80,6 +80,95 @@ export interface SuperAgentQueueSnapshot {
   queued: SuperAgentQueueEntry[]
 }
 
+// ── 工单卡片投影（T06 #76）───────────────────────────────────────
+
+/**
+ * 卡片状态全集（设计 §10.3）：queued/preparing/working/idle/delivery/review/
+ * answer/blocked/failed/completed/stopped/dropped。`preparing` 与 `delivery`
+ * 是 progressProjector 维护的子态，不新增领域阶段；卡片必须同时用状态点
+ * 颜色与短状态词（外加状态图标）双通道表达，不能只靠颜色区分。
+ */
+export type SuperAgentTicketCardState =
+  | 'queued'
+  | 'preparing'
+  | 'working'
+  | 'idle'
+  | 'delivery'
+  | 'review'
+  | 'answer'
+  | 'blocked'
+  | 'failed'
+  | 'completed'
+  | 'stopped'
+  | 'dropped'
+
+export const SUPER_AGENT_TICKET_CARD_STATES = [
+  'queued',
+  'preparing',
+  'working',
+  'idle',
+  'delivery',
+  'review',
+  'answer',
+  'blocked',
+  'failed',
+  'completed',
+  'stopped',
+  'dropped',
+] as const
+
+/** 单行工单卡片投影；Report 只更新同 ticketId 的卡片，不重复发气泡。 */
+export interface SuperAgentTicketCard {
+  ticketId: string
+  title: string
+  state: SuperAgentTicketCardState
+  /** 最新一次执行；null 表示尚未派生 Assignment。 */
+  assignmentId: string | null
+  /** 最新执行代次；0 表示尚未派生 Assignment。 */
+  generation: number
+  /** Mandate scope 相对路径；空数组 = 整个仓库。 */
+  scopePaths: string[]
+  createdAt: string
+  updatedAt: string
+  ended: { outcome: string; by: string; reason: string; at: string } | null
+}
+
+/** tickets 通道返回的完整看板；seq 是领域事实水位，断档重拉以此为基准。 */
+export interface SuperAgentTicketBoard {
+  repoRoot: string
+  seq: number
+  tickets: SuperAgentTicketCard[]
+}
+
+/**
+ * ticket-updated 事件：fromSeq 是本次变更前的领域 seq，toSeq 是变更后的。
+ * Renderer 发现 fromSeq 与本地水位不一致即判定断档，全量重拉 tickets；
+ * payload 携带全量卡片，直接应用即幂等。
+ */
+export interface SuperAgentTicketUpdateEvent {
+  repoRoot: string
+  fromSeq: number
+  toSeq: number
+  tickets: SuperAgentTicketCard[]
+}
+
+/**
+ * ticket-progress 事件：主进程归一化并做 1 秒节流，只含阶段/assignment/
+ * currentTool/elapsed/toolCalls 等轻量事实，不含正文、推理或 diff。
+ * seq 是独立的投影水位（与领域 seq 分开编号）；丢弃中间进度不触发重拉。
+ */
+export interface SuperAgentTicketProgress {
+  repoRoot: string
+  seq: number
+  ticketId: string
+  state: SuperAgentTicketCardState
+  assignmentId: string | null
+  currentTool: string | null
+  elapsedMs: number | null
+  toolCalls: number | null
+  lastActivityAt: string | null
+}
+
 // ── Worker 只读镜像（T07 #77）────────────────────────────────────
 
 /**
@@ -199,6 +288,10 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentQueueSnapshot,
     },
+    tickets: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentTicketBoard,
+    },
     workerBind: {
       req: [] as unknown as [repoRoot: string, ticketId: string],
       res: null as unknown as SuperAgentWorkerMirror,
@@ -216,6 +309,14 @@ export const superAgentNamespace = defineNamespace({
     onQueueChanged: {
       channel: 'queue-changed',
       args: [] as unknown as [repoRoot: string, snapshot: SuperAgentQueueSnapshot],
+    },
+    onTicketUpdated: {
+      channel: 'ticket-updated',
+      args: [] as unknown as [repoRoot: string, event: SuperAgentTicketUpdateEvent],
+    },
+    onTicketProgress: {
+      channel: 'ticket-progress',
+      args: [] as unknown as [repoRoot: string, progress: SuperAgentTicketProgress],
     },
   },
 })

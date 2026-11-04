@@ -17,6 +17,11 @@
  * 会话以 sessionType='superAgentWorker' 登记进 chatSession（不激活、不进侧边栏），
  * AgentTimeline 直接从该会话读转录；unbindWorker 只停镜像并清掉本地快照，
  * 会话与转录保留，重开标签时再次 bindWorker 即可从快照恢复。
+ *
+ * T06 #76：ticketBoard 是工单卡片镜像 —— tickets 通道全量拉取 + ticket-updated
+ * 增量推送。事件携带领域 seq 水位（fromSeq/toSeq）：fromSeq 与本地水位不一致
+ * 即判定领域断档，全量重拉；ticket-progress 是节流后的轻量进度，使用独立
+ * 投影水位，断档不重拉、不重放，只应用最新。
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -29,6 +34,8 @@ import type {
   SuperAgentHealthReport,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
+  SuperAgentTicketBoard,
+  SuperAgentTicketProgress,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { useChatSessionStore } from '../chatSession'
@@ -39,6 +46,10 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   const healthReport = ref<SuperAgentHealthReport | null>(null)
   const healthPanelOpen = ref(false)
   const queue = ref<SuperAgentQueueSnapshot | null>(null)
+  /** 工单卡片看板镜像（T06 #76）：全量卡片 + 领域 seq 水位。 */
+  const ticketBoard = ref<SuperAgentTicketBoard | null>(null)
+  /** 各工单最新轻量进度（T06 #76）：节流后增量，断档不重拉。 */
+  const ticketProgress = ref<Record<string, SuperAgentTicketProgress>>({})
   /** Worker 只读镜像快照，按 ticketId 索引；标签页并存时各取各的。 */
   const workerMirrors = ref<Record<string, SuperAgentWorkerMirror>>({})
 
@@ -108,6 +119,13 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     return next
   }
 
+  /** 全量拉取工单卡片看板（T06 #76）：初始加载与领域断档重拉共用。 */
+  async function loadTickets(repoRoot: string): Promise<SuperAgentTicketBoard> {
+    const next = await api.superAgent.tickets(repoRoot)
+    ticketBoard.value = next
+    return next
+  }
+
   /**
    * 幂等挂 Worker 只读镜像（T07 #77）：取稳定 sessionId 与代次分段快照，
    * 登记 Worker 会话（不激活）。重开标签时再次调用即可从快照恢复。
@@ -141,6 +159,34 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     })
   }
 
+  /**
+   * 订阅 ticket-updated / ticket-progress（T06 #76），返回退订函数。
+   *
+   * 领域断档重拉：ticket-updated 携带 fromSeq/toSeq，fromSeq 与本地水位不一致
+   * 说明有事件丢失（如窗口休眠），全量重拉 tickets；一致则直接应用全量卡片
+   * （幂等）。进度断档不重拉：ticket-progress 只保留各工单最新一份，中间
+   * 丢弃的进度不重放。
+   */
+  function watchTickets(): () => void {
+    const offUpdated = api.superAgent.onTicketUpdated((repoRoot, event) => {
+      if (snapshot.value?.repoRoot !== repoRoot) return
+      const board = ticketBoard.value
+      if (!board || event.fromSeq !== board.seq) {
+        void loadTickets(repoRoot)
+        return
+      }
+      ticketBoard.value = { repoRoot, seq: event.toSeq, tickets: event.tickets }
+    })
+    const offProgress = api.superAgent.onTicketProgress((repoRoot, progress) => {
+      if (snapshot.value?.repoRoot !== repoRoot) return
+      ticketProgress.value = { ...ticketProgress.value, [progress.ticketId]: progress }
+    })
+    return () => {
+      offUpdated()
+      offProgress()
+    }
+  }
+
   function toggleHealthPanel(): void {
     healthPanelOpen.value = !healthPanelOpen.value
   }
@@ -154,16 +200,20 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     healthProblems,
     healthPanelOpen,
     queue,
+    ticketBoard,
+    ticketProgress,
     workerMirrors,
     bind,
     loadState,
     loadHealth,
     dispatch,
     loadQueue,
+    loadTickets,
     bindWorker,
     unbindWorker,
     watchHealth,
     watchQueue,
+    watchTickets,
     toggleHealthPanel,
   }
 })

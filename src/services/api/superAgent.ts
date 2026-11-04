@@ -41,6 +41,12 @@ const invokeApi = createRendererApi(
       running: [],
       queued: [],
     }),
+    tickets: () => ({
+      // 非桌面环境没有工单运行时：空看板、seq 0，与主进程初始状态一致
+      repoRoot: '',
+      seq: 0,
+      tickets: [],
+    }),
     workerBind: () => {
       // Worker 镜像依赖主进程编排运行时，非桌面环境明确拒绝而非假镜像
       throw new Error('Super Agent is only available in the desktop app')

@@ -47,6 +47,10 @@ export interface SuperAgentSchedulerOptions {
   worktree?: boolean
   onQueueChanged?: (snapshot: SuperAgentQueueSnapshot) => void
   onLaunchError?: (ticketId: string, err: unknown) => void
+  /** T06 #76：pending Assignment 已占槽、launch 尚未回报 → 卡片 preparing 子态。 */
+  onPreparingChanged?: (ticketId: string, preparing: boolean) => void
+  /** T06 #76：launch 生命周期改变领域事实/派生状态后通知投影同步。 */
+  onDomainChanged?: () => void
   now?: () => Date
 }
 
@@ -73,6 +77,8 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     maxWorkers = DEFAULT_MAX_WORKERS,
     onQueueChanged,
     onLaunchError,
+    onPreparingChanged,
+    onDomainChanged,
   } = options
 
   // 共享目录（无 worktree）不允许并行写：代码拒绝，而不是靠提示词约束。
@@ -139,6 +145,9 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       if (!next) break
       active += 1
       reserved.set(next.ticketId, { ticketId: next.ticketId, assignmentId: next.assignmentId, dirty: null })
+      onPreparingChanged?.(next.ticketId, true)
+      // 占槽即 preparing：seq 未变但卡片派生状态变了，投影据此发 ticket.updated
+      onDomainChanged?.()
       void launch(next.ticketId, next.assignmentId)
     }
   }
@@ -161,6 +170,9 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       })
       domain.launchAssignment({ assignmentId })
       if (slot) slot.dirty = workspace.dirty
+      // 已回报 assignmentStarted：preparing 子态结束，卡片回到领域阶段
+      onPreparingChanged?.(ticketId, false)
+      onDomainChanged?.()
       await launcher?.launch({
         ticketId,
         assignmentId,
@@ -176,7 +188,9 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       } catch {
         // endAssignment 幂等；此处失败不再向上传播
       }
+      onPreparingChanged?.(ticketId, false)
       onLaunchError?.(ticketId, err)
+      onDomainChanged?.()
     } finally {
       reserved.delete(ticketId)
       active -= 1

@@ -18,6 +18,11 @@
  * running 状态与按 generation 升序的 Assignment 代次分段快照；workerUnbind
  * 只摘掉观察登记，不动领域状态（关闭标签不影响后台推进）。Executor 接入后
  * 转录事件按观察登记决定是否向渲染端镜像。
+ *
+ * T06：每项目挂 progressProjector。workerReport 是 Executor 的主进程内部
+ * 接缝：严格解析 Worker 消息中的唯一 Report JSON 块 → Domain.report 状态
+ * 迁移 → 投影同步（ticket.updated 即时、ticket.progress 1 秒节流）。
+ * tickets 返回全量卡片看板，供 Renderer 断档全量重拉。
  */
 import { randomUUID } from 'crypto'
 import type {
@@ -29,10 +34,13 @@ import type {
   SuperAgentHealthReport,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
+  SuperAgentTicketBoard,
+  SuperAgentTicketProgress,
+  SuperAgentTicketUpdateEvent,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { superAgentWorkerSessionId } from '@/shared/channels/superAgent'
-import type { SuperAgentTicket } from './model'
+import { createSuperAgentDomain, type SuperAgentDomain } from './domain'
 import type { SuperAgentReportKind, SuperAgentTicket } from './model'
 import { superAgentError, serializeSuperAgentError } from './errors'
 import {
@@ -40,6 +48,8 @@ import {
   type SuperAgentHealthFailureInput,
   type SuperAgentHealthTracker,
 } from './health'
+import { createSuperAgentProgressProjector, type SuperAgentProgressProjector } from './progressProjector'
+import { parseSuperAgentReportText } from './reportParser'
 import { createSuperAgentScheduler, type WorkerLauncher } from './scheduler'
 
 const STALE_AFTER_MS = 5_000
@@ -50,6 +60,8 @@ interface ProjectState {
   health: SuperAgentHealthTracker
   domain: SuperAgentDomain
   scheduler: ReturnType<typeof createSuperAgentScheduler>
+  /** T06 #76：卡片投影（ticket.updated / ticket.progress 的主进程归一化源）。 */
+  projector: SuperAgentProgressProjector
   /** 正在被只读镜像观察的 ticketId；Executor 接入后据此决定是否广播转录事件。 */
   observedWorkers: Set<string>
 }
@@ -59,8 +71,23 @@ export interface SuperAgentServiceOptions {
   onHealthChanged?: (repoRoot: string, report: SuperAgentHealthReport) => void
   /** 队列变化时回调（IPC 层据此广播 queue-changed）。 */
   onQueueChanged?: (repoRoot: string, snapshot: SuperAgentQueueSnapshot) => void
+  /** T06 #76：领域事实变化时回调（IPC 层据此广播 ticket-updated）。 */
+  onTicketUpdated?: (repoRoot: string, event: SuperAgentTicketUpdateEvent) => void
+  /** T06 #76：节流后的轻量进度回调（IPC 层据此广播 ticket-progress）。 */
+  onTicketProgress?: (repoRoot: string, progress: SuperAgentTicketProgress) => void
   /** Worker 启动接缝；null/缺省 = Executor 未接入，工单保持排队。 */
   launcher?: WorkerLauncher | null
+}
+
+/** T06 #76：workerReport 的确认结果（幂等确认原结果，duplicate=true）。 */
+export interface SuperAgentWorkerReportResult {
+  ticketId: string
+  reportId: string
+  kind: SuperAgentReportKind
+  summary: string
+  at: string
+  duplicate: boolean
+  attentionId: string | null
 }
 
 export interface SuperAgentService {
@@ -69,6 +96,13 @@ export interface SuperAgentService {
   health(repoRoot: string): SuperAgentHealthReport
   dispatch(repoRoot: string, command: SuperAgentDispatchCommand): SuperAgentDispatchResult
   queue(repoRoot: string): SuperAgentQueueSnapshot
+  /** T06 #76：全量卡片看板 + 领域 seq 水位（断档重拉的基准）。 */
+  tickets(repoRoot: string): SuperAgentTicketBoard
+  /**
+   * T06 #76：Executor 的主进程内部接缝 —— 严格解析 Worker 消息中的唯一
+   * Report JSON 块并驱动状态迁移；协议失败抛稳定错误码，由调用方审计。
+   */
+  workerReport(repoRoot: string, input: { text: string }): SuperAgentWorkerReportResult
   /** 幂等挂 Worker 只读镜像；未知 ticket 抛稳定 ticketNotFound。 */
   workerBind(repoRoot: string, ticketId: string): SuperAgentWorkerMirror
   /** 只停镜像观察，不动领域状态；幂等。 */
@@ -92,11 +126,19 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       const health = createSuperAgentHealthTracker({ repoRoot })
       health.subscribe((report) => options.onHealthChanged?.(repoRoot, report))
       const domain = createSuperAgentDomain()
+      const projector = createSuperAgentProgressProjector({
+        domain,
+        repoRoot,
+        onTicketUpdated: (event) => options.onTicketUpdated?.(repoRoot, event),
+        onTicketProgress: (progress) => options.onTicketProgress?.(repoRoot, progress),
+      })
       const scheduler = createSuperAgentScheduler({
         domain,
         repoRoot,
         launcher: options.launcher ?? null,
         onQueueChanged: (snapshot) => options.onQueueChanged?.(repoRoot, snapshot),
+        onPreparingChanged: (ticketId, preparing) => projector.setPreparing(ticketId, preparing),
+        onDomainChanged: () => projector.sync(),
         onLaunchError: (ticketId, err) => {
           // launch 失败计入健康（effect:launch），错误信息带 ticketId 便于追溯
           health.recordFailure('effect:launch', {
@@ -105,7 +147,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           })
         },
       })
-      project = { seq: 0, router: null, health, domain, scheduler, observedWorkers: new Set() }
+      project = { seq: 0, router: null, health, domain, scheduler, projector, observedWorkers: new Set() }
       projects.set(repoRoot, project)
     }
     return project
@@ -178,7 +220,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     },
 
     dispatch(repoRoot, command) {
-      const outcome = projectOf(repoRoot).scheduler.dispatch({
+      const project = projectOf(repoRoot)
+      const outcome = project.scheduler.dispatch({
         requestId: command.requestId,
         title: command.title,
         repoRoot,
@@ -187,6 +230,9 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         contextPaths: command.contextPaths ?? [],
         attachments: command.attachments ?? [],
       })
+      // T06 #76：新建工单是领域事实，派生卡片即时投影（launcher 为 null 时
+      // scheduler 不会回调 onDomainChanged，这里兜底）
+      project.projector.sync()
       return {
         ticketId: outcome.ticket.ticketId,
         assignmentId: outcome.assignment.assignmentId,
@@ -199,6 +245,54 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     queue(repoRoot) {
       return projectOf(repoRoot).scheduler.queue()
+    },
+
+    tickets(repoRoot) {
+      const project = projectOf(repoRoot)
+      // 读路径先同步一次：若存在未投影的领域变化（如后台 launch 回调竞态），
+      // 借此自愈并保证 seq 水位与卡片一致
+      project.projector.sync()
+      return {
+        repoRoot,
+        seq: project.domain.state.seq,
+        tickets: project.projector.cards(),
+      }
+    },
+
+    workerReport(repoRoot, input) {
+      const project = projectOf(repoRoot)
+      const parsed = parseSuperAgentReportText(input.text)
+      const assignment = project.domain.state.assignments[parsed.assignmentId]
+      if (!assignment) {
+        // 伪造/错位：assignmentId 不属于本项目的任何执行，稳定拒绝
+        throw superAgentError('assignmentNotFound', { assignmentId: parsed.assignmentId })
+      }
+      const result = project.domain.report({
+        ticketId: assignment.ticketId,
+        assignmentId: parsed.assignmentId,
+        reportId: parsed.reportId,
+        kind: parsed.kind,
+        summary: parsed.summary,
+        question: parsed.question,
+        askedBy: parsed.askedBy,
+        answers: parsed.answers,
+        details: parsed.details,
+        artifacts: parsed.artifacts,
+      })
+      if (parsed.progress) {
+        project.projector.recordProgress(assignment.ticketId, parsed.progress)
+      }
+      // Report 是领域事实：卡片即时投影（现有卡片原位更新，不重复发气泡）
+      project.projector.sync()
+      return {
+        ticketId: assignment.ticketId,
+        reportId: result.report.reportId,
+        kind: result.report.kind,
+        summary: result.report.summary,
+        at: result.report.at,
+        duplicate: result.duplicate,
+        attentionId: result.attentionId,
+      }
     },
 
     workerBind(repoRoot, ticketId) {

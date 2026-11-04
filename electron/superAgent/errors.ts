@@ -24,6 +24,11 @@ export type SuperAgentErrorCode =
   | 'askerWithoutQuestion'
   | 'notAsker'
   | 'notAnswerable'
+  // refused：Report 协议失败（严格 JSON 块校验，T06 #76）
+  | 'reportMissing'
+  | 'reportNotUnique'
+  | 'reportUnparsable'
+  | 'reportInvalid'
   | 'workerDecides'
   | 'handedBack'
   | 'notReady'
@@ -54,6 +59,10 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   askerWithoutQuestion: 'refused',
   notAsker: 'refused',
   notAnswerable: 'refused',
+  reportMissing: 'refused',
+  reportNotUnique: 'refused',
+  reportUnparsable: 'refused',
+  reportInvalid: 'refused',
   workerDecides: 'refused',
   handedBack: 'refused',
   notReady: 'refused',
