@@ -28,7 +28,6 @@ export default {
   openFailedPath: '打开失败，请确认编辑器命令已加入 PATH。',
   confirmDelete: '确定要删除 "{name}" 吗？\n\n此操作将把文件移至回收站。',
   deleteFailed: '删除失败：{error}',
-  deleteFailedRetry: '删除失败，请重试。',
   thumbnailLoading: '加载中...',
   thumbnailNoMessages: '暂无对话内容',
   thumbnailWorkspace: '工作区',
