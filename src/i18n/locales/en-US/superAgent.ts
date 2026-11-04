@@ -39,6 +39,7 @@ export default {
     takeoverRequired: 'Take over this Worker before sending input',
     takeoverConflict: 'Another ticket is already taken over; give it back first',
     invalidWorkerMessage: 'Takeover input cannot be empty',
+    invalidTicketMessage: 'Follow-up message cannot be empty',
     unknown: 'An unknown error occurred',
   },
   dispatch: {
@@ -96,6 +97,20 @@ export default {
       stopped: 'Stopped',
       dropped: 'Dropped',
     },
+    accept: 'Accept',
+    continue: 'Follow up',
+    stop: 'Stop',
+    retry: 'Retry',
+    followupPlaceholder: 'Type a follow-up…',
+    followupSend: 'Send',
+    followupCancel: 'Cancel',
+    remindedMark: 'Review overdue',
+    actionFailedHint: 'Action failed: {message}. Please try again later',
+  },
+  review: {
+    reminderHint: 'Ticket "{title}" is awaiting your review past due. Please check it',
+    remindedCount: 'Review reminders {count}',
+    openTicket: 'View ticket',
   },
   health: {
     entry: 'System issues',

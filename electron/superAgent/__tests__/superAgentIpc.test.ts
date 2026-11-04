@@ -366,3 +366,69 @@ describe('registerSuperAgentIPCHandlers attention QA（T08 #78）', () => {
     )
   })
 })
+
+describe('registerSuperAgentIPCHandlers ticket outlets（T10 #80）', () => {
+  const DISPATCH = { requestId: 'dispatch-1', title: '修复登录', text: '登录按钮无响应' }
+
+  it('registers ticketAccept/ticketStop/ticketMessage/ticketRetry on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}ticketAccept`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}ticketStop`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}ticketMessage`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}ticketRetry`,
+      expect.any(Function),
+    )
+  })
+
+  it('round-trips follow-up → stop through the registered handlers', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const dispatched = await invokeDispatch('dispatch', '/repo/a', DISPATCH)
+
+    // 继续追问：先落库再投递（Executor 未接入时照常落库）
+    const message = await invokeDispatch('ticketMessage', '/repo/a', {
+      requestId: 'follow-1',
+      ticketId: dispatched.ticketId,
+      text: '再改一版',
+    })
+    expect(message).toMatchObject({ ticketId: dispatched.ticketId, delivered: true })
+
+    // 停止出口：Mandate 撤回 + 工单 stopped；再次停止报 ticketEnded
+    const stopped = await invokeDispatch('ticketStop', '/repo/a', { ticketId: dispatched.ticketId })
+    expect(stopped).toMatchObject({ ticketId: dispatched.ticketId, outcome: 'stopped' })
+    await expect(
+      invokeDispatch('ticketStop', '/repo/a', { ticketId: dispatched.ticketId }),
+    ).rejects.toThrow()
+  })
+
+  it('refuses retry for tickets outside the retryable set (notRetryable)', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const dispatched = await invokeDispatch('dispatch', '/repo/a', DISPATCH)
+    // 排队中的工单不在 delivery/blocked/failed 集合内
+    await expect(
+      invokeDispatch('ticketRetry', '/repo/a', { ticketId: dispatched.ticketId }),
+    ).rejects.toThrow()
+  })
+
+  it('rejects malformed ticket outlet commands instead of answering unscoped', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invokeDispatch('ticketAccept', '/repo/a', null)).rejects.toThrow(/ticket/)
+    await expect(invokeDispatch('ticketAccept', '/repo/a', { ticketId: '' })).rejects.toThrow(/ticket/)
+    await expect(
+      invokeDispatch('ticketMessage', '/repo/a', { requestId: 'x', ticketId: 't', text: '' }),
+    ).rejects.toThrow(/ticket message/)
+  })
+})

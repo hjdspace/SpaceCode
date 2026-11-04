@@ -39,6 +39,7 @@ export default {
     takeoverRequired: '请先接管该 Worker 再输入',
     takeoverConflict: '已有其他工单处于接管中，请先交还',
     invalidWorkerMessage: '接管输入不能为空',
+    invalidTicketMessage: '追问内容不能为空',
     unknown: '发生未知错误',
   },
   dispatch: {
@@ -96,6 +97,20 @@ export default {
       stopped: '已停止',
       dropped: '已放弃',
     },
+    accept: '接受验收',
+    continue: '继续追问',
+    stop: '停止',
+    retry: '重试',
+    followupPlaceholder: '输入追问内容…',
+    followupSend: '发送',
+    followupCancel: '取消',
+    remindedMark: '验收超时',
+    actionFailedHint: '操作失败：{message}，请稍后重试',
+  },
+  review: {
+    reminderHint: '工单「{title}」待验收已超时，请及时处理',
+    remindedCount: '待验收提醒 {count}',
+    openTicket: '查看工单',
   },
   health: {
     entry: '系统问题',

@@ -80,6 +80,7 @@ beforeEach(() => {
     staleAfterMs: 5000,
     router: null,
     attention: { unanswered: 1 },
+    review: { reminded: 0 },
   }
 })
 

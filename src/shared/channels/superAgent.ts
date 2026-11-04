@@ -38,6 +38,10 @@ export interface SuperAgentSnapshot {
   attention: {
     unanswered: number
   }
+  review: {
+    /** review 超时已提醒且仍在待验收的工单数（按工单去重，不按提醒次数）。 */
+    reminded: number
+  }
 }
 
 export interface SuperAgentBindResult {
@@ -137,6 +141,61 @@ export interface SuperAgentTicketCard {
   createdAt: string
   updatedAt: string
   ended: { outcome: string; by: string; reason: string; at: string } | null
+  /** T10 #80：review 超时提醒水位；null 表示尚未提醒。 */
+  reviewRemindedAt: string | null
+  /** T10 #80：是否允许人工重试（仅 open 的 delivery/blocked/failed）。 */
+  canRetry: boolean
+}
+
+/**
+ * T10 #80 验收出口：ticketAccept 把 person/review 的工单以 completed 收尾。
+ * 非待验收工单返回 notReady；已结束返回 ticketEnded。
+ */
+export interface SuperAgentTicketAcceptCommand {
+  ticketId: string
+}
+
+export interface SuperAgentTicketActionResult {
+  repoRoot: string
+  ticketId: string
+  outcome: 'completed' | 'stopped'
+  endedAt: string
+}
+
+/** T10 #80 停止出口：Mandate 撤回、在途 Assignment 收尾、后续自动事件不得重开。 */
+export interface SuperAgentTicketStopCommand {
+  ticketId: string
+  reason?: string
+}
+
+/** T10 #80 继续追问：review 的人消息复用原 Assignment 回到 working。 */
+export interface SuperAgentTicketMessageCommand {
+  /** UI 幂等键。 */
+  requestId: string
+  ticketId: string
+  text: string
+}
+
+export interface SuperAgentTicketMessageResult {
+  inputId: string
+  ticketId: string
+  status: 'pending' | 'delivered' | 'read' | 'failed' | 'uncertain'
+  delivered: boolean
+  gated: boolean
+  duplicate: boolean
+}
+
+/** T10 #80 人工重试：只对 open 的 delivery/blocked/failed 开放，重试 generation+1。 */
+export interface SuperAgentTicketRetryCommand {
+  ticketId: string
+}
+
+export interface SuperAgentTicketRetryResult {
+  ticketId: string
+  assignmentId: string
+  generation: number
+  /** 0 表示已占槽执行中；>0 表示 FIFO 队列位置（从 1 起）。 */
+  queuePosition: number
 }
 
 /** tickets 通道返回的完整看板；seq 是领域事实水位，断档重拉以此为基准。 */
@@ -411,6 +470,24 @@ export const superAgentNamespace = defineNamespace({
     workerMessage: {
       req: [] as unknown as [repoRoot: string, command: SuperAgentWorkerMessageCommand],
       res: null as unknown as SuperAgentWorkerMessageResult,
+    },
+    // 验收、停止、继续追问与人工重试（T10 #80）：review 工单的三个显式出口，
+    // 加上只对 delivery/blocked/failed 开放的重试（generation+1）。
+    ticketAccept: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentTicketAcceptCommand],
+      res: null as unknown as SuperAgentTicketActionResult,
+    },
+    ticketStop: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentTicketStopCommand],
+      res: null as unknown as SuperAgentTicketActionResult,
+    },
+    ticketMessage: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentTicketMessageCommand],
+      res: null as unknown as SuperAgentTicketMessageResult,
+    },
+    ticketRetry: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentTicketRetryCommand],
+      res: null as unknown as SuperAgentTicketRetryResult,
     },
     // Attention 问答链路（T08 #78）：非模态气泡 + 就地回答。
     attentions: {

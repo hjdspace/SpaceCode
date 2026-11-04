@@ -31,6 +31,11 @@
  * attention-asked/answered/withdrawn 事件增量应用（payload 本身携带全量视图，
  * 直接应用即幂等，无需水位对账）。attentionCount 按工单去重联动徽章；
  * answerAttention 把就地回答交给主进程落成领域 Input 再投递给对应 Worker。
+ *
+ * T10 #80：review 工单的三个显式出口（acceptTicket / messageTicket / stopTicket）
+ * 与只对 delivery/blocked/failed 开放的 retryTicket 都委托主进程落库（错误码经
+ * IPC 序列化）；reviewReminders 从卡片看板派生（state=review 且带提醒水位），
+ * 同一工单复用原气泡；reviewRemindedCount 按工单去重联动入口徽章与状态条。
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -48,13 +53,24 @@ import type {
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
   SuperAgentTakeoverState,
+  SuperAgentTicketActionResult,
   SuperAgentTicketBoard,
+  SuperAgentTicketMessageCommand,
+  SuperAgentTicketMessageResult,
   SuperAgentTicketProgress,
+  SuperAgentTicketRetryResult,
   SuperAgentWorkerMessageCommand,
   SuperAgentWorkerMessageResult,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { useChatSessionStore } from '../chatSession'
+
+/** 待验收超时提醒项：由卡片看板派生，同一工单复用同一条气泡。 */
+export interface SuperAgentReviewReminderItem {
+  ticketId: string
+  title: string
+  remindedAt: string
+}
 
 export const useSuperAgentStore = defineStore('superAgent', () => {
   const snapshot = ref<SuperAgentSnapshot | null>(null)
@@ -89,6 +105,27 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   const openAttentions = computed(() =>
     attentionBubbles.value.filter((view: SuperAgentAttentionView) => view.status === 'open'),
   )
+  /**
+   * T10 #80：待验收超时提醒列表 —— 从卡片看板派生（state=review 且已提醒），
+   * 同一工单天然只出现一条（复用原气泡，不按提醒次数新增消息）。
+   */
+  const reviewReminders = computed<SuperAgentReviewReminderItem[]>(() =>
+    (ticketBoard.value?.tickets ?? [])
+      .filter((card) => card.state === 'review' && card.reviewRemindedAt !== null)
+      .map((card) => ({
+        ticketId: card.ticketId,
+        title: card.title,
+        remindedAt: card.reviewRemindedAt as string,
+      })),
+  )
+  /**
+   * T10 #80：待验收提醒计数（按工单去重，不按提醒次数计）—— 入口徽章与
+   * 状态条联动；看板未加载时回退快照计数（快照与主进程同源）。
+   */
+  const reviewRemindedCount = computed(() => {
+    if (ticketBoard.value !== null) return reviewReminders.value.length
+    return snapshot.value?.review.reminded ?? 0
+  })
   const healthProblemCount = computed(() => healthReport.value?.problemCount ?? 0)
   /** 面板问题列表：error 级且未由工单卡片呈现的项。 */
   const healthProblems = computed(() =>
@@ -235,6 +272,52 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     return result
   }
 
+  /**
+   * T10 #80：接受验收 —— person/review 的显式出口。成功后刷新快照与看板，
+   * 徽章/提醒列表随水位与阶段变化即时收敛（与事件广播到达顺序无关）。
+   */
+  async function acceptTicket(
+    repoRoot: string,
+    ticketId: string,
+  ): Promise<SuperAgentTicketActionResult> {
+    const result = await api.superAgent.ticketAccept(repoRoot, { ticketId })
+    await Promise.all([loadState(repoRoot), loadTickets(repoRoot)])
+    return result
+  }
+
+  /** T10 #80：停止出口 —— Mandate 撤回 + 工单 stopped；同样刷新快照与看板。 */
+  async function stopTicket(
+    repoRoot: string,
+    ticketId: string,
+  ): Promise<SuperAgentTicketActionResult> {
+    const result = await api.superAgent.ticketStop(repoRoot, { ticketId })
+    await Promise.all([loadState(repoRoot), loadTickets(repoRoot)])
+    return result
+  }
+
+  /**
+   * T10 #80：继续追问 —— review 的人消息复用原 Assignment 回到 working；
+   * 与接管输入同一套 requestId 对账（主进程先落库再投递）。
+   */
+  async function messageTicket(
+    repoRoot: string,
+    command: SuperAgentTicketMessageCommand,
+  ): Promise<SuperAgentTicketMessageResult> {
+    const result = await api.superAgent.ticketMessage(repoRoot, command)
+    await loadTickets(repoRoot)
+    return result
+  }
+
+  /** T10 #80：人工重试 —— 只对 delivery/blocked/failed 开放，重试 generation+1。 */
+  async function retryTicket(
+    repoRoot: string,
+    ticketId: string,
+  ): Promise<SuperAgentTicketRetryResult> {
+    const result = await api.superAgent.ticketRetry(repoRoot, { ticketId })
+    await Promise.all([loadState(repoRoot), loadTickets(repoRoot), loadQueue(repoRoot)])
+    return result
+  }
+
   /** 订阅 health.changed；只接受当前绑定项目的报告，返回退订函数。 */
   function watchHealth(): () => void {
     return api.superAgent.onHealthChanged((repoRoot, report) => {
@@ -343,6 +426,8 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     attentionBoard,
     attentionBubbles,
     openAttentions,
+    reviewReminders,
+    reviewRemindedCount,
     bind,
     loadState,
     loadHealth,
@@ -351,6 +436,10 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     loadTickets,
     loadAttentions,
     answerAttention,
+    acceptTicket,
+    stopTicket,
+    messageTicket,
+    retryTicket,
     bindWorker,
     unbindWorker,
     takeoverWorker,

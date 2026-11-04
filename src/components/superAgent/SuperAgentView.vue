@@ -23,6 +23,15 @@
           <MessageCircleQuestion :size="14" />
           <span>{{ t('superAgent.attention.pendingCount', { count: superAgentStore.attentionCount }) }}</span>
         </span>
+        <!-- 待验收超时提醒计数（T10 #80）：按工单去重，与入口徽章同源 -->
+        <span
+          v-if="superAgentStore.reviewRemindedCount > 0"
+          class="pending-chip review-chip"
+          data-testid="super-agent-review-reminded-count"
+        >
+          <AlarmClockCheck :size="14" />
+          <span>{{ t('superAgent.review.remindedCount', { count: superAgentStore.reviewRemindedCount }) }}</span>
+        </span>
         <button
           class="health-chip"
           :class="{ open: superAgentStore.healthPanelOpen }"
@@ -114,16 +123,47 @@
       />
     </div>
 
+    <!-- 待验收超时提醒气泡（T10 #80）：非模态 IM 提醒，同一工单复用原气泡
+         （key=ticketId），点击打开 Worker 只读标签，不弹 modal。 -->
+    <div
+      v-if="superAgentStore.reviewReminders.length"
+      class="review-reminders"
+      data-testid="super-agent-review-reminders"
+    >
+      <div
+        v-for="reminder in superAgentStore.reviewReminders"
+        :key="reminder.ticketId"
+        class="review-reminder-bubble"
+        role="button"
+        tabindex="0"
+        :data-testid="`super-agent-review-reminder-${reminder.ticketId}`"
+        @click="appStore.openWorkerTab(reminder.ticketId, reminder.title)"
+        @keydown.enter.prevent="appStore.openWorkerTab(reminder.ticketId, reminder.title)"
+      >
+        <AlarmClockCheck class="reminder-icon" :size="14" />
+        <span>{{ t('superAgent.review.reminderHint', { title: reminder.title }) }}</span>
+        <span class="reminder-open">{{ t('superAgent.review.openTicket') }}</span>
+      </div>
+    </div>
+
     <!-- 工单卡片（T06 #76）：时间线上方薄层区块，不侵入时间线组件内部；
-         key=ticketId 保证 Report 只原位更新现有卡片，不重复发气泡。 -->
+         key=ticketId 保证 Report 只原位更新现有卡片，不重复发气泡。
+         T10 #80：review 卡片的验收/继续追问/停止三出口与重试入口在此接线。 -->
     <div v-if="ticketCards.length" class="ticket-cards" data-testid="super-agent-tickets">
       <WorkerTaskCard
         v-for="card in ticketCards"
         :key="card.ticketId"
         :card="card"
         :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+        @accept="handleTicketAccept"
+        @stop="handleTicketStop"
+        @retry="handleTicketRetry"
+        @message="handleTicketMessage"
       />
     </div>
+    <p v-if="ticketActionHint" class="ticket-action-hint" data-testid="super-agent-ticket-action-hint">
+      {{ ticketActionHint }}
+    </p>
 
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
          loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。 -->
@@ -172,7 +212,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HeartPulse, MessageCircleQuestion, Sparkles, TicketPlus } from 'lucide-vue-next'
+import { AlarmClockCheck, HeartPulse, MessageCircleQuestion, Sparkles, TicketPlus } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -263,6 +303,52 @@ onUnmounted(() => {
 const ticketCards = computed<SuperAgentTicketCard[]>(() =>
   superAgentStore.ticketBoard?.tickets ?? [],
 )
+
+// ── T10 #80：review 出口（验收/停止/继续追问/重试）—— 委托 store 落库，
+//    失败给出非模态提示；错误经 IPC 序列化，展示原始信息便于定位。 ──
+const ticketActionHint = ref('')
+
+async function runTicketAction(action: () => Promise<unknown>): Promise<void> {
+  ticketActionHint.value = ''
+  try {
+    await action()
+  } catch (error) {
+    console.error('[SuperAgentView] ticket action failed:', error)
+    ticketActionHint.value = t('superAgent.ticket.actionFailedHint', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function handleTicketAccept(ticketId: string): void {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+  void runTicketAction(() => superAgentStore.acceptTicket(repoRoot, ticketId))
+}
+
+function handleTicketStop(ticketId: string): void {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+  void runTicketAction(() => superAgentStore.stopTicket(repoRoot, ticketId))
+}
+
+function handleTicketRetry(ticketId: string): void {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+  void runTicketAction(() => superAgentStore.retryTicket(repoRoot, ticketId))
+}
+
+function handleTicketMessage(payload: { ticketId: string; text: string }): void {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+  void runTicketAction(() =>
+    superAgentStore.messageTicket(repoRoot, {
+      requestId: createUuid(),
+      ticketId: payload.ticketId,
+      text: payload.text,
+    }),
+  )
+}
 
 // ── 显式派工（T05 #75）：「新建工单」独立动作，普通发送不建单 ──
 const dispatchFormOpen = ref(false)
@@ -533,6 +619,12 @@ async function handleToolSkip(messageId: string, toolId: string) {
   white-space: nowrap;
 }
 
+// 待验收超时提醒计数（T10 #80）：警示色区分，仍按工单去重
+.review-chip {
+  border-color: var(--status-warning, #c99a2e);
+  color: var(--status-warning, #c99a2e);
+}
+
 .health-chip,
 .dispatch-chip {
   display: inline-flex;
@@ -698,6 +790,51 @@ async function handleToolSkip(messageId: string, toolId: string) {
   flex-direction: column;
   gap: 4px;
   margin: 6px 12px 0;
+}
+
+// ── 待验收超时提醒气泡（T10 #80）：非模态 IM 提醒，同一工单复用原气泡 ──
+.review-reminders {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 12px 0;
+}
+
+.review-reminder-bubble {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--status-warning, #c99a2e);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+
+  .reminder-icon {
+    flex: none;
+    color: var(--status-warning, #c99a2e);
+  }
+
+  .reminder-open {
+    margin-left: auto;
+    flex: none;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: var(--surface-hover);
+  }
+}
+
+// T10 #80：出口动作失败的非模态提示
+.ticket-action-hint {
+  margin: 4px 12px 0;
+  font-size: 12px;
+  color: var(--status-error, #d4564d);
 }
 
 // ── 工单卡片（T06 #76）：时间线上方薄层区块，单行卡片纵排 ──

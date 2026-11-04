@@ -212,7 +212,31 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     return { ...result, queuePosition }
   }
 
-  return { dispatch, queue }
+  /**
+   * T10 #80：人工重试。domain.retryTicket 校验闸门（只对 open 的
+   * delivery/blocked/failed 开放）后新建 generation+1 的 pending Assignment；
+   * pump 续跑队列（有槽位时新代次立即启动）。
+   */
+  function retry(input: { ticketId: string; at?: string }): {
+    ticketId: string
+    assignmentId: string
+    generation: number
+    queuePosition: number
+  } {
+    const result = domain.retryTicket({ ticketId: input.ticketId, at: input.at })
+    pump()
+    const queuePosition = queuePositionOf(result.ticket.ticketId)
+    notify()
+    onDomainChanged?.()
+    return {
+      ticketId: result.ticket.ticketId,
+      assignmentId: result.assignment.assignmentId,
+      generation: result.assignment.generation,
+      queuePosition,
+    }
+  }
+
+  return { dispatch, queue, retry }
 }
 
 export type SuperAgentScheduler = ReturnType<typeof createSuperAgentScheduler>

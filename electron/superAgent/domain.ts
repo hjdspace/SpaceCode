@@ -14,6 +14,7 @@ import { superAgentError } from './errors'
 import { idempotencyKey } from './idempotency'
 export { idempotencyKey } from './idempotency'
 import {
+  canRetryTicket,
   deriveTicketStage,
   latestAssignmentOf,
   waitsForPerson,
@@ -230,6 +231,46 @@ export interface EndTicketResult {
   withdrawnAttentionIds: string[]
 }
 
+/** T10 #80：接受验收 —— review 的显式出口。 */
+export interface TicketAcceptInput {
+  ticketId: string
+  at?: string
+}
+
+/** T10 #80：停止出口 —— Mandate 撤回、在途 Assignment 收尾、工单 stopped。 */
+export interface TicketStopInput {
+  ticketId: string
+  reason?: string
+  at?: string
+}
+
+/** T10 #80：继续追问 —— review 的人消息复用原 Assignment 回到 working。 */
+export interface TicketMessageInput {
+  ticketId: string
+  /** UI 幂等键。 */
+  requestId: string
+  text: string
+  at?: string
+}
+
+/** T10 #80：人工重试 —— 只对 person/delivery、person/blocked、person/failed 开放。 */
+export interface RetryTicketInput {
+  ticketId: string
+  at?: string
+}
+
+export interface RetryTicketResult {
+  ticket: SuperAgentTicket
+  /** 新代次 Assignment（generation+1，pending 待 Scheduler 启动）。 */
+  assignment: SuperAgentAssignment
+}
+
+/** T10 #80：review 超时提醒水位外发（持久化 scheduled effect，见 reviewReminder.ts）。 */
+export interface MarkReviewRemindedInput {
+  ticketId: string
+  at?: string
+}
+
 export interface SuperAgentDomainOptions {
   now?: () => Date
   newId?: (kind: string) => string
@@ -252,6 +293,16 @@ export interface SuperAgentDomain {
   failDelivery(input: FailDeliveryInput): SuperAgentTicket
   report(command: ReportCommand): ReportResult
   endTicket(command: EndTicketCommand): EndTicketResult
+  /** T10 #80：接受验收（→ completed，by user）。 */
+  ticketAccept(input: TicketAcceptInput): EndTicketResult
+  /** T10 #80：停止出口（→ stopped，Mandate 撤回，后续自动事件不得重开）。 */
+  ticketStop(input: TicketStopInput): EndTicketResult
+  /** T10 #80：继续追问 —— 复用原 Assignment 回到 working。 */
+  ticketMessage(input: TicketMessageInput): AddInputResult
+  /** T10 #80：人工重试 —— 新建 generation+1 的 pending Assignment。 */
+  retryTicket(input: RetryTicketInput): RetryTicketResult
+  /** T10 #80：review 超时提醒水位外发（只前进，离开 review/结束拒绝）。 */
+  markReviewReminded(input: MarkReviewRemindedInput): SuperAgentTicket
   stageOf(ticketId: string): SuperAgentTicketStage
 }
 
@@ -968,6 +1019,95 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     })
   }
 
+  /** T10 #80：接受验收 —— 只有 person/review 的工单可完成；结束前未读人消息照常回流。 */
+  function ticketAccept(input: TicketAcceptInput): EndTicketResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    if (stageOf(ticket.ticketId) !== 'person/review') {
+      throw superAgentError('notReady', { ticketId: ticket.ticketId })
+    }
+    return endTicketInternal(ticket, {
+      outcome: 'completed',
+      by: 'user',
+      reason: 'ticket-accept',
+      at: atNow(input.at),
+    })
+  }
+
+  /** T10 #80：停止出口 —— 撤回 Mandate、在途 Assignment 以 stopped 收尾、工单 stopped。 */
+  function ticketStop(input: TicketStopInput): EndTicketResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+
+    const at = atNow(input.at)
+    const mandate = state.mandates[ticket.mandateId]
+    if (mandate) mandate.revokedAt = at
+
+    const latest = latestAssignmentOf(ticket.assignmentIds.map((id) => state.assignments[id]))
+    if (latest && (latest.state === 'pending' || latest.state === 'running')) {
+      endAssignment({ assignmentId: latest.assignmentId, reason: 'stopped', at })
+    }
+
+    return endTicketInternal(ticket, {
+      outcome: 'stopped',
+      by: 'user',
+      reason: input.reason ?? 'ticket-stop',
+      at,
+    })
+  }
+
+  /** T10 #80：继续追问 —— review 的人消息复用原 Assignment 回到 working（不换代次）。 */
+  function ticketMessage(input: TicketMessageInput): AddInputResult {
+    if (typeof input.text !== 'string' || input.text.trim() === '') {
+      throw superAgentError('invalidTicketMessage', { ticketId: input.ticketId })
+    }
+    return addInput({
+      ticketId: input.ticketId,
+      requestId: input.requestId,
+      kind: 'text',
+      human: true,
+      text: input.text,
+      at: input.at,
+    })
+  }
+
+  /** T10 #80：人工重试 —— 只对投递失败/受阻/失败开放，新建 generation+1 的 pending Assignment。 */
+  function retryTicket(input: RetryTicketInput): RetryTicketResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    if (!canRetryTicket(factsOf(ticket))) {
+      throw superAgentError('notRetryable', { ticketId: ticket.ticketId })
+    }
+
+    const at = atNow(input.at)
+    const latest = latestAssignmentOf(ticket.assignmentIds.map((id) => state.assignments[id]))
+    if (latest && (latest.state === 'pending' || latest.state === 'running')) {
+      // 人工重试取代旧代次：旧 Assignment 以 stopped 收尾，不再悬挂 running。
+      endAssignment({ assignmentId: latest.assignmentId, reason: 'stopped', at })
+    }
+    // 永久投递失败随重试清除：新代次从 working/queued 重新开始。
+    ticket.delivery = null
+    ticket.undelivered = []
+
+    const assignment = newAssignmentForTicket(ticket, at, 'pending')
+    return { ticket, assignment }
+  }
+
+  /** T10 #80：review 超时提醒水位 —— 只前进，离开 review 或已结束拒绝（幂等安全）。 */
+  function markReviewReminded(input: MarkReviewRemindedInput): SuperAgentTicket {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    if (stageOf(ticket.ticketId) !== 'person/review') {
+      throw superAgentError('notReady', { ticketId: ticket.ticketId })
+    }
+    const at = atNow(input.at)
+    if (ticket.reviewRemindedAt === null || at > ticket.reviewRemindedAt) {
+      ticket.reviewRemindedAt = at
+      nextOrdinal()
+    }
+    return ticket
+  }
+
   function report(command: ReportCommand): ReportResult {
     const ticket = requireTicket(command.ticketId)
     const assignment = state.assignments[command.assignmentId]
@@ -1149,6 +1289,11 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     failDelivery,
     report,
     endTicket,
+    ticketAccept,
+    ticketStop,
+    ticketMessage,
+    retryTicket,
+    markReviewReminded,
     stageOf,
   }
 }

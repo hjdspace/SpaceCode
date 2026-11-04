@@ -29,6 +29,8 @@ export type SuperAgentErrorCode =
   // refused：接管与交还（T09 #79）
   | 'takeoverRequired'
   | 'invalidWorkerMessage'
+  // refused：验收、停止与继续追问（T10 #80）
+  | 'invalidTicketMessage'
   // refused：Report 协议失败（严格 JSON 块校验，T06 #76）
   | 'reportMissing'
   | 'reportNotUnique'
@@ -69,6 +71,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   invalidAnswer: 'refused',
   takeoverRequired: 'refused',
   invalidWorkerMessage: 'refused',
+  invalidTicketMessage: 'refused',
   reportMissing: 'refused',
   reportNotUnique: 'refused',
   reportUnparsable: 'refused',

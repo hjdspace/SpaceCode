@@ -19,7 +19,7 @@ import type {
   SuperAgentTicketProgress,
   SuperAgentTicketUpdateEvent,
 } from '@/shared/channels/superAgent'
-import { latestAssignmentOf } from './stage'
+import { canRetryTicket, latestAssignmentOf, type TicketStageFacts } from './stage'
 import type { SuperAgentDomain } from './domain'
 
 export interface SuperAgentReportProgressInput {
@@ -119,6 +119,16 @@ export function createSuperAgentProgressProjector(
     if (report) updatedAtCandidates.push(report.at)
     const updatedAt = updatedAtCandidates.reduce((max, at) => (at > max ? at : max))
 
+    // T10 #80：重试闸门与 review 提醒水位随卡片下发（与阶段派生同一事实源）。
+    const facts: TicketStageFacts = {
+      ticket,
+      assignments: ticket.assignmentIds.map((id) => domain.state.assignments[id]),
+      inputs: ticket.inputIds.map((id) => domain.state.inputs[id]),
+      attentions: Object.values(domain.state.attentions).filter(
+        (attention) => attention.ticketId === ticketId,
+      ),
+    }
+
     return {
       ticketId: ticket.ticketId,
       title: ticket.title,
@@ -136,6 +146,8 @@ export function createSuperAgentProgressProjector(
             at: ticket.ended.at,
           }
         : null,
+      reviewRemindedAt: ticket.reviewRemindedAt,
+      canRetry: canRetryTicket(facts),
     }
   }
 

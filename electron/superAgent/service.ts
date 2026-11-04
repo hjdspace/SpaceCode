@@ -46,15 +46,22 @@ import type {
   SuperAgentSnapshot,
   SuperAgentTakeoverChangedEvent,
   SuperAgentTakeoverState,
+  SuperAgentTicketAcceptCommand,
+  SuperAgentTicketActionResult,
   SuperAgentTicketBoard,
+  SuperAgentTicketMessageCommand,
+  SuperAgentTicketMessageResult,
   SuperAgentTicketProgress,
+  SuperAgentTicketRetryCommand,
+  SuperAgentTicketRetryResult,
+  SuperAgentTicketStopCommand,
   SuperAgentTicketUpdateEvent,
   SuperAgentWorkerMessageCommand,
   SuperAgentWorkerMessageResult,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { superAgentWorkerSessionId } from '@/shared/channels/superAgent'
-import { createSuperAgentDomain, type SuperAgentDomain } from './domain'
+import { createSuperAgentDomain, type AddInputResult, type SuperAgentDomain } from './domain'
 import type { SuperAgentReportKind, SuperAgentTicket } from './model'
 import { superAgentError, serializeSuperAgentError } from './errors'
 import {
@@ -68,6 +75,7 @@ import {
 } from './health'
 import { createSuperAgentProgressProjector, type SuperAgentProgressProjector } from './progressProjector'
 import { parseSuperAgentReportText } from './reportParser'
+import { createSuperAgentReviewReminder, type SuperAgentReviewReminder } from './reviewReminder'
 import { createSuperAgentScheduler, type WorkerLauncher } from './scheduler'
 
 const STALE_AFTER_MS = 5_000
@@ -86,6 +94,8 @@ interface ProjectState {
   observedWorkers: Set<string>
   /** T09 #79：当前接管态；每项目同时至多一个，交还/关闭标签时清空。 */
   takeover: { ticketId: string; at: string } | null
+  /** T10 #80：review 超时提醒引擎（持久水位 + 周期扫描）。 */
+  reviewReminder: SuperAgentReviewReminder
 }
 
 export interface SuperAgentServiceOptions {
@@ -105,6 +115,12 @@ export interface SuperAgentServiceOptions {
   launcher?: WorkerLauncher | null
   /** T09 #79：接管输入投递接缝；null/缺省 = Executor 未接入，不假投递。 */
   workerDeliverer?: SuperAgentWorkerDeliverer | null
+  /**
+   * T10 #80：review 超时提醒配置。hours 缺省取提案默认 24（待产品最终确认，
+   * 唯一出处见 reviewReminder.ts 的 DEFAULT_REVIEW_REMINDER_HOURS）；
+   * now/sweepIntervalMs 是测试注入接缝。
+   */
+  reviewReminder?: { hours?: number; now?: () => Date; sweepIntervalMs?: number }
 }
 
 /** T09 #79：workerMessage 的投递请求（Executor 接入前接缝为 null）。 */
@@ -180,6 +196,22 @@ export interface SuperAgentService {
     repoRoot: string,
     command: SuperAgentAttentionAnswerCommand,
   ): SuperAgentAttentionAnswerResult
+  /** T10 #80：接受验收 —— person/review 的显式出口（→ completed）。 */
+  ticketAccept(repoRoot: string, command: SuperAgentTicketAcceptCommand): SuperAgentTicketActionResult
+  /** T10 #80：停止出口 —— Mandate 撤回 + 工单 stopped，后续自动事件不得重开。 */
+  ticketStop(repoRoot: string, command: SuperAgentTicketStopCommand): SuperAgentTicketActionResult
+  /**
+   * T10 #80：继续追问 —— review 的人消息复用原 Assignment 回到 working；
+   * 与 workerMessage 同一套 requestId 对账投递。
+   */
+  ticketMessage(
+    repoRoot: string,
+    command: SuperAgentTicketMessageCommand,
+  ): Promise<SuperAgentTicketMessageResult>
+  /** T10 #80：人工重试 —— 只对 open 的 delivery/blocked/failed 开放，generation+1。 */
+  ticketRetry(repoRoot: string, command: SuperAgentTicketRetryCommand): SuperAgentTicketRetryResult
+  /** T10 #80：手动扫描一次 review 超时提醒（周期扫描之外的对账/测试接缝）。 */
+  sweepReviewReminders(repoRoot: string): number
   recordHealthSuccess(repoRoot: string, category: SuperAgentHealthCategory): void
   recordHealthFailure(
     repoRoot: string,
@@ -228,6 +260,17 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           })
         },
       })
+      // T10 #80：review 超时提醒引擎 —— 水位写入领域后同步投影，
+      // 卡片的 reviewRemindedAt 变化经既有 ticket.updated 广播到渲染端。
+      const reviewReminder = createSuperAgentReviewReminder({
+        domain,
+        hours: options.reviewReminder?.hours,
+        now: options.reviewReminder?.now,
+        sweepIntervalMs: options.reviewReminder?.sweepIntervalMs,
+        onRemind: () => {
+          projector.sync()
+        },
+      })
       project = {
         seq: 0,
         router: null,
@@ -238,8 +281,11 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         attentionProjector,
         observedWorkers: new Set(),
         takeover: null,
+        reviewReminder,
       }
       projects.set(repoRoot, project)
+      // 持久化 scheduled effect：项目一落地即开始周期扫描（含一次即时重建扫描）
+      reviewReminder.start()
     }
     return project
   }
@@ -278,6 +324,58 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     }
   }
 
+  /**
+   * T09/T10 共用：先落库后投递的 requestId 对账 —— 可证明未接受（pending）
+   * 才重投；delivered/read 已接受跳过；uncertain 禁止盲目重投并产生 Attention。
+   */
+  async function settleWorkerInputDelivery(
+    project: ProjectState,
+    command: { ticketId: string; requestId: string; text: string },
+    added: AddInputResult,
+  ): Promise<SuperAgentWorkerMessageResult> {
+    const deliverer = options.workerDeliverer ?? null
+    if (deliverer) {
+      // duplicate 路径的 gated 是「未投出」而非「闸门拦截」，按 status 判断即可
+      const shouldDeliver = added.duplicate
+        ? added.input.status === 'pending'
+        : added.delivered && !added.gated
+      if (shouldDeliver) {
+        const outcome = await deliverer({
+          ticketId: command.ticketId,
+          inputId: added.input.inputId,
+          requestId: command.requestId,
+          sessionId: superAgentWorkerSessionId(command.ticketId),
+          text: command.text,
+        })
+        if (outcome === 'accepted') {
+          // 接受事实落盘后才标 delivered（重投成功时从 pending 转回 delivered）
+          project.domain.deliverInput({ inputId: added.input.inputId })
+        } else if (outcome === 'notAccepted') {
+          project.domain.requeueInput({ inputId: added.input.inputId })
+        } else if (outcome === 'unknown') {
+          project.domain.markInputUncertain({
+            inputId: added.input.inputId,
+            reason: 'deliveryUnknown',
+          })
+        }
+        // Input 状态变化是领域事实：卡片即时投影
+        project.projector.sync()
+        // uncertain 会产生 delivery Attention：气泡同步投影（T08 #78）
+        project.attentionProjector.sync()
+      }
+    }
+
+    const input = project.domain.state.inputs[added.input.inputId]
+    return {
+      inputId: input.inputId,
+      ticketId: input.ticketId,
+      status: input.status,
+      delivered: input.status === 'delivered' || input.status === 'read',
+      gated: added.gated,
+      duplicate: added.duplicate,
+    }
+  }
+
   /** T09 #79：接管/交还广播 —— 各面板据此同步，避免多面板互抢。 */
   function notifyTakeoverChanged(repoRoot: string, project: ProjectState): void {
     options.onTakeoverChanged?.(repoRoot, {
@@ -289,6 +387,13 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   }
 
   function snapshotOf(repoRoot: string, project: ProjectState): SuperAgentSnapshot {
+    // T10 #80：仍在待验收且已超时提醒过的工单数（按工单去重，不按提醒次数计）。
+    const reminded = Object.values(project.domain.state.tickets).filter(
+      (ticket) =>
+        ticket.state === 'open' &&
+        ticket.reviewRemindedAt !== null &&
+        project.domain.stageOf(ticket.ticketId) === 'person/review',
+    ).length
     return {
       repoRoot,
       seq: project.seq,
@@ -297,6 +402,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       router: project.router ? { ...project.router } : null,
       // T08 #78：按工单去重的待处理 Attention 数（徽章/顶部计数联动）。
       attention: { unanswered: project.attentionProjector.pendingTickets() },
+      review: { reminded },
     }
   }
 
@@ -477,49 +583,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         note: command.note ?? null,
       })
 
-      // 再投递：requestId 对账 —— 可证明未接受（pending）才重投；
-      // delivered/read 已接受跳过；uncertain 禁止盲目重投
-      const deliverer = options.workerDeliverer ?? null
-      if (deliverer) {
-        // duplicate 路径的 gated 是「未投出」而非「闸门拦截」，按 status 判断即可
-        const shouldDeliver = added.duplicate
-          ? added.input.status === 'pending'
-          : added.delivered && !added.gated
-        if (shouldDeliver) {
-          const outcome = await deliverer({
-            ticketId: command.ticketId,
-            inputId: added.input.inputId,
-            requestId: command.requestId,
-            sessionId: superAgentWorkerSessionId(command.ticketId),
-            text: command.text,
-          })
-          if (outcome === 'accepted') {
-            // 接受事实落盘后才标 delivered（重投成功时从 pending 转回 delivered）
-            project.domain.deliverInput({ inputId: added.input.inputId })
-          } else if (outcome === 'notAccepted') {
-            project.domain.requeueInput({ inputId: added.input.inputId })
-          } else if (outcome === 'unknown') {
-            project.domain.markInputUncertain({
-              inputId: added.input.inputId,
-              reason: 'deliveryUnknown',
-            })
-          }
-          // Input 状态变化是领域事实：卡片即时投影
-          project.projector.sync()
-          // uncertain 会产生 delivery Attention：气泡同步投影（T08 #78）
-          project.attentionProjector.sync()
-        }
-      }
-
-      const input = project.domain.state.inputs[added.input.inputId]
-      return {
-        inputId: input.inputId,
-        ticketId: input.ticketId,
-        status: input.status,
-        delivered: input.status === 'delivered' || input.status === 'read',
-        gated: added.gated,
-        duplicate: added.duplicate,
-      }
+      // 再投递：与 ticketMessage 共用 requestId 对账（settleWorkerInputDelivery）
+      return settleWorkerInputDelivery(project, command, added)
     },
 
     attentions(repoRoot) {
@@ -549,6 +614,63 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         gated: answered.gated,
         duplicate: answered.duplicate,
       }
+    },
+
+    ticketAccept(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      const result = project.domain.ticketAccept({ ticketId: command.ticketId })
+      // 工单结束是领域事实：卡片（→ completed）与 Attention（撤回）即时投影
+      project.projector.sync()
+      project.attentionProjector.sync()
+      return {
+        repoRoot,
+        ticketId: result.ticket.ticketId,
+        outcome: 'completed',
+        endedAt: result.ticket.ended?.at ?? '',
+      }
+    },
+
+    ticketStop(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      const result = project.domain.ticketStop({
+        ticketId: command.ticketId,
+        reason: command.reason,
+      })
+      project.projector.sync()
+      project.attentionProjector.sync()
+      return {
+        repoRoot,
+        ticketId: result.ticket.ticketId,
+        outcome: 'stopped',
+        endedAt: result.ticket.ended?.at ?? '',
+      }
+    },
+
+    async ticketMessage(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      const ticket = project.domain.state.tickets[command.ticketId]
+      if (!ticket) {
+        throw superAgentError('ticketNotFound', { ticketId: command.ticketId })
+      }
+      // 先落库（空文本由领域抛 invalidTicketMessage）：复用原 Assignment 回到 working
+      const added = project.domain.ticketMessage({
+        ticketId: command.ticketId,
+        requestId: command.requestId,
+        text: command.text,
+      })
+      // 再投递：与 workerMessage 共用 requestId 对账（settleWorkerInputDelivery）
+      return settleWorkerInputDelivery(project, command, added)
+    },
+
+    ticketRetry(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      // scheduler.retry：domain.retryTicket 校验闸门后新建 generation+1，
+      // 并经 onDomainChanged 回调投影同步 + 队列广播
+      return project.scheduler.retry({ ticketId: command.ticketId })
+    },
+
+    sweepReviewReminders(repoRoot) {
+      return projectOf(repoRoot).reviewReminder.sweep()
     },
 
     recordHealthSuccess(repoRoot, category) {

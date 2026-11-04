@@ -30,6 +30,12 @@
  *  - 注册 attentions（气泡看板只读拉取）与 attentionAnswer（就地回答）通道；
  *  - Attention 变化经 attention-asked / attention-answered / attention-withdrawn
  *    事件广播到所有窗口；payload 携带全量视图，Renderer 直接应用即幂等。
+ *
+ * T10 #80：
+ *  - 注册 ticketAccept / ticketStop / ticketMessage / ticketRetry 通道（review
+ *    工单的三个显式出口 + 只对 delivery/blocked/failed 开放的重试）；
+ *  - review 超时提醒不新增事件：水位随既有 ticket-updated 卡片广播，
+ *    徽章/状态条按去重后的工单数计（snapshot.review.reminded）。
  */
 import { BrowserWindow, ipcMain } from 'electron'
 import { eventChannels } from '@/shared/channelMap'
@@ -43,6 +49,7 @@ import {
   type SuperAgentHealthReport,
   type SuperAgentQueueSnapshot,
   type SuperAgentTakeoverChangedEvent,
+  type SuperAgentTicketMessageCommand,
   type SuperAgentTicketProgress,
   type SuperAgentTicketUpdateEvent,
   type SuperAgentWorkerMessageCommand,
@@ -122,6 +129,36 @@ function requireAttentionAnswerCommand(input: unknown): SuperAgentAttentionAnswe
     throw new Error('invalid attention answer command')
   }
   return input as SuperAgentAttentionAnswerCommand
+}
+
+/** 验收/停止命令入口校验（T10 #80）：ticketId 必须是非空字符串。 */
+function requireTicketActionCommand(input: unknown): { ticketId: string } {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('ticket action command is required')
+  }
+  return { ticketId: requireTicketId((input as Record<string, unknown>).ticketId) }
+}
+
+/**
+ * 继续追问命令入口校验（T10 #80）：requestId/ticketId/text 必须是非空字符串
+ * （领域层 invalidTicketMessage 兜底同样校验）。
+ */
+function requireTicketMessageCommand(input: unknown): SuperAgentTicketMessageCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('ticket message command is required')
+  }
+  const command = input as Record<string, unknown>
+  if (
+    typeof command.requestId !== 'string' ||
+    command.requestId.trim() === '' ||
+    typeof command.ticketId !== 'string' ||
+    command.ticketId.trim() === '' ||
+    typeof command.text !== 'string' ||
+    command.text.trim() === ''
+  ) {
+    throw new Error('invalid ticket message command')
+  }
+  return input as SuperAgentTicketMessageCommand
 }
 
 /** health.changed 广播：所有未销毁窗口都能收到，Renderer 无需轮询。 */
@@ -274,6 +311,26 @@ export function registerSuperAgentIPCHandlers(
       const root = requireRepoRoot(repoRoot)
       const req = requireAttentionAnswerCommand(command)
       return runNoted(service, root, () => service.attentionAnswer(root, req))
+    },
+    ticketAccept: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireTicketActionCommand(command)
+      return runNoted(service, root, () => service.ticketAccept(root, req))
+    },
+    ticketStop: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireTicketActionCommand(command)
+      return runNoted(service, root, () => service.ticketStop(root, req))
+    },
+    ticketMessage: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireTicketMessageCommand(command)
+      return runNoted(service, root, () => service.ticketMessage(root, req))
+    },
+    ticketRetry: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireTicketActionCommand(command)
+      return runNoted(service, root, () => service.ticketRetry(root, req))
     },
   })
 }

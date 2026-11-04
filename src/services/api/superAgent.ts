@@ -20,6 +20,7 @@ const invokeApi = createRendererApi(
       staleAfterMs: 5000,
       router: null,
       attention: { unanswered: 0 },
+      review: { reminded: 0 },
     }),
     routerBind: () => {
       throw new Error('Super Agent is only available in the desktop app')
@@ -76,6 +77,20 @@ const invokeApi = createRendererApi(
     attentionAnswer: () => {
       // 回答依赖主进程领域落库与投递链路，非桌面环境明确拒绝
       throw new Error('attention answer is only available in desktop')
+    },
+    ticketAccept: () => {
+      // 验收依赖主进程领域落库，非桌面环境明确拒绝而不是假装成功
+      throw new Error('ticket accept is only available in desktop')
+    },
+    ticketStop: () => {
+      throw new Error('ticket stop is only available in desktop')
+    },
+    ticketMessage: () => {
+      // 追问依赖引擎投递链路（与 workerMessage 同一套对账），非桌面环境拒绝
+      throw new Error('ticket message is only available in desktop')
+    },
+    ticketRetry: () => {
+      throw new Error('ticket retry is only available in desktop')
     },
   },
 )

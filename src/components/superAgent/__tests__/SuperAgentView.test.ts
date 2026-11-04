@@ -11,6 +11,8 @@
  *  - 显式派工（T05 #75）：「新建工单」独立动作（普通发送不建单）、
  *    表单校验与幂等 requestId、派工结果提示、队列现状（执行中/排队/脏区）可见；
  *  - Worker 只读标签（T07 #77）：点击队列条目打开 worker:<ticketId> 只读标签。
+ *  - review 出口与超时提醒（T10 #80）：提醒气泡复用原气泡（key=ticketId）、
+ *    点击打开只读标签；卡片三出口/重试经 store 委托主进程，失败给出非模态提示。
  */
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,6 +21,7 @@ import type {
   SuperAgentDispatchResult,
   SuperAgentHealthItem,
   SuperAgentQueueSnapshot,
+  SuperAgentTicketBoard,
 } from '@/shared/channels/superAgent'
 
 const probe = vi.hoisted(() => ({
@@ -64,7 +67,37 @@ const probe = vi.hoisted(() => ({
   // ── 工单看板（T06 #76，并发会话维护）：仅补桩保证挂载流程可跑 ──
   loadTickets: vi.fn().mockResolvedValue(undefined),
   watchTickets: vi.fn().mockReturnValue(() => {}),
-  ticketBoard: null,
+  ticketBoard: null as SuperAgentTicketBoard | null,
+  ticketProgress: {} as Record<string, never>,
+  // ── review 出口与超时提醒（T10 #80）──
+  acceptTicket: vi.fn().mockResolvedValue({
+    repoRoot: 'D:/repo',
+    ticketId: 'ticket-1',
+    outcome: 'completed',
+    endedAt: '2026-01-02T00:00:00.000Z',
+  }),
+  stopTicket: vi.fn().mockResolvedValue({
+    repoRoot: 'D:/repo',
+    ticketId: 'ticket-1',
+    outcome: 'stopped',
+    endedAt: '2026-01-02T00:00:00.000Z',
+  }),
+  messageTicket: vi.fn().mockResolvedValue({
+    inputId: 'input-1',
+    ticketId: 'ticket-1',
+    status: 'delivered',
+    delivered: true,
+    gated: false,
+    duplicate: false,
+  }),
+  retryTicket: vi.fn().mockResolvedValue({
+    ticketId: 'ticket-1',
+    assignmentId: 'assignment-2',
+    generation: 2,
+    queuePosition: 1,
+  }),
+  reviewReminders: [] as Array<{ ticketId: string; title: string; remindedAt: string }>,
+  reviewRemindedCount: 0,
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -132,6 +165,13 @@ vi.mock('@/stores/superAgent', () => ({
     loadTickets: probe.loadTickets,
     watchTickets: probe.watchTickets,
     get ticketBoard() { return probe.ticketBoard },
+    get ticketProgress() { return probe.ticketProgress },
+    acceptTicket: probe.acceptTicket,
+    stopTicket: probe.stopTicket,
+    messageTicket: probe.messageTicket,
+    retryTicket: probe.retryTicket,
+    get reviewReminders() { return probe.reviewReminders },
+    get reviewRemindedCount() { return probe.reviewRemindedCount },
     loadAttentions: probe.loadAttentions,
     watchAttentions: probe.watchAttentions,
     get attentionBubbles() { return probe.attentionBubbles },
@@ -142,6 +182,7 @@ vi.mock('@/stores/superAgent', () => ({
 import SuperAgentView from '../SuperAgentView.vue'
 import ChatInput from '../../chat/ChatInput.vue'
 import MessageList from '../../chat/MessageList.vue'
+import WorkerTaskCard from '../WorkerTaskCard.vue'
 
 function mountView() {
   return mount(SuperAgentView, {
@@ -183,6 +224,38 @@ beforeEach(() => {
   probe.loadTickets.mockClear()
   probe.watchTickets.mockClear()
   probe.ticketBoard = null
+  probe.acceptTicket.mockClear()
+  probe.acceptTicket.mockResolvedValue({
+    repoRoot: 'D:/repo',
+    ticketId: 'ticket-1',
+    outcome: 'completed',
+    endedAt: '2026-01-02T00:00:00.000Z',
+  })
+  probe.stopTicket.mockClear()
+  probe.stopTicket.mockResolvedValue({
+    repoRoot: 'D:/repo',
+    ticketId: 'ticket-1',
+    outcome: 'stopped',
+    endedAt: '2026-01-02T00:00:00.000Z',
+  })
+  probe.messageTicket.mockClear()
+  probe.messageTicket.mockResolvedValue({
+    inputId: 'input-1',
+    ticketId: 'ticket-1',
+    status: 'delivered',
+    delivered: true,
+    gated: false,
+    duplicate: false,
+  })
+  probe.retryTicket.mockClear()
+  probe.retryTicket.mockResolvedValue({
+    ticketId: 'ticket-1',
+    assignmentId: 'assignment-2',
+    generation: 2,
+    queuePosition: 1,
+  })
+  probe.reviewReminders = []
+  probe.reviewRemindedCount = 0
 })
 
 describe('SuperAgentView empty state', () => {
@@ -533,6 +606,121 @@ describe('SuperAgentView dispatch & queue（T05 #75）', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="super-agent-queue"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
+  function reviewBoard(): SuperAgentTicketBoard {
+    return {
+      repoRoot: 'D:/repo',
+      seq: 3,
+      tickets: [
+        {
+          ticketId: 'ticket-1',
+          title: '修复登录',
+          state: 'review',
+          assignmentId: 'assignment-1',
+          generation: 1,
+          scopePaths: [],
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+          ended: null,
+          reviewRemindedAt: '2026-01-02T00:00:00.000Z',
+          canRetry: false,
+        },
+        {
+          ticketId: 'ticket-2',
+          title: '修复注册',
+          state: 'failed',
+          assignmentId: 'assignment-2',
+          generation: 1,
+          scopePaths: [],
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+          ended: null,
+          reviewRemindedAt: null,
+          canRetry: true,
+        },
+      ],
+    }
+  }
+
+  it('renders one reminder bubble per overdue ticket and opens the read-only tab on click', async () => {
+    probe.reviewReminders = [{ ticketId: 'ticket-1', title: '修复登录', remindedAt: '2026-01-02T00:00:00.000Z' }]
+    probe.reviewRemindedCount = 1
+    probe.openWorkerTab.mockClear()
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 同一工单复用原气泡（key=ticketId），不弹 modal
+    const bubbles = wrapper.findAll('[data-testid="super-agent-review-reminder-ticket-1"]')
+    expect(bubbles).toHaveLength(1)
+    expect(wrapper.find('[data-testid="super-agent-review-reminded-count"]').exists()).toBe(true)
+
+    await bubbles[0].trigger('click')
+    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-1', '修复登录')
+    wrapper.unmount()
+  })
+
+  it('delegates card outlets to the store: accept/stop/retry with repoRoot and ticketId', async () => {
+    probe.ticketBoard = reviewBoard()
+    const wrapper = mountView()
+    await flushPromises()
+
+    const card = wrapper.getComponent(WorkerTaskCard)
+    card.vm.$emit('accept', 'ticket-1')
+    await flushPromises()
+    expect(probe.acceptTicket).toHaveBeenCalledWith('D:/repo', 'ticket-1')
+
+    card.vm.$emit('stop', 'ticket-1')
+    await flushPromises()
+    expect(probe.stopTicket).toHaveBeenCalledWith('D:/repo', 'ticket-1')
+
+    card.vm.$emit('retry', 'ticket-2')
+    await flushPromises()
+    expect(probe.retryTicket).toHaveBeenCalledWith('D:/repo', 'ticket-2')
+    wrapper.unmount()
+  })
+
+  it('delegates the follow-up message with a fresh requestId idempotency key', async () => {
+    probe.ticketBoard = reviewBoard()
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.getComponent(WorkerTaskCard).vm.$emit('message', { ticketId: 'ticket-1', text: '再改一版' })
+    await flushPromises()
+
+    expect(probe.messageTicket).toHaveBeenCalledTimes(1)
+    const [repoRoot, command] = probe.messageTicket.mock.calls[0]
+    expect(repoRoot).toBe('D:/repo')
+    expect(command.ticketId).toBe('ticket-1')
+    expect(command.text).toBe('再改一版')
+    expect(command.requestId).not.toBe('')
+    wrapper.unmount()
+  })
+
+  it('shows a non-modal hint when an outlet action fails', async () => {
+    probe.ticketBoard = reviewBoard()
+    probe.acceptTicket.mockRejectedValue(new Error('notReady'))
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.getComponent(WorkerTaskCard).vm.$emit('accept', 'ticket-1')
+    await flushPromises()
+
+    const hint = wrapper.find('[data-testid="super-agent-ticket-action-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('superAgent.ticket.actionFailedHint')
+    wrapper.unmount()
+  })
+
+  it('hides the reminder section when no ticket is overdue', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-review-reminders"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="super-agent-review-reminded-count"]').exists()).toBe(false)
     wrapper.unmount()
   })
 })
