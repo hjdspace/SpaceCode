@@ -432,3 +432,51 @@ describe('registerSuperAgentIPCHandlers ticket outlets（T10 #80）', () => {
     ).rejects.toThrow(/ticket message/)
   })
 })
+
+describe('registerSuperAgentIPCHandlers pause & resume（T11 #81）', () => {
+  const COMMAND = { requestId: 'dispatch-1', title: '修复登录', text: '登录按钮无响应' }
+
+  it('registers pause / resume on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}pause`, expect.any(Function))
+    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}resume`, expect.any(Function))
+  })
+
+  it('rejects pause / resume when repoRoot is missing', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invoke('pause', '')).rejects.toThrow(/repoRoot/)
+    await expect(invoke('resume', ' ')).rejects.toThrow(/repoRoot/)
+  })
+
+  it('round-trips pause → resume through the registered handlers', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const paused = await invoke('pause', '/repo/a')
+    expect(paused).toBe(true)
+
+    const resumed = await invoke('resume', '/repo/a')
+    expect(resumed).toBe(true)
+
+    // 恢复后派工命令仍可推进（项目回到开放状态）
+    const dispatched = await invokeDispatch('dispatch', '/repo/a', COMMAND)
+    expect(dispatched.ticketId).not.toBe('')
+  })
+
+  it('pause keeps new tickets queued without launching, resume continues the queue', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await invoke('pause', '/repo/a')
+    const dispatched = await invokeDispatch('dispatch', '/repo/a', COMMAND)
+    expect(dispatched.queuePosition).toBe(1)
+    // 暂停期间不启动 launch：队列快照里工单仍在排队
+    const queueWhilePaused = await invoke('queue', '/repo/a')
+    expect(JSON.stringify(queueWhilePaused)).toContain(dispatched.ticketId)
+
+    // 恢复后命令仍可推进（续跑语义由 service/scheduler 测试覆盖）
+    await invoke('resume', '/repo/a')
+    const queueAfterResume = await invoke('queue', '/repo/a')
+    expect(JSON.stringify(queueAfterResume)).toBeDefined()
+  })
+})

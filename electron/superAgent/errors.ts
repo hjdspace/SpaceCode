@@ -50,6 +50,10 @@ export type SuperAgentErrorCode =
   // unavailable：引擎或资源不可用
   | 'engineLaunchFailed'
   | 'slotUnavailable'
+  // unavailable：T11 #81 项目状态存储不可用（锁被占用/迁移失败/损坏）
+  | 'projectStoreUnavailable'
+  // refused：T11 #81 显式 shutdown 期间停止接受新命令
+  | 'shuttingDown'
 
 export type SuperAgentErrorParams = Record<string, string | number>
 
@@ -87,6 +91,8 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   takeoverConflict: 'conflict',
   engineLaunchFailed: 'unavailable',
   slotUnavailable: 'unavailable',
+  projectStoreUnavailable: 'unavailable',
+  shuttingDown: 'refused',
 }
 
 export const SUPER_AGENT_ERROR_CODES = Object.keys(ERROR_CATEGORIES) as SuperAgentErrorCode[]

@@ -88,6 +88,10 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
 
   let active = 0
   const reserved = new Map<string, ReservedSlot>()
+  /** T11 #81：在途 launch promise —— 显式 shutdown 有界等待的对象。 */
+  const inFlightLaunches = new Set<Promise<void>>()
+  /** T11 #81：shutdown 开始后不再启动新 launch（draining）。 */
+  let stopping = false
   /** 派工时的 @ 上下文与附件：dispatch 落表，launch 时注入 Worker 首轮消息。 */
   const dispatchContext = new Map<string, { contextPaths: string[]; attachments: string[] }>()
 
@@ -138,6 +142,9 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
   /** 槽位在任何 await 之前同步预留；后续的启动流程异步推进。 */
   function pump(): void {
     if (!launcher) return
+    // T11 #81：shutdown draining 与项目暂停期间都不再启动新 launch
+    // （暂停只阻止新 launch/delivery；活动 turn 不被静默打断）。
+    if (stopping || domain.state.paused) return
     while (active < maxWorkers) {
       const next = pendingAssignments().find(
         (assignment) => !reserved.has(assignment.ticketId),
@@ -148,7 +155,16 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       onPreparingChanged?.(next.ticketId, true)
       // 占槽即 preparing：seq 未变但卡片派生状态变了，投影据此发 ticket.updated
       onDomainChanged?.()
-      void launch(next.ticketId, next.assignmentId)
+      const promise = launch(next.ticketId, next.assignmentId)
+      inFlightLaunches.add(promise)
+      void promise.then(
+        () => {
+          inFlightLaunches.delete(promise)
+        },
+        () => {
+          inFlightLaunches.delete(promise)
+        },
+      )
     }
   }
 
@@ -236,7 +252,30 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     }
   }
 
-  return { dispatch, queue, retry }
+  /**
+   * T11 #81：显式 shutdown —— 停止启动新 launch（draining），有界等待在途
+   * launch 落定。超时直接返回 false（上层随之结束 shutdown 并释放锁），
+   * 下次启动经恢复顺序生成恢复代次。
+   */
+  function settle(timeoutMs: number): Promise<boolean> {
+    stopping = true
+    if (inFlightLaunches.size === 0) return Promise.resolve(true)
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), timeoutMs)
+      void Promise.allSettled([...inFlightLaunches]).then(() => {
+        clearTimeout(timer)
+        resolve(true)
+      })
+    })
+  }
+
+  /** T11 #81：恢复续跑 —— 重启恢复/解除暂停后补跑一次 pump 并广播队列现状。 */
+  function resume(): void {
+    pump()
+    notify()
+  }
+
+  return { dispatch, queue, retry, settle, resume }
 }
 
 export type SuperAgentScheduler = ReturnType<typeof createSuperAgentScheduler>

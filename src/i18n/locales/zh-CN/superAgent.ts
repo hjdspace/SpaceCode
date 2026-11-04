@@ -40,6 +40,8 @@ export default {
     takeoverConflict: '已有其他工单处于接管中，请先交还',
     invalidWorkerMessage: '接管输入不能为空',
     invalidTicketMessage: '追问内容不能为空',
+    projectStoreUnavailable: '项目状态存储不可用（可能被其他实例占用或数据损坏）',
+    shuttingDown: 'Super Agent 正在关闭，暂不接受新命令',
     unknown: '发生未知错误',
   },
   dispatch: {

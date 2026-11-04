@@ -225,8 +225,12 @@ function broadcastAttentionEvent(repoRoot: string, event: SuperAgentAttentionEve
 }
 
 /** 创建接好 health.changed / queue-changed 广播的服务；独立导出以便测试广播链路。 */
-export function createBroadcastingSuperAgentService(): SuperAgentService {
+export function createBroadcastingSuperAgentService(
+  options: { userDataDir?: string } = {},
+): SuperAgentService {
   return createSuperAgentService({
+    // T11 #81：提供 userDataDir 后启用每项目持久化与重启恢复
+    userDataDir: options.userDataDir,
     onHealthChanged: broadcastHealthChanged,
     onQueueChanged: broadcastQueueChanged,
     onTicketUpdated: broadcastTicketUpdated,
@@ -331,6 +335,14 @@ export function registerSuperAgentIPCHandlers(
       const root = requireRepoRoot(repoRoot)
       const req = requireTicketActionCommand(command)
       return runNoted(service, root, () => service.ticketRetry(root, req))
+    },
+    pause: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.pause(root))
+    },
+    resume: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.resume(root))
     },
   })
 }

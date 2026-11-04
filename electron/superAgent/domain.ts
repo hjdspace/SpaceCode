@@ -196,6 +196,18 @@ export interface MarkInputUncertainResult {
   duplicate: boolean
 }
 
+/** T11 #81：重启恢复专用 —— latest interrupted 的 busy 工单建 generation+1。 */
+export interface TicketRecoveryInput {
+  ticketId: string
+  at?: string
+}
+
+/** T11 #81：Executor 步取走输入的对账游标。 */
+export interface MarkInputReadInput {
+  inputId: string
+  at?: string
+}
+
 export interface ReportCommand {
   ticketId: string
   assignmentId: string
@@ -274,6 +286,11 @@ export interface MarkReviewRemindedInput {
 export interface SuperAgentDomainOptions {
   now?: () => Date
   newId?: (kind: string) => string
+  /**
+   * T11 #81：从持久化快照重水化。缺失字段补默认（前向兼容），
+   * 未知字段按结构透传保留（§9.4 未见过的字段必须可被忽略）。
+   */
+  initialState?: SuperAgentDomainState
 }
 
 export interface SuperAgentDomain {
@@ -301,6 +318,18 @@ export interface SuperAgentDomain {
   ticketMessage(input: TicketMessageInput): AddInputResult
   /** T10 #80：人工重试 —— 新建 generation+1 的 pending Assignment。 */
   retryTicket(input: RetryTicketInput): RetryTicketResult
+  /**
+   * T11 #81：重启恢复 —— 最新代次为 interrupted 的 busy 工单新建
+   * generation+1 的 pending 恢复 Assignment。只有主进程重启这一恢复
+   * 路径使用；人工重试走 retryTicket。
+   */
+  recoverTicket(input: TicketRecoveryInput): RetryTicketResult
+  /** T11 #81：Executor 步取走输入时标已读（对账游标：已 read 不重复投递）。 */
+  markInputRead(input: MarkInputReadInput): SuperAgentInput
+  /** T11 #81：项目暂停（持久事实）—— 暂停期间新 Input 只落库不投递。 */
+  pauseProject(input?: { at?: string }): SuperAgentDomainState
+  /** T11 #81：恢复暂停 —— 后续 launch/delivery 由上层续跑。 */
+  resumeProject(input?: { at?: string }): SuperAgentDomainState
   /** T10 #80：review 超时提醒水位外发（只前进，离开 review/结束拒绝）。 */
   markReviewReminded(input: MarkReviewRemindedInput): SuperAgentTicket
   stageOf(ticketId: string): SuperAgentTicketStage
@@ -336,7 +365,7 @@ function newThread(threadId: string, source: string): SuperAgentThread {
 export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): SuperAgentDomain {
   const now = options.now ?? (() => new Date())
   const newId = options.newId ?? ((kind: string) => `${kind}-${randomUUID()}`)
-  const state: SuperAgentDomainState = {
+  const fresh = (): SuperAgentDomainState => ({
     seq: 0,
     triggers: {},
     threads: {},
@@ -349,7 +378,13 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     attentions: {},
     idempotency: {},
     handbacks: [],
-  }
+    paused: false,
+    pausedAt: null,
+  })
+  const state: SuperAgentDomainState = options.initialState
+    ? // 重水化：缺失字段补默认，已有事实原样保留；未知字段透传（前向兼容）。
+      { ...fresh(), ...options.initialState }
+    : fresh()
 
   const atNow = (at?: string): string => at ?? now().toISOString()
 
@@ -734,7 +769,8 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     const gated = gateWasClosed && !wakesTicket
     const latest = latestAssignmentOf(facts.assignments)
     const canDeliver = latest !== null && (latest.state === 'pending' || latest.state === 'running')
-    const delivered = !gated && canDeliver
+    // T11 #81：暂停期间新 Input 只落库不投递（活动 turn 不打断，消息不丢）。
+    const delivered = !gated && canDeliver && !state.paused
     const at = atNow(command.at)
 
     if (command.triggerId && !state.triggers[command.triggerId]) {
@@ -1108,6 +1144,56 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return ticket
   }
 
+  /** T11 #81：步取走对账游标 —— 已投递输入标已读；已读幂等，未投递拒绝。 */
+  function markInputRead(input: MarkInputReadInput): SuperAgentInput {
+    const record = state.inputs[input.inputId]
+    if (!record) throw superAgentError('inputNotFound', { inputId: input.inputId })
+    if (record.status === 'read') return record
+    if (record.status !== 'delivered') {
+      throw superAgentError('conflict', { inputId: input.inputId, status: record.status })
+    }
+    record.status = 'read'
+    record.readAt = atNow(input.at)
+    nextOrdinal()
+    return record
+  }
+
+  /**
+   * T11 #81：重启恢复 —— 仅最新代次为 interrupted 的工单可建 generation+1
+   * 的 pending 恢复代次（busy 判定由 recovery 模块负责）。不复制旧代次状态：
+   * 恢复代次从 working 语义重新开始，历史输入经对账回队首。
+   */
+  function recoverTicket(input: TicketRecoveryInput): RetryTicketResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    const latest = latestAssignmentOf(ticket.assignmentIds.map((id) => state.assignments[id]))
+    if (!latest || latest.state !== 'interrupted') {
+      throw superAgentError('notRetryable', { ticketId: ticket.ticketId })
+    }
+    const assignment = newAssignmentForTicket(ticket, atNow(input.at), 'pending')
+    return { ticket, assignment }
+  }
+
+  /** T11 #81：项目暂停（幂等）—— 持久领域事实，阻止新 launch/delivery。 */
+  function pauseProject(input: { at?: string } = {}): SuperAgentDomainState {
+    if (!state.paused) {
+      state.paused = true
+      state.pausedAt = atNow(input.at)
+      nextOrdinal()
+    }
+    return state
+  }
+
+  /** T11 #81：恢复暂停（幂等）—— 后续 launch/delivery 由上层续跑。 */
+  function resumeProject(input: { at?: string } = {}): SuperAgentDomainState {
+    if (state.paused) {
+      state.paused = false
+      state.pausedAt = null
+      nextOrdinal()
+    }
+    return state
+  }
+
   function report(command: ReportCommand): ReportResult {
     const ticket = requireTicket(command.ticketId)
     const assignment = state.assignments[command.assignmentId]
@@ -1293,6 +1379,10 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     ticketStop,
     ticketMessage,
     retryTicket,
+    recoverTicket,
+    markInputRead,
+    pauseProject,
+    resumeProject,
     markReviewReminded,
     stageOf,
   }

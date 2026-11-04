@@ -29,6 +29,12 @@
  * 接缝投递（null = Executor 未接入，不假投递）。requestId 是对账键：可证明
  * 未接受（pending）才重投，结果未知转 uncertain 并产生 delivery Attention，
  * 禁止盲目重投。关闭镜像标签（workerUnbind）一并释放接管，不残留面板态。
+ *
+ * T11 #81 崩溃恢复与退出收尾：提供 userDataDir 时每项目经 Store 持久化
+ * （迁移 → 锁 → seq 重放），打开即按恢复顺序对账（running 标 interrupted →
+ * busy 建新代次 → delivered 未读回队首）并续跑队列；显式 shutdown 停止接受
+ * 命令 → 有界等待在途 launch → 关 Store 释放锁；暂停是持久领域事实，跨重启
+ * 保持。未提供 userDataDir 时保持纯内存行为（测试/旧用例）。
  */
 import { randomUUID } from 'crypto'
 import type {
@@ -77,8 +83,15 @@ import { createSuperAgentProgressProjector, type SuperAgentProgressProjector } f
 import { parseSuperAgentReportText } from './reportParser'
 import { createSuperAgentReviewReminder, type SuperAgentReviewReminder } from './reviewReminder'
 import { createSuperAgentScheduler, type WorkerLauncher } from './scheduler'
+import { openPersistedSuperAgentProject } from './persistence'
+import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
+import type { ProjectStore, ProjectStoreDeps } from './store'
+import type { SuperAgentDomainState } from './model'
+import { waitsForPerson } from './stage'
 
 const STALE_AFTER_MS = 5_000
+/** T11 #81：显式 shutdown 的在途 Effect 有界等待参考值（§9.5，10 秒）。 */
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000
 
 interface ProjectState {
   seq: number
@@ -96,6 +109,12 @@ interface ProjectState {
   takeover: { ticketId: string; at: string } | null
   /** T10 #80：review 超时提醒引擎（持久水位 + 周期扫描）。 */
   reviewReminder: SuperAgentReviewReminder
+  /** T11 #81：项目状态 Store（userDataDir 未提供时为 null，纯内存）。 */
+  store: ProjectStore<SuperAgentDomainState> | null
+  /** T11 #81：open → draining（停止接受命令，有界等在途）→ closed（锁已释放）。 */
+  phase: 'open' | 'draining' | 'closed'
+  /** T11 #81：本次打开时的启动恢复结果（无持久化时为 null）。 */
+  startupRecovery: StartupRecoveryResult | null
 }
 
 export interface SuperAgentServiceOptions {
@@ -121,6 +140,15 @@ export interface SuperAgentServiceOptions {
    * now/sweepIntervalMs 是测试注入接缝。
    */
   reviewReminder?: { hours?: number; now?: () => Date; sweepIntervalMs?: number }
+  /**
+   * T11 #81：提供后启用每项目持久化与重启恢复（迁移 → 锁 → seq 重放 →
+   * 启动恢复顺序）。未提供时保持纯内存行为。
+   */
+  userDataDir?: string
+  /** T11 #81：显式 shutdown 的在途 launch 有界等待；缺省 10 秒。 */
+  shutdownTimeoutMs?: number
+  /** T11 #81：Store 依赖注入（测试模拟旧进程死亡/陈旧锁）。 */
+  storeDeps?: ProjectStoreDeps
 }
 
 /** T09 #79：workerMessage 的投递请求（Executor 接入前接缝为 null）。 */
@@ -154,6 +182,13 @@ export interface SuperAgentWorkerReportResult {
   at: string
   duplicate: boolean
   attentionId: string | null
+}
+
+/** T11 #81：显式 shutdown 结果 —— 是否在有界时间内完成。 */
+export interface SuperAgentShutdownResult {
+  repoRoot: string
+  /** false = 在途 launch 超时，直接结束 shutdown（下次启动生成恢复代次）。 */
+  settledWithinBound: boolean
 }
 
 export interface SuperAgentService {
@@ -220,17 +255,55 @@ export interface SuperAgentService {
   ): void
   /** 序列化任意错误为稳定 payload；未知 code 计入健康。 */
   noteError(repoRoot: string, err: unknown): SuperAgentErrorPayload
+  /**
+   * T11 #81：显式 shutdown —— 停止接受命令 → 取消在途 launch 调度 →
+   * 有界等待在途 Effect 落定 → 关 Store 释放锁。幂等：重复调用直接返回。
+   */
+  shutdown(repoRoot: string): Promise<SuperAgentShutdownResult>
+  /** T11 #81：应用退出时有界关闭全部已打开项目。 */
+  shutdownAll(): Promise<SuperAgentShutdownResult[]>
+  /** T11 #81：项目暂停（持久领域事实，跨重启保持；阻止新 launch/delivery）。 */
+  pause(repoRoot: string): true
+  /** T11 #81：解除暂停 —— 补投挂起的 pending 输入并续跑队列。 */
+  resume(repoRoot: string): Promise<true>
 }
 
 export function createSuperAgentService(options: SuperAgentServiceOptions = {}): SuperAgentService {
   const projects = new Map<string, ProjectState>()
+
+  /**
+   * T11 #81：shutdown 期间停止接受新命令 —— draining 与 closed 都拒绝；
+   * 读路径（state/health/queue/tickets/attentions）不设闸。
+   */
+  function assertCommandsAllowed(project: ProjectState, repoRoot: string): void {
+    if (project.phase !== 'open') {
+      throw superAgentError('shuttingDown', { repoRoot })
+    }
+  }
 
   function projectOf(repoRoot: string): ProjectState {
     let project = projects.get(repoRoot)
     if (!project) {
       const health = createSuperAgentHealthTracker({ repoRoot })
       health.subscribe((report) => options.onHealthChanged?.(repoRoot, report))
-      const domain = createSuperAgentDomain()
+      // T11 #81：迁移 → 锁 → seq 重放由 Store 完成后按恢复顺序对账；
+      // Store 打不开（锁被活进程持有/迁移失败/损坏）抛 projectStoreUnavailable，
+      // 不静默降级成无持久化双写。未配置 userDataDir 时保持纯内存。
+      let domain: SuperAgentDomain
+      let store: ProjectStore<SuperAgentDomainState> | null = null
+      let startupRecovery: StartupRecoveryResult | null = null
+      if (options.userDataDir) {
+        const persisted = openPersistedSuperAgentProject({
+          userDataDir: options.userDataDir,
+          repoRoot,
+          deps: options.storeDeps,
+        })
+        store = persisted.store
+        domain = persisted.domain
+        startupRecovery = runStartupRecovery(domain)
+      } else {
+        domain = createSuperAgentDomain()
+      }
       const projector = createSuperAgentProgressProjector({
         domain,
         repoRoot,
@@ -282,10 +355,20 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         observedWorkers: new Set(),
         takeover: null,
         reviewReminder,
+        store,
+        phase: 'open',
+        startupRecovery,
       }
       projects.set(repoRoot, project)
       // 持久化 scheduled effect：项目一落地即开始周期扫描（含一次即时重建扫描）
       reviewReminder.start()
+      // T11 #81：恢复续跑 —— 持久化项目启动即补跑队列（busy 恢复代次与
+      // 重启前已排队的 pending），并把恢复后的卡片/注意力现状推给已连接面板。
+      if (startupRecovery) {
+        project.scheduler.resume()
+        project.projector.sync()
+        project.attentionProjector.sync()
+      }
     }
     return project
   }
@@ -406,6 +489,82 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     }
   }
 
+  /**
+   * T11 #81：解除暂停后补投挂起的 pending 输入（暂停期间到达的人消息不丢）。
+   * 只投当前闸门已开、最新代次 pending/running 的工单；notAccepted 保持
+   * pending（下次路径重投），unknown 转 uncertain + Attention，禁止盲目重投。
+   */
+  async function drainPendingInputs(project: ProjectState): Promise<void> {
+    const deliverer = options.workerDeliverer ?? null
+    if (!deliverer) return
+    const state = project.domain.state
+    for (const ticket of Object.values(state.tickets)) {
+      if (ticket.state !== 'open') continue
+      const latest = state.assignments[ticket.assignmentIds[ticket.assignmentIds.length - 1]]
+      if (!latest || (latest.state !== 'pending' && latest.state !== 'running')) continue
+      const facts = {
+        ticket,
+        assignments: ticket.assignmentIds
+          .map((id) => state.assignments[id])
+          .filter((assignment) => assignment !== undefined),
+        inputs: ticket.inputIds
+          .map((id) => state.inputs[id])
+          .filter((input) => input !== undefined),
+        attentions: Object.values(state.attentions).filter(
+          (attention) => attention.ticketId === ticket.ticketId,
+        ),
+      }
+      // blocked/failed 闸门未开的人消息不投：等人工解除后再走常规路径
+      if (waitsForPerson(facts)) continue
+      for (const inputId of [...ticket.inputIds]) {
+        const input = state.inputs[inputId]
+        if (
+          !input ||
+          input.status !== 'pending' ||
+          input.context ||
+          input.text === null ||
+          input.requestId === null
+        )
+          continue
+        const outcome = await deliverer({
+          ticketId: ticket.ticketId,
+          inputId,
+          requestId: input.requestId,
+          sessionId: superAgentWorkerSessionId(ticket.ticketId),
+          text: input.text,
+        })
+        if (outcome === 'accepted') {
+          project.domain.deliverInput({ inputId })
+        } else if (outcome === 'unknown') {
+          project.domain.markInputUncertain({ inputId, reason: 'deliveryUnknown' })
+        }
+      }
+    }
+    project.projector.sync()
+    project.attentionProjector.sync()
+  }
+
+  /** T11 #81：显式 shutdown 顺序（停止接受命令 → 有界等待 → 关 Store 释放锁）。 */
+  async function shutdownProject(repoRoot: string): Promise<SuperAgentShutdownResult> {
+    // shutdown 不创建项目：从未打开过的 repoRoot 直接视为已落定（幂等）
+    const project = projects.get(repoRoot)
+    if (!project || project.phase !== 'open') {
+      return { repoRoot, settledWithinBound: true }
+    }
+    // 1. 停止接受新命令：draining 起所有写命令被拒绝（workerReport 例外至落定）
+    project.phase = 'draining'
+    // 2. 停止周期扫描类 scheduled effect
+    project.reviewReminder.stop()
+    // 3. 有界等待在途 launch 落定；超时直接结束（下次启动生成恢复代次）
+    const settledWithinBound = await project.scheduler.settle(
+      options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
+    )
+    // 4. 关闭完成：关 Store 释放项目锁
+    project.phase = 'closed'
+    project.store?.close()
+    return { repoRoot, settledWithinBound }
+  }
+
   return {
     state(repoRoot) {
       return snapshotOf(repoRoot, projectOf(repoRoot))
@@ -413,6 +572,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     routerBind(repoRoot) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       if (!project.router) {
         project.router = { sessionId: randomUUID(), running: false }
         project.seq += 1
@@ -430,6 +590,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     dispatch(repoRoot, command) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       const outcome = project.scheduler.dispatch({
         requestId: command.requestId,
         title: command.title,
@@ -471,6 +632,11 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     workerReport(repoRoot, input) {
       const project = projectOf(repoRoot)
+      // T11 #81：draining 期间仍接受 workerReport（在途 Effect 落定的自然路径），
+      // closed（Store 已关）后拒绝，避免对已关 Store 的写入
+      if (project.phase === 'closed') {
+        throw superAgentError('shuttingDown', { repoRoot })
+      }
       const parsed = parseSuperAgentReportText(input.text)
       const assignment = project.domain.state.assignments[parsed.assignmentId]
       if (!assignment) {
@@ -509,6 +675,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     workerBind(repoRoot, ticketId) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       const ticket = project.domain.state.tickets[ticketId]
       if (!ticket) {
         throw superAgentError('ticketNotFound', { ticketId })
@@ -519,6 +686,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     workerUnbind(repoRoot, ticketId) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       // 幂等：观察不存在也返回成功；领域状态不受影响，后台推进继续
       project.observedWorkers.delete(ticketId)
       // 关闭镜像标签一并释放接管：面板没了，不残留接管态（T09 #79）
@@ -531,6 +699,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     workerTakeover(repoRoot, ticketId) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       const ticket = project.domain.state.tickets[ticketId]
       if (!ticket) {
         throw superAgentError('ticketNotFound', { ticketId })
@@ -552,6 +721,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     workerRelease(repoRoot, ticketId) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       if (project.takeover?.ticketId === ticketId) {
         project.takeover = null
         notifyTakeoverChanged(repoRoot, project)
@@ -562,6 +732,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     async workerMessage(repoRoot, command) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       if (project.takeover?.ticketId !== command.ticketId) {
         throw superAgentError('takeoverRequired', { ticketId: command.ticketId })
       }
@@ -596,6 +767,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     attentionAnswer(repoRoot, command) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       // 回答经 domain.ts 既有接缝（answerAttention → addInput）落库并投递；
       // 协议失败抛稳定错误码（notAttention/notQuestion/invalidAnswer），由 IPC 层序列化
       const answered = project.domain.answerAttention({
@@ -618,6 +790,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     ticketAccept(repoRoot, command) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       const result = project.domain.ticketAccept({ ticketId: command.ticketId })
       // 工单结束是领域事实：卡片（→ completed）与 Attention（撤回）即时投影
       project.projector.sync()
@@ -632,6 +805,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     ticketStop(repoRoot, command) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       const result = project.domain.ticketStop({
         ticketId: command.ticketId,
         reason: command.reason,
@@ -648,6 +822,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     async ticketMessage(repoRoot, command) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       const ticket = project.domain.state.tickets[command.ticketId]
       if (!ticket) {
         throw superAgentError('ticketNotFound', { ticketId: command.ticketId })
@@ -664,6 +839,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     ticketRetry(repoRoot, command) {
       const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
       // scheduler.retry：domain.retryTicket 校验闸门后新建 generation+1，
       // 并经 onDomainChanged 回调投影同步 + 队列广播
       return project.scheduler.retry({ ticketId: command.ticketId })
@@ -687,6 +863,35 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         projectOf(repoRoot).health.recordFailure('unknownError', { code: payload.code })
       }
       return payload
+    },
+
+    async shutdown(repoRoot) {
+      return shutdownProject(repoRoot)
+    },
+
+    async shutdownAll() {
+      const results: SuperAgentShutdownResult[] = []
+      for (const repoRoot of [...projects.keys()]) {
+        results.push(await shutdownProject(repoRoot))
+      }
+      return results
+    },
+
+    pause(repoRoot) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      project.domain.pauseProject()
+      return true
+    },
+
+    async resume(repoRoot) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      project.domain.resumeProject()
+      // 暂停期间到达的人消息不丢：补投挂起输入后续跑队列
+      await drainPendingInputs(project)
+      project.scheduler.resume()
+      return true
     },
   }
 }

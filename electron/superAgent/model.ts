@@ -310,4 +310,11 @@ export interface SuperAgentDomainState {
   idempotency: Record<string, SuperAgentIdempotencyEntry>
   /** 工单结束时释放回 Eval、尚未裁决的人消息 Input。 */
   handbacks: string[]
+  /**
+   * T11 #81：项目暂停是持久领域事实（跨重启保持）。
+   * 暂停期间阻止新 launch 与 delivery；活动 turn 不被静默打断。
+   */
+  paused: boolean
+  /** T11 #81：最近一次进入暂停的时间；未暂停为 null。 */
+  pausedAt: string | null
 }

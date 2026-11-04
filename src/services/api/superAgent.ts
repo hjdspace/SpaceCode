@@ -92,6 +92,13 @@ const invokeApi = createRendererApi(
     ticketRetry: () => {
       throw new Error('ticket retry is only available in desktop')
     },
+    pause: () => {
+      // 暂停依赖主进程领域运行时与持久化状态，非桌面环境明确拒绝
+      throw new Error('pause is only available in desktop')
+    },
+    resume: () => {
+      throw new Error('resume is only available in desktop')
+    },
   },
 )
 

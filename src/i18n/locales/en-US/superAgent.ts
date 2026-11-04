@@ -40,6 +40,9 @@ export default {
     takeoverConflict: 'Another ticket is already taken over; give it back first',
     invalidWorkerMessage: 'Takeover input cannot be empty',
     invalidTicketMessage: 'Follow-up message cannot be empty',
+    projectStoreUnavailable:
+      'Project state store is unavailable (held by another instance or corrupted)',
+    shuttingDown: 'Super Agent is shutting down and no longer accepts commands',
     unknown: 'An unknown error occurred',
   },
   dispatch: {

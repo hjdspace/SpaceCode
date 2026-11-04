@@ -498,6 +498,16 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string, command: SuperAgentAttentionAnswerCommand],
       res: null as unknown as SuperAgentAttentionAnswerResult,
     },
+    // 暂停与恢复（T11 #81）：暂停是持久领域事实（跨重启保持），期间阻止新
+    // launch/delivery；恢复时补投挂起输入并续跑队列。
+    pause: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as true,
+    },
+    resume: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as true,
+    },
   },
   events: {
     onHealthChanged: {

@@ -72,7 +72,11 @@ import { registerSettingsIPCHandlers, loadGuiSettings, reconcileProxyWithSetting
 import { registerTraceIPCHandlers } from './ipc/traceIpc'
 import { registerVoiceIPCHandlers } from './voice/voiceIpcHandlers'
 import { registerFactoryIPCHandlers } from './factory/factoryService'
-import { registerSuperAgentIPCHandlers } from './superAgent/superAgentIpc'
+import {
+  createBroadcastingSuperAgentService,
+  registerSuperAgentIPCHandlers,
+} from './superAgent/superAgentIpc'
+import type { SuperAgentService } from './superAgent/service'
 import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
 import { H5Server } from './h5/h5Server'
 
@@ -184,6 +188,8 @@ const genuiSandboxRoot = resolveSandboxResourceRoot(app.getAppPath())
 let petWindowManager: PetWindowController | null = null
 let genuiSandboxDevServer: SandboxStaticServer | null = null
 const terminalManager = new TerminalManager()
+// T11 #81：Super Agent 服务实例 —— before-quit 显式 shutdown 有界收尾用
+let superAgentService: SuperAgentService | null = null
 
 // ============================================================
 // App Lifecycle
@@ -267,7 +273,11 @@ app.whenReady().then(async () => {
   registerFactoryIPCHandlers()
   info('Startup', 'Factory IPC handlers registered')
 
-  registerSuperAgentIPCHandlers()
+  // T11 #81：userDataDir 启用 Super Agent 每项目持久化（迁移→锁→seq 重放→启动恢复）
+  superAgentService = createBroadcastingSuperAgentService({
+    userDataDir: app.getPath('userData'),
+  })
+  registerSuperAgentIPCHandlers(superAgentService)
   info('Startup', 'Super Agent IPC handlers registered')
 
   if (registerVoiceShortcut(() => getMainWindow())) {
@@ -536,6 +546,13 @@ app.on('before-quit', async () => {
   markQuitting()
   info('App', 'App quitting')
   await runQuitStep('flushTraceSidecars', flushTraceSidecars)
+  // T11 #81：Super Agent 显式 shutdown —— 停止接受命令 → 有界等待在途
+  // Effect（服务内部默认 10s）→ 关 Store 释放项目锁；超时部分下次启动经恢复顺序收尾
+  await runQuitStep('superAgentShutdown', async () => {
+    if (!superAgentService) return
+    await superAgentService.shutdownAll()
+    superAgentService = null
+  })
   await runQuitStep('hideDockIcon', hideDockIcon)
   await runQuitStep('installUpdateOnQuit', installUpdateOnQuit)
   await runQuitStep('cleanupPreviewServer', cleanupPreviewServer)
