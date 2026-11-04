@@ -124,6 +124,19 @@ describe('chatSession createSession', () => {
 
     expect(session.ephemeral).toBe(true)
   })
+
+  it('keeps super-agent router sessions out of the normal session list', async () => {
+    const store = await loadStore()
+
+    store.createSession('Chat', 'D:/repo', 'chat-1', { activate: false })
+    store.createSession('Super Agent', 'D:/repo', 'router-1', {
+      sessionType: 'superAgent',
+      activate: false,
+    })
+
+    expect(store.normalSessions.map(s => s.id)).toEqual(['chat-1'])
+    expect(store.sessions.map(s => s.id)).toContain('router-1')
+  })
 })
 
 describe('chatSession deleteSession', () => {
@@ -147,6 +160,20 @@ describe('chatSession deleteSession', () => {
     await store.deleteSession('only')
 
     expect(store.sessions).toHaveLength(0)
+    expect(store.currentSessionId).toBeNull()
+  })
+
+  it('does not select a router session when the last normal chat is deleted', async () => {
+    const store = await loadStore()
+    const chat = store.createSession('Chat', 'D:/repo')
+    store.createSession('Super Agent', 'D:/repo', 'router-1', {
+      sessionType: 'superAgent',
+      activate: false,
+    })
+
+    await store.deleteSession(chat.id)
+
+    expect(store.sessions.map(s => s.id)).toEqual(['router-1'])
     expect(store.currentSessionId).toBeNull()
   })
 

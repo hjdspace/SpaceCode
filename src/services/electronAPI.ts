@@ -435,6 +435,7 @@ import { rtk } from './api/rtk'
 import { session } from './api/session'
 import { shell } from './api/shell'
 import { skills } from './api/skills'
+import { superAgent } from './api/superAgent'
 import { terminal } from './api/terminal'
 import { trace } from './api/trace'
 import { update } from './api/update'
@@ -852,6 +853,7 @@ export const api = {
   session,
   shell,
   skills,
+  superAgent,
   terminal,
   trace,
   update,

@@ -72,6 +72,7 @@ import onboarding from './onboarding'
 import voiceInput from './voiceInput'
 import genui from './genui'
 import factory from './factory'
+import superAgent from './superAgent'
 
 export default {
   common,
@@ -148,4 +149,5 @@ export default {
   voiceInput,
   genui,
   factory,
+  superAgent,
 }

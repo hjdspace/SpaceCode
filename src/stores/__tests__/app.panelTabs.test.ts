@@ -192,6 +192,30 @@ describe('信息面板 tab 的打开/关闭', () => {
   })
 })
 
+describe('Super Agent 中置 tab', () => {
+  it('openSuperAgentTab：单例入列并激活，重复点击只激活不重复入列', () => {
+    const store = useAppStore()
+
+    store.openSuperAgentTab()
+    store.openSuperAgentTab()
+
+    expect(store.centerTabs.filter(tab => tab.id === 'super-agent')).toHaveLength(1)
+    expect(store.activeCenterTab).toBe('super-agent')
+  })
+
+  it('openSuperAgentTab：打开时关闭可能阻塞中央区的全屏视图', () => {
+    const store = useAppStore()
+    store.showSettings = true
+    store.showSkillsManager = true
+
+    store.openSuperAgentTab()
+
+    expect(store.showSettings).toBe(false)
+    expect(store.showSkillsManager).toBe(false)
+    expect(store.activeCenterTab).toBe('super-agent')
+  })
+})
+
 describe('subagent 面板', () => {
   it('openSubagentPanel 记录当前会话 id 并清空激活 tab', () => {
     const store = useAppStore()

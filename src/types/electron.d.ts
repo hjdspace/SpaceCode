@@ -30,6 +30,7 @@ import type { VoiceRendererApi, VoiceEventApi } from '@/shared/channels/voice'
 import type { FactoryRendererApi, FactoryEventApi } from '@/shared/channels/factory'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
+import type { SuperAgentRendererApi } from '@/shared/channels/superAgent'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
 import type { EffortLevel } from '@/shared/effort'
 import type {
@@ -125,6 +126,9 @@ export interface ElectronMemoryAPI extends MemoryRendererApi {}
 
 // factory 面从 channel 定义表派生
 export interface ElectronFactoryAPI extends FactoryRendererApi, FactoryEventApi {}
+
+// superAgent 面从 channel 定义表派生
+export interface ElectronSuperAgentAPI extends SuperAgentRendererApi {}
 
 // claudeCode 面从 channel 定义表派生（onError 由此变为必选，落实 ADR-0005）
 export interface ElectronClaudeCodeAPI extends ClaudeCodeRendererApi, ClaudeCodeEventApi {}
@@ -566,6 +570,7 @@ export interface ElectronAPI {
   voice: ElectronVoiceAPI
   cron: ElectronCronAPI
   factory: ElectronFactoryAPI
+  superAgent: ElectronSuperAgentAPI
 
   changelog: {
     getReleaseNotes: (version: string) => Promise<{ content: string; source: 'local' | 'remote' } | null>

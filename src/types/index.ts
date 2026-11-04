@@ -233,6 +233,9 @@ export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended
 
 export type SessionEngineType = 'claude-code' | 'pi'
 
+/** 会话类型：普通聊天为 'chat'；Super Agent 的 Router 会话为 'superAgent'，不进普通会话列表。 */
+export type SessionType = 'chat' | 'superAgent'
+
 export type AgentColor = 'red' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'pink' | 'cyan'
 
 export type TeammateStatus = 'running' | 'completed' | 'failed' | 'idle'
@@ -278,6 +281,8 @@ export interface Session {
   _sideTaskSourceEngine?: SessionEngineType
   /** Work / Code / Design 模式归属（旧会话无此字段时视为 'code'）。 */
   mode?: 'work' | 'code' | 'design'
+  /** 会话类型（旧会话无此字段时视为 'chat'）。 */
+  sessionType?: SessionType
   /** Work 模式下绑定的专业助手 id。 */
   assistantId?: string
   /**

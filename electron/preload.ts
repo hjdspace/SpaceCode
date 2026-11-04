@@ -6,6 +6,7 @@ import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { memoryChannels } from '@/shared/channels/memory'
 import { voiceNamespace } from '@/shared/channels/voice'
 import { factoryNamespace } from '@/shared/channels/factory'
+import { superAgentNamespace } from '@/shared/channels/superAgent'
 import type { EffortLevel } from '@/shared/effort'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import { SCHEMA_MANAGER_CHANNELS } from './skillManagerV2/channels'
@@ -277,6 +278,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ...createEventBridge(claudeCodeNamespace.events, ipcRenderer, 'claude-code:'),
   } satisfies import('@/shared/channels/claudeCode').ClaudeCodeRendererApi
     & import('@/shared/channels/claudeCode').ClaudeCodeEventApi,
+
+  // Super Agent API — 只暴露骨架所需的命令通道（T01）
+  superAgent: {
+    ...createPreloadBridge(superAgentNamespace.channels, ipcRenderer, 'super-agent:'),
+  } satisfies import('@/shared/channels/superAgent').SuperAgentRendererApi,
 
   // Factory（AI 流水线）API — invoke channels 与事件订阅均表驱动注册
   factory: {
