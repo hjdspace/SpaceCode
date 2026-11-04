@@ -53,6 +53,19 @@ export default {
     dirtyHint: 'The workspace has uncommitted changes; they were injected into the first message',
     empty: 'The queue is empty',
   },
+  worker: {
+    running: 'Running',
+    idle: 'Idle',
+    readonlyHint: 'Read-only mirror · no auto-takeover',
+    generation: 'Gen {n}',
+    emptyHint: 'Worker mirror is not available yet',
+    states: {
+      pending: 'Queued',
+      running: 'Running',
+      ended: 'Ended',
+      interrupted: 'Interrupted',
+    },
+  },
   health: {
     entry: 'System issues',
     title: 'System issues',

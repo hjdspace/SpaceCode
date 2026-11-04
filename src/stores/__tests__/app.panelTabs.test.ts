@@ -46,6 +46,14 @@ vi.mock('@/i18n', () => ({
   i18n: { global: { t: (key: string) => key } },
 }))
 
+const superAgentProbe = vi.hoisted(() => ({
+  unbindWorker: vi.fn(),
+}))
+
+vi.mock('../superAgent', () => ({
+  useSuperAgentStore: () => superAgentProbe,
+}))
+
 import { useAppStore, type InfoPanelTab } from '../app'
 
 function fakeTab(id: string, type: InfoPanelTab['type'] = 'file', data: any = null): InfoPanelTab {
@@ -82,6 +90,83 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+describe('Worker 只读镜像标签（T07 #77）', () => {
+  beforeEach(() => {
+    superAgentProbe.unbindWorker.mockClear()
+  })
+
+  it('openWorkerTab：id 为 worker:<ticketId>，同 ticket 复用标签，多标签并存', () => {
+    const store = useAppStore()
+    store.setProjectRoot('D:/repo')
+
+    store.openWorkerTab('ticket-1', '修复登录')
+    store.openWorkerTab('ticket-2', '修复注册')
+    store.openWorkerTab('ticket-1', '修复登录')
+
+    expect(store.infoPanelTabs.map(t => t.id)).toEqual(['worker:ticket-1', 'worker:ticket-2'])
+    // 重复点击复用已有标签，只切换激活
+    expect(store.activeInfoTabId).toBe('worker:ticket-1')
+    expect(store.infoPanelTabs).toHaveLength(2)
+  })
+
+  it('openWorkerTab：标签携带 ticketId 与打开时的项目根并标记只读 worker 类型', () => {
+    const store = useAppStore()
+    store.setProjectRoot('D:/repo')
+    store.openWorkerTab('ticket-1', '修复登录')
+
+    const tab = store.infoPanelTabs[0]
+    expect(tab.type).toBe('worker')
+    expect(tab.data).toEqual({ ticketId: 'ticket-1', repoRoot: 'D:/repo' })
+    expect(tab.closeable).toBe(true)
+  })
+
+  it('closeInfoTab：关闭 worker 标签即停镜像，其他 worker 标签不受影响', () => {
+    const store = useAppStore()
+    store.setProjectRoot('D:/repo')
+    store.openWorkerTab('ticket-1', '修复登录')
+    store.openWorkerTab('ticket-2', '修复注册')
+
+    store.closeInfoTab('worker:ticket-1')
+
+    expect(superAgentProbe.unbindWorker).toHaveBeenCalledTimes(1)
+    expect(superAgentProbe.unbindWorker).toHaveBeenCalledWith('D:/repo', 'ticket-1')
+    expect(store.infoPanelTabs.map(t => t.id)).toEqual(['worker:ticket-2'])
+  })
+
+  it('切换项目后关闭 worker 标签：仍按打开标签时的项目根寻址 unbind', () => {
+    const store = useAppStore()
+    store.setProjectRoot('D:/repo-a')
+    store.openWorkerTab('ticket-1', '修复登录')
+    store.setProjectRoot('D:/repo-b')
+
+    store.closeInfoTab('worker:ticket-1')
+
+    expect(superAgentProbe.unbindWorker).toHaveBeenCalledWith('D:/repo-a', 'ticket-1')
+  })
+
+  it('closeAllInfoTabs：批量关闭时逐个停掉全部 worker 镜像', () => {
+    const store = useAppStore()
+    store.setProjectRoot('D:/repo')
+    store.openWorkerTab('ticket-1', '修复登录')
+    store.openWorkerTab('ticket-2', '修复注册')
+
+    store.closeAllInfoTabs()
+
+    expect(superAgentProbe.unbindWorker).toHaveBeenCalledTimes(2)
+    expect(store.infoPanelTabs).toHaveLength(0)
+  })
+
+  it('关闭非 worker 标签不会触发镜像解绑', () => {
+    const store = useAppStore()
+    store.openInfoTab(fakeTab('file::a.ts', 'file', { path: 'a.ts', name: 'a.ts', content: '', language: 'ts' }))
+    store.openWorkerTab('ticket-1', '修复登录')
+
+    store.closeInfoTab('file::a.ts')
+
+    expect(superAgentProbe.unbindWorker).not.toHaveBeenCalled()
+  })
 })
 
 describe('主题切换', () => {

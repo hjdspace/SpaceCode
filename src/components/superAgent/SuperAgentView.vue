@@ -69,11 +69,17 @@
       data-testid="super-agent-queue"
     >
       <div class="queue-heading">{{ t('superAgent.queue.title') }}</div>
+      <!-- 点击条目在右侧打开 Worker 只读标签（T07 #77）：多标签并存、只读不接管 -->
       <div
         v-for="entry in queueEntries"
         :key="entry.ticketId"
         class="queue-entry"
         :data-state="entry.state"
+        :data-testid="`super-agent-queue-entry-${entry.ticketId}`"
+        role="button"
+        tabindex="0"
+        @click="appStore.openWorkerTab(entry.ticketId, entry.title)"
+        @keydown.enter.prevent="appStore.openWorkerTab(entry.ticketId, entry.title)"
       >
         <span class="queue-title">{{ entry.title }}</span>
         <span class="queue-state">
@@ -86,6 +92,7 @@
     </div>
 
     <SuperAgentHealth v-if="superAgentStore.healthPanelOpen" :problems="superAgentStore.healthProblems" />
+
 
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
          loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。 -->
@@ -206,6 +213,7 @@ onUnmounted(() => {
   stopWatchingQueue?.()
   stopWatchingQueue = null
 })
+
 
 // ── 显式派工（T05 #75）：「新建工单」独立动作，普通发送不建单 ──
 const dispatchFormOpen = ref(false)
@@ -589,6 +597,14 @@ async function handleToolSkip(messageId: string, toolId: string) {
   align-items: center;
   gap: 8px;
   color: var(--text-primary);
+  /* 点击打开 Worker 只读标签（T07 #77）：可点击态 */
+  cursor: pointer;
+  border-radius: 6px;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--surface-hover);
+  }
 }
 
 .queue-state {

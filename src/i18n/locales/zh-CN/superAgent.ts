@@ -53,6 +53,19 @@ export default {
     dirtyHint: '工作区有未提交改动，已写入执行首条消息',
     empty: '队列为空',
   },
+  worker: {
+    running: '执行中',
+    idle: '空闲',
+    readonlyHint: '只读镜像 · 不会自动接管',
+    generation: '第 {n} 代',
+    emptyHint: 'Worker 镜像暂不可用',
+    states: {
+      pending: '排队中',
+      running: '执行中',
+      ended: '已结束',
+      interrupted: '已中断',
+    },
+  },
   health: {
     entry: '系统问题',
     title: '系统问题',

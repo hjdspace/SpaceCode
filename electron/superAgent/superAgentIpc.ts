@@ -11,6 +11,10 @@
  * T05：
  *  - 注册 dispatch（显式派工）与 queue（队列只读拉取）通道；
  *  - 队列变化经 queue-changed 事件广播到所有窗口，Renderer 无需轮询。
+ *
+ * T07 #77：
+ *  - 注册 workerBind / workerUnbind（Worker 只读镜像）通道；
+ *  - workerBind 幂等返回稳定 sessionId 与代次分段快照，workerUnbind 只停镜像。
  */
 import { BrowserWindow, ipcMain } from 'electron'
 import { eventChannels } from '@/shared/channelMap'
@@ -31,6 +35,14 @@ function requireRepoRoot(repoRoot: unknown): string {
     throw new Error('repoRoot is required')
   }
   return repoRoot
+}
+
+/** Worker 镜像命令入口校验：ticketId 必须是非空字符串。 */
+function requireTicketId(ticketId: unknown): string {
+  if (typeof ticketId !== 'string' || ticketId.trim() === '') {
+    throw new Error('ticketId is required')
+  }
+  return ticketId
 }
 
 /** 派工命令入口校验：requestId/title/text 必须是非空字符串（领域层兜底同样校验）。 */
@@ -113,6 +125,16 @@ export function registerSuperAgentIPCHandlers(
     queue: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.queue(root))
+    },
+    workerBind: (repoRoot: unknown, ticketId: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const ticket = requireTicketId(ticketId)
+      return runNoted(service, root, () => service.workerBind(root, ticket))
+    },
+    workerUnbind: (repoRoot: unknown, ticketId: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const ticket = requireTicketId(ticketId)
+      return runNoted(service, root, () => service.workerUnbind(root, ticket))
     },
   })
 }

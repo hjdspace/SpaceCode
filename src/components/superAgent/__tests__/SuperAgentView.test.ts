@@ -9,7 +9,8 @@
  *  - 健康上报（T13 #83）：bind 后拉取并订阅健康报告，顶部入口只显示汇总计数，
  *    点击只开关只读面板（无任何处置按钮）；
  *  - 显式派工（T05 #75）：「新建工单」独立动作（普通发送不建单）、
- *    表单校验与幂等 requestId、派工结果提示、队列现状（执行中/排队/脏区）可见。
+ *    表单校验与幂等 requestId、派工结果提示、队列现状（执行中/排队/脏区）可见；
+ *  - Worker 只读标签（T07 #77）：点击队列条目打开 worker:<ticketId> 只读标签。
  */
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -33,6 +34,7 @@ const probe = vi.hoisted(() => ({
   getSession: vi.fn(() => null),
   switchAgent: vi.fn().mockResolvedValue(undefined),
   openTerminalTab: vi.fn(),
+  openWorkerTab: vi.fn(),
   updateAppearance: vi.fn(),
   // ── 健康上报（T13）──
   loadHealth: vi.fn().mockResolvedValue(undefined),
@@ -53,6 +55,10 @@ const probe = vi.hoisted(() => ({
   loadQueue: vi.fn().mockResolvedValue(undefined),
   watchQueue: vi.fn().mockReturnValue(() => {}),
   queue: null as SuperAgentQueueSnapshot | null,
+  // ── 工单看板（T06 #76，并发会话维护）：仅补桩保证挂载流程可跑 ──
+  loadTickets: vi.fn().mockResolvedValue(undefined),
+  watchTickets: vi.fn().mockReturnValue(() => {}),
+  ticketBoard: null,
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -64,6 +70,7 @@ vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     get projectRoot() { return probe.projectRoot },
     openTerminalTab: probe.openTerminalTab,
+    openWorkerTab: probe.openWorkerTab,
   }),
 }))
 
@@ -116,6 +123,9 @@ vi.mock('@/stores/superAgent', () => ({
     loadQueue: probe.loadQueue,
     watchQueue: probe.watchQueue,
     get queue() { return probe.queue },
+    loadTickets: probe.loadTickets,
+    watchTickets: probe.watchTickets,
+    get ticketBoard() { return probe.ticketBoard },
   }),
 }))
 
@@ -135,6 +145,7 @@ function mountView() {
 beforeEach(() => {
   probe.bind.mockClear()
   probe.loadState.mockClear()
+  probe.openWorkerTab.mockClear()
   probe.sendMessage.mockClear()
   probe.abort.mockClear()
   probe.addMessage.mockClear()
@@ -159,6 +170,9 @@ beforeEach(() => {
   probe.loadQueue.mockClear()
   probe.watchQueue.mockClear()
   probe.queue = null
+  probe.loadTickets.mockClear()
+  probe.watchTickets.mockClear()
+  probe.ticketBoard = null
 })
 
 describe('SuperAgentView empty state', () => {
@@ -477,6 +491,30 @@ describe('SuperAgentView dispatch & queue（T05 #75）', () => {
     expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toBe(
       'superAgent.dispatch.failedHint',
     )
+    wrapper.unmount()
+  })
+
+  it('点击队列条目在右侧打开 Worker 只读标签（T07 #77）：多标签并存、只读不接管', async () => {
+    probe.queue = {
+      repoRoot: 'D:/repo',
+      maxWorkers: 1,
+      running: [
+        { ticketId: 'ticket-1', title: '工单一', position: 0, state: 'running', dirty: true },
+      ],
+      queued: [
+        { ticketId: 'ticket-2', title: '工单二', position: 1, state: 'queued', dirty: null },
+      ],
+    }
+    probe.openWorkerTab.mockClear()
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="super-agent-queue-entry-ticket-1"]').trigger('click')
+    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-1', '工单一')
+
+    // 回车同样可打开（键盘可达）
+    await wrapper.find('[data-testid="super-agent-queue-entry-ticket-2"]').trigger('keydown.enter')
+    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-2', '工单二')
     wrapper.unmount()
   })
 

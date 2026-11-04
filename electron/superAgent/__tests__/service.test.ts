@@ -255,3 +255,78 @@ describe('createSuperAgentService dispatch & queue（T05 #75）', () => {
     expect(snapshot.repoRoot).toBe('/repo/a')
   })
 })
+
+describe('createSuperAgentService worker mirror（T07 #77）', () => {
+  function dispatchTicket(service: ReturnType<typeof createSuperAgentService>, title: string) {
+    return service.dispatch('/repo/a', { requestId: `req-${title}`, title, text: '目标' })
+  }
+
+  it('returns a readonly mirror with the derived stable session id and one pending segment', () => {
+    const service = createSuperAgentService()
+    const dispatched = dispatchTicket(service, '修复登录')
+
+    const mirror = service.workerBind('/repo/a', dispatched.ticketId)
+
+    expect(mirror.ticketId).toBe(dispatched.ticketId)
+    expect(mirror.title).toBe('修复登录')
+    expect(mirror.sessionId).toBe(`superagent-worker-${dispatched.ticketId}`)
+    expect(mirror.running).toBe(false)
+    // Executor 未接入：Assignment 保持 pending，代次 1；Report 留给 T06
+    expect(mirror.segments).toHaveLength(1)
+    expect(mirror.segments[0]).toMatchObject({
+      assignmentId: dispatched.assignmentId,
+      generation: 1,
+      state: 'pending',
+      endedReason: null,
+      reportKind: null,
+      reportSummary: null,
+    })
+  })
+
+  it('rebinds return the same mirror: session id never drifts across generations', () => {
+    const service = createSuperAgentService()
+    const dispatched = dispatchTicket(service, '修复登录')
+
+    const first = service.workerBind('/repo/a', dispatched.ticketId)
+    const second = service.workerBind('/repo/a', dispatched.ticketId)
+
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(second.segments).toEqual(first.segments)
+  })
+
+  it('rejects binding an unknown ticket with the stable ticketNotFound code', () => {
+    const service = createSuperAgentService()
+
+    expect(() => service.workerBind('/repo/a', 'ticket-missing')).toThrowError(
+      expect.objectContaining({ code: 'ticketNotFound' }),
+    )
+  })
+
+  it('unbind only stops the mirror: rebinding afterwards returns the same snapshot', () => {
+    const service = createSuperAgentService()
+    const dispatched = dispatchTicket(service, '修复登录')
+    const before = service.workerBind('/repo/a', dispatched.ticketId)
+
+    expect(service.workerUnbind('/repo/a', dispatched.ticketId)).toBe(true)
+    // 幂等：未绑定的 unbind 不抛错
+    expect(service.workerUnbind('/repo/a', dispatched.ticketId)).toBe(true)
+
+    const after = service.workerBind('/repo/a', dispatched.ticketId)
+    expect(after).toEqual(before)
+  })
+
+  it('keeps worker mirrors isolated per repo root', () => {
+    const service = createSuperAgentService()
+    const a = service.dispatch('/repo/a', { requestId: 'd1', title: '工单A', text: '目标' })
+    service.dispatch('/repo/b', { requestId: 'd2', title: '工单B', text: '目标' })
+
+    const mirrorA = service.workerBind('/repo/a', a.ticketId)
+    const queueB = service.queue('/repo/b')
+
+    expect(mirrorA.title).toBe('工单A')
+    expect(queueB.queued[0].ticketId).not.toBe(mirrorA.ticketId)
+    expect(() => service.workerBind('/repo/b', mirrorA.ticketId)).toThrowError(
+      expect.objectContaining({ code: 'ticketNotFound' }),
+    )
+  })
+})

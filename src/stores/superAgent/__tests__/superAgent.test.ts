@@ -15,6 +15,7 @@ import type {
   SuperAgentHealthItem,
   SuperAgentHealthReport,
   SuperAgentQueueSnapshot,
+  SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { useSuperAgentStore } from '../index'
 import { useChatSessionStore } from '../../chatSession'
@@ -27,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   dispatch: vi.fn(),
   queue: vi.fn(),
   onQueueChanged: vi.fn(),
+  workerBind: vi.fn(),
+  workerUnbind: vi.fn(),
   traceEvent: vi.fn(),
   stop: vi.fn().mockResolvedValue(undefined),
 }))
@@ -41,6 +44,7 @@ vi.mock('@/services/electronAPI', () => ({
       dispatch: mocks.dispatch,
       queue: mocks.queue,
       onQueueChanged: mocks.onQueueChanged,
+      workerUnbind: mocks.workerUnbind,
     },
     claudeCode: {
       stop: mocks.stop,
@@ -230,6 +234,80 @@ describe('superAgent store health', () => {
   })
 })
 
+function workerMirror(overrides: Partial<SuperAgentWorkerMirror> = {}): SuperAgentWorkerMirror {
+  return {
+    repoRoot: 'D:/repo',
+    ticketId: 'ticket-1',
+    title: '修复登录',
+    sessionId: 'superagent-worker-ticket-1',
+    running: true,
+    segments: [
+      {
+        assignmentId: 'assignment-1',
+        generation: 1,
+        state: 'running',
+        endedReason: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        startedAt: '2026-01-01T00:00:01Z',
+        endedAt: null,
+        reportKind: null,
+        reportSummary: null,
+      },
+    ],
+    ...overrides,
+  }
+}
+
+describe('superAgent store worker mirror（T07 #77）', () => {
+  it('bindWorker registers the worker session once and keeps it out of the normal list', async () => {
+    const { superAgent, chat } = loadStores()
+    chat.createSession('Chat', 'D:/repo', 'chat-1', { activate: false })
+    mocks.workerBind.mockResolvedValue(workerMirror())
+
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+
+    expect(mocks.workerBind).toHaveBeenCalledTimes(2)
+    expect(mocks.workerBind).toHaveBeenLastCalledWith('D:/repo', 'ticket-1')
+    // Worker 会话登记一次、不激活，也不出现在普通会话列表
+    const workerSession = chat.sessions.find(s => s.id === 'superagent-worker-ticket-1')
+    expect(workerSession?.sessionType).toBe('superAgentWorker')
+    expect(chat.sessions.filter(s => s.sessionType === 'superAgentWorker')).toHaveLength(1)
+    // 不抢占当前会话
+    expect(chat.currentSessionId).toBeNull()
+    expect(chat.normalSessions.map(s => s.id)).toEqual(['chat-1'])
+    // 镜像快照入 store，面板按 ticketId 读取
+    expect(superAgent.workerMirrors['ticket-1']).toEqual(workerMirror())
+  })
+
+  it('unbindWorker stops the mirror but keeps the session transcript for restore', async () => {
+    const { superAgent, chat } = loadStores()
+    mocks.workerBind.mockResolvedValue(workerMirror())
+    mocks.workerUnbind.mockResolvedValue(true)
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+
+    await superAgent.unbindWorker('D:/repo', 'ticket-1')
+
+    expect(mocks.workerUnbind).toHaveBeenCalledWith('D:/repo', 'ticket-1')
+    expect(superAgent.workerMirrors['ticket-1']).toBeUndefined()
+    // 只停镜像：会话与转录保留，重开标签可从快照恢复
+    expect(chat.sessions.find(s => s.id === 'superagent-worker-ticket-1')).toBeTruthy()
+  })
+
+  it('rebinding after unbind restores the mirror from the fresh snapshot', async () => {
+    const { superAgent } = loadStores()
+    mocks.workerBind.mockResolvedValueOnce(workerMirror())
+    mocks.workerBind.mockResolvedValueOnce(workerMirror({ running: false }))
+    mocks.workerUnbind.mockResolvedValue(true)
+
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+    await superAgent.unbindWorker('D:/repo', 'ticket-1')
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+
+    expect(superAgent.workerMirrors['ticket-1']?.running).toBe(false)
+  })
+})
+
 function queueSnapshot(overrides: Partial<SuperAgentQueueSnapshot> = {}): SuperAgentQueueSnapshot {
   return {
     repoRoot: 'D:/repo',
@@ -305,3 +383,4 @@ describe('superAgent store dispatch & queue（T05 #75）', () => {
     expect(superAgent.queue).toEqual(mine)
   })
 })
+

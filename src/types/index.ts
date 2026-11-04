@@ -233,8 +233,11 @@ export type ProcessStatus = 'none' | 'starting' | 'active' | 'idle' | 'suspended
 
 export type SessionEngineType = 'claude-code' | 'pi'
 
-/** 会话类型：普通聊天为 'chat'；Super Agent 的 Router 会话为 'superAgent'，不进普通会话列表。 */
-export type SessionType = 'chat' | 'superAgent'
+/**
+ * 会话类型：普通聊天为 'chat'；Super Agent 的 Router 会话为 'superAgent'，
+ * Worker 只读镜像会话为 'superAgentWorker'，均不进普通会话列表。
+ */
+export type SessionType = 'chat' | 'superAgent' | 'superAgentWorker'
 
 export type AgentColor = 'red' | 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'pink' | 'cyan'
 

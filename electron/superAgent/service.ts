@@ -1,5 +1,6 @@
 /**
- * Super Agent 主进程服务（T01 #71 骨架，T13 #83 健康上报，T05 #75 显式派工）。
+ * Super Agent 主进程服务（T01 #71 骨架，T13 #83 健康上报，T05 #75 显式派工，
+ * T07 #77 Worker 只读镜像）。
  *
  * 以 repoRoot 为键维护每个项目的 Router 绑定：首次 routerBind 建会话并把领域
  * seq 推到 1，后续调用原样返回同一 sessionId；state 始终返回带 seq/asOf 的快照。
@@ -12,6 +13,11 @@
  * T05：每项目挂一个 domain + 串行 scheduler。「新建工单」经 dispatch 产生
  * Decision/Mandate/pending Assignment 并排队；queue() 只读拉取队列快照。
  * launcher 默认为 null（Executor 未接入），工单保持排队，不假启动。
+ *
+ * T07：workerBind 幂等挂 Worker 只读镜像 —— 稳定 sessionId（跨代次/重启不变）、
+ * running 状态与按 generation 升序的 Assignment 代次分段快照；workerUnbind
+ * 只摘掉观察登记，不动领域状态（关闭标签不影响后台推进）。Executor 接入后
+ * 转录事件按观察登记决定是否向渲染端镜像。
  */
 import { randomUUID } from 'crypto'
 import type {
@@ -23,9 +29,12 @@ import type {
   SuperAgentHealthReport,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
+  SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
-import { createSuperAgentDomain, type SuperAgentDomain } from './domain'
-import { serializeSuperAgentError } from './errors'
+import { superAgentWorkerSessionId } from '@/shared/channels/superAgent'
+import type { SuperAgentTicket } from './model'
+import type { SuperAgentReportKind, SuperAgentTicket } from './model'
+import { superAgentError, serializeSuperAgentError } from './errors'
 import {
   createSuperAgentHealthTracker,
   type SuperAgentHealthFailureInput,
@@ -41,6 +50,8 @@ interface ProjectState {
   health: SuperAgentHealthTracker
   domain: SuperAgentDomain
   scheduler: ReturnType<typeof createSuperAgentScheduler>
+  /** 正在被只读镜像观察的 ticketId；Executor 接入后据此决定是否广播转录事件。 */
+  observedWorkers: Set<string>
 }
 
 export interface SuperAgentServiceOptions {
@@ -58,6 +69,10 @@ export interface SuperAgentService {
   health(repoRoot: string): SuperAgentHealthReport
   dispatch(repoRoot: string, command: SuperAgentDispatchCommand): SuperAgentDispatchResult
   queue(repoRoot: string): SuperAgentQueueSnapshot
+  /** 幂等挂 Worker 只读镜像；未知 ticket 抛稳定 ticketNotFound。 */
+  workerBind(repoRoot: string, ticketId: string): SuperAgentWorkerMirror
+  /** 只停镜像观察，不动领域状态；幂等。 */
+  workerUnbind(repoRoot: string, ticketId: string): true
   recordHealthSuccess(repoRoot: string, category: SuperAgentHealthCategory): void
   recordHealthFailure(
     repoRoot: string,
@@ -90,10 +105,43 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           })
         },
       })
-      project = { seq: 0, router: null, health, domain, scheduler }
+      project = { seq: 0, router: null, health, domain, scheduler, observedWorkers: new Set() }
       projects.set(repoRoot, project)
     }
     return project
+  }
+
+  /** Worker 只读镜像快照：稳定 sessionId + running + 按 generation 升序的代次分段。 */
+  function workerMirrorOf(
+    repoRoot: string,
+    project: ProjectState,
+    ticketId: string,
+    ticket: SuperAgentTicket,
+  ): SuperAgentWorkerMirror {
+    const state = project.domain.state
+    const segments = ticket.assignmentIds
+      .map((id) => state.assignments[id])
+      .filter((assignment) => assignment !== undefined)
+      .sort((a, b) => a.generation - b.generation)
+      .map((assignment) => ({
+        assignmentId: assignment.assignmentId,
+        generation: assignment.generation,
+        state: assignment.state,
+        endedReason: assignment.endedReason,
+        createdAt: assignment.createdAt,
+        startedAt: assignment.startedAt,
+        endedAt: assignment.endedAt,
+        reportKind: assignment.report?.kind ?? null,
+        reportSummary: assignment.report?.summary ?? null,
+      }))
+    return {
+      repoRoot,
+      ticketId,
+      title: ticket.title,
+      sessionId: superAgentWorkerSessionId(ticketId),
+      running: segments.some((segment) => segment.state === 'running'),
+      segments,
+    }
   }
 
   function snapshotOf(repoRoot: string, project: ProjectState): SuperAgentSnapshot {
@@ -151,6 +199,22 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     queue(repoRoot) {
       return projectOf(repoRoot).scheduler.queue()
+    },
+
+    workerBind(repoRoot, ticketId) {
+      const project = projectOf(repoRoot)
+      const ticket = project.domain.state.tickets[ticketId]
+      if (!ticket) {
+        throw superAgentError('ticketNotFound', { ticketId })
+      }
+      project.observedWorkers.add(ticketId)
+      return workerMirrorOf(repoRoot, project, ticketId, ticket)
+    },
+
+    workerUnbind(repoRoot, ticketId) {
+      // 幂等：观察不存在也返回成功；领域状态不受影响，后台推进继续
+      projectOf(repoRoot).observedWorkers.delete(ticketId)
+      return true
     },
 
     recordHealthSuccess(repoRoot, category) {

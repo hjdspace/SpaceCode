@@ -5,6 +5,8 @@
  *   state      — 读取带 seq 水位的项目快照（无 Router 时是空快照）
  *   routerBind — 幂等绑定 Router 会话，重复调用返回同一 sessionId
  *   health     — 只读系统健康报告（T13 #83）
+ *   workerBind   — 幂等绑定 Worker 只读镜像，返回稳定 sessionId 与代次分段快照（T07 #77）
+ *   workerUnbind — 关闭镜像标签：只停观察，不影响后台推进（T07 #77）
  * 事件：
  *   health-changed — 健康项变化时广播（repoRoot, report）
  *
@@ -76,6 +78,44 @@ export interface SuperAgentQueueSnapshot {
   maxWorkers: number
   running: SuperAgentQueueEntry[]
   queued: SuperAgentQueueEntry[]
+}
+
+// ── Worker 只读镜像（T07 #77）────────────────────────────────────
+
+/**
+ * Worker 稳定会话 id：`superagent-worker-<ticketId>` 派生（设计 §5.3）。
+ * 跨 Assignment、重试与主进程重启保持稳定；不得当作 assignmentId 或 Ticket 身份。
+ */
+export function superAgentWorkerSessionId(ticketId: string): string {
+  return `superagent-worker-${ticketId}`
+}
+
+/** Assignment 代次分段：UI 按 ticketId 定卡片，按此分段定右侧执行代次。 */
+export interface SuperAgentWorkerSegment {
+  assignmentId: string
+  /** 从 1 起；复用不递增，只有重试/重启恢复才 +1。 */
+  generation: number
+  state: 'pending' | 'running' | 'ended' | 'interrupted'
+  endedReason: 'completed' | 'stopped' | 'failed' | 'interrupted' | null
+  createdAt: string
+  startedAt: string | null
+  endedAt: string | null
+  /** 最新一份 Report 的 kind；历史 Report 只审计，不进分段。T06 接入前为 null。 */
+  reportKind: 'progress' | 'waiting' | 'ready' | 'blocked' | 'failed' | 'dropped' | null
+  reportSummary: string | null
+}
+
+/** Worker 只读镜像快照：workerBind 返回，重开标签时从它恢复。 */
+export interface SuperAgentWorkerMirror {
+  repoRoot: string
+  ticketId: string
+  title: string
+  /** Worker 稳定会话 id；渲染层据此登记只读会话并复用既有 route event。 */
+  sessionId: string
+  /** 最新 Assignment 是否在执行中（不含排队）。 */
+  running: boolean
+  /** 代次分段，按 generation 升序。 */
+  segments: SuperAgentWorkerSegment[]
 }
 
 // ── 健康模型（T13 #83）───────────────────────────────────────────
@@ -158,6 +198,14 @@ export const superAgentNamespace = defineNamespace({
     queue: {
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentQueueSnapshot,
+    },
+    workerBind: {
+      req: [] as unknown as [repoRoot: string, ticketId: string],
+      res: null as unknown as SuperAgentWorkerMirror,
+    },
+    workerUnbind: {
+      req: [] as unknown as [repoRoot: string, ticketId: string],
+      res: null as unknown as true,
     },
   },
   events: {
