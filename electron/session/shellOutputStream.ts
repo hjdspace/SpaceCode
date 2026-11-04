@@ -228,7 +228,9 @@ export class ShellOutputStream {
     this.ticking = true
     try {
       await this.claimPendingFiles()
+      if (this.disposed) return
       await this.drainTailers()
+      if (this.disposed) return
       this.expireStaleTools()
     } catch (err) {
       debug('ShellOutputStream', `tick failed | error=${String(err)}`)
@@ -312,9 +314,11 @@ export class ShellOutputStream {
       if (!target) continue
       this.claimedFiles.add(candidate.filePath)
       target.filePath = candidate.filePath
-      target.tailer = new FileTailer(candidate.filePath, text =>
-        this.options.onSnapshot(target.toolUseId, text),
-      )
+      target.tailer = new FileTailer(candidate.filePath, text => {
+        // dispose 与 in-flight read 竞态：清空 pending 不影响已捕获的 tailer，回调处兜底
+        if (this.disposed) return
+        this.options.onSnapshot(target.toolUseId, text)
+      })
       debug(
         'ShellOutputStream',
         `Claimed Bash output file | toolId=${target.toolUseId.slice(0, 8)} | file=${candidate.filePath}`,
