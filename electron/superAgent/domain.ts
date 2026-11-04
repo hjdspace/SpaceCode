@@ -150,6 +150,32 @@ export interface FailDeliveryInput {
   at?: string
 }
 
+/** T09 #79：可证明未接受才允许重投 —— 把已投未读的 Input 退回 pending。 */
+export interface RequeueInputInput {
+  inputId: string
+  at?: string
+}
+
+/** T09 #79：接受事实落盘后才标 delivered —— 把 pending 的 Input 标为已投递。 */
+export interface DeliverInputInput {
+  inputId: string
+  at?: string
+}
+
+/** T09 #79：投递结果未知（无法证明已接受或未接受）时标记 uncertain。 */
+export interface MarkInputUncertainInput {
+  inputId: string
+  reason?: string
+  at?: string
+}
+
+export interface MarkInputUncertainResult {
+  input: SuperAgentInput
+  /** 本次产生（或已存在）的 delivery Attention；工单结束时为 null。 */
+  attentionId: string | null
+  duplicate: boolean
+}
+
 export interface ReportCommand {
   ticketId: string
   assignmentId: string
@@ -199,6 +225,9 @@ export interface SuperAgentDomain {
   launchAssignment(input: LaunchAssignmentInput): SuperAgentAssignment
   endAssignment(input: EndAssignmentInput): SuperAgentAssignment
   addInput(command: AddInputCommand): AddInputResult
+  requeueInput(input: RequeueInputInput): SuperAgentInput
+  deliverInput(input: DeliverInputInput): SuperAgentInput
+  markInputUncertain(input: MarkInputUncertainInput): MarkInputUncertainResult
   failDelivery(input: FailDeliveryInput): SuperAgentTicket
   report(command: ReportCommand): ReportResult
   endTicket(command: EndTicketCommand): EndTicketResult
@@ -672,6 +701,88 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return { input, gated, delivered, duplicate: false }
   }
 
+  /** T09 #79：requestId 对账可证明未接受（已投未读退回 pending）时才允许重投。 */
+  function requeueInput(input: RequeueInputInput): SuperAgentInput {
+    const target = state.inputs[input.inputId]
+    if (!target) throw superAgentError('inputNotFound', { inputId: input.inputId })
+    const ticket = requireTicket(target.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    if (target.status !== 'delivered') {
+      throw superAgentError('conflict', { inputId: target.inputId, status: target.status })
+    }
+
+    target.status = 'pending'
+    target.deliveredTo = null
+    target.deliveredAt = null
+    return target
+  }
+
+  /** T09 #79：投递被接受后把 pending 的 Input 落盘为 delivered；已 delivered 幂等。 */
+  function deliverInput(input: DeliverInputInput): SuperAgentInput {
+    const target = state.inputs[input.inputId]
+    if (!target) throw superAgentError('inputNotFound', { inputId: input.inputId })
+    const ticket = requireTicket(target.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    if (target.status === 'delivered') return target
+    if (target.status !== 'pending') {
+      throw superAgentError('conflict', { inputId: target.inputId, status: target.status })
+    }
+    const facts = factsOf(ticket)
+    const latest = latestAssignmentOf(facts.assignments)
+    if (!latest || (latest.state !== 'pending' && latest.state !== 'running')) {
+      throw superAgentError('assignmentNotPending', { assignmentId: latest?.assignmentId ?? '' })
+    }
+    const at = atNow(input.at)
+    target.status = 'delivered'
+    target.deliveredTo = latest.assignmentId
+    target.deliveredAt = at
+    return target
+  }
+
+  /**
+   * T09 #79：投递结果未知时标 uncertain 并产生 delivery Attention，让人看见，
+   * 禁止盲目重投；重复标记幂等，不新建第二条 Attention。
+   */
+  function markInputUncertain(input: MarkInputUncertainInput): MarkInputUncertainResult {
+    const target = state.inputs[input.inputId]
+    if (!target) throw superAgentError('inputNotFound', { inputId: input.inputId })
+    const ticket = requireTicket(target.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+
+    const existing = Object.values(state.attentions).find(
+      (candidate) =>
+        candidate.ticketId === ticket.ticketId &&
+        candidate.kind === 'delivery' &&
+        candidate.status === 'open' &&
+        candidate.askedBy === target.inputId,
+    )
+    if (target.status === 'uncertain' || existing) {
+      target.status = 'uncertain'
+      return { input: target, attentionId: existing?.attentionId ?? null, duplicate: true }
+    }
+
+    target.status = 'uncertain'
+    const facts = factsOf(ticket)
+    const latest = latestAssignmentOf(facts.assignments)
+    const attention: SuperAgentAttention = {
+      attentionId: newId('attention'),
+      ticketId: ticket.ticketId,
+      assignmentId: target.deliveredTo ?? latest?.assignmentId ?? target.inputId,
+      kind: 'delivery',
+      question: input.reason ?? 'delivery-uncertain',
+      askedBy: target.inputId,
+      askedAt: atNow(input.at),
+      status: 'open',
+      answers: [],
+      answeredAt: null,
+      sessionId: null,
+      requestId: null,
+    }
+    state.attentions[attention.attentionId] = attention
+    ticket.attentionId = ticket.attentionId ?? attention.attentionId
+    return { input: target, attentionId: attention.attentionId, duplicate: false }
+  }
+
   function failDelivery(input: FailDeliveryInput): SuperAgentTicket {
     const failed = state.inputs[input.inputId]
     if (!failed) throw superAgentError('inputNotFound', { inputId: input.inputId })
@@ -932,6 +1043,9 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     launchAssignment,
     endAssignment,
     addInput,
+    requeueInput,
+    deliverInput,
+    markInputUncertain,
     failDelivery,
     report,
     endTicket,

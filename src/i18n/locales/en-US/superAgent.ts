@@ -35,6 +35,9 @@ export default {
     conflict: 'The request conflicts with an existing record',
     engineLaunchFailed: 'The worker engine failed to start',
     slotUnavailable: 'No execution slot is available',
+    takeoverRequired: 'Take over this Worker before sending input',
+    takeoverConflict: 'Another ticket is already taken over; give it back first',
+    invalidWorkerMessage: 'Takeover input cannot be empty',
     unknown: 'An unknown error occurred',
   },
   dispatch: {
@@ -61,6 +64,10 @@ export default {
     running: 'Running',
     idle: 'Idle',
     readonlyHint: 'Read-only mirror · no auto-takeover',
+    takeover: 'Take over',
+    giveback: 'Give back',
+    takeoverBanner: 'Auto-advance paused: you are manually running this Worker; input is persisted before delivery',
+    composerPlaceholder: 'Type an instruction for this Worker…',
     generation: 'Gen {n}',
     emptyHint: 'Worker mirror is not available yet',
     states: {

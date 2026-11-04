@@ -55,6 +55,18 @@ const invokeApi = createRendererApi(
       // 非桌面环境没有已启动的镜像可停；幂等成功
       return true as const
     },
+    workerTakeover: () => {
+      // 非桌面环境没有 Worker 可接管；交还幂等成功，接管不可用
+      throw new Error('worker takeover is only available in desktop')
+    },
+    workerRelease: () => {
+      // 非桌面环境没有接管态可交还；幂等成功
+      return true as const
+    },
+    workerMessage: () => {
+      // 非桌面环境没有引擎投递链路；拒绝而不是假装成功
+      throw new Error('worker message is only available in desktop')
+    },
   },
 )
 

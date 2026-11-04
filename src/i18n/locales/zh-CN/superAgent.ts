@@ -35,6 +35,9 @@ export default {
     conflict: '请求与已有记录冲突',
     engineLaunchFailed: '执行引擎启动失败',
     slotUnavailable: '执行槽位暂不可用',
+    takeoverRequired: '请先接管该 Worker 再输入',
+    takeoverConflict: '已有其他工单处于接管中，请先交还',
+    invalidWorkerMessage: '接管输入不能为空',
     unknown: '发生未知错误',
   },
   dispatch: {
@@ -61,6 +64,10 @@ export default {
     running: '执行中',
     idle: '空闲',
     readonlyHint: '只读镜像 · 不会自动接管',
+    takeover: '接管',
+    giveback: '交还',
+    takeoverBanner: '自动推进已暂停：你正在手动接管此 Worker，输入将先落库再投递',
+    composerPlaceholder: '向此 Worker 输入指令…',
     generation: '第 {n} 代',
     emptyHint: 'Worker 镜像暂不可用',
     states: {

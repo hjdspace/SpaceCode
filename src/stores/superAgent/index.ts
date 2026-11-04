@@ -22,6 +22,10 @@
  * 增量推送。事件携带领域 seq 水位（fromSeq/toSeq）：fromSeq 与本地水位不一致
  * 即判定领域断档，全量重拉；ticket-progress 是节流后的轻量进度，使用独立
  * 投影水位，断档不重拉、不重放，只应用最新。
+ *
+ * T09 #79：takeover 是接管态镜像 —— workerTakeover/workerRelease 切换，
+ * takeover-changed 事件同步所有面板（多面板不互抢）。sendWorkerMessage 把
+ * 接管输入交给主进程先落库再投递（requestId 对账），不直连引擎。
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -34,8 +38,11 @@ import type {
   SuperAgentHealthReport,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
+  SuperAgentTakeoverState,
   SuperAgentTicketBoard,
   SuperAgentTicketProgress,
+  SuperAgentWorkerMessageCommand,
+  SuperAgentWorkerMessageResult,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { useChatSessionStore } from '../chatSession'
@@ -52,6 +59,11 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   const ticketProgress = ref<Record<string, SuperAgentTicketProgress>>({})
   /** Worker 只读镜像快照，按 ticketId 索引；标签页并存时各取各的。 */
   const workerMirrors = ref<Record<string, SuperAgentWorkerMirror>>({})
+  /** T09 #79：当前接管态镜像；null = 未接管。每项目同时至多一个。 */
+  const takeover = ref<SuperAgentTakeoverState | null>(null)
+
+  /** T09 #79：当前被接管的 ticketId；面板据此切换只读/可写。 */
+  const takeoverTicketId = computed(() => takeover.value?.ticketId ?? null)
 
   const attentionCount = computed(() => snapshot.value?.attention.unanswered ?? 0)
   const healthProblemCount = computed(() => healthReport.value?.problemCount ?? 0)
@@ -141,6 +153,43 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   async function unbindWorker(repoRoot: string, ticketId: string): Promise<void> {
     await api.superAgent.workerUnbind(repoRoot, ticketId)
     delete workerMirrors.value[ticketId]
+    // 主进程会在 unbind 时一并释放接管；本地立即清镜像，面板不残留接管态
+    if (takeover.value?.ticketId === ticketId) takeover.value = null
+  }
+
+  /**
+   * 接管 Worker（T09 #79）：只切面板态，不改调度；同一项目同时至多一个，
+   * 冲突时主进程抛 takeoverConflict。接管后镜像同步刷新 takenOver。
+   */
+  async function takeoverWorker(
+    repoRoot: string,
+    ticketId: string,
+  ): Promise<SuperAgentTakeoverState> {
+    const state = await api.superAgent.workerTakeover(repoRoot, ticketId)
+    takeover.value = state
+    const mirror = workerMirrors.value[ticketId]
+    if (mirror) workerMirrors.value[ticketId] = { ...mirror, takenOver: true }
+    return state
+  }
+
+  /** 交还（T09 #79）：幂等；交还后该工单镜像回到只读。 */
+  async function releaseWorker(repoRoot: string, ticketId: string): Promise<true> {
+    const result = await api.superAgent.workerRelease(repoRoot, ticketId)
+    if (takeover.value?.ticketId === ticketId) takeover.value = null
+    const mirror = workerMirrors.value[ticketId]
+    if (mirror) workerMirrors.value[ticketId] = { ...mirror, takenOver: false }
+    return result
+  }
+
+  /**
+   * 接管输入（T09 #79）：主进程先落 Domain Input 再按调度投递（requestId 对账），
+   * 渲染端不直连引擎。unconfirmed/uncertain 结果由调用方提示，不在此重投。
+   */
+  async function sendWorkerMessage(
+    repoRoot: string,
+    command: SuperAgentWorkerMessageCommand,
+  ): Promise<SuperAgentWorkerMessageResult> {
+    return api.superAgent.workerMessage(repoRoot, command)
   }
 
   /** 订阅 health.changed；只接受当前绑定项目的报告，返回退订函数。 */
@@ -187,6 +236,22 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     }
   }
 
+  /** 订阅 takeover-changed（T09 #79）；只接受当前绑定项目的事件，返回退订函数。 */
+  function watchTakeover(): () => void {
+    return api.superAgent.onTakeoverChanged((repoRoot, event) => {
+      if (snapshot.value?.repoRoot !== repoRoot) return
+      takeover.value = event.takeover
+      // 各工单镜像的 takenOver 跟随事件同步（含其他面板触发的接管/交还）
+      const next = event.takeover
+      for (const [ticketId, mirror] of Object.entries(workerMirrors.value)) {
+        const takenOver = next?.ticketId === ticketId
+        if (mirror.takenOver !== takenOver) {
+          workerMirrors.value[ticketId] = { ...mirror, takenOver }
+        }
+      }
+    })
+  }
+
   function toggleHealthPanel(): void {
     healthPanelOpen.value = !healthPanelOpen.value
   }
@@ -203,6 +268,8 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     ticketBoard,
     ticketProgress,
     workerMirrors,
+    takeover,
+    takeoverTicketId,
     bind,
     loadState,
     loadHealth,
@@ -211,9 +278,13 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     loadTickets,
     bindWorker,
     unbindWorker,
+    takeoverWorker,
+    releaseWorker,
+    sendWorkerMessage,
     watchHealth,
     watchQueue,
     watchTickets,
+    watchTakeover,
     toggleHealthPanel,
   }
 })

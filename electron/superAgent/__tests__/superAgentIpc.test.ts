@@ -167,3 +167,102 @@ describe('registerSuperAgentIPCHandlers dispatch & queue（T05 #75）', () => {
     )
   })
 })
+
+describe('registerSuperAgentIPCHandlers takeover & giveback（T09 #79）', () => {
+  const DISPATCH = { requestId: 'dispatch-1', title: '修复登录', text: '登录按钮无响应' }
+  const TAKEOVER_CHANGED_CHANNEL = `${SUPER_AGENT_PREFIX}takeover-changed`
+
+  it('registers workerTakeover / workerRelease / workerMessage on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}workerTakeover`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}workerRelease`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}workerMessage`,
+      expect.any(Function),
+    )
+  })
+
+  it('round-trips takeover → workerMessage → release through the registered handlers', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const dispatched = await invokeDispatch('dispatch', '/repo/a', DISPATCH)
+    const ticketId = dispatched.ticketId
+
+    const takeover = await invokeDispatch('workerTakeover', '/repo/a', ticketId)
+    expect(takeover).toEqual({
+      repoRoot: '/repo/a',
+      ticketId,
+      at: expect.any(String),
+    })
+
+    const message = await invokeDispatch('workerMessage', '/repo/a', {
+      requestId: 'msg-1',
+      ticketId,
+      text: '请改用另一个方案',
+    })
+    expect(message).toEqual({
+      inputId: expect.any(String),
+      ticketId,
+      status: 'delivered',
+      delivered: true,
+      gated: false,
+      duplicate: false,
+    })
+
+    expect(await invokeDispatch('workerRelease', '/repo/a', ticketId)).toBe(true)
+    // 交还幂等：重复交还成功
+    expect(await invokeDispatch('workerRelease', '/repo/a', ticketId)).toBe(true)
+  })
+
+  it('rejects workerMessage before takeover with the stable takeoverRequired code', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const dispatched = await invokeDispatch('dispatch', '/repo/a', DISPATCH)
+    await expect(
+      invokeDispatch('workerMessage', '/repo/a', {
+        requestId: 'msg-1',
+        ticketId: dispatched.ticketId,
+        text: 'hi',
+      }),
+    ).rejects.toThrow(/takeoverRequired/)
+  })
+
+  it('rejects a malformed workerMessage command at the IPC entry', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invokeDispatch('workerMessage', '/repo/a', null)).rejects.toThrow(/worker message/)
+    await expect(
+      invokeDispatch('workerMessage', '/repo/a', { requestId: 'msg-1', ticketId: 't', text: ' ' }),
+    ).rejects.toThrow(/worker message/)
+  })
+
+  it('broadcasts takeover-changed to all windows on takeover and giveback', () => {
+    const service = createBroadcastingSuperAgentService()
+    const dispatched = service.dispatch('/repo/a', DISPATCH)
+
+    service.workerTakeover('/repo/a', dispatched.ticketId)
+    expect(probe.send).toHaveBeenCalledWith(
+      TAKEOVER_CHANGED_CHANNEL,
+      '/repo/a',
+      {
+        repoRoot: '/repo/a',
+        takeover: { repoRoot: '/repo/a', ticketId: dispatched.ticketId, at: expect.any(String) },
+      },
+    )
+
+    probe.send.mockClear()
+    service.workerRelease('/repo/a', dispatched.ticketId)
+    expect(probe.send).toHaveBeenCalledWith(TAKEOVER_CHANGED_CHANNEL, '/repo/a', {
+      repoRoot: '/repo/a',
+      takeover: null,
+    })
+  })
+})
+

@@ -274,7 +274,7 @@ export interface SuperAgentAttention {
   attentionId: string
   ticketId: string
   assignmentId: string
-  kind: 'question' | 'permission'
+  kind: 'question' | 'permission' | 'delivery'
   question: string
   askedBy: string
   askedAt: string

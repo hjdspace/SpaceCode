@@ -23,6 +23,12 @@
  * 接缝：严格解析 Worker 消息中的唯一 Report JSON 块 → Domain.report 状态
  * 迁移 → 投影同步（ticket.updated 即时、ticket.progress 1 秒节流）。
  * tickets 返回全量卡片看板，供 Renderer 断档全量重拉。
+ *
+ * T09 #79 接管与交还：每项目同时至多一个接管（多面板不互抢），只切面板态、
+ * 不改调度；接管输入 workerMessage 先落 Domain Input 再经 workerDeliverer
+ * 接缝投递（null = Executor 未接入，不假投递）。requestId 是对账键：可证明
+ * 未接受（pending）才重投，结果未知转 uncertain 并产生 delivery Attention，
+ * 禁止盲目重投。关闭镜像标签（workerUnbind）一并释放接管，不残留面板态。
  */
 import { randomUUID } from 'crypto'
 import type {
@@ -34,9 +40,13 @@ import type {
   SuperAgentHealthReport,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
+  SuperAgentTakeoverChangedEvent,
+  SuperAgentTakeoverState,
   SuperAgentTicketBoard,
   SuperAgentTicketProgress,
   SuperAgentTicketUpdateEvent,
+  SuperAgentWorkerMessageCommand,
+  SuperAgentWorkerMessageResult,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { superAgentWorkerSessionId } from '@/shared/channels/superAgent'
@@ -64,6 +74,8 @@ interface ProjectState {
   projector: SuperAgentProgressProjector
   /** 正在被只读镜像观察的 ticketId；Executor 接入后据此决定是否广播转录事件。 */
   observedWorkers: Set<string>
+  /** T09 #79：当前接管态；每项目同时至多一个，交还/关闭标签时清空。 */
+  takeover: { ticketId: string; at: string } | null
 }
 
 export interface SuperAgentServiceOptions {
@@ -75,9 +87,35 @@ export interface SuperAgentServiceOptions {
   onTicketUpdated?: (repoRoot: string, event: SuperAgentTicketUpdateEvent) => void
   /** T06 #76：节流后的轻量进度回调（IPC 层据此广播 ticket-progress）。 */
   onTicketProgress?: (repoRoot: string, progress: SuperAgentTicketProgress) => void
+  /** T09 #79：接管/交还时回调（IPC 层据此广播 takeover-changed）。 */
+  onTakeoverChanged?: (repoRoot: string, event: SuperAgentTakeoverChangedEvent) => void
   /** Worker 启动接缝；null/缺省 = Executor 未接入，工单保持排队。 */
   launcher?: WorkerLauncher | null
+  /** T09 #79：接管输入投递接缝；null/缺省 = Executor 未接入，不假投递。 */
+  workerDeliverer?: SuperAgentWorkerDeliverer | null
 }
+
+/** T09 #79：workerMessage 的投递请求（Executor 接入前接缝为 null）。 */
+export interface SuperAgentWorkerDeliveryRequest {
+  ticketId: string
+  /** 已落库 Domain Input 的 inputId：先落库再投递。 */
+  inputId: string
+  /** 幂等/对账键。 */
+  requestId: string
+  /** Worker 稳定会话 ID。 */
+  sessionId: string
+  text: string
+}
+
+/**
+ * 'accepted' 已接受；'notAccepted' 可证明未接受（允许退回 pending 重投）；
+ * 'unknown' 结果未知（转 uncertain + Attention，禁止盲目重投）。
+ */
+export type SuperAgentWorkerDeliveryOutcome = 'accepted' | 'notAccepted' | 'unknown'
+
+export type SuperAgentWorkerDeliverer = (
+  request: SuperAgentWorkerDeliveryRequest,
+) => Promise<SuperAgentWorkerDeliveryOutcome>
 
 /** T06 #76：workerReport 的确认结果（幂等确认原结果，duplicate=true）。 */
 export interface SuperAgentWorkerReportResult {
@@ -107,6 +145,19 @@ export interface SuperAgentService {
   workerBind(repoRoot: string, ticketId: string): SuperAgentWorkerMirror
   /** 只停镜像观察，不动领域状态；幂等。 */
   workerUnbind(repoRoot: string, ticketId: string): true
+  /** T09 #79：接管 Worker 面板态；同 ticket 幂等，异 ticket 抛 takeoverConflict。 */
+  workerTakeover(repoRoot: string, ticketId: string): SuperAgentTakeoverState
+  /** T09 #79：交还；幂等，不残留接管态。 */
+  workerRelease(repoRoot: string, ticketId: string): true
+  /**
+   * T09 #79：接管输入 —— 先落 Domain Input（requestId 幂等）再按调度投递；
+   * 未接管抛 takeoverRequired。requestId 对账：可证明未接受才重投，
+   * 无法确定转 uncertain 并产生 Attention，不盲目重投。
+   */
+  workerMessage(
+    repoRoot: string,
+    command: SuperAgentWorkerMessageCommand,
+  ): Promise<SuperAgentWorkerMessageResult>
   recordHealthSuccess(repoRoot: string, category: SuperAgentHealthCategory): void
   recordHealthFailure(
     repoRoot: string,
@@ -147,7 +198,16 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           })
         },
       })
-      project = { seq: 0, router: null, health, domain, scheduler, projector, observedWorkers: new Set() }
+      project = {
+        seq: 0,
+        router: null,
+        health,
+        domain,
+        scheduler,
+        projector,
+        observedWorkers: new Set(),
+        takeover: null,
+      }
       projects.set(repoRoot, project)
     }
     return project
@@ -182,8 +242,19 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       title: ticket.title,
       sessionId: superAgentWorkerSessionId(ticketId),
       running: segments.some((segment) => segment.state === 'running'),
+      takenOver: project.takeover?.ticketId === ticketId,
       segments,
     }
+  }
+
+  /** T09 #79：接管/交还广播 —— 各面板据此同步，避免多面板互抢。 */
+  function notifyTakeoverChanged(repoRoot: string, project: ProjectState): void {
+    options.onTakeoverChanged?.(repoRoot, {
+      repoRoot,
+      takeover: project.takeover
+        ? { repoRoot, ticketId: project.takeover.ticketId, at: project.takeover.at }
+        : null,
+    })
   }
 
   function snapshotOf(repoRoot: string, project: ProjectState): SuperAgentSnapshot {
@@ -306,9 +377,112 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     },
 
     workerUnbind(repoRoot, ticketId) {
+      const project = projectOf(repoRoot)
       // 幂等：观察不存在也返回成功；领域状态不受影响，后台推进继续
-      projectOf(repoRoot).observedWorkers.delete(ticketId)
+      project.observedWorkers.delete(ticketId)
+      // 关闭镜像标签一并释放接管：面板没了，不残留接管态（T09 #79）
+      if (project.takeover?.ticketId === ticketId) {
+        project.takeover = null
+        notifyTakeoverChanged(repoRoot, project)
+      }
       return true
+    },
+
+    workerTakeover(repoRoot, ticketId) {
+      const project = projectOf(repoRoot)
+      const ticket = project.domain.state.tickets[ticketId]
+      if (!ticket) {
+        throw superAgentError('ticketNotFound', { ticketId })
+      }
+      if (project.takeover && project.takeover.ticketId !== ticketId) {
+        // 同一项目同时至多一个接管：多面板不互抢
+        throw superAgentError('takeoverConflict', {
+          ticketId,
+          activeTicketId: project.takeover.ticketId,
+        })
+      }
+      if (!project.takeover) {
+        // 只切面板态：不动领域、不动队列、不触发调度
+        project.takeover = { ticketId, at: new Date().toISOString() }
+        notifyTakeoverChanged(repoRoot, project)
+      }
+      return { repoRoot, ticketId, at: project.takeover.at }
+    },
+
+    workerRelease(repoRoot, ticketId) {
+      const project = projectOf(repoRoot)
+      if (project.takeover?.ticketId === ticketId) {
+        project.takeover = null
+        notifyTakeoverChanged(repoRoot, project)
+      }
+      // 幂等：未接管/重复交还都成功，交还不残留接管态
+      return true
+    },
+
+    async workerMessage(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      if (project.takeover?.ticketId !== command.ticketId) {
+        throw superAgentError('takeoverRequired', { ticketId: command.ticketId })
+      }
+      if (typeof command.text !== 'string' || command.text.trim() === '') {
+        throw superAgentError('invalidWorkerMessage', { ticketId: command.ticketId })
+      }
+      const ticket = project.domain.state.tickets[command.ticketId]
+      if (!ticket) {
+        throw superAgentError('ticketNotFound', { ticketId: command.ticketId })
+      }
+
+      // 先落库：requestId 幂等，重复提交返回原 Input（对账依据）
+      const added = project.domain.addInput({
+        ticketId: command.ticketId,
+        requestId: command.requestId,
+        kind: 'text',
+        human: true,
+        text: command.text,
+        note: command.note ?? null,
+      })
+
+      // 再投递：requestId 对账 —— 可证明未接受（pending）才重投；
+      // delivered/read 已接受跳过；uncertain 禁止盲目重投
+      const deliverer = options.workerDeliverer ?? null
+      if (deliverer) {
+        // duplicate 路径的 gated 是「未投出」而非「闸门拦截」，按 status 判断即可
+        const shouldDeliver = added.duplicate
+          ? added.input.status === 'pending'
+          : added.delivered && !added.gated
+        if (shouldDeliver) {
+          const outcome = await deliverer({
+            ticketId: command.ticketId,
+            inputId: added.input.inputId,
+            requestId: command.requestId,
+            sessionId: superAgentWorkerSessionId(command.ticketId),
+            text: command.text,
+          })
+          if (outcome === 'accepted') {
+            // 接受事实落盘后才标 delivered（重投成功时从 pending 转回 delivered）
+            project.domain.deliverInput({ inputId: added.input.inputId })
+          } else if (outcome === 'notAccepted') {
+            project.domain.requeueInput({ inputId: added.input.inputId })
+          } else if (outcome === 'unknown') {
+            project.domain.markInputUncertain({
+              inputId: added.input.inputId,
+              reason: 'deliveryUnknown',
+            })
+          }
+          // Input 状态变化是领域事实：卡片即时投影
+          project.projector.sync()
+        }
+      }
+
+      const input = project.domain.state.inputs[added.input.inputId]
+      return {
+        inputId: input.inputId,
+        ticketId: input.ticketId,
+        status: input.status,
+        delivered: input.status === 'delivered' || input.status === 'read',
+        gated: added.gated,
+        duplicate: added.duplicate,
+      }
     },
 
     recordHealthSuccess(repoRoot, category) {

@@ -253,6 +253,7 @@ function workerMirror(overrides: Partial<SuperAgentWorkerMirror> = {}): SuperAge
     title: '修复登录',
     sessionId: 'superagent-worker-ticket-1',
     running: true,
+    takenOver: false,
     segments: [
       {
         assignmentId: 'assignment-1',

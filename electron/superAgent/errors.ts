@@ -24,6 +24,9 @@ export type SuperAgentErrorCode =
   | 'askerWithoutQuestion'
   | 'notAsker'
   | 'notAnswerable'
+  // refused：接管与交还（T09 #79）
+  | 'takeoverRequired'
+  | 'invalidWorkerMessage'
   // refused：Report 协议失败（严格 JSON 块校验，T06 #76）
   | 'reportMissing'
   | 'reportNotUnique'
@@ -38,6 +41,8 @@ export type SuperAgentErrorCode =
   | 'mandateRevoked'
   // conflict：重复或并发冲突
   | 'conflict'
+  // conflict：同一项目已有其他接管（T09 #79）
+  | 'takeoverConflict'
   // unavailable：引擎或资源不可用
   | 'engineLaunchFailed'
   | 'slotUnavailable'
@@ -59,6 +64,8 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   askerWithoutQuestion: 'refused',
   notAsker: 'refused',
   notAnswerable: 'refused',
+  takeoverRequired: 'refused',
+  invalidWorkerMessage: 'refused',
   reportMissing: 'refused',
   reportNotUnique: 'refused',
   reportUnparsable: 'refused',
@@ -71,6 +78,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   ackEnded: 'refused',
   mandateRevoked: 'refused',
   conflict: 'conflict',
+  takeoverConflict: 'conflict',
   engineLaunchFailed: 'unavailable',
   slotUnavailable: 'unavailable',
 }

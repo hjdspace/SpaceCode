@@ -20,6 +20,11 @@
  *  - 注册 tickets（全量卡片看板只读拉取）通道；
  *  - 卡片投影经 ticket-updated / ticket-progress 事件广播到所有窗口；
  *    ticket.updated 携带领域 seq 水位，Renderer 断档时全量重拉 tickets。
+ *
+ * T09 #79：
+ *  - 注册 workerTakeover / workerRelease / workerMessage（接管与交还）通道；
+ *  - 接管/交还经 takeover-changed 事件广播到所有窗口，多面板不互抢；
+ *    workerMessage 只做入口校验，先落库再投递的对账规则在 service。
  */
 import { BrowserWindow, ipcMain } from 'electron'
 import { eventChannels } from '@/shared/channelMap'
@@ -30,8 +35,10 @@ import {
   type SuperAgentDispatchCommand,
   type SuperAgentHealthReport,
   type SuperAgentQueueSnapshot,
+  type SuperAgentTakeoverChangedEvent,
   type SuperAgentTicketProgress,
   type SuperAgentTicketUpdateEvent,
+  type SuperAgentWorkerMessageCommand,
 } from '@/shared/channels/superAgent'
 import { createSuperAgentService, type SuperAgentService } from './service'
 
@@ -67,6 +74,25 @@ function requireDispatchCommand(input: unknown): SuperAgentDispatchCommand {
     throw new Error('invalid dispatch command')
   }
   return input as SuperAgentDispatchCommand
+}
+
+/** 接管输入命令入口校验（T09 #79）：requestId/ticketId/text 必须是非空字符串。 */
+function requireWorkerMessageCommand(input: unknown): SuperAgentWorkerMessageCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('worker message command is required')
+  }
+  const command = input as Record<string, unknown>
+  if (
+    typeof command.requestId !== 'string' ||
+    command.requestId.trim() === '' ||
+    typeof command.ticketId !== 'string' ||
+    command.ticketId.trim() === '' ||
+    typeof command.text !== 'string' ||
+    command.text.trim() === ''
+  ) {
+    throw new Error('invalid worker message command')
+  }
+  return input as SuperAgentWorkerMessageCommand
 }
 
 /** health.changed 广播：所有未销毁窗口都能收到，Renderer 无需轮询。 */
@@ -105,6 +131,15 @@ function broadcastTicketProgress(repoRoot: string, progress: SuperAgentTicketPro
   }
 }
 
+/** takeover-changed 广播（T09 #79）：接管/交还对所有窗口可见，多面板不互抢。 */
+function broadcastTakeoverChanged(repoRoot: string, event: SuperAgentTakeoverChangedEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(SUPER_AGENT_EVENTS.onTakeoverChanged, repoRoot, event)
+    }
+  }
+}
+
 /** 创建接好 health.changed / queue-changed 广播的服务；独立导出以便测试广播链路。 */
 export function createBroadcastingSuperAgentService(): SuperAgentService {
   return createSuperAgentService({
@@ -112,6 +147,7 @@ export function createBroadcastingSuperAgentService(): SuperAgentService {
     onQueueChanged: broadcastQueueChanged,
     onTicketUpdated: broadcastTicketUpdated,
     onTicketProgress: broadcastTicketProgress,
+    onTakeoverChanged: broadcastTakeoverChanged,
   })
 }
 
@@ -166,6 +202,21 @@ export function registerSuperAgentIPCHandlers(
       const root = requireRepoRoot(repoRoot)
       const ticket = requireTicketId(ticketId)
       return runNoted(service, root, () => service.workerUnbind(root, ticket))
+    },
+    workerTakeover: (repoRoot: unknown, ticketId: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const ticket = requireTicketId(ticketId)
+      return runNoted(service, root, () => service.workerTakeover(root, ticket))
+    },
+    workerRelease: (repoRoot: unknown, ticketId: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const ticket = requireTicketId(ticketId)
+      return runNoted(service, root, () => service.workerRelease(root, ticket))
+    },
+    workerMessage: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireWorkerMessageCommand(command)
+      return runNoted(service, root, () => service.workerMessage(root, req))
     },
   })
 }

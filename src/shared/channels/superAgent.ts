@@ -7,8 +7,11 @@
  *   health     — 只读系统健康报告（T13 #83）
  *   workerBind   — 幂等绑定 Worker 只读镜像，返回稳定 sessionId 与代次分段快照（T07 #77）
  *   workerUnbind — 关闭镜像标签：只停观察，不影响后台推进（T07 #77）
+ *   workerTakeover / workerRelease — 接管/交还 Worker 面板态，不改调度（T09 #79）
+ *   workerMessage    — 接管输入：先落 Domain Input 再按调度投递，requestId 对账（T09 #79）
  * 事件：
  *   health-changed — 健康项变化时广播（repoRoot, report）
+ *   takeover-changed — 接管/交还广播（repoRoot, event），takeover=null 表示已交还（T09 #79）
  *
  * 前缀 `super-agent:`。preload、renderer API、主进程 handler 均从这里派生。
  */
@@ -203,8 +206,44 @@ export interface SuperAgentWorkerMirror {
   sessionId: string
   /** 最新 Assignment 是否在执行中（不含排队）。 */
   running: boolean
+  /** 该工单当前是否处于接管态（T09 #79）：面板据此切换只读/可写。 */
+  takenOver: boolean
   /** 代次分段，按 generation 升序。 */
   segments: SuperAgentWorkerSegment[]
+}
+
+// ── 接管与交还（T09 #79）─────────────────────────────────────────
+
+/** 接管态：同一项目同时至多一个；只切面板态，不改调度。 */
+export interface SuperAgentTakeoverState {
+  repoRoot: string
+  ticketId: string
+  at: string
+}
+
+/** 接管输入命令：先落 Domain Input 再按调度投递，requestId 为幂等/对账键。 */
+export interface SuperAgentWorkerMessageCommand {
+  requestId: string
+  ticketId: string
+  /** 消息正文；权限确认结果以结构化 JSON 文本投递（note 标记 permission-answer）。 */
+  text: string
+  note?: string | null
+}
+
+export interface SuperAgentWorkerMessageResult {
+  inputId: string
+  ticketId: string
+  status: 'pending' | 'delivered' | 'read' | 'failed' | 'uncertain'
+  delivered: boolean
+  /** 被 blocked/failed 闸门拦下：只落库，不投递。 */
+  gated: boolean
+  duplicate: boolean
+}
+
+/** takeover-changed 事件载荷：交还/接管广播，takeover=null 表示已交还。 */
+export interface SuperAgentTakeoverChangedEvent {
+  repoRoot: string
+  takeover: SuperAgentTakeoverState | null
 }
 
 // ── 健康模型（T13 #83）───────────────────────────────────────────
@@ -300,6 +339,19 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string, ticketId: string],
       res: null as unknown as true,
     },
+    // 接管与交还（T09 #79）：只切面板态，不改调度；workerMessage 先落库再投递。
+    workerTakeover: {
+      req: [] as unknown as [repoRoot: string, ticketId: string],
+      res: null as unknown as SuperAgentTakeoverState,
+    },
+    workerRelease: {
+      req: [] as unknown as [repoRoot: string, ticketId: string],
+      res: null as unknown as true,
+    },
+    workerMessage: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentWorkerMessageCommand],
+      res: null as unknown as SuperAgentWorkerMessageResult,
+    },
   },
   events: {
     onHealthChanged: {
@@ -317,6 +369,10 @@ export const superAgentNamespace = defineNamespace({
     onTicketProgress: {
       channel: 'ticket-progress',
       args: [] as unknown as [repoRoot: string, progress: SuperAgentTicketProgress],
+    },
+    onTakeoverChanged: {
+      channel: 'takeover-changed',
+      args: [] as unknown as [repoRoot: string, event: SuperAgentTakeoverChangedEvent],
     },
   },
 })
