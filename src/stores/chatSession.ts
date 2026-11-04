@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly, watch } from 'vue'
-import type { Session, Message, ToolCall, AgentInfo, SessionEngineType, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
+import type { Session, SessionType, Message, ToolCall, AgentInfo, SessionEngineType, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
 import { ErrorCategory } from '@/types'
 import type { RewindOption } from '@/types/rewind'
 import { messages, i18n } from '@/i18n'
@@ -593,6 +593,11 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     sessions.value.find(s => s.id === currentSessionId.value) || null
   )
 
+  /** 普通聊天会话（不含 Super Agent Router）：侧边栏与模式切换只消费这份列表。 */
+  const normalSessions = computed(() =>
+    sessions.value.filter(s => (s.sessionType ?? 'chat') === 'chat')
+  )
+
   const currentMessages = computed(() =>
     currentSession.value?.messages || []
   )
@@ -881,7 +886,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     title = 'New Chat',
     workingDirectory?: string,
     sessionId?: string,
-    options?: { ephemeral?: boolean; activate?: boolean },
+    options?: { ephemeral?: boolean; activate?: boolean; sessionType?: SessionType },
   ): Session {
     const id = sessionId || createUuid()
     // 显式恢复历史会话时清掉删除墓碑；随机 id 不可能命中。
@@ -903,6 +908,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       mode: appStore.mode,
       agent: currentAgent.value || undefined,
       ephemeral: options?.ephemeral || undefined,
+      sessionType: options?.sessionType,
     }
     sessions.value.unshift(session)
     if (activate) {
@@ -970,7 +976,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     hydratedSessionIds.delete(sessionId)
     sessionDrafts.value.delete(sessionId)
     if (currentSessionId.value === sessionId) {
-      currentSessionId.value = sessions.value.find(s => !s.ephemeral)?.id || null
+      currentSessionId.value = normalSessions.value.find(s => !s.ephemeral)?.id || null
     }
     saveToStorage()
   }
@@ -1904,7 +1910,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       sessions.value.splice(index, 1)
       if (!removed?.ephemeral) rememberDeletedSession(sessionId)
       if (currentSessionId.value === sessionId) {
-        currentSessionId.value = sessions.value[0]?.id || null
+        currentSessionId.value = normalSessions.value[0]?.id || null
       }
       clearSessionToolUseMappings(sessionId)
       sessionDrafts.value.delete(sessionId)
@@ -2677,6 +2683,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     sessions,
     currentSessionId,
     currentSession,
+    normalSessions,
     currentMessages,
     displayMessages,
     currentTeamContext,
