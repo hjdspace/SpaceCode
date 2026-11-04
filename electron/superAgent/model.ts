@@ -254,7 +254,7 @@ export interface SuperAgentInput {
   readAt: string | null
   deliveredTo: string | null
   deliveredAt: string | null
-  /** 工单结束时被释放回 Eval 的时间。 */
+  /** 归属被释放的时间：工单结束收尾或 Worker handback 交回（T17 #87）。 */
   releasedAt: string | null
 }
 

@@ -228,7 +228,7 @@ describe('intake fan-out', () => {
     expect(h.candidates).toHaveLength(0)
   })
 
-  it('delivers non-addressed group messages as context-only inputs', async () => {
+  it('delivers non-addressed human messages to adjudicable subscriptions as owned inputs (T17 fast path)', async () => {
     const h = harness([])
     const ticket = ticketOnThread(h.domain, 'fake:thread:t1', 'd1')
     h.source.appendPages([
@@ -237,7 +237,10 @@ describe('intake fan-out', () => {
 
     await h.ingestor.pollOnce('fake')
     const input = h.domain.state.inputs[ticket.inputIds[0]]
-    expect(input.context).toBe(true)
+    // T17 #87：人消息归所有可裁决订阅（不再要求 addressed，由 Worker 判断 scope，
+    // 越权走 handback 交回）。
+    expect(input.context).toBe(false)
+    expect(input.human).toBe(true)
   })
 
   it('honors contextOnly subscriptions even for addressed triggers', async () => {
@@ -345,6 +348,88 @@ describe('建单候选', () => {
     h.source.appendPages([page({ events: [event({ key: 'e2', addressed: 'direct', human: true })] })])
     await h.ingestor.pollOnce('fake')
     expect(h.candidates).toHaveLength(0)
+  })
+})
+
+describe('T17 订阅 fast path 与寿命', () => {
+  function ticketOnThread(domain: SuperAgentDomain, threadId: string, key: string) {
+    return domain.createTicket({
+      requestId: `req-${key}`,
+      title: `T ${key}`,
+      repoRoot: '/repo',
+      trigger: {
+        key,
+        source: 'desktop',
+        threadIds: [threadId],
+        actor: 'desktop:user:local',
+        human: true,
+        text: 'dispatch',
+      },
+    }).ticket
+  }
+
+  it('suppresses bot candidates once a live adjudicable subscription consumed the thread event', async () => {
+    const h = harness([])
+    h.domain.setPolicy({
+      acceptMode: 'observe',
+      admissions: [{ source: 'fake', channels: [], allowlist: [], bots: ['fake:bot:ci'] }],
+    })
+
+    // 对照：无订阅的 Thread 上，准入的 bot 事件仍是候选。
+    h.source.appendPages([
+      page({ events: [event({ key: 'e1', human: false, addressed: 'direct', actor: 'fake:bot:ci' })], nextCursor: 'c1' }),
+    ])
+    await h.ingestor.pollOnce('fake')
+    expect(h.candidates).toHaveLength(1)
+
+    // 有存活可裁决订阅：同 Thread 后续事件直达 Worker（上下文输入），不再进 Eval。
+    const ticket = ticketOnThread(h.domain, 'fake:thread:t1', 'd1')
+    h.source.appendPages([
+      page({ events: [event({ key: 'e2', human: false, addressed: 'direct', actor: 'fake:bot:ci' })], nextCursor: 'c2' }),
+    ])
+    await h.ingestor.pollOnce('fake')
+    expect(h.candidates).toHaveLength(1)
+    const input = h.domain.state.inputs[ticket.inputIds[0]]
+    expect(input.context).toBe(true)
+    expect(input.human).toBe(false)
+  })
+
+  it('prunes subscriptions past their TTL before each poll (停止轮询)', async () => {
+    let nowMs = 0
+    let counter = 0
+    const domain = createSuperAgentDomain({
+      now: () => new Date(Date.parse('2026-01-01T00:00:00Z') + nowMs),
+      newId: (kind) => `${kind}-${++counter}`,
+      subscriptionTtlMs: 1_000,
+    })
+    const dir = tempDir('sa-ingestor-')
+    const source = new FakeSource('fake')
+    const ingestor = createSourceIngestor({
+      domain,
+      sources: [source],
+      cursorStore: createSourceCursorStore(dir),
+      quarantine: createSourceQuarantine(dir),
+    })
+    ingestors.push(ingestor)
+
+    const ticket = ticketOnThread(domain, 'fake:thread:t1', 'd1')
+    domain.endTicket({
+      ticketId: ticket.ticketId,
+      outcome: 'completed',
+      by: 'user',
+      reason: 'done',
+    })
+
+    source.appendPages([page({ events: [event({ key: 'e1' })], nextCursor: 'c1' })])
+    await ingestor.pollOnce('fake')
+    // TTL 内：订阅保留（已结束未停止的工单最多保留两周）。
+    expect(domain.state.threads['fake:thread:t1'].subscriptions).toHaveLength(1)
+
+    nowMs = 1_001
+    source.appendPages([page({ events: [event({ key: 'e2' })], nextCursor: 'c2' })])
+    await ingestor.pollOnce('fake')
+    // 超过订阅寿命：轮询前清理，该 Thread 不再因订阅被轮询（只走普通 intake）。
+    expect(domain.state.threads['fake:thread:t1'].subscriptions).toHaveLength(0)
   })
 })
 

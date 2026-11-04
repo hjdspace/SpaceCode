@@ -161,7 +161,6 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
    * 的职责（设计 §6.2），刻意留在 Ingestor；domain 只提供订阅与输入原语。
    */
   function fanOut(trigger: SuperAgentTrigger): void {
-    let consumedBySubscription = false
     for (const threadId of trigger.threadIds) {
       const thread = domain.state.threads[threadId]
       if (!thread) continue
@@ -175,9 +174,9 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
         ) {
           continue
         }
-        // 非 addressed、非人消息与 contextOnly 订阅都只作上下文，不唤醒执行。
-        const context =
-          subscription.contextOnly || trigger.addressed === null || !trigger.human
+        // T17 #87：人消息归所有可裁决订阅（不再要求 addressed，由 Worker 判断
+        // scope，越权走 handback 交回）；bot/CI 与 contextOnly 订阅只作上下文。
+        const context = subscription.contextOnly || !trigger.human
         domain.addInput({
           ticketId: ticket.ticketId,
           requestId: `source:${trigger.key}:${ticket.ticketId}:${context ? 'ctx' : 'in'}`,
@@ -187,7 +186,6 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
           text: trigger.text,
           triggerId: trigger.triggerId,
         })
-        if (!context) consumedBySubscription = true
       }
     }
 
@@ -199,8 +197,10 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
       domain.filterTrigger({ triggerId: trigger.triggerId, reason: gate.filtered })
       return
     }
+    // T17 #87 fast path：已被存活可裁决订阅消费的同 Thread 后续消息直达
+    // Worker，不再进 Eval —— 不重复建单。
+    if (domain.fastPathConsumed(trigger.triggerId)) return
     if (
-      !consumedBySubscription &&
       trigger.disposition.ticketIds.length === 0 &&
       !emittedCandidateKeys.has(trigger.key)
     ) {
@@ -217,6 +217,9 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
 
   async function pollOnce(sourceId: string): Promise<void> {
     const source = requireSource(sourceId)
+    // T17 #87：轮询前清理过期订阅 —— stopped 立即失效，已结束工单最多保留
+    // 订阅寿命（缺省两周）；之后 Source 不再为该 Thread 轮询，只走普通 intake。
+    domain.pruneExpiredSubscriptions()
     let cursor = cursorStore.load(sourceId)
     const state = stateOf(sourceId)
     state.cursor = cursor
