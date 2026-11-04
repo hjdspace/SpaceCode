@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw, watch } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow, MessagesSquare } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow, MessagesSquare, Sparkles } from 'lucide-vue-next'
 import { useChatSessionStore } from './chatSession'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
@@ -839,6 +839,32 @@ export const useAppStore = defineStore('app', () => {
     activeCenterTab.value = tabId
   }
 
+  /** Super Agent 中置 tab 固定为单例：重复点击只激活，不再入列。 */
+  function openSuperAgentTab() {
+    // 关闭所有可能阻塞中央面板的全屏视图
+    showSettings.value = false
+    showSkillsManager.value = false
+    showOldSkills.value = false
+    showAgentManager.value = false
+    showMCPManager.value = false
+    showCronManager.value = false
+    showTraceViewer.value = false
+
+    const existing = centerTabs.value.find(t => t.id === 'super-agent')
+    if (existing) {
+      activeCenterTab.value = existing.id
+      return
+    }
+
+    centerTabs.value.push({
+      id: 'super-agent',
+      label: i18n.global.t('superAgent.title'),
+      icon: markRaw(Sparkles),
+      closable: true
+    })
+    activeCenterTab.value = 'super-agent'
+  }
+
   function closeCenterTab(tabId: string) {
     const index = centerTabs.value.findIndex(t => t.id === tabId)
     if (index > -1 && centerTabs.value[index].closable) {
@@ -1221,6 +1247,7 @@ export const useAppStore = defineStore('app', () => {
     openTerminalTab,
     openOrchestrationTab,
     openFactoryTab,
+    openSuperAgentTab,
     closeCenterTab,
     setProjectRoot,
     closeProject,
