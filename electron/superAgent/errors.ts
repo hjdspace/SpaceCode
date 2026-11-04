@@ -67,6 +67,17 @@ export type SuperAgentErrorCode =
   | 'checkpointFileDirty'
   | 'checkpointInvalidFile'
   | 'checkpointRollbackFailed'
+  // refused：T16 #86 Gate/Eval/Policy —— off 模式 / bot 越权 / Eval 状态不允许 / 策略非法
+  | 'acceptModeOff'
+  | 'botForbidden'
+  | 'evalBusy'
+  | 'evalEmpty'
+  | 'evalNotDelivered'
+  | 'invalidPolicy'
+  // missing：T16 #86 找不到 Eval 记录
+  | 'evalNotFound'
+  // conflict：T16 #86 旧 Policy 版本的评估结果不得落地
+  | 'evalPolicyStale'
 
 export type SuperAgentErrorParams = Record<string, string | number>
 
@@ -115,6 +126,14 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   checkpointFileDirty: 'refused',
   checkpointInvalidFile: 'refused',
   checkpointRollbackFailed: 'unavailable',
+  acceptModeOff: 'refused',
+  botForbidden: 'refused',
+  evalBusy: 'refused',
+  evalEmpty: 'refused',
+  evalNotDelivered: 'refused',
+  invalidPolicy: 'refused',
+  evalNotFound: 'missing',
+  evalPolicyStale: 'conflict',
 }
 
 export const SUPER_AGENT_ERROR_CODES = Object.keys(ERROR_CATEGORIES) as SuperAgentErrorCode[]

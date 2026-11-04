@@ -147,6 +147,8 @@ export interface SuperAgentMandate {
   basis: SuperAgentMandateBasis
   actor: string
   scope: SuperAgentMandateScope
+  /** T16 #86：语义 Eval 命中并随授权下发给 Worker 的 Policy 规则名。 */
+  matchedRules: string[]
   createdAt: string
   revokedAt: string | null
 }
@@ -309,6 +311,85 @@ export interface SuperAgentIdempotencyEntry {
   fingerprint: string
 }
 
+/**
+ * T16 #86：自动接受模式。off=不进入语义 Eval（默认，外部事件只落库）；
+ * observe=完整评估但只记录「本会接受」，不建单；auto=接受即建单。
+ * Desktop 显式派工不依赖 acceptMode。
+ */
+export type SuperAgentAcceptMode = 'off' | 'observe' | 'auto'
+
+/** T16 #86：Policy 规则 —— 语义 Eval 命中后写入 Mandate 并下发给 Worker。 */
+export interface SuperAgentPolicyRule {
+  name: string
+  instruction: string
+}
+
+/**
+ * T16 #86：每 Source 准入表 —— scope（channel 允许列表，空数组=整个 Source）×
+ * 名单（actor allowlist）× @Agent 共同决定 explicit / inferred / 不进入。
+ * bots 是 bot actor 名单：最多 inferred，不能显式请求、不能 stop；
+ * 身份只在本 Source 内有效，跨 Source 不做映射。
+ */
+export interface SuperAgentSourceAdmission {
+  source: string
+  channels: string[]
+  allowlist: string[]
+  bots: string[]
+}
+
+/** T16 #86：版本化授权策略 —— 任一子项变化即 version+1，旧 Eval 全部丢弃重排。 */
+export interface SuperAgentPolicy {
+  version: number
+  acceptMode: SuperAgentAcceptMode
+  rules: SuperAgentPolicyRule[]
+  admissions: SuperAgentSourceAdmission[]
+}
+
+/**
+ * T16 #86：Eval 生命周期。
+ * queued：已建批未送达（不计时）；delivered：候选已送 Router（deadline 计时）；
+ * decided：已裁决（accept/stop/ignore）；requeued：超时或版本变化回队；
+ * unavailable：连续第 3 次超时 / 模型自报不可评估，等待人工处置；
+ * discarded：Policy 版本变化被丢弃。
+ */
+export type SuperAgentEvalState =
+  | 'queued'
+  | 'delivered'
+  | 'decided'
+  | 'requeued'
+  | 'unavailable'
+  | 'discarded'
+
+/** T16 #86：Eval 的裁决事实；observe 模式 accept 也落这里（不建单）。 */
+export interface SuperAgentEvalDecision {
+  action: SuperAgentDecisionAction
+  at: string
+  /** 命中的 Policy 规则名（提交时校验必须存在于当前 Policy）。 */
+  matchedRules: string[]
+  /** accept 建单时对应工单；observe/ignore/stop/unavailable 为 null。 */
+  ticketId: string | null
+}
+
+/** T16 #86：按 Thread 串行的语义评估批次。 */
+export interface SuperAgentEval {
+  evalId: string
+  threadId: string
+  triggerIds: string[]
+  /** 提交 Decision 时必须等于当前 Policy 版本，否则拒绝落地。 */
+  policyVersion: number
+  state: SuperAgentEvalState
+  /** 批次聚合后的 Gate 判定（任一 bot → 整批按 bot 处理）。 */
+  strength: SuperAgentMandateStrength
+  basis: SuperAgentMandateBasis
+  bot: boolean
+  actor: string
+  createdAt: string
+  /** 候选真正送达 Router 的时刻；deadline 从这里起算，未送达不计时。 */
+  deliveredAt: string | null
+  deadlineAt: string | null
+  decision: SuperAgentEvalDecision | null
+}
+
 /** 单写者持有的全部领域事实。 */
 export interface SuperAgentDomainState {
   /** 事实序号水位，每次新增领域事实递增。 */
@@ -338,4 +419,11 @@ export interface SuperAgentDomainState {
    * 当前值，策略变更即时生效（运行中不热切换的闸门在 service/scheduler 层）。
    */
   executionPolicy: SuperAgentExecutionPolicy
+  /**
+   * T16 #86：版本化授权策略是持久领域事实（跨重启保持）。任一子项变化
+   * version+1，运行中 Eval 全部丢弃重排。
+   */
+  policy: SuperAgentPolicy
+  /** T16 #86：语义评估批次（按 Thread 串行），按 evalId 索引。 */
+  evals: Record<string, SuperAgentEval>
 }

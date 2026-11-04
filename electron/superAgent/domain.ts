@@ -14,6 +14,15 @@ import { superAgentError } from './errors'
 import { idempotencyKey } from './idempotency'
 export { idempotencyKey } from './idempotency'
 import {
+  clonePolicyAdmissions,
+  clonePolicyRules,
+  cloneSuperAgentPolicy,
+  DEFAULT_SUPER_AGENT_POLICY,
+  gateTrigger,
+  type SuperAgentGateAdmission,
+} from './policy'
+export { DEFAULT_SUPER_AGENT_POLICY, gateTrigger } from './policy'
+import {
   canRetryTicket,
   deriveTicketStage,
   latestAssignmentOf,
@@ -21,12 +30,14 @@ import {
   type TicketStageFacts,
 } from './stage'
 import type {
+  SuperAgentAcceptMode,
   SuperAgentAssignment,
   SuperAgentAssignmentEndReason,
   SuperAgentAttention,
   SuperAgentDecision,
   SuperAgentDomainState,
   SuperAgentEndedBy,
+  SuperAgentEval,
   SuperAgentExecutionMode,
   SuperAgentExecutionPolicy,
   SuperAgentIdempotencyEntry,
@@ -35,8 +46,11 @@ import type {
   SuperAgentMandate,
   SuperAgentMandateBasis,
   SuperAgentMandateStrength,
+  SuperAgentPolicy,
+  SuperAgentPolicyRule,
   SuperAgentReport,
   SuperAgentReportKind,
+  SuperAgentSourceAdmission,
   SuperAgentThread,
   SuperAgentTicket,
   SuperAgentTicketOutcome,
@@ -310,9 +324,86 @@ export interface SetExecutionPolicyResult {
   changed: boolean
 }
 
+/** T16 #86：Policy 变更 —— 缺省子项保持原值；任一变化 version+1 并丢弃重排运行中 Eval。 */
+export interface SetPolicyInput {
+  acceptMode?: SuperAgentAcceptMode
+  rules?: SuperAgentPolicyRule[]
+  admissions?: SuperAgentSourceAdmission[]
+  at?: string
+}
+
+export interface SetPolicyResult {
+  policy: SuperAgentPolicy
+  /** 无变化时幂等：不推进 version，也不丢弃 Eval。 */
+  changed: boolean
+  /** 因版本变化被丢弃并重排的 Eval。 */
+  discardedEvalIds: string[]
+}
+
+/** T16 #86：程序层过滤落库 —— Trigger 记原因码并退出 Eval 候选。 */
+export interface FilterTriggerInput {
+  triggerId: string
+  reason: string
+}
+
+/** T16 #86：按 Thread 建批 —— 批次 = 该 Thread 当前全部 pending 候选，Gate 重新判定。 */
+export interface StartEvalInput {
+  threadId: string
+  at?: string
+}
+
+/** T16 #86：候选送达 Router —— deadline 从这一刻起算。 */
+export interface DeliverEvalInput {
+  evalId: string
+  at?: string
+}
+
+/** T16 #86：deadline 到点检查 —— 暂停期间/未到点为 no-op，返回实际处置结果。 */
+export interface ExpireEvalInput {
+  evalId: string
+  at?: string
+}
+
+export interface ExpireEvalResult {
+  eval: SuperAgentEval
+  outcome: 'requeued' | 'unavailable' | 'ignored'
+}
+
+/** T16 #86：Router 提交语义裁决 —— 重新校验 Policy 版本、去重与 bot 限制。 */
+export interface SubmitEvalDecisionInput {
+  evalId: string
+  action: 'accept' | 'stop' | 'ignore' | 'unavailable'
+  /** auto 模式 accept 建单所需（Mandate scope 根目录）。 */
+  repoRoot?: string
+  /** 命中的 Policy 规则名；提交时校验必须存在于当前 Policy。 */
+  matchedRules?: string[]
+  at?: string
+}
+
+export interface SubmitEvalDecisionResult {
+  eval: SuperAgentEval
+  /** auto 模式 accept 创建的工单；其余为 null。 */
+  ticket: SuperAgentTicket | null
+  /** accept 建单时的审计 Decision；其余为 null。 */
+  decision: SuperAgentDecision | null
+  /** 已裁决的 Eval 重复提交时返回原结果。 */
+  duplicate: boolean
+}
+
+/** T16 #86：续接前重校验 —— 按 Mandate 来源 Trigger 在当前 Policy 下重新过 Gate。 */
+export interface RevalidateTicketResult {
+  valid: boolean
+  /** 失效原因码（Gate 过滤原因 / 'revoked'），有效为 null。 */
+  reason: string | null
+}
+
 export interface SuperAgentDomainOptions {
   now?: () => Date
   newId?: (kind: string) => string
+  /**
+   * T16 #86：Eval 的 deadline 时限（候选送达 Router 起算）。缺省 60 秒。
+   */
+  evalTtlMs?: number
   /**
    * T11 #81：从持久化快照重水化。缺失字段补默认（前向兼容），
    * 未知字段按结构透传保留（§9.4 未见过的字段必须可被忽略）。
@@ -365,6 +456,38 @@ export interface SuperAgentDomain {
    * 运行中不热切换（有 Worker 活动时拒绝）的闸门在 service/scheduler 层。
    */
   setExecutionPolicy(input: SetExecutionPolicyInput): SetExecutionPolicyResult
+  /**
+   * T16 #86：Policy 变更（持久领域事实）。任一子项变化 version+1，并丢弃
+   * 运行中（queued/delivered）Eval，把批次 Trigger 按新版本重排回队；
+   * 无变化幂等，不推进 version。
+   */
+  setPolicy(input: SetPolicyInput): SetPolicyResult
+  /** T16 #86：程序层过滤落库 —— Trigger 记原因码并退出 Eval 候选（幂等）。 */
+  filterTrigger(input: FilterTriggerInput): SuperAgentTrigger
+  /**
+   * T16 #86：按 Thread 建批进入语义 Eval（串行：同一 Thread 同时最多一个）。
+   * off 模式拒绝；批次 = 该 Thread 全部 pending Trigger，经当前 Policy 重新过
+   * Gate（inferred 聚合规则见实现）。未送达不计时。
+   */
+  startEval(input: StartEvalInput): SuperAgentEval
+  /** T16 #86：候选送达 Router —— deadline 从这一刻起算（未送达的 Eval 不超时）。 */
+  deliverEval(input: DeliverEvalInput): SuperAgentEval
+  /**
+   * T16 #86：deadline 到点检查。暂停期间不超时；未到点 no-op。超时重排 2 次，
+   * 第 3 次记 unavailable（Trigger 扣住等待人工处置，不回队）。
+   */
+  expireEval(input: ExpireEvalInput): ExpireEvalResult
+  /**
+   * T16 #86：Router 提交语义裁决。重新校验 Policy 版本（旧版本不得落地）、
+   * 触发器去重与 bot 限制；observe 只记录「本会接受」，auto 建单并落
+   * Decision → Mandate → pending Assignment 审计链。
+   */
+  submitEvalDecision(input: SubmitEvalDecisionInput): SubmitEvalDecisionResult
+  /**
+   * T16 #86：续接前 revalidate —— 按 Mandate 的来源 Trigger 在当前 Policy 下
+   * 重新过 Gate；失效（名单移除/scope 收紧/bot 化/已撤回）则续接被拒。
+   */
+  revalidateTicket(ticketId: string): RevalidateTicketResult
   stageOf(ticketId: string): SuperAgentTicketStage
 }
 
@@ -427,6 +550,7 @@ export function resolveExecutionPolicy(input: SetExecutionPolicyInput): SuperAge
 export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): SuperAgentDomain {
   const now = options.now ?? (() => new Date())
   const newId = options.newId ?? ((kind: string) => `${kind}-${randomUUID()}`)
+  const evalTtlMs = options.evalTtlMs ?? 60_000
   const fresh = (): SuperAgentDomainState => ({
     seq: 0,
     triggers: {},
@@ -443,6 +567,8 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     paused: false,
     pausedAt: null,
     executionPolicy: { ...DEFAULT_EXECUTION_POLICY },
+    policy: cloneSuperAgentPolicy(DEFAULT_SUPER_AGENT_POLICY),
+    evals: {},
   })
   const state: SuperAgentDomainState = options.initialState
     ? // 重水化：缺失字段补默认，已有事实原样保留；未知字段透传（前向兼容）。
@@ -572,6 +698,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       basis: input.basis ?? 'addressed',
       actor: input.trigger.actor,
       scope: { repoRoot: input.repoRoot, paths: input.scopePaths ?? [] },
+      matchedRules: [],
       createdAt: at,
       revokedAt: null,
     }
@@ -1172,6 +1299,8 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     if (typeof input.text !== 'string' || input.text.trim() === '') {
       throw superAgentError('invalidTicketMessage', { ticketId: input.ticketId })
     }
+    // T16 #86：续接前 revalidate —— Policy 已不再承认该 Mandate 的来源授权时拒绝续接。
+    assertMandateAdmitsContinuation(input.ticketId)
     return addInput({
       ticketId: input.ticketId,
       requestId: input.requestId,
@@ -1189,6 +1318,8 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     if (!canRetryTicket(factsOf(ticket))) {
       throw superAgentError('notRetryable', { ticketId: ticket.ticketId })
     }
+    // T16 #86：人工续接（重试）前 revalidate。
+    assertMandateAdmitsContinuation(input.ticketId)
 
     const at = atNow(input.at)
     const latest = latestAssignmentOf(ticket.assignmentIds.map((id) => state.assignments[id]))
@@ -1245,6 +1376,8 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     if (!latest || latest.state !== 'interrupted') {
       throw superAgentError('notRetryable', { ticketId: ticket.ticketId })
     }
+    // T16 #86：人工续接（恢复）前 revalidate。
+    assertMandateAdmitsContinuation(input.ticketId)
     const assignment = newAssignmentForTicket(ticket, atNow(input.at), 'pending')
     return { ticket, assignment }
   }
@@ -1262,6 +1395,20 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
   /** T11 #81：恢复暂停（幂等）—— 后续 launch/delivery 由上层续跑。 */
   function resumeProject(input: { at?: string } = {}): SuperAgentDomainState {
     if (state.paused) {
+      const resumedAt = atNow(input.at)
+      // T16 #86：恢复时把运行中 Eval 的 deadline 顺延一个暂停时长 ——
+      // 暂停期间不计时，等于把暂停窗口原样补回评估时限。
+      const pausedAt = state.pausedAt
+      if (pausedAt !== null) {
+        const pauseMs = Date.parse(resumedAt) - Date.parse(pausedAt)
+        for (const evalRecord of Object.values(state.evals)) {
+          if (evalRecord.state === 'delivered' && evalRecord.deadlineAt !== null) {
+            evalRecord.deadlineAt = new Date(
+              Date.parse(evalRecord.deadlineAt) + pauseMs,
+            ).toISOString()
+          }
+        }
+      }
       state.paused = false
       state.pausedAt = null
       nextOrdinal()
@@ -1284,6 +1431,428 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       nextOrdinal()
     }
     return { policy: state.executionPolicy, changed }
+  }
+
+  // ------------------------------------------------------------------
+  // T16 #86：程序层 Gate → 语义 Eval → Decision（Policy 三模式与版本化）
+  // ------------------------------------------------------------------
+
+  /** T16 #86：超时重排 2 次，连续第 3 次记 unavailable。 */
+  const MAX_EVAL_TIMEOUTS = 3
+
+  function requireEval(evalId: string): SuperAgentEval {
+    const evalRecord = state.evals[evalId]
+    if (!evalRecord) throw superAgentError('evalNotFound', { evalId })
+    return evalRecord
+  }
+
+  /** 校验 Policy 子项并归一成新快照（不落库）。 */
+  function normalizePolicy(
+    acceptMode: SuperAgentAcceptMode | undefined,
+    rules: SuperAgentPolicyRule[] | undefined,
+    admissions: SuperAgentSourceAdmission[] | undefined,
+  ): Pick<SuperAgentPolicy, 'acceptMode' | 'rules' | 'admissions'> {
+    const invalid = (field: string) => superAgentError('invalidPolicy', { field })
+    if (acceptMode === undefined) acceptMode = state.policy.acceptMode
+    if (acceptMode !== 'off' && acceptMode !== 'observe' && acceptMode !== 'auto') {
+      throw invalid('acceptMode')
+    }
+    const nextRules = rules ?? state.policy.rules
+    const ruleNames = new Set<string>()
+    for (const rule of nextRules) {
+      if (typeof rule?.name !== 'string' || rule.name.trim() === '') throw invalid('rules')
+      if (typeof rule?.instruction !== 'string' || rule.instruction.trim() === '') {
+        throw invalid('rules')
+      }
+      if (ruleNames.has(rule.name)) throw invalid('rules')
+      ruleNames.add(rule.name)
+    }
+    const nextAdmissions = admissions ?? state.policy.admissions
+    const sources = new Set<string>()
+    for (const entry of nextAdmissions) {
+      if (typeof entry?.source !== 'string' || entry.source.trim() === '') {
+        throw invalid('admissions')
+      }
+      if (sources.has(entry.source)) throw invalid('admissions')
+      sources.add(entry.source)
+      for (const list of [entry.channels, entry.allowlist, entry.bots]) {
+        if (!Array.isArray(list) || list.some((id) => typeof id !== 'string' || id === '')) {
+          throw invalid('admissions')
+        }
+      }
+    }
+    return {
+      acceptMode,
+      rules: clonePolicyRules(nextRules),
+      admissions: clonePolicyAdmissions(nextAdmissions),
+    }
+  }
+
+  /**
+   * T16 #86：Policy 变更。任一子项变化 version+1，并丢弃运行中
+   * （queued/delivered）Eval：批次 Trigger 按新版本重排回队，
+   * 旧版本的评估结果在提交口被拒绝（evalPolicyStale）。
+   */
+  function setPolicy(input: SetPolicyInput): SetPolicyResult {
+    const next = normalizePolicy(input.acceptMode, input.rules, input.admissions)
+    const changed =
+      canonical(next) !==
+      canonical({
+        acceptMode: state.policy.acceptMode,
+        rules: state.policy.rules,
+        admissions: state.policy.admissions,
+      })
+    const discardedEvalIds: string[] = []
+    if (changed) {
+      state.policy = { version: state.policy.version + 1, ...next }
+      for (const evalRecord of Object.values(state.evals)) {
+        if (evalRecord.state !== 'queued' && evalRecord.state !== 'delivered') continue
+        evalRecord.state = 'discarded'
+        const thread = state.threads[evalRecord.threadId]
+        if (thread) {
+          thread.evaluating = false
+          // 丢弃不是超时：按新版本重排后的批次重新获得完整的重排配额。
+          thread.expired = 0
+          requeueTriggers(thread, evalRecord.triggerIds)
+        }
+        discardedEvalIds.push(evalRecord.evalId)
+      }
+      nextOrdinal()
+    }
+    return { policy: state.policy, changed, discardedEvalIds }
+  }
+
+  /** T16 #86：程序层过滤落库 —— Trigger 记原因码并退出 Eval 候选（幂等，首个原因码生效）。 */
+  function filterTrigger(input: FilterTriggerInput): SuperAgentTrigger {
+    const trigger = state.triggers[input.triggerId]
+    if (!trigger) throw superAgentError('triggerNotFound', { triggerId: input.triggerId })
+    // 已过滤（含断档重放/策略变化后原因码不同）幂等返回：首个原因码为准，
+    // 不因重放换码而报错 —— 否则重放会被 Ingestor 误判为坏事件进隔离区。
+    if (trigger.disposition.filtered !== null) return trigger
+    trigger.disposition.filtered = input.reason
+    for (const thread of Object.values(state.threads)) {
+      const pendingIndex = thread.pendingTriggerIds.indexOf(trigger.triggerId)
+      if (pendingIndex >= 0) thread.pendingTriggerIds.splice(pendingIndex, 1)
+    }
+    nextOrdinal()
+    return trigger
+  }
+
+  /** 批次 Trigger 回队（保持时序；已在队中不重复入队）。 */
+  function requeueTriggers(thread: SuperAgentThread, triggerIds: string[]): void {
+    for (const triggerId of triggerIds) {
+      const trigger = state.triggers[triggerId]
+      if (trigger) trigger.disposition.requeued = true
+      if (!thread.pendingTriggerIds.includes(triggerId)) thread.pendingTriggerIds.push(triggerId)
+    }
+  }
+
+  /**
+   * T16 #86：按 Thread 建批进入语义 Eval（串行）。批次 = 该 Thread 全部
+   * pending 候选，经当前 Policy 重新过程序层 Gate：不再准入的落原因码，
+   * 准入的聚合批次强度（任一 bot → 整批按 bot 处理，不能借批次显式请求）。
+   */
+  function startEval(input: StartEvalInput): SuperAgentEval {
+    const thread = state.threads[input.threadId]
+    if (!thread) throw superAgentError('threadNotFound', { threadId: input.threadId })
+    if (thread.evaluating) throw superAgentError('evalBusy', { threadId: input.threadId })
+    if (state.policy.acceptMode === 'off') {
+      throw superAgentError('acceptModeOff', { threadId: input.threadId })
+    }
+
+    const at = atNow(input.at)
+    const admitted: { triggerId: string; gate: Exclude<SuperAgentGateAdmission, { admitted: false }> }[] = []
+    let anyExplicit = false
+    for (const triggerId of [...thread.pendingTriggerIds]) {
+      const trigger = state.triggers[triggerId]
+      if (!trigger) continue
+      const gate = gateTrigger(state.policy, trigger)
+      if (!gate.admitted) {
+        filterTrigger({ triggerId, reason: gate.filtered })
+        continue
+      }
+      if (gate.strength === 'explicit') anyExplicit = true
+      admitted.push({ triggerId, gate })
+    }
+    if (admitted.length === 0) throw superAgentError('evalEmpty', { threadId: input.threadId })
+
+    // 聚合：整批都是 bot 才按 bot 处理（bot 不能借批次显式请求/停止）；
+    // 混入人消息的批次按人消息授权判定。
+    const allBots = admitted.every((item) => item.gate.bot)
+    const strength: SuperAgentMandateStrength = allBots || !anyExplicit ? 'inferred' : 'explicit'
+    const basis: SuperAgentMandateBasis = allBots
+      ? 'bot'
+      : anyExplicit
+        ? 'addressed'
+        : 'admission'
+    const primary = state.triggers[admitted[0]!.triggerId]!
+    const evalRecord: SuperAgentEval = {
+      evalId: newId('eval'),
+      threadId: thread.threadId,
+      triggerIds: admitted.map((item) => item.triggerId),
+      policyVersion: state.policy.version,
+      state: 'queued',
+      strength,
+      basis,
+      bot: allBots,
+      actor: primary.actor,
+      createdAt: at,
+      deliveredAt: null,
+      deadlineAt: null,
+      decision: null,
+    }
+    state.evals[evalRecord.evalId] = evalRecord
+    const admittedIds = new Set(evalRecord.triggerIds)
+    thread.pendingTriggerIds = thread.pendingTriggerIds.filter((id) => !admittedIds.has(id))
+    thread.evaluating = true
+    nextOrdinal()
+    return evalRecord
+  }
+
+  /** T16 #86：候选送达 Router —— deadline 从这一刻起算（未送达不计时）。 */
+  function deliverEval(input: DeliverEvalInput): SuperAgentEval {
+    const evalRecord = requireEval(input.evalId)
+    if (evalRecord.state !== 'queued') {
+      throw superAgentError('conflict', { evalId: input.evalId, state: evalRecord.state })
+    }
+    const at = atNow(input.at)
+    evalRecord.state = 'delivered'
+    evalRecord.deliveredAt = at
+    evalRecord.deadlineAt = new Date(Date.parse(at) + evalTtlMs).toISOString()
+    nextOrdinal()
+    return evalRecord
+  }
+
+  /**
+   * T16 #86：deadline 到点检查。暂停期间不超时（恢复时顺延）；未到点/未送达
+   * no-op。超时重排 2 次；连续第 3 次记 unavailable —— Trigger 扣住不回队，
+   * 等待人工处置（unavailable 不是 ignore）。
+   */
+  function expireEval(input: ExpireEvalInput): ExpireEvalResult {
+    const evalRecord = requireEval(input.evalId)
+    if (evalRecord.state !== 'delivered' || evalRecord.deadlineAt === null) {
+      return { eval: evalRecord, outcome: 'ignored' }
+    }
+    if (state.paused) return { eval: evalRecord, outcome: 'ignored' }
+    const at = atNow(input.at)
+    if (Date.parse(at) < Date.parse(evalRecord.deadlineAt)) {
+      return { eval: evalRecord, outcome: 'ignored' }
+    }
+    const thread = state.threads[evalRecord.threadId]
+    if (!thread) return { eval: evalRecord, outcome: 'ignored' }
+
+    thread.expired += 1
+    if (thread.expired >= MAX_EVAL_TIMEOUTS) {
+      evalRecord.state = 'unavailable'
+      evalRecord.decision = { action: 'unavailable', at, matchedRules: [], ticketId: null }
+      thread.evaluating = false
+      nextOrdinal()
+      return { eval: evalRecord, outcome: 'unavailable' }
+    }
+
+    evalRecord.state = 'requeued'
+    requeueTriggers(thread, evalRecord.triggerIds)
+    thread.evaluating = false
+    nextOrdinal()
+    return { eval: evalRecord, outcome: 'requeued' }
+  }
+
+  /** auto 模式 accept 建单：Decision → Mandate（含命中规则）→ pending Assignment。 */
+  function createEvalTicket(
+    evalRecord: SuperAgentEval,
+    triggerIds: string[],
+    input: SubmitEvalDecisionInput,
+    at: string,
+  ): { ticket: SuperAgentTicket; decision: SuperAgentDecision } {
+    const repoRoot = input.repoRoot as string
+    const primary = state.triggers[triggerIds[0]]!
+    const thread = state.threads[evalRecord.threadId]!
+    const ticketId = newId('ticket')
+    const mandate: SuperAgentMandate = {
+      mandateId: newId('mandate'),
+      ticketId,
+      policyVersion: state.policy.version,
+      strength: evalRecord.strength,
+      basis: evalRecord.basis,
+      actor: evalRecord.actor,
+      scope: { repoRoot, paths: [] },
+      matchedRules: [...new Set(input.matchedRules ?? [])],
+      createdAt: at,
+      revokedAt: null,
+    }
+    const ticket: SuperAgentTicket = {
+      ticketId,
+      title: primary.text,
+      state: 'open',
+      createdAt: at,
+      origin: { triggerId: triggerIds[0], triggerIds: [...triggerIds] },
+      mandateId: mandate.mandateId,
+      threadId: evalRecord.threadId,
+      assignmentIds: [],
+      inputIds: [],
+      answers: [],
+      attentionId: null,
+      execution: { name: 'main', directory: repoRoot, assignmentId: null },
+      follows: [],
+      delivery: null,
+      undelivered: [],
+      reviewRemindedAt: null,
+      ended: null,
+    }
+    for (const triggerId of triggerIds) {
+      const trigger = state.triggers[triggerId]
+      if (!trigger) continue
+      if (!trigger.disposition.ticketIds.includes(ticketId)) {
+        trigger.disposition.ticketIds.push(ticketId)
+      }
+      trigger.disposition.ackedAt = at
+    }
+    thread.subscriptions.push({ ticketId, attachedAt: at, contextOnly: false })
+    state.mandates[mandate.mandateId] = mandate
+    state.tickets[ticketId] = ticket
+
+    const decision: SuperAgentDecision = {
+      decisionId: newId('decision'),
+      ticketId,
+      triggerId: triggerIds[0],
+      action: 'accept',
+      source: primary.source,
+      actor: evalRecord.actor,
+      human: primary.human,
+      policyVersion: state.policy.version,
+      strength: evalRecord.strength,
+      basis: evalRecord.basis,
+      at,
+    }
+    state.decisions[ticketId] = decision
+
+    newAssignmentForTicket(ticket, at, 'pending')
+    return { ticket, decision }
+  }
+
+  /**
+   * T16 #86：Router 提交语义裁决。重新校验 Policy 版本（旧版本不得落地）、
+   * matchedRules 合法性、bot 限制与触发器去重；observe 只记录「本会接受」，
+   * auto 建单；stop 结束订阅该 Thread 的开放工单（bot 拒绝，无对象降级 ignore）。
+   */
+  function submitEvalDecision(input: SubmitEvalDecisionInput): SubmitEvalDecisionResult {
+    const evalRecord = requireEval(input.evalId)
+    if (evalRecord.state === 'decided') {
+      const ticket = evalRecord.decision?.ticketId
+        ? (state.tickets[evalRecord.decision.ticketId] ?? null)
+        : null
+      const decision = ticket ? (state.decisions[ticket.ticketId] ?? null) : null
+      return { eval: evalRecord, ticket, decision, duplicate: true }
+    }
+    if (evalRecord.policyVersion !== state.policy.version) {
+      throw superAgentError('evalPolicyStale', {
+        evalId: input.evalId,
+        evalPolicyVersion: evalRecord.policyVersion,
+        policyVersion: state.policy.version,
+      })
+    }
+    if (evalRecord.state !== 'delivered') {
+      throw superAgentError('evalNotDelivered', {
+        evalId: input.evalId,
+        state: evalRecord.state,
+      })
+    }
+    const at = atNow(input.at)
+    const matchedRules = [...new Set(input.matchedRules ?? [])]
+    if (
+      matchedRules.some((name) => !state.policy.rules.some((rule) => rule.name === name))
+    ) {
+      throw superAgentError('invalidPolicy', { evalId: input.evalId, field: 'matchedRules' })
+    }
+    const thread = state.threads[evalRecord.threadId]
+    if (!thread) throw superAgentError('threadNotFound', { threadId: evalRecord.threadId })
+
+    let action = input.action
+    let ticket: SuperAgentTicket | null = null
+    let decision: SuperAgentDecision | null = null
+
+    if (action === 'stop') {
+      // bot 不能显式请求、不能 stop。
+      if (evalRecord.bot) throw superAgentError('botForbidden', { evalId: input.evalId })
+      const openTickets = thread.subscriptions
+        .filter((subscription) => !subscription.contextOnly)
+        .map((subscription) => state.tickets[subscription.ticketId])
+        .filter((target): target is SuperAgentTicket => target !== undefined && target.state === 'open')
+      if (openTickets.length === 0) {
+        // 无对象 stop 降级为 ignore 落档（人工 stop 需要存活工单）。
+        action = 'ignore'
+      } else {
+        for (const target of openTickets) {
+          endTicketInternal(target, {
+            outcome: 'stopped',
+            by: 'policy',
+            reason: 'eval-stop',
+            at,
+          })
+        }
+      }
+    }
+
+    if (action === 'accept') {
+      if (state.policy.acceptMode === 'off') {
+        throw superAgentError('acceptModeOff', { evalId: input.evalId })
+      }
+      if (state.policy.acceptMode === 'observe') {
+        // observe：只记录「本会接受」，不建单（适合观察模型路由质量）。
+      } else {
+        // auto：去重 —— 已被其他工单消费的 Trigger 不参与建单。
+        const included = evalRecord.triggerIds.filter((triggerId) => {
+          const trigger = state.triggers[triggerId]
+          return trigger !== undefined && trigger.disposition.ticketIds.length === 0
+        })
+        if (included.length === 0) {
+          action = 'ignore'
+        } else {
+          if (typeof input.repoRoot !== 'string' || input.repoRoot === '') {
+            throw superAgentError('invalidDispatch', { requestId: input.evalId })
+          }
+          ;({ ticket, decision } = createEvalTicket(evalRecord, included, input, at))
+        }
+      }
+    }
+
+    evalRecord.state = action === 'unavailable' ? 'unavailable' : 'decided'
+    evalRecord.decision = { action, at, matchedRules, ticketId: ticket?.ticketId ?? null }
+    thread.evaluating = false
+    // Router 真实响应（含模型自报 unavailable）打断连续超时序列，计数清零；
+    // 超时路径（expireEval）保持计数作为升级护栏。
+    thread.expired = 0
+    nextOrdinal()
+    return { eval: evalRecord, ticket, decision, duplicate: false }
+  }
+
+  /**
+   * T16 #86：续接前 revalidate —— 按 Mandate 的来源 Trigger 在当前 Policy
+   * 下重新过程序层 Gate；撤回/不再准入/授权被降级（显式 → 推断，或被 bot 化）判失效。
+   */
+  function revalidateTicket(ticketId: string): RevalidateTicketResult {
+    const ticket = requireTicket(ticketId)
+    const mandate = state.mandates[ticket.mandateId]
+    if (!mandate || mandate.revokedAt !== null) return { valid: false, reason: 'revoked' }
+    const trigger = state.triggers[ticket.origin.triggerId]
+    if (!trigger) return { valid: false, reason: 'missing' }
+    const gate = gateTrigger(state.policy, trigger)
+    if (!gate.admitted) return { valid: false, reason: gate.filtered }
+    if (mandate.strength === 'explicit' && (gate.bot || gate.strength !== 'explicit')) {
+      return { valid: false, reason: 'downgraded' }
+    }
+    return { valid: true, reason: null }
+  }
+
+  /** T16 #86：人工续接入口的公共闸门：revalidate 失效即拒绝续接。 */
+  function assertMandateAdmitsContinuation(ticketId: string): void {
+    const check = revalidateTicket(ticketId)
+    if (!check.valid) {
+      throw superAgentError('mandateRevoked', {
+        ticketId,
+        reason: check.reason ?? 'revoked',
+      })
+    }
   }
 
   function report(command: ReportCommand): ReportResult {
@@ -1477,6 +2046,13 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     resumeProject,
     markReviewReminded,
     setExecutionPolicy,
+    setPolicy,
+    filterTrigger,
+    startEval,
+    deliverEval,
+    expireEval,
+    submitEvalDecision,
+    revalidateTicket,
     stageOf,
   }
 }

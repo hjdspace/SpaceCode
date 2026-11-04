@@ -3,24 +3,41 @@
  * 坏事件隔离与限流退避（T15 #85）。
  *
  * Intake 顺序遵循设计 §6.2：存 Trigger → 更新 Thread → fan-out 给既有订阅 →
- * 决定是否需要 Eval（addressed 且未被订阅消费的 Trigger 成为建单候选，交给
- * onCandidate；Gate/Assessment 属 Phase 2）。
+ * 程序层 Gate（T16 #86，纯函数，不耗模型）决定 explicit / inferred / 不进入：
+ * 准入的未被订阅消费 Trigger 连同判定结果交给 onCandidate；
+ * 不准入的直接落 disposition.filtered 原因码，不把正文送入 Router。
  *
  * 游标只在整批事件成功进入领域后推进；断档（gap）时丢弃当前页并从头全量重拉，
  * 事件键幂等（domain.intakeTrigger）保证重放不重复建单、fan-out 的 requestId
  * 保证不重复投递。轮询失败按指数退避，全部基于定时器与异步 IO，不阻塞主进程。
  */
 import type { SuperAgentDomain, TriggerDraft } from '../domain'
-import type { SuperAgentTrigger, SuperAgentTriggerAddress } from '../model'
+import type {
+  SuperAgentMandateBasis,
+  SuperAgentMandateStrength,
+  SuperAgentTrigger,
+  SuperAgentTriggerAddress,
+} from '../model'
+import { gateTrigger } from '../policy'
 import type { SourceQuarantine, SourceQuarantineEntry } from './quarantine'
 import type { SourceCursorStore } from './cursorStore'
 import { parseSourceEvent } from './types'
 import type { ExternalSource } from './types'
 
-/** 建单候选：@SuperAgent 或显式引用、且未被任何订阅消费的 Trigger。 */
+/**
+ * 建单候选：经程序层 Gate 准入（@SuperAgent / 显式引用 → explicit，
+ * 名单或 bot → inferred）且未被任何订阅消费的 Trigger。
+ */
 export interface SourceCandidate {
   trigger: SuperAgentTrigger
-  reason: SuperAgentTriggerAddress
+  /** 触发方式（addressed 类型）；名单/bot 的未 @ 候选为 null。 */
+  reason: SuperAgentTriggerAddress | null
+  /** T16 #86：Gate 判定强度（explicit/inferred）。 */
+  strength: SuperAgentMandateStrength
+  /** T16 #86：Gate 判定依据（addressed/admission/bot）。 */
+  basis: SuperAgentMandateBasis
+  /** T16 #86：是否来自 bot 名单（最多 inferred、不能显式请求/停止）。 */
+  bot: boolean
 }
 
 export interface SourceStatus {
@@ -174,15 +191,27 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
       }
     }
 
+    // 程序层 Gate（T16 #86）：纯函数判定，不消耗模型。不进入的落原因码
+    // 并退出 Eval 候选；准入的交给 onCandidate，由语义 Eval（按 Thread 串行）
+    // 与 Policy 三模式接管后续。
+    const gate = gateTrigger(domain.state.policy, trigger)
+    if (!gate.admitted) {
+      domain.filterTrigger({ triggerId: trigger.triggerId, reason: gate.filtered })
+      return
+    }
     if (
-      trigger.addressed !== null &&
-      trigger.human &&
       !consumedBySubscription &&
       trigger.disposition.ticketIds.length === 0 &&
       !emittedCandidateKeys.has(trigger.key)
     ) {
       emittedCandidateKeys.add(trigger.key)
-      onCandidate?.({ trigger, reason: trigger.addressed })
+      onCandidate?.({
+        trigger,
+        reason: trigger.addressed,
+        strength: gate.strength,
+        basis: gate.basis,
+        bot: gate.bot,
+      })
     }
   }
 

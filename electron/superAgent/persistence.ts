@@ -71,6 +71,13 @@ function persistingDomain(
     resumeProject: (input) => tracked(() => domain.resumeProject(input)),
     markReviewReminded: (input) => tracked(() => domain.markReviewReminded(input)),
     setExecutionPolicy: (input) => tracked(() => domain.setExecutionPolicy(input)),
+    setPolicy: (input) => tracked(() => domain.setPolicy(input)),
+    filterTrigger: (input) => tracked(() => domain.filterTrigger(input)),
+    startEval: (input) => tracked(() => domain.startEval(input)),
+    deliverEval: (input) => tracked(() => domain.deliverEval(input)),
+    expireEval: (input) => tracked(() => domain.expireEval(input)),
+    submitEvalDecision: (input) => tracked(() => domain.submitEvalDecision(input)),
+    revalidateTicket: (ticketId) => domain.revalidateTicket(ticketId),
   }
 }
 
