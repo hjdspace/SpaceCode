@@ -64,6 +64,10 @@ export const SUPER_AGENT_ERROR_CODES = Object.keys(ERROR_CATEGORIES) as SuperAge
 
 const KNOWN_CODES = new Set<string>(SUPER_AGENT_ERROR_CODES)
 
+function isKnownSuperAgentErrorCode(code: string): code is SuperAgentErrorCode {
+  return KNOWN_CODES.has(code)
+}
+
 /** 未知 code 的通用文案键；不得把 stack 或英文异常直接显示给用户。 */
 export const SUPER_AGENT_UNKNOWN_ERROR_I18N_KEY = 'superAgent.errors.unknown'
 
@@ -100,4 +104,57 @@ export function superAgentError(
 
 export function isSuperAgentDomainError(err: unknown): err is SuperAgentDomainError {
   return err instanceof SuperAgentDomainError
+}
+
+/** 未知 code 的兜底 code；payload 不携带原始异常信息。 */
+export const SUPER_AGENT_UNKNOWN_ERROR_CODE = 'unknown'
+
+/**
+ * 稳定错误码的一等 DTO（T13 #83）。未知 code 时 known=false、i18nKey 回退
+ * 通用文案；code 保留原值仅供审计，绝不把英文异常或 stack 直接显示给用户。
+ */
+export interface SuperAgentErrorPayload {
+  code: string
+  category: SuperAgentErrorCategory | 'unknown'
+  i18nKey: string
+  params: SuperAgentErrorParams
+  known: boolean
+}
+
+function readStableCode(err: unknown): string | null {
+  if (isSuperAgentDomainError(err)) return err.code
+  const code = (err as { code?: unknown } | null | undefined)?.code
+  return typeof code === 'string' && code !== '' ? code : null
+}
+
+/** 把任意错误压成稳定 payload：已知 code 用其 i18n 键，未知/缺失一律回退通用文案。 */
+export function serializeSuperAgentError(err: unknown): SuperAgentErrorPayload {
+  if (isSuperAgentDomainError(err)) {
+    return {
+      code: err.code,
+      category: err.category,
+      i18nKey: err.i18nKey,
+      params: err.params,
+      known: true,
+    }
+  }
+
+  const code = readStableCode(err)
+  if (code !== null && isKnownSuperAgentErrorCode(code)) {
+    return {
+      code,
+      category: superAgentErrorCategory(code),
+      i18nKey: superAgentErrorI18nKey(code),
+      params: {},
+      known: true,
+    }
+  }
+
+  return {
+    code: code ?? SUPER_AGENT_UNKNOWN_ERROR_CODE,
+    category: 'unknown',
+    i18nKey: SUPER_AGENT_UNKNOWN_ERROR_I18N_KEY,
+    params: {},
+    known: false,
+  }
 }

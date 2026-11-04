@@ -279,10 +279,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   } satisfies import('@/shared/channels/claudeCode').ClaudeCodeRendererApi
     & import('@/shared/channels/claudeCode').ClaudeCodeEventApi,
 
-  // Super Agent API — 只暴露骨架所需的命令通道（T01）
+  // Super Agent API — invoke channels 与 health.changed 事件均表驱动注册（T01/T13）
   superAgent: {
     ...createPreloadBridge(superAgentNamespace.channels, ipcRenderer, 'super-agent:'),
-  } satisfies import('@/shared/channels/superAgent').SuperAgentRendererApi,
+    ...createEventBridge(superAgentNamespace.events, ipcRenderer, 'super-agent:'),
+  } satisfies import('@/shared/channels/superAgent').SuperAgentRendererApi
+    & import('@/shared/channels/superAgent').SuperAgentEventApi,
 
   // Factory（AI 流水线）API — invoke channels 与事件订阅均表驱动注册
   factory: {

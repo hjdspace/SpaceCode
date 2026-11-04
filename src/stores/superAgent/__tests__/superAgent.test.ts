@@ -1,18 +1,23 @@
 /**
- * Super Agent renderer store 契约（T01 #71）：
+ * Super Agent renderer store 契约（T01 #71、T13 #83）：
  *  - bind 走 IPC 真命令，把 Router 会话登记进 chatSession（类型 superAgent），
  *    重复 bind 不重复建会话条目；
  *  - loadState 刷新带 seq 的快照，Attention 徽章读到 unanswered；
- *  - Router 会话不出现在普通会话列表。
+ *  - Router 会话不出现在普通会话列表；
+ *  - 健康面板（T13）：loadHealth 拉取报告，health.changed 只更新当前项目，
+ *    问题列表只含 error 且未反映在工单卡片的项，面板开关可切换。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import type { SuperAgentHealthItem, SuperAgentHealthReport } from '@/shared/channels/superAgent'
 import { useSuperAgentStore } from '../index'
 import { useChatSessionStore } from '../../chatSession'
 
 const mocks = vi.hoisted(() => ({
   routerBind: vi.fn(),
   state: vi.fn(),
+  health: vi.fn(),
+  onHealthChanged: vi.fn(),
   traceEvent: vi.fn(),
   stop: vi.fn().mockResolvedValue(undefined),
 }))
@@ -22,6 +27,8 @@ vi.mock('@/services/electronAPI', () => ({
     superAgent: {
       routerBind: mocks.routerBind,
       state: mocks.state,
+      health: mocks.health,
+      onHealthChanged: mocks.onHealthChanged,
     },
     claudeCode: {
       stop: mocks.stop,
@@ -105,5 +112,108 @@ describe('superAgent store state', () => {
     const { superAgent } = loadStores()
 
     expect(superAgent.attentionCount).toBe(0)
+  })
+})
+
+function healthItem(overrides: Partial<SuperAgentHealthItem> = {}): SuperAgentHealthItem {
+  return {
+    category: 'engine',
+    status: 'error',
+    consecutiveFailures: 3,
+    code: 'slotUnavailable',
+    codeI18nKey: 'superAgent.errors.slotUnavailable',
+    lastFailedAt: '2026-01-01T00:00:00Z',
+    ticketId: null,
+    reflectedOnTicket: false,
+    ...overrides,
+  }
+}
+
+function healthReport(items: SuperAgentHealthItem[], overrides: Partial<SuperAgentHealthReport> = {}) {
+  return {
+    repoRoot: 'D:/repo',
+    problemCount: items.filter((item) => item.status === 'error' && !item.reflectedOnTicket).length,
+    degradedCount: items.filter((item) => item.status === 'degraded' && !item.reflectedOnTicket).length,
+    items,
+    updatedAt: '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('superAgent store health', () => {
+  beforeEach(() => {
+    mocks.onHealthChanged.mockReset()
+  })
+
+  it('loads the health report and exposes the problem count', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+    mocks.health.mockResolvedValue(healthReport([healthItem()]))
+
+    await superAgent.loadHealth('D:/repo')
+
+    expect(mocks.health).toHaveBeenCalledWith('D:/repo')
+    expect(superAgent.healthProblemCount).toBe(1)
+    expect(superAgent.healthProblems).toEqual([healthItem()])
+  })
+
+  it('filters the panel list to error items that are not reflected on a ticket', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+
+    const onTicket = healthItem({
+      category: 'effect:delivery',
+      ticketId: 'ticket-1',
+      reflectedOnTicket: true,
+    })
+    const jitter = healthItem({ category: 'source', status: 'degraded', consecutiveFailures: 1 })
+    mocks.health.mockResolvedValue(healthReport([onTicket, jitter, healthItem()]))
+
+    await superAgent.loadHealth('D:/repo')
+
+    expect(superAgent.healthProblems.map((item) => item.category)).toEqual(['engine'])
+    // 汇总数也排除工单卡片项
+    expect(superAgent.healthProblemCount).toBe(1)
+  })
+
+  it('reports zero problems before any health load', () => {
+    const { superAgent } = loadStores()
+
+    expect(superAgent.healthProblemCount).toBe(0)
+    expect(superAgent.healthProblems).toEqual([])
+  })
+
+  it('toggles the read-only panel', () => {
+    const { superAgent } = loadStores()
+
+    expect(superAgent.healthPanelOpen).toBe(false)
+    superAgent.toggleHealthPanel()
+    expect(superAgent.healthPanelOpen).toBe(true)
+    superAgent.toggleHealthPanel()
+    expect(superAgent.healthPanelOpen).toBe(false)
+  })
+
+  it('updates the report from health.changed only for the bound repo root', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+
+    let listener: ((repoRoot: string, report: SuperAgentHealthReport) => void) | undefined
+    mocks.onHealthChanged.mockImplementation((cb) => {
+      listener = cb
+      return () => {}
+    })
+    superAgent.watchHealth()
+
+    const other = healthReport([], { repoRoot: 'D:/other' })
+    listener?.('D:/other', other)
+    expect(superAgent.healthReport).toBeNull()
+
+    const mine = healthReport([healthItem()])
+    listener?.('D:/repo', mine)
+    expect(superAgent.healthReport).toEqual(mine)
+    expect(superAgent.healthProblemCount).toBe(1)
   })
 })
