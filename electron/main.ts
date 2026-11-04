@@ -72,6 +72,7 @@ import { registerSettingsIPCHandlers, loadGuiSettings, reconcileProxyWithSetting
 import { registerTraceIPCHandlers } from './ipc/traceIpc'
 import { registerVoiceIPCHandlers } from './voice/voiceIpcHandlers'
 import { registerFactoryIPCHandlers } from './factory/factoryService'
+import { registerSuperAgentIPCHandlers } from './superAgent/superAgentIpc'
 import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
 import { H5Server } from './h5/h5Server'
 
@@ -265,6 +266,9 @@ app.whenReady().then(async () => {
 
   registerFactoryIPCHandlers()
   info('Startup', 'Factory IPC handlers registered')
+
+  registerSuperAgentIPCHandlers()
+  info('Startup', 'Super Agent IPC handlers registered')
 
   if (registerVoiceShortcut(() => getMainWindow())) {
     info('Startup', 'Voice Input shortcut registered (Alt+V)')
