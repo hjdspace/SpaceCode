@@ -84,6 +84,7 @@ function persistingDomain(
     markUnrelated: (input) => tracked(() => domain.markUnrelated(input)),
     attachTicket: (input) => tracked(() => domain.attachTicket(input)),
     pruneExpiredSubscriptions: (input) => tracked(() => domain.pruneExpiredSubscriptions(input)),
+    followsDone: (input) => tracked(() => domain.followsDone(input)),
     enqueueOutboxMessage: (input) => tracked(() => domain.enqueueOutboxMessage(input)),
     settleOutboxMessage: (input) => tracked(() => domain.settleOutboxMessage(input)),
   }

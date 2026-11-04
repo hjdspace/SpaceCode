@@ -35,6 +35,24 @@ export interface SourcePollPage {
   hasMore: boolean
   /** 断档：本页事件不可信，必须全量重拉。 */
   gap: boolean
+  /**
+   * T19 #89：本页观察到的 Thread 终止信号（如 PR 合并/关闭）。Ingestor 逐条
+   * 校验后调 domain.followsDone 结束跟随该 Thread 的开放工单；断档页整体
+   * 丢弃（含 threadDone），由全量重拉补偿。
+   */
+  threadDone?: SourceThreadDone[]
+}
+
+/**
+ * Thread 终止信号：outcome 落工单结束结果（merged/closed，不压成
+ * completed）；reason 为审计用原因码（可含外部操作者）。
+ */
+export interface SourceThreadDone {
+  threadId: string
+  outcome: 'merged' | 'closed'
+  at: string
+  reason?: string
+  url?: string | null
 }
 
 export interface ExternalSource {
@@ -104,6 +122,35 @@ export function parseSourceEvent(raw: unknown): SourceEventParseResult {
       text: raw.text,
       at: raw.at,
       meta: isRecord(raw.meta) ? raw.meta : {},
+    },
+  }
+}
+
+export type SourceThreadDoneParseResult =
+  | { ok: true; done: SourceThreadDone }
+  | { ok: false; reason: string }
+
+/** T19 #89：threadDone 逐条校验；坏条目由 Ingestor 隔离报告。 */
+export function parseSourceThreadDone(raw: unknown): SourceThreadDoneParseResult {
+  if (!isRecord(raw)) return { ok: false, reason: 'not-an-object' }
+  if (!isNonEmptyString(raw.threadId)) return { ok: false, reason: 'invalid-thread-id' }
+  if (raw.outcome !== 'merged' && raw.outcome !== 'closed') {
+    return { ok: false, reason: 'invalid-outcome' }
+  }
+  if (typeof raw.at !== 'string' || Number.isNaN(Date.parse(raw.at))) {
+    return { ok: false, reason: 'invalid-at' }
+  }
+  if (!optionalStringOrNull(raw.reason) || !optionalStringOrNull(raw.url)) {
+    return { ok: false, reason: 'invalid-reason-or-url' }
+  }
+  return {
+    ok: true,
+    done: {
+      threadId: raw.threadId,
+      outcome: raw.outcome,
+      at: raw.at,
+      reason: (raw.reason as string | undefined) ?? undefined,
+      url: (raw.url as string | null | undefined) ?? null,
     },
   }
 }

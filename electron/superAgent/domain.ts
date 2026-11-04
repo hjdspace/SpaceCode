@@ -280,6 +280,37 @@ export interface EndTicketResult {
   withdrawnAttentionIds: string[]
 }
 
+/**
+ * T19 #89：Thread 终止（PR 合并/关闭）—— 按 followsDone 结束跟随工单。
+ *  - 命中范围：来源 Thread（ticket.threadId）或 follows 该 Thread 的开放工单；
+ *  - 结束结果 merged/closed 原样落库，不压成 completed（阶段展示才等价已完成）；
+ *  - 幂等：重复报告同一 Thread 终止时已结束工单直接跳过。
+ */
+export interface FollowsDoneInput {
+  /** 被终止的 Thread（如 github:pr:owner/repo:123）。 */
+  threadId: string
+  /** 合并 → merged；关闭未合并 → closed。 */
+  outcome: 'merged' | 'closed'
+  /** 结束人；缺省 'user'（外部 PR 事件在宿主看来是人）。 */
+  by?: SuperAgentEndedBy
+  /** 结束原因码；缺省 pr-merged / pr-closed。 */
+  reason?: string
+  at?: string
+}
+
+export interface FollowsDoneEndedTicket {
+  ticket: SuperAgentTicket
+  releasedInputIds: string[]
+  withdrawnAttentionIds: string[]
+}
+
+export interface FollowsDoneResult {
+  threadId: string
+  outcome: 'merged' | 'closed'
+  /** 本次结束的工单；重放同一终止（已全部结束）返回空数组。 */
+  endedTickets: FollowsDoneEndedTicket[]
+}
+
 /** T10 #80：接受验收 —— review 的显式出口。 */
 export interface TicketAcceptInput {
   ticketId: string
@@ -614,6 +645,12 @@ export interface SuperAgentDomain {
    * subscriptionTtlMs（缺省两周）；之后 Source 不再为该 Thread 轮询。
    */
   pruneExpiredSubscriptions(input?: { at?: string }): string[]
+  /**
+   * T19 #89：Thread 终止（PR 合并/关闭）—— 按来源或 follows 关系结束开放
+   * 工单，outcome 落 merged/closed（不压成 completed），follows 保留审计。
+   * 幂等：已结束的工单跳过，重放同一终止返回空 endedTickets。
+   */
+  followsDone(input: FollowsDoneInput): FollowsDoneResult
   /**
    * T18 #88：Outbox 入列（先持久化后执行）。受控 reply 授权链在此校验；
    * messageId 永久去重，同一 open Attention 的 attention 回复只入列一次。
@@ -2234,6 +2271,36 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return pruned
   }
 
+  // ── T19 #89：PR 合并/关闭按 Thread 结束（followsDone） ────────────────
+
+  /**
+   * Thread 终止：结束来源或 follows 该 Thread 的开放工单，outcome 落
+   * merged/closed（自然结束：Mandate 不撤回、订阅保留至寿命，follows
+   * 保留审计）；与其它结束出口共用收尾（释放人消息、撤回 Attention、
+   * 在途 Assignment 一并收尾）。
+   */
+  function followsDone(input: FollowsDoneInput): FollowsDoneResult {
+    const at = atNow(input.at)
+    const endedTickets: FollowsDoneEndedTicket[] = []
+    for (const ticket of Object.values(state.tickets)) {
+      if (ticket.state === 'ended') continue
+      if (ticket.threadId !== input.threadId && !ticket.follows.includes(input.threadId)) continue
+      const result = endTicketInternal(ticket, {
+        outcome: input.outcome,
+        by: input.by ?? 'user',
+        reason: input.reason ?? (input.outcome === 'merged' ? 'pr-merged' : 'pr-closed'),
+        at,
+      })
+      endedTickets.push({
+        ticket: result.ticket,
+        releasedInputIds: result.releasedInputIds,
+        withdrawnAttentionIds: result.withdrawnAttentionIds,
+      })
+    }
+    if (endedTickets.length > 0) nextOrdinal()
+    return { threadId: input.threadId, outcome: input.outcome, endedTickets }
+  }
+
   // ── T18 #88：Outbox 入列与回写（受控 reply 授权链见 §6.4） ─────────
 
   function requireHumanInputOfTicket(ticket: SuperAgentTicket, inputId: string | null): SuperAgentInput {
@@ -2649,6 +2716,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     markUnrelated,
     attachTicket,
     pruneExpiredSubscriptions,
+    followsDone,
     enqueueOutboxMessage,
     settleOutboxMessage,
     stageOf,

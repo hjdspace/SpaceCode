@@ -21,8 +21,8 @@ import type {
 import { gateTrigger } from '../policy'
 import type { SourceQuarantine, SourceQuarantineEntry } from './quarantine'
 import type { SourceCursorStore } from './cursorStore'
-import { parseSourceEvent } from './types'
-import type { ExternalSource } from './types'
+import { parseSourceEvent, parseSourceThreadDone } from './types'
+import type { ExternalSource, SourceThreadDone } from './types'
 
 /**
  * 建单候选：经程序层 Gate 准入（@SuperAgent / 显式引用 → explicit，
@@ -215,6 +215,28 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
     }
   }
 
+  /**
+   * T19 #89：Thread 终止信号（PR 合并/关闭）—— 校验后调 followsDone 结束
+   * 跟随该 Thread 的开放工单（merged/closed 原样落库，follows 保留审计）。
+   * 幂等：followsDone 跳过已结束工单，游标重放不会重复结束。
+   */
+  function intakeThreadDone(sourceId: string, entries: SourceThreadDone[]): void {
+    for (const entry of entries) {
+      const parsed = parseSourceThreadDone(entry)
+      if (!parsed.ok) {
+        quarantine.record(sourceId, parsed.reason, JSON.stringify(entry))
+        stateOf(sourceId).quarantined += 1
+        continue
+      }
+      domain.followsDone({
+        threadId: parsed.done.threadId,
+        outcome: parsed.done.outcome,
+        reason: parsed.done.reason,
+        at: parsed.done.at,
+      })
+    }
+  }
+
   async function pollOnce(sourceId: string): Promise<void> {
     const source = requireSource(sourceId)
     // T17 #87：轮询前清理过期订阅 —— stopped 立即失效，已结束工单最多保留
@@ -237,6 +259,7 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
       for (const raw of page.events) {
         intakeEvent(sourceId, raw)
       }
+      intakeThreadDone(sourceId, page.threadDone ?? [])
       cursor = page.nextCursor
       state.lastPolledAt = now().toISOString()
       if (!page.hasMore) break
