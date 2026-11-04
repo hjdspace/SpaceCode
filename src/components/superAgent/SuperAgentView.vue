@@ -1,8 +1,18 @@
 <template>
   <div class="super-agent-view">
-    <!-- 系统问题入口（T13）：顶部只显示汇总计数，点击开关只读面板。
-         MVP 只上报不可操作：不提供重试/忽略等处置按钮。 -->
+    <!-- 顶部操作区（T13 #83 + T05 #75）：左侧「新建工单」显式派工入口，
+         右侧系统问题汇总入口（只读面板，MVP 不可操作）。 -->
     <header class="health-entry">
+      <button
+        class="dispatch-chip"
+        :class="{ open: dispatchFormOpen }"
+        type="button"
+        data-testid="super-agent-dispatch-open"
+        @click="toggleDispatchForm"
+      >
+        <TicketPlus :size="14" />
+        <span>{{ t('superAgent.dispatch.openLabel') }}</span>
+      </button>
       <button
         class="health-chip"
         :class="{ open: superAgentStore.healthPanelOpen }"
@@ -17,6 +27,63 @@
         </span>
       </button>
     </header>
+
+    <!-- 新建工单表单（T05）：独立于普通发送 —— 普通发送只对话 Router，只有这里建单。 -->
+    <form
+      v-if="dispatchFormOpen"
+      class="dispatch-form"
+      data-testid="super-agent-dispatch-form"
+      @submit.prevent="submitDispatch"
+    >
+      <input
+        v-model="dispatchTitle"
+        class="dispatch-title"
+        type="text"
+        data-testid="super-agent-dispatch-title"
+        :placeholder="t('superAgent.dispatch.titleLabel')"
+      />
+      <textarea
+        v-model="dispatchText"
+        class="dispatch-text"
+        rows="3"
+        data-testid="super-agent-dispatch-text"
+        :placeholder="t('superAgent.dispatch.textLabel')"
+      />
+      <div class="dispatch-actions">
+        <button type="button" class="dispatch-cancel" @click="closeDispatchForm">
+          {{ t('superAgent.dispatch.cancelLabel') }}
+        </button>
+        <button type="submit" class="dispatch-submit" data-testid="super-agent-dispatch-submit">
+          {{ t('superAgent.dispatch.submitLabel') }}
+        </button>
+      </div>
+      <p v-if="dispatchHint" class="dispatch-hint" data-testid="super-agent-dispatch-hint">
+        {{ dispatchHint }}
+      </p>
+    </form>
+
+    <!-- 执行队列（T05）：串行调度现状，running + 排队位置 + 脏区提示，广播驱动。 -->
+    <div
+      v-if="queueVisible"
+      class="dispatch-queue"
+      data-testid="super-agent-queue"
+    >
+      <div class="queue-heading">{{ t('superAgent.queue.title') }}</div>
+      <div
+        v-for="entry in queueEntries"
+        :key="entry.ticketId"
+        class="queue-entry"
+        :data-state="entry.state"
+      >
+        <span class="queue-title">{{ entry.title }}</span>
+        <span class="queue-state">
+          {{ entry.state === 'running'
+            ? t('superAgent.queue.running')
+            : `${t('superAgent.queue.queued')} · ${t('superAgent.queue.position', { position: entry.position })}` }}
+        </span>
+        <span v-if="entry.dirty" class="queue-dirty">{{ t('superAgent.queue.dirtyHint') }}</span>
+      </div>
+    </div>
 
     <SuperAgentHealth v-if="superAgentStore.healthPanelOpen" :problems="superAgentStore.healthProblems" />
 
@@ -67,12 +134,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HeartPulse, Sparkles } from 'lucide-vue-next'
+import { HeartPulse, Sparkles, TicketPlus } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { useSuperAgentStore } from '@/stores/superAgent'
+import { createUuid } from '@/utils/uuid'
+import type { SuperAgentQueueEntry } from '@/shared/channels/superAgent'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
@@ -118,6 +187,7 @@ const workingDirectory = computed(() =>
 
 // ── 健康上报（T13 #83）：拉取 + 订阅 health.changed，渲染端只读 ──
 let stopWatchingHealth: (() => void) | null = null
+let stopWatchingQueue: (() => void) | null = null
 
 onMounted(async () => {
   const repoRoot = appStore.projectRoot
@@ -125,13 +195,69 @@ onMounted(async () => {
   await superAgentStore.bind(repoRoot)
   await superAgentStore.loadState(repoRoot)
   await superAgentStore.loadHealth(repoRoot)
+  await superAgentStore.loadQueue(repoRoot)
   stopWatchingHealth = superAgentStore.watchHealth()
+  stopWatchingQueue = superAgentStore.watchQueue()
 })
 
 onUnmounted(() => {
   stopWatchingHealth?.()
   stopWatchingHealth = null
+  stopWatchingQueue?.()
+  stopWatchingQueue = null
 })
+
+// ── 显式派工（T05 #75）：「新建工单」独立动作，普通发送不建单 ──
+const dispatchFormOpen = ref(false)
+const dispatchTitle = ref('')
+const dispatchText = ref('')
+const dispatchHint = ref('')
+
+const queueEntries = computed<SuperAgentQueueEntry[]>(() => [
+  ...(superAgentStore.queue?.running ?? []),
+  ...(superAgentStore.queue?.queued ?? []),
+])
+const queueVisible = computed(() => queueEntries.value.length > 0)
+
+function toggleDispatchForm(): void {
+  dispatchFormOpen.value = !dispatchFormOpen.value
+  dispatchHint.value = ''
+}
+
+function closeDispatchForm(): void {
+  dispatchFormOpen.value = false
+  dispatchHint.value = ''
+}
+
+async function submitDispatch(): Promise<void> {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+
+  const title = dispatchTitle.value.trim()
+  const text = dispatchText.value.trim()
+  if (title === '' || text === '') {
+    dispatchHint.value = t('superAgent.dispatch.requireTitle')
+    return
+  }
+
+  try {
+    const result = await superAgentStore.dispatch(repoRoot, {
+      requestId: createUuid(),
+      title,
+      text,
+    })
+    dispatchHint.value = result.duplicate
+      ? t('superAgent.dispatch.duplicateHint')
+      : result.queuePosition === 0
+        ? t('superAgent.dispatch.runningHint', { title })
+        : t('superAgent.dispatch.queuedHint', { title, position: result.queuePosition })
+    dispatchTitle.value = ''
+    dispatchText.value = ''
+  } catch (error) {
+    console.error('[SuperAgentView] dispatch failed:', error)
+    dispatchHint.value = t('superAgent.dispatch.failedHint')
+  }
+}
 
 // ── 模型展示（与主聊天同源的初值；Router 会话模型不在此切换）──────
 const currentModel = ref('')
@@ -323,14 +449,15 @@ async function handleToolSkip(messageId: string, toolId: string) {
   background: var(--bg-primary);
 }
 
-// ── 系统问题入口（T13）：顶部汇总计数 + 只读面板开关 ──
+// ── 顶部操作区（T13 健康入口 + T05 新建工单入口）──
 .health-entry {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 6px 12px 0;
 }
 
-.health-chip {
+.health-chip,
+.dispatch-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -351,17 +478,129 @@ async function handleToolSkip(messageId: string, toolId: string) {
     border-color: var(--accent-primary);
     color: var(--accent-primary);
   }
+}
 
-  .count {
-    min-width: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--accent-primary);
-    color: var(--bg-elevated);
-    font-weight: 600;
-    line-height: 18px;
-    text-align: center;
+.health-chip .count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: var(--bg-elevated);
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+// ── 新建工单表单（T05）：标题 + 目标描述，独立于普通发送 ──
+.dispatch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 12px 0;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-elevated);
+}
+
+.dispatch-title,
+.dispatch-text {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent-primary);
   }
+}
+
+.dispatch-text {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+.dispatch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dispatch-cancel,
+.dispatch-submit {
+  padding: 4px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dispatch-cancel {
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-secondary);
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.dispatch-submit {
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: var(--bg-elevated);
+  font-weight: 600;
+
+  &:hover {
+    opacity: 0.9;
+  }
+}
+
+.dispatch-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+// ── 执行队列（T05）：串行调度现状（执行中/排队位置/脏区提示）──
+.dispatch-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-elevated);
+  font-size: 12px;
+}
+
+.queue-heading {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.queue-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.queue-state {
+  color: var(--text-secondary);
+}
+
+.queue-entry[data-state='running'] .queue-state {
+  color: var(--accent-primary);
+}
+
+.queue-dirty {
+  color: var(--text-secondary);
 }
 
 .super-agent-health {

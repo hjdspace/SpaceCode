@@ -1,11 +1,14 @@
 // @vitest-environment node
 /**
- * Super Agent 主进程服务契约（T01 #71、T13 #83）：
+ * Super Agent 主进程服务契约（T01 #71、T13 #83、T05 #75）：
  *  - state 在没有 bind 时返回空快照，但必须带 seq/asOf/staleAfterMs 水位；
  *  - routerBind 每个项目只建一次会话，重复调用返回同一 sessionId 且不递增 seq；
  *  - 不同 repoRoot 的 Router 会话互不串扰；
  *  - health：每项目独立 tracker、3 次阈值、变化回调 onHealthChanged；
- *  - noteError：未知 code 计入健康（unknownError），已知 code 不计。
+ *  - noteError：未知 code 计入健康（unknownError），已知 code 不计；
+ *  - dispatch（T05）：幂等键透传、审计链四件套（ticket/assignment/decision/mandate）、
+ *    无 Executor 时工单保持排队；queue 返回带 maxWorkers 的可见队列；
+ *    队列变化经 onQueueChanged 广播。
  */
 import { describe, it, expect, vi } from 'vitest'
 import { createSuperAgentService } from '../service'
@@ -166,5 +169,89 @@ describe('createSuperAgentService noteError', () => {
 
     expect(payload.i18nKey).toBe('superAgent.errors.unknown')
     expect(JSON.stringify(payload)).not.toContain('english detail')
+  })
+})
+
+describe('createSuperAgentService dispatch & queue（T05 #75）', () => {
+  it('dispatch returns the audit chain ids and keeps the ticket queued without an executor', () => {
+    const service = createSuperAgentService()
+
+    const result = service.dispatch('/repo/a', {
+      requestId: 'dispatch-1',
+      title: '修复登录',
+      text: '登录按钮点击后无响应',
+    })
+
+    expect(result.duplicate).toBe(false)
+    expect(result.queuePosition).toBe(1)
+    expect(result.ticketId).not.toBe('')
+    expect(result.assignmentId).not.toBe('')
+    expect(result.decisionId).not.toBe('')
+    expect(result.mandateId).not.toBe('')
+
+    // Executor 未接入（launcher 为 null）：工单保持排队，队列可见
+    const queue = service.queue('/repo/a')
+    expect(queue.maxWorkers).toBe(1)
+    expect(queue.running).toEqual([])
+    expect(queue.queued).toEqual([
+      expect.objectContaining({ ticketId: result.ticketId, title: '修复登录', position: 1 }),
+    ])
+  })
+
+  it('dispatch is idempotent on the same requestId and queues later tickets FIFO', () => {
+    const service = createSuperAgentService()
+    const command = { requestId: 'dispatch-1', title: '修复登录', text: '目标' }
+
+    const first = service.dispatch('/repo/a', command)
+    const duplicate = service.dispatch('/repo/a', command)
+    const second = service.dispatch('/repo/a', {
+      requestId: 'dispatch-2',
+      title: '优化构建',
+      text: '目标',
+    })
+
+    expect(duplicate.duplicate).toBe(true)
+    expect(duplicate.ticketId).toBe(first.ticketId)
+    expect(second.duplicate).toBe(false)
+    expect(second.queuePosition).toBe(2)
+
+    const queue = service.queue('/repo/a')
+    expect(queue.queued.map((entry) => entry.title)).toEqual(['修复登录', '优化构建'])
+    expect(queue.queued.map((entry) => entry.position)).toEqual([1, 2])
+  })
+
+  it('rejects a conflicting payload on the same requestId with the stable conflict code', () => {
+    const service = createSuperAgentService()
+
+    service.dispatch('/repo/a', { requestId: 'dispatch-1', title: '修复登录', text: '目标' })
+    expect(() =>
+      service.dispatch('/repo/a', { requestId: 'dispatch-1', title: '改标题', text: '目标' }),
+    ).toThrowError(expect.objectContaining({ code: 'conflict' }))
+  })
+
+  it('keeps dispatch state isolated per repo root', () => {
+    const service = createSuperAgentService()
+
+    const a = service.dispatch('/repo/a', { requestId: 'd1', title: '工单A', text: '目标' })
+    service.dispatch('/repo/b', { requestId: 'd1', title: '工单B', text: '目标' })
+
+    const queueA = service.queue('/repo/a')
+    const queueB = service.queue('/repo/b')
+    expect(queueA.queued.map((entry) => entry.title)).toEqual(['工单A'])
+    expect(queueB.queued.map((entry) => entry.title)).toEqual(['工单B'])
+    expect(a.ticketId).not.toBe(queueB.queued[0].ticketId)
+  })
+
+  it('notifies onQueueChanged with the repoRoot and snapshot on dispatch', () => {
+    const onQueueChanged = vi.fn()
+    const service = createSuperAgentService({ onQueueChanged })
+
+    service.dispatch('/repo/a', { requestId: 'd1', title: '修复登录', text: '目标' })
+
+    expect(onQueueChanged).toHaveBeenCalled()
+    const calls = onQueueChanged.mock.calls
+    const [repoRoot, snapshot] = calls[calls.length - 1] as [string, { repoRoot: string }]
+    expect(repoRoot).toBe('/repo/a')
+    expect(snapshot.repoRoot).toBe('/repo/a')
   })
 })

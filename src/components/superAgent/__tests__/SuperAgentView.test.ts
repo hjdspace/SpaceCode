@@ -7,11 +7,17 @@
  *  - 斜杠命令的本地子集在 Router 会话内落消息，全局命令与主聊天同源；
  *  - 无项目根时保持 T01 的空态且不做 IPC；
  *  - 健康上报（T13 #83）：bind 后拉取并订阅健康报告，顶部入口只显示汇总计数，
- *    点击只开关只读面板（无任何处置按钮）。
+ *    点击只开关只读面板（无任何处置按钮）；
+ *  - 显式派工（T05 #75）：「新建工单」独立动作（普通发送不建单）、
+ *    表单校验与幂等 requestId、派工结果提示、队列现状（执行中/排队/脏区）可见。
  */
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SuperAgentHealthItem } from '@/shared/channels/superAgent'
+import type {
+  SuperAgentDispatchResult,
+  SuperAgentHealthItem,
+  SuperAgentQueueSnapshot,
+} from '@/shared/channels/superAgent'
 
 const probe = vi.hoisted(() => ({
   bind: vi.fn().mockResolvedValue(undefined),
@@ -35,6 +41,18 @@ const probe = vi.hoisted(() => ({
   healthPanelOpen: false,
   healthProblemCount: 0,
   healthProblems: [] as SuperAgentHealthItem[],
+  // ── 显式派工与队列（T05）──
+  dispatch: vi.fn().mockResolvedValue({
+    ticketId: 'ticket-1',
+    assignmentId: 'assignment-1',
+    decisionId: 'decision-1',
+    mandateId: 'mandate-1',
+    queuePosition: 1,
+    duplicate: false,
+  } as SuperAgentDispatchResult),
+  loadQueue: vi.fn().mockResolvedValue(undefined),
+  watchQueue: vi.fn().mockReturnValue(() => {}),
+  queue: null as SuperAgentQueueSnapshot | null,
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -94,6 +112,10 @@ vi.mock('@/stores/superAgent', () => ({
     get healthPanelOpen() { return probe.healthPanelOpen },
     get healthProblemCount() { return probe.healthProblemCount },
     get healthProblems() { return probe.healthProblems },
+    dispatch: probe.dispatch,
+    loadQueue: probe.loadQueue,
+    watchQueue: probe.watchQueue,
+    get queue() { return probe.queue },
   }),
 }))
 
@@ -125,6 +147,18 @@ beforeEach(() => {
   probe.healthPanelOpen = false
   probe.healthProblemCount = 0
   probe.healthProblems = []
+  probe.dispatch.mockClear()
+  probe.dispatch.mockResolvedValue({
+    ticketId: 'ticket-1',
+    assignmentId: 'assignment-1',
+    decisionId: 'decision-1',
+    mandateId: 'mandate-1',
+    queuePosition: 1,
+    duplicate: false,
+  } as SuperAgentDispatchResult)
+  probe.loadQueue.mockClear()
+  probe.watchQueue.mockClear()
+  probe.queue = null
 })
 
 describe('SuperAgentView empty state', () => {
@@ -318,6 +352,139 @@ describe('SuperAgentView health entry（T13 #83）', () => {
 
     await wrapper.find('[data-testid="super-agent-health-entry"]').trigger('click')
     expect(probe.toggleHealthPanel).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+})
+
+describe('SuperAgentView dispatch & queue（T05 #75）', () => {
+  it('bind 后拉取队列并订阅 queue-changed，卸载时退订', async () => {
+    const unsubscribe = vi.fn()
+    probe.watchQueue.mockReturnValue(unsubscribe)
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(probe.loadQueue).toHaveBeenCalledWith('D:/repo')
+    expect(probe.watchQueue).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('「新建工单」是独立动作：默认不显示表单，点击展开，普通发送不建单', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-dispatch-form"]').exists()).toBe(false)
+    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
+    expect(wrapper.find('[data-testid="super-agent-dispatch-form"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('空标题提交只提示校验文案，不调用派工', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
+
+    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
+
+    expect(probe.dispatch).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toBe(
+      'superAgent.dispatch.requireTitle',
+    )
+    wrapper.unmount()
+  })
+
+  it('提交派工：requestId 幂等键非空、携带标题与目标，结果提示排队位置', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
+
+    await wrapper.find('[data-testid="super-agent-dispatch-title"]').setValue('修复登录')
+    await wrapper.find('[data-testid="super-agent-dispatch-text"]').setValue('登录按钮无响应')
+    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(probe.dispatch).toHaveBeenCalledTimes(1)
+    const [repoRoot, command] = probe.dispatch.mock.calls[0]
+    expect(repoRoot).toBe('D:/repo')
+    expect(command.requestId).not.toBe('')
+    expect(command.title).toBe('修复登录')
+    expect(command.text).toBe('登录按钮无响应')
+    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toContain(
+      'superAgent.dispatch.queuedHint',
+    )
+    wrapper.unmount()
+  })
+
+  it('重复派工请求返回幂等提示文案', async () => {
+    probe.dispatch.mockResolvedValue({
+      ticketId: 'ticket-1',
+      assignmentId: 'assignment-1',
+      decisionId: 'decision-1',
+      mandateId: 'mandate-1',
+      queuePosition: 0,
+      duplicate: true,
+    } as SuperAgentDispatchResult)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
+
+    await wrapper.find('[data-testid="super-agent-dispatch-title"]').setValue('修复登录')
+    await wrapper.find('[data-testid="super-agent-dispatch-text"]').setValue('登录按钮无响应')
+    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toBe(
+      'superAgent.dispatch.duplicateHint',
+    )
+    wrapper.unmount()
+  })
+
+  it('队列非空时展示执行中/排队条目与脏区提示', async () => {
+    probe.queue = {
+      repoRoot: 'D:/repo',
+      maxWorkers: 1,
+      running: [
+        { ticketId: 'ticket-1', title: '工单一', position: 0, state: 'running', dirty: true },
+      ],
+      queued: [
+        { ticketId: 'ticket-2', title: '工单二', position: 1, state: 'queued', dirty: null },
+      ],
+    }
+    const wrapper = mountView()
+    await flushPromises()
+
+    const queuePanel = wrapper.find('[data-testid="super-agent-queue"]')
+    expect(queuePanel.exists()).toBe(true)
+    expect(queuePanel.text()).toContain('工单一')
+    expect(queuePanel.text()).toContain('superAgent.queue.running')
+    expect(queuePanel.text()).toContain('工单二')
+    expect(queuePanel.text()).toContain('superAgent.queue.position')
+    expect(queuePanel.text()).toContain('superAgent.queue.dirtyHint')
+    wrapper.unmount()
+  })
+
+  it('派工被拒时显示失败提示文案', async () => {
+    probe.dispatch.mockRejectedValue(new Error('engine down'))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
+
+    await wrapper.find('[data-testid="super-agent-dispatch-title"]').setValue('修复登录')
+    await wrapper.find('[data-testid="super-agent-dispatch-text"]').setValue('登录按钮无响应')
+    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toBe(
+      'superAgent.dispatch.failedHint',
+    )
+    wrapper.unmount()
+  })
+
+  it('队列为空时不渲染队列面板', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-queue"]').exists()).toBe(false)
     wrapper.unmount()
   })
 })

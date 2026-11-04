@@ -1,15 +1,21 @@
 /**
- * Super Agent renderer store 契约（T01 #71、T13 #83）：
+ * Super Agent renderer store 契约（T01 #71、T13 #83、T05 #75）：
  *  - bind 走 IPC 真命令，把 Router 会话登记进 chatSession（类型 superAgent），
  *    重复 bind 不重复建会话条目；
  *  - loadState 刷新带 seq 的快照，Attention 徽章读到 unanswered；
  *  - Router 会话不出现在普通会话列表；
  *  - 健康面板（T13）：loadHealth 拉取报告，health.changed 只更新当前项目，
- *    问题列表只含 error 且未反映在工单卡片的项，面板开关可切换。
+ *    问题列表只含 error 且未反映在工单卡片的项，面板开关可切换；
+ *  - 派工与队列（T05）：dispatch 走 IPC 幂等命令并刷新队列，queue-changed
+ *    只更新当前项目，loadQueue 拉取队列快照。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { SuperAgentHealthItem, SuperAgentHealthReport } from '@/shared/channels/superAgent'
+import type {
+  SuperAgentHealthItem,
+  SuperAgentHealthReport,
+  SuperAgentQueueSnapshot,
+} from '@/shared/channels/superAgent'
 import { useSuperAgentStore } from '../index'
 import { useChatSessionStore } from '../../chatSession'
 
@@ -18,6 +24,9 @@ const mocks = vi.hoisted(() => ({
   state: vi.fn(),
   health: vi.fn(),
   onHealthChanged: vi.fn(),
+  dispatch: vi.fn(),
+  queue: vi.fn(),
+  onQueueChanged: vi.fn(),
   traceEvent: vi.fn(),
   stop: vi.fn().mockResolvedValue(undefined),
 }))
@@ -29,6 +38,9 @@ vi.mock('@/services/electronAPI', () => ({
       state: mocks.state,
       health: mocks.health,
       onHealthChanged: mocks.onHealthChanged,
+      dispatch: mocks.dispatch,
+      queue: mocks.queue,
+      onQueueChanged: mocks.onQueueChanged,
     },
     claudeCode: {
       stop: mocks.stop,
@@ -215,5 +227,81 @@ describe('superAgent store health', () => {
     listener?.('D:/repo', mine)
     expect(superAgent.healthReport).toEqual(mine)
     expect(superAgent.healthProblemCount).toBe(1)
+  })
+})
+
+function queueSnapshot(overrides: Partial<SuperAgentQueueSnapshot> = {}): SuperAgentQueueSnapshot {
+  return {
+    repoRoot: 'D:/repo',
+    maxWorkers: 1,
+    running: [],
+    queued: [],
+    ...overrides,
+  }
+}
+
+describe('superAgent store dispatch & queue（T05 #75）', () => {
+  it('dispatches through the IPC command and refreshes the queue snapshot', async () => {
+    const { superAgent } = loadStores()
+    mocks.dispatch.mockResolvedValue({
+      ticketId: 'ticket-1',
+      assignmentId: 'assignment-1',
+      decisionId: 'decision-1',
+      mandateId: 'mandate-1',
+      queuePosition: 1,
+      duplicate: false,
+    })
+    mocks.queue.mockResolvedValue(
+      queueSnapshot({ queued: [{ ticketId: 'ticket-1', title: '修复登录', position: 1, state: 'queued', dirty: null }] }),
+    )
+
+    const result = await superAgent.dispatch('D:/repo', {
+      requestId: 'dispatch-1',
+      title: '修复登录',
+      text: '登录按钮无响应',
+    })
+
+    expect(mocks.dispatch).toHaveBeenCalledWith('D:/repo', {
+      requestId: 'dispatch-1',
+      title: '修复登录',
+      text: '登录按钮无响应',
+    })
+    expect(result.ticketId).toBe('ticket-1')
+    expect(mocks.queue).toHaveBeenCalledWith('D:/repo')
+    expect(superAgent.queue?.queued).toHaveLength(1)
+    expect(superAgent.queue?.queued[0].title).toBe('修复登录')
+  })
+
+  it('loadQueue mirrors the snapshot from the queue channel', async () => {
+    const { superAgent } = loadStores()
+    const snapshot = queueSnapshot({
+      running: [{ ticketId: 'ticket-1', title: '工单一', position: 0, state: 'running', dirty: true }],
+    })
+    mocks.queue.mockResolvedValue(snapshot)
+
+    await superAgent.loadQueue('D:/repo')
+
+    expect(superAgent.queue).toEqual(snapshot)
+  })
+
+  it('updates the queue from queue-changed only for the bound repo root', async () => {
+    const { superAgent } = loadStores()
+    mocks.state.mockResolvedValue(snapshot())
+    await superAgent.bind('D:/repo')
+
+    let listener: ((repoRoot: string, snapshot: SuperAgentQueueSnapshot) => void) | undefined
+    mocks.onQueueChanged.mockImplementation((cb) => {
+      listener = cb
+      return () => {}
+    })
+    superAgent.watchQueue()
+
+    const other = queueSnapshot({ repoRoot: 'D:/other' })
+    listener?.('D:/other', other)
+    expect(superAgent.queue).toBeNull()
+
+    const mine = queueSnapshot({ queued: [{ ticketId: 'ticket-1', title: '修复登录', position: 1, state: 'queued', dirty: null }] })
+    listener?.('D:/repo', mine)
+    expect(superAgent.queue).toEqual(mine)
   })
 })

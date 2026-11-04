@@ -95,6 +95,28 @@ export type SuperAgentMandateStrength = 'explicit' | 'inferred'
 /** Phase 2 续接前按 basis 重新校验授权。 */
 export type SuperAgentMandateBasis = 'addressed' | 'followup' | 'admission' | 'bot'
 
+export type SuperAgentDecisionAction = 'accept' | 'stop' | 'ignore' | 'unavailable'
+
+/**
+ * 派工决策事实（T05 #75）：一次授权裁决的主进程审计记录。
+ * Desktop 显式派工固定 accept/explicit/addressed；Phase 2 的 Eval 复用同一对象。
+ * basis 可追溯：Decision → Mandate → Assignment 的字段逐一对齐。
+ */
+export interface SuperAgentDecision {
+  decisionId: string
+  ticketId: string
+  triggerId: string
+  action: SuperAgentDecisionAction
+  /** 决策来源事件流；Desktop 显式派工为 'desktop'。 */
+  source: string
+  actor: string
+  human: boolean
+  policyVersion: number
+  strength: SuperAgentMandateStrength
+  basis: SuperAgentMandateBasis
+  at: string
+}
+
 export interface SuperAgentMandateScope {
   repoRoot: string
   paths: string[]
@@ -279,6 +301,8 @@ export interface SuperAgentDomainState {
   threads: Record<string, SuperAgentThread>
   tickets: Record<string, SuperAgentTicket>
   assignments: Record<string, SuperAgentAssignment>
+  /** 派工决策审计：按 ticketId 索引（MVP 每张工单一个决策）。 */
+  decisions: Record<string, SuperAgentDecision>
   inputs: Record<string, SuperAgentInput>
   mandates: Record<string, SuperAgentMandate>
   reports: Record<string, SuperAgentReport>

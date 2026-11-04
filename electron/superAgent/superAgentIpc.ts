@@ -1,5 +1,5 @@
 /**
- * Super Agent IPC 入口（T01 #71、T13 #83）：把 shared 定义的命令挂到 ipcMain 上。
+ * Super Agent IPC 入口（T01 #71、T13 #83、T05 #75）：把 shared 定义的命令挂到 ipcMain 上。
  * 只做入口校验与转发；领域规则在 service。
  *
  * T13：
@@ -7,6 +7,10 @@
  *  - 健康变化经 health.changed 事件广播到所有窗口（窗口刷新不中断主进程状态）；
  *  - 命令抛出的未知错误码经 noteError 计入健康后再原样抛出，
  *    校验错误（缺 repoRoot）不计入健康，避免刷屏。
+ *
+ * T05：
+ *  - 注册 dispatch（显式派工）与 queue（队列只读拉取）通道；
+ *  - 队列变化经 queue-changed 事件广播到所有窗口，Renderer 无需轮询。
  */
 import { BrowserWindow, ipcMain } from 'electron'
 import { eventChannels } from '@/shared/channelMap'
@@ -14,7 +18,9 @@ import { registerHandlers } from '@/shared/handlerRegistry'
 import {
   SUPER_AGENT_PREFIX,
   superAgentNamespace,
+  type SuperAgentDispatchCommand,
   type SuperAgentHealthReport,
+  type SuperAgentQueueSnapshot,
 } from '@/shared/channels/superAgent'
 import { createSuperAgentService, type SuperAgentService } from './service'
 
@@ -27,6 +33,23 @@ function requireRepoRoot(repoRoot: unknown): string {
   return repoRoot
 }
 
+/** 派工命令入口校验：requestId/title/text 必须是非空字符串（领域层兜底同样校验）。 */
+function requireDispatchCommand(input: unknown): SuperAgentDispatchCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('dispatch command is required')
+  }
+  const command = input as Record<string, unknown>
+  if (
+    typeof command.requestId !== 'string' ||
+    command.requestId.trim() === '' ||
+    typeof command.title !== 'string' ||
+    typeof command.text !== 'string'
+  ) {
+    throw new Error('invalid dispatch command')
+  }
+  return input as SuperAgentDispatchCommand
+}
+
 /** health.changed 广播：所有未销毁窗口都能收到，Renderer 无需轮询。 */
 function broadcastHealthChanged(repoRoot: string, report: SuperAgentHealthReport): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -36,9 +59,21 @@ function broadcastHealthChanged(repoRoot: string, report: SuperAgentHealthReport
   }
 }
 
-/** 创建接好 health.changed 广播的服务；独立导出以便测试广播链路。 */
+/** queue-changed 广播：队列现状对所有窗口可见（后到的工单排队与否一目了然）。 */
+function broadcastQueueChanged(repoRoot: string, snapshot: SuperAgentQueueSnapshot): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(SUPER_AGENT_EVENTS.onQueueChanged, repoRoot, snapshot)
+    }
+  }
+}
+
+/** 创建接好 health.changed / queue-changed 广播的服务；独立导出以便测试广播链路。 */
 export function createBroadcastingSuperAgentService(): SuperAgentService {
-  return createSuperAgentService({ onHealthChanged: broadcastHealthChanged })
+  return createSuperAgentService({
+    onHealthChanged: broadcastHealthChanged,
+    onQueueChanged: broadcastQueueChanged,
+  })
 }
 
 /**
@@ -69,6 +104,15 @@ export function registerSuperAgentIPCHandlers(
     health: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.health(root))
+    },
+    dispatch: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireDispatchCommand(command)
+      return runNoted(service, root, () => service.dispatch(root, req))
+    },
+    queue: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.queue(root))
     },
   })
 }

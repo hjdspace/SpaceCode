@@ -23,6 +23,7 @@ import type {
   SuperAgentAssignment,
   SuperAgentAssignmentEndReason,
   SuperAgentAttention,
+  SuperAgentDecision,
   SuperAgentDomainState,
   SuperAgentEndedBy,
   SuperAgentIdempotencyEntry,
@@ -84,6 +85,35 @@ export interface CreateTicketResult {
 
 export interface StartAssignmentInput {
   ticketId: string
+  at?: string
+}
+
+/** 显式派工（T05 #75）：「新建工单」独立动作产生的 Decision/Mandate/pending Assignment。 */
+export interface DispatchInput {
+  /** UI 幂等键；同一键重复派工返回原结果，载荷不同视为冲突。 */
+  requestId: string
+  title: string
+  repoRoot: string
+  /** 工单目标描述；超预算部分由 Scheduler 落 Spill（见 context.ts）。 */
+  text: string
+  actor: string
+  /** 派工时携带的 @ 上下文（相对路径），注入 Worker 首轮消息。 */
+  contextPaths?: string[]
+  attachments?: string[]
+  policyVersion?: number
+  at?: string
+}
+
+export interface DispatchResult {
+  ticket: SuperAgentTicket
+  decision: SuperAgentDecision
+  mandate: SuperAgentMandate
+  assignment: SuperAgentAssignment
+  duplicate: boolean
+}
+
+export interface LaunchAssignmentInput {
+  assignmentId: string
   at?: string
 }
 
@@ -164,7 +194,9 @@ export interface SuperAgentDomain {
   readonly state: SuperAgentDomainState
   intakeTrigger(draft: TriggerDraft): TriggerIntakeResult
   createTicket(input: CreateTicketInput): CreateTicketResult
+  dispatch(input: DispatchInput): DispatchResult
   startAssignment(input: StartAssignmentInput): SuperAgentAssignment
+  launchAssignment(input: LaunchAssignmentInput): SuperAgentAssignment
   endAssignment(input: EndAssignmentInput): SuperAgentAssignment
   addInput(command: AddInputCommand): AddInputResult
   failDelivery(input: FailDeliveryInput): SuperAgentTicket
@@ -209,6 +241,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     threads: {},
     tickets: {},
     assignments: {},
+    decisions: {},
     inputs: {},
     mandates: {},
     reports: {},
@@ -308,29 +341,12 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return { trigger, duplicate: false }
   }
 
-  function createTicket(input: CreateTicketInput): CreateTicketResult {
-    const key = idempotencyKey('request', input.requestId)
-    const fingerprint = canonical({
-      title: input.title,
-      repoRoot: input.repoRoot,
-      trigger: input.trigger,
-      scopePaths: input.scopePaths ?? [],
-      policyVersion: input.policyVersion ?? 1,
-      strength: input.strength ?? 'explicit',
-      basis: input.basis ?? 'addressed',
-    })
-    const existing = findByIdempotencyKey(key)
-    if (existing) {
-      assertSameFact(existing, fingerprint)
-      const ticket = state.tickets[existing.id]
-      return {
-        ticket,
-        mandate: state.mandates[ticket.mandateId],
-        thread: state.threads[ticket.threadId],
-        duplicate: true,
-      }
-    }
-
+  /** 建单核心（无幂等登记）：createTicket 与 dispatch 共用，幂等由各命令自己负责。 */
+  function createTicketUnchecked(
+    input: CreateTicketInput,
+    key: string | null,
+    fingerprint: string,
+  ): CreateTicketResult {
     const at = atNow(input.at)
     const ticketId = newId('ticket')
     const threadId = input.trigger.threadIds[0] ?? newId('thread')
@@ -385,9 +401,141 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
 
     state.mandates[mandate.mandateId] = mandate
     state.tickets[ticketId] = ticket
-    state.idempotency[key] = { kind: 'ticket', id: ticketId, fingerprint }
+    if (key !== null) state.idempotency[key] = { kind: 'ticket', id: ticketId, fingerprint }
 
     return { ticket, mandate, thread, duplicate: false }
+  }
+
+  function createTicket(input: CreateTicketInput): CreateTicketResult {
+    const key = idempotencyKey('request', input.requestId)
+    const fingerprint = canonical({
+      title: input.title,
+      repoRoot: input.repoRoot,
+      trigger: input.trigger,
+      scopePaths: input.scopePaths ?? [],
+      policyVersion: input.policyVersion ?? 1,
+      strength: input.strength ?? 'explicit',
+      basis: input.basis ?? 'addressed',
+    })
+    const existing = findByIdempotencyKey(key)
+    if (existing) {
+      assertSameFact(existing, fingerprint)
+      const ticket = state.tickets[existing.id]
+      return {
+        ticket,
+        mandate: state.mandates[ticket.mandateId],
+        thread: state.threads[ticket.threadId],
+        duplicate: true,
+      }
+    }
+
+    return createTicketUnchecked(input, key, fingerprint)
+  }
+
+  function newAssignmentForTicket(
+    ticket: SuperAgentTicket,
+    at: string,
+    initialState: 'pending' | 'running',
+  ): SuperAgentAssignment {
+    const latest = latestAssignmentOf(ticket.assignmentIds.map((id) => state.assignments[id]))
+    const assignment: SuperAgentAssignment = {
+      assignmentId: newId('assignment'),
+      ticketId: ticket.ticketId,
+      generation: latest ? latest.generation + 1 : 1,
+      state: initialState,
+      createdAt: at,
+      startedAt: initialState === 'running' ? at : null,
+      endedAt: null,
+      endedReason: null,
+      createdOrdinal: nextOrdinal(),
+      endedOrdinal: null,
+      report: null,
+      deliveredAt: null,
+      idleAt: null,
+    }
+    state.assignments[assignment.assignmentId] = assignment
+    ticket.assignmentIds.push(assignment.assignmentId)
+    ticket.execution.assignmentId = assignment.assignmentId
+    return assignment
+  }
+
+  function dispatch(input: DispatchInput): DispatchResult {
+    if (input.title.trim() === '' || input.text.trim() === '') {
+      throw superAgentError('invalidDispatch', { requestId: input.requestId })
+    }
+
+    const key = idempotencyKey('request', input.requestId)
+    const fingerprint = canonical({
+      kind: 'dispatch',
+      title: input.title,
+      repoRoot: input.repoRoot,
+      text: input.text,
+      contextPaths: input.contextPaths ?? [],
+      attachments: input.attachments ?? [],
+      policyVersion: input.policyVersion ?? 1,
+    })
+    const existing = findByIdempotencyKey(key)
+    if (existing) {
+      assertSameFact(existing, fingerprint)
+      const ticket = state.tickets[existing.id]
+      const assignment = state.assignments[ticket.assignmentIds[0]]
+      return {
+        ticket,
+        decision: state.decisions[ticket.ticketId],
+        mandate: state.mandates[ticket.mandateId],
+        assignment,
+        duplicate: true,
+      }
+    }
+
+    const at = atNow(input.at)
+    // Desktop 显式派工：source='desktop'、strength='explicit'、basis='addressed'，
+    // 产生 Decision → Mandate → pending Assignment 的审计链。
+    const created = createTicketUnchecked(
+      {
+        requestId: input.requestId,
+        title: input.title,
+        repoRoot: input.repoRoot,
+        trigger: {
+          key: `desktop-dispatch:${input.requestId}`,
+          source: 'desktop',
+          threadIds: [],
+          actor: input.actor,
+          human: true,
+          addressed: 'direct',
+          text: input.text,
+          at,
+        },
+        policyVersion: input.policyVersion,
+      },
+      key,
+      fingerprint,
+    )
+
+    const decision: SuperAgentDecision = {
+      decisionId: newId('decision'),
+      ticketId: created.ticket.ticketId,
+      triggerId: created.ticket.origin.triggerId,
+      action: 'accept',
+      source: 'desktop',
+      actor: input.actor,
+      human: true,
+      policyVersion: created.mandate.policyVersion,
+      strength: created.mandate.strength,
+      basis: created.mandate.basis,
+      at,
+    }
+    state.decisions[created.ticket.ticketId] = decision
+
+    const assignment = newAssignmentForTicket(created.ticket, at, 'pending')
+
+    return {
+      ticket: created.ticket,
+      decision,
+      mandate: created.mandate,
+      assignment,
+      duplicate: false,
+    }
   }
 
   function startAssignment(input: StartAssignmentInput): SuperAgentAssignment {
@@ -399,27 +547,21 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       throw superAgentError('notRetryable', { ticketId: ticket.ticketId })
     }
 
-    const at = atNow(input.at)
-    const ordinal = nextOrdinal()
-    const assignment: SuperAgentAssignment = {
-      assignmentId: newId('assignment'),
-      ticketId: ticket.ticketId,
-      generation: latest ? latest.generation + 1 : 1,
-      state: 'running',
-      createdAt: at,
-      startedAt: at,
-      endedAt: null,
-      endedReason: null,
-      createdOrdinal: ordinal,
-      endedOrdinal: null,
-      report: null,
-      deliveredAt: null,
-      idleAt: null,
+    return newAssignmentForTicket(ticket, atNow(input.at), 'running')
+  }
+
+  /** Scheduler 专用：把 pending Assignment 标记为 running 并落 startedAt。 */
+  function launchAssignment(input: LaunchAssignmentInput): SuperAgentAssignment {
+    const assignment = state.assignments[input.assignmentId]
+    if (!assignment) {
+      throw superAgentError('assignmentNotFound', { assignmentId: input.assignmentId })
+    }
+    if (assignment.state !== 'pending') {
+      throw superAgentError('assignmentNotPending', { assignmentId: input.assignmentId })
     }
 
-    state.assignments[assignment.assignmentId] = assignment
-    ticket.assignmentIds.push(assignment.assignmentId)
-    ticket.execution.assignmentId = assignment.assignmentId
+    assignment.state = 'running'
+    assignment.startedAt = atNow(input.at)
     return assignment
   }
 
@@ -785,7 +927,9 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     state,
     intakeTrigger,
     createTicket,
+    dispatch,
     startAssignment,
+    launchAssignment,
     endAssignment,
     addInput,
     failDelivery,

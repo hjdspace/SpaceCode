@@ -38,6 +38,46 @@ export interface SuperAgentBindResult {
   snapshot: SuperAgentSnapshot
 }
 
+// ── 显式派工与串行调度（T05 #75）──────────────────────────────────
+
+/** 「新建工单」动作的入参；requestId 是 UI 幂等键，重复派工返回原结果。 */
+export interface SuperAgentDispatchCommand {
+  requestId: string
+  title: string
+  text: string
+  /** 派工时携带的 @ 上下文（相对路径）。 */
+  contextPaths?: string[]
+  attachments?: string[]
+  actor?: string
+}
+
+export interface SuperAgentDispatchResult {
+  ticketId: string
+  assignmentId: string
+  decisionId: string
+  mandateId: string
+  /** 0 表示已占槽执行中；>0 表示 FIFO 队列位置（从 1 起）。 */
+  queuePosition: number
+  duplicate: boolean
+}
+
+export interface SuperAgentQueueEntry {
+  ticketId: string
+  title: string
+  /** running 为 0；queued 从 1 起。 */
+  position: number
+  state: 'running' | 'queued'
+  /** launch 前脏区检查结果；queued 尚未检查为 null。 */
+  dirty: boolean | null
+}
+
+export interface SuperAgentQueueSnapshot {
+  repoRoot: string
+  maxWorkers: number
+  running: SuperAgentQueueEntry[]
+  queued: SuperAgentQueueEntry[]
+}
+
 // ── 健康模型（T13 #83）───────────────────────────────────────────
 
 /**
@@ -111,11 +151,23 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentHealthReport,
     },
+    dispatch: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentDispatchCommand],
+      res: null as unknown as SuperAgentDispatchResult,
+    },
+    queue: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentQueueSnapshot,
+    },
   },
   events: {
     onHealthChanged: {
       channel: 'health-changed',
       args: [] as unknown as [repoRoot: string, report: SuperAgentHealthReport],
+    },
+    onQueueChanged: {
+      channel: 'queue-changed',
+      args: [] as unknown as [repoRoot: string, snapshot: SuperAgentQueueSnapshot],
     },
   },
 })

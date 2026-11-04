@@ -18,6 +18,8 @@ export type SuperAgentErrorCode =
   | 'ticketEnded'
   | 'assignmentEnded'
   | 'notRetryable'
+  | 'invalidDispatch'
+  | 'assignmentNotPending'
   | 'questionWithResult'
   | 'askerWithoutQuestion'
   | 'notAsker'
@@ -32,6 +34,7 @@ export type SuperAgentErrorCode =
   // conflict：重复或并发冲突
   | 'conflict'
   // unavailable：引擎或资源不可用
+  | 'engineLaunchFailed'
   | 'slotUnavailable'
 
 export type SuperAgentErrorParams = Record<string, string | number>
@@ -45,6 +48,8 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   ticketEnded: 'refused',
   assignmentEnded: 'refused',
   notRetryable: 'refused',
+  invalidDispatch: 'refused',
+  assignmentNotPending: 'refused',
   questionWithResult: 'refused',
   askerWithoutQuestion: 'refused',
   notAsker: 'refused',
@@ -57,6 +62,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   ackEnded: 'refused',
   mandateRevoked: 'refused',
   conflict: 'conflict',
+  engineLaunchFailed: 'unavailable',
   slotUnavailable: 'unavailable',
 }
 
