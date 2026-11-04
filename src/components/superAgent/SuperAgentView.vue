@@ -111,7 +111,23 @@
       </div>
     </div>
 
-    <SuperAgentHealth v-if="superAgentStore.healthPanelOpen" :problems="superAgentStore.healthProblems" />
+    <!-- 健康面板（T13 #83，T20 #90 升级为可操作）：重试/忽略/重新评估。 -->
+    <template v-if="superAgentStore.healthPanelOpen">
+      <SuperAgentHealth
+        :problems="superAgentStore.healthProblems"
+        @retry="handleHealthRetry"
+        @dismiss="handleHealthDismiss"
+        @reevaluate="handleHealthReevaluate"
+      />
+      <p
+        v-if="healthActionHint"
+        class="health-action-hint"
+        :class="{ failed: healthActionFailed }"
+        data-testid="super-agent-health-action-hint"
+      >
+        {{ healthActionHint }}
+      </p>
+    </template>
 
     <!-- 执行策略与检查点回退（T12 #82）：串/并行开关（并行强制 per-ticket worktree，
          两步确认）、检查点按文件显式回退入口。 -->
@@ -355,6 +371,53 @@ function handleTicketMessage(payload: { ticketId: string; text: string }): void 
       ticketId: payload.ticketId,
       text: payload.text,
     }),
+  )
+}
+
+// ── T20 #90：健康处置出口（重试/忽略/重新评估）—— 委托 store 落库与
+//    领域处置，成功/失败都以非模态提示回显（状态回显）。 ──
+const healthActionHint = ref('')
+const healthActionFailed = ref(false)
+
+async function runHealthAction(action: () => Promise<unknown>, successKey: string): Promise<void> {
+  healthActionHint.value = ''
+  healthActionFailed.value = false
+  try {
+    await action()
+    healthActionHint.value = t(successKey)
+  } catch (error) {
+    console.error('[SuperAgentView] health action failed:', error)
+    healthActionFailed.value = true
+    healthActionHint.value = t('superAgent.health.actionFailedHint', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function handleHealthRetry(category: string, subjectId: string | null): void {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+  void runHealthAction(
+    () => superAgentStore.retryHealthProblem(repoRoot, category, subjectId),
+    'superAgent.health.retryDone',
+  )
+}
+
+function handleHealthDismiss(category: string, subjectId: string | null): void {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+  void runHealthAction(
+    () => superAgentStore.dismissProblem(repoRoot, category, subjectId),
+    'superAgent.health.dismissDone',
+  )
+}
+
+function handleHealthReevaluate(evalId: string): void {
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
+  void runHealthAction(
+    () => superAgentStore.reevaluateEval(repoRoot, evalId),
+    'superAgent.health.reevaluateDone',
   )
 }
 
@@ -843,6 +906,17 @@ async function handleToolSkip(messageId: string, toolId: string) {
   margin: 4px 12px 0;
   font-size: 12px;
   color: var(--status-error, #d4564d);
+}
+
+// ── T20 #90：健康处置回显 —— 成功为中性提示，失败为错误色 ──
+.health-action-hint {
+  margin: 4px 12px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+
+  &.failed {
+    color: var(--status-error, #d4564d);
+  }
 }
 
 // ── 工单卡片（T06 #76）：时间线上方薄层区块，单行卡片纵排 ──

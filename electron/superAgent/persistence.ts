@@ -76,6 +76,8 @@ function persistingDomain(
     startEval: (input) => tracked(() => domain.startEval(input)),
     deliverEval: (input) => tracked(() => domain.deliverEval(input)),
     expireEval: (input) => tracked(() => domain.expireEval(input)),
+    reevaluateEval: (input) => tracked(() => domain.reevaluateEval(input)),
+    dismissEval: (input) => tracked(() => domain.dismissEval(input)),
     submitEvalDecision: (input) => tracked(() => domain.submitEvalDecision(input)),
     revalidateTicket: (ticketId) => domain.revalidateTicket(ticketId),
     followupOwners: (triggerId) => domain.followupOwners(triggerId),

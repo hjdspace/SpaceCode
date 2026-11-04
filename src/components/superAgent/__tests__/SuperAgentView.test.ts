@@ -47,6 +47,10 @@ const probe = vi.hoisted(() => ({
   healthPanelOpen: false,
   healthProblemCount: 0,
   healthProblems: [] as SuperAgentHealthItem[],
+  // ── 健康处置（T20 #90）──
+  reevaluateEval: vi.fn().mockResolvedValue({ evalId: 'eval-1', requeuedTriggerIds: [] }),
+  dismissProblem: vi.fn().mockResolvedValue(undefined),
+  retryHealthProblem: vi.fn().mockResolvedValue(undefined),
   // ── 显式派工与队列（T05）──
   dispatch: vi.fn().mockResolvedValue({
     ticketId: 'ticket-1',
@@ -165,6 +169,9 @@ vi.mock('@/stores/superAgent', () => ({
     get healthPanelOpen() { return probe.healthPanelOpen },
     get healthProblemCount() { return probe.healthProblemCount },
     get healthProblems() { return probe.healthProblems },
+    reevaluateEval: probe.reevaluateEval,
+    dismissProblem: probe.dismissProblem,
+    retryHealthProblem: probe.retryHealthProblem,
     dispatch: probe.dispatch,
     loadQueue: probe.loadQueue,
     watchQueue: probe.watchQueue,
@@ -223,6 +230,12 @@ beforeEach(() => {
   probe.healthPanelOpen = false
   probe.healthProblemCount = 0
   probe.healthProblems = []
+  probe.reevaluateEval.mockClear()
+  probe.reevaluateEval.mockResolvedValue({ evalId: 'eval-1', requeuedTriggerIds: [] })
+  probe.dismissProblem.mockClear()
+  probe.dismissProblem.mockResolvedValue(undefined)
+  probe.retryHealthProblem.mockClear()
+  probe.retryHealthProblem.mockResolvedValue(undefined)
   probe.dispatch.mockClear()
   probe.dispatch.mockResolvedValue({
     ticketId: 'ticket-1',
@@ -437,7 +450,7 @@ describe('SuperAgentView health entry（T13 #83）', () => {
     wrapper.unmount()
   })
 
-  it('点击入口只开关只读面板：面板内无任何按钮', async () => {
+  it('点击入口开关面板：面板可操作（重试/忽略/重新评估上抛到 store）', async () => {
     probe.healthPanelOpen = true
     probe.healthProblemCount = 1
     probe.healthProblems = [
@@ -450,6 +463,7 @@ describe('SuperAgentView health entry（T13 #83）', () => {
         lastFailedAt: '2026-01-01T00:00:00Z',
         ticketId: null,
         reflectedOnTicket: false,
+        subjectId: null,
       },
     ]
     const wrapper = mountView()
@@ -458,11 +472,50 @@ describe('SuperAgentView health entry（T13 #83）', () => {
     const panel = wrapper.find('[data-testid="super-agent-health"]')
     expect(panel.exists()).toBe(true)
     expect(panel.text()).toContain('superAgent.health.categories.engine')
-    // 面板只读：处置操作在后续版本提供
-    expect(panel.findAll('button')).toHaveLength(0)
+
+    // T20：面板从只读升级为可操作 —— 重试直接委托 store
+    await panel.find('[data-testid="super-agent-health-retry-engine"]').trigger('click')
+    await flushPromises()
+    expect(probe.retryHealthProblem).toHaveBeenCalledWith('D:/repo', 'engine', null)
+    // 处置回显（成功提示）
+    expect(wrapper.find('[data-testid="super-agent-health-action-hint"]').exists()).toBe(true)
+
+    // 忽略走两步确认后委托 store
+    await panel.find('[data-testid="super-agent-health-dismiss-engine"]').trigger('click')
+    await panel.find('[data-testid="super-agent-health-dismiss-confirm-engine"]').trigger('click')
+    await flushPromises()
+    expect(probe.dismissProblem).toHaveBeenCalledWith('D:/repo', 'engine', null)
 
     await wrapper.find('[data-testid="super-agent-health-entry"]').trigger('click')
     expect(probe.toggleHealthPanel).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('unavailable Eval 主体项的重新评估委托 store 并回显', async () => {
+    probe.healthPanelOpen = true
+    probe.healthProblemCount = 1
+    probe.healthProblems = [
+      {
+        category: 'eval',
+        status: 'error',
+        consecutiveFailures: 1,
+        code: 'evalUnavailable',
+        codeI18nKey: 'superAgent.errors.evalUnavailable',
+        lastFailedAt: '2026-01-01T00:00:00Z',
+        ticketId: null,
+        reflectedOnTicket: false,
+        subjectId: 'eval-1',
+      },
+    ]
+    const wrapper = mountView()
+    await flushPromises()
+
+    const panel = wrapper.find('[data-testid="super-agent-health"]')
+    await panel.find('[data-testid="super-agent-health-reevaluate-eval-eval-1"]').trigger('click')
+    await flushPromises()
+
+    expect(probe.reevaluateEval).toHaveBeenCalledWith('D:/repo', 'eval-1')
+    expect(wrapper.find('[data-testid="super-agent-health-action-hint"]').exists()).toBe(true)
     wrapper.unmount()
   })
 })

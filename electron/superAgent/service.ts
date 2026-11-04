@@ -49,10 +49,14 @@ import type {
   SuperAgentDispatchCommand,
   SuperAgentDispatchResult,
   SuperAgentErrorPayload,
+  SuperAgentEvalReevaluateCommand,
+  SuperAgentEvalReevaluateResult,
   SuperAgentExecutionPolicyView,
   SuperAgentHealthCategory,
   SuperAgentHealthReport,
+  SuperAgentHealthRetryCommand,
   SuperAgentPolicySetCommand,
+  SuperAgentProblemDismissCommand,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
   SuperAgentTakeoverChangedEvent,
@@ -80,7 +84,7 @@ import {
   type SuperAgentDomain,
 } from './domain'
 import type { SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
-import { superAgentError, serializeSuperAgentError } from './errors'
+import { SuperAgentDomainError, superAgentError, serializeSuperAgentError } from './errors'
 import { createCheckpointStore, parsePorcelainEntry, type SuperAgentCheckpointStore } from './checkpoint'
 import {
   createSuperAgentAttentionProjector,
@@ -115,6 +119,8 @@ import {
 const STALE_AFTER_MS = 5_000
 /** T11 #81：显式 shutdown 的在途 Effect 有界等待参考值（§9.5，10 秒）。 */
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000
+/** T20 #90：unavailable Eval 的处置窗口（§10.4：24 小时内可重新评估或显式忽略）。 */
+const EVAL_DISPOSAL_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /** T18 #88：Outbox 各类投递对应的健康类别（effect:<kind>）。 */
 const OUTBOX_HEALTH_CATEGORY: Record<SuperAgentOutboxKind, SuperAgentHealthCategory> = {
@@ -159,6 +165,8 @@ interface ProjectState {
 export interface SuperAgentServiceOptions {
   /** 健康项变化时回调（IPC 层据此广播 health.changed）。 */
   onHealthChanged?: (repoRoot: string, report: SuperAgentHealthReport) => void
+  /** T20 #90：处置窗口对账用的时钟；测试注入接缝。 */
+  now?: () => Date
   /** 队列变化时回调（IPC 层据此广播 queue-changed）。 */
   onQueueChanged?: (repoRoot: string, snapshot: SuperAgentQueueSnapshot) => void
   /** T06 #76：领域事实变化时回调（IPC 层据此广播 ticket-updated）。 */
@@ -255,6 +263,15 @@ export interface SuperAgentService {
   state(repoRoot: string): SuperAgentSnapshot
   routerBind(repoRoot: string): SuperAgentBindResult
   health(repoRoot: string): SuperAgentHealthReport
+  /** T20 #90：重新评估 unavailable Eval —— Trigger 回队、计数清零、落审计。 */
+  evalReevaluate(
+    repoRoot: string,
+    command: SuperAgentEvalReevaluateCommand,
+  ): SuperAgentEvalReevaluateResult
+  /** T20 #90：忽略健康问题 —— eval 主体同时释放对应 Eval；返回最新报告。 */
+  problemDismiss(repoRoot: string, command: SuperAgentProblemDismissCommand): SuperAgentHealthReport
+  /** T20 #90：重试健康项 —— 清零连续失败计数；返回最新报告。 */
+  healthRetry(repoRoot: string, command: SuperAgentHealthRetryCommand): SuperAgentHealthReport
   dispatch(repoRoot: string, command: SuperAgentDispatchCommand): SuperAgentDispatchResult
   queue(repoRoot: string): SuperAgentQueueSnapshot
   /** T06 #76：全量卡片看板 + 领域 seq 水位（断档重拉的基准）。 */
@@ -381,10 +398,41 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     }
   }
 
+  /** T20 #90：处置窗口时钟（测试注入接缝）。 */
+  const now = options.now ?? (() => new Date())
+
+  /**
+   * T20 #90：把领域里 undisposed 的 unavailable Eval 对账进健康报告。
+   * 超过 24 小时未处置的自动释放（dismiss 审计）——不再提示、不阻塞 Thread；
+   * 窗口内的按主体项上报（evalUnavailable），供面板重新评估/忽略。
+   */
+  function syncEvalHealth(project: ProjectState): void {
+    const nowMs = now().getTime()
+    for (const evalRecord of Object.values(project.domain.state.evals)) {
+      if (evalRecord.state !== 'unavailable') continue
+      const unavailableAtMs = Date.parse(evalRecord.decision?.at ?? evalRecord.createdAt)
+      if (Number.isNaN(unavailableAtMs)) continue
+      if (nowMs - unavailableAtMs > EVAL_DISPOSAL_WINDOW_MS) {
+        project.domain.dismissEval({
+          evalId: evalRecord.evalId,
+          at: new Date(nowMs).toISOString(),
+        })
+        project.health.dismiss('eval', evalRecord.evalId)
+        continue
+      }
+      project.health.recordFailure('eval', {
+        code: 'evalUnavailable',
+        subjectId: evalRecord.evalId,
+        at: new Date(unavailableAtMs).toISOString(),
+      })
+    }
+  }
+
   function projectOf(repoRoot: string): ProjectState {
     let project = projects.get(repoRoot)
     if (!project) {
-      const health = createSuperAgentHealthTracker({ repoRoot })
+      // T20 #90：处置审计时间戳与处置窗口共用服务时钟（测试注入接缝）。
+      const health = createSuperAgentHealthTracker({ repoRoot, now })
       health.subscribe((report) => options.onHealthChanged?.(repoRoot, report))
       // T11 #81：迁移 → 锁 → seq 重放由 Store 完成后按恢复顺序对账；
       // Store 打不开（锁被活进程持有/迁移失败/损坏）抛 projectStoreUnavailable，
@@ -725,7 +773,56 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     },
 
     health(repoRoot) {
-      return projectOf(repoRoot).health.report()
+      const project = projectOf(repoRoot)
+      // T20 #90：读报告前先对账 unavailable Eval（24h 窗口），保证面板看到
+      // 的 eval 主体项与领域事实一致。
+      syncEvalHealth(project)
+      return project.health.report()
+    },
+
+    evalReevaluate(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      // 先对账处置窗口：超过 24 小时的 unavailable 已被自动释放，
+      // 重新评估会被拒绝（evalNotUnavailable），符合「24 小时内可重新评估」。
+      syncEvalHealth(project)
+      const result = project.domain.reevaluateEval({ evalId: command.evalId })
+      // 健康主体项随之解除，落 reevaluated 审计。
+      project.health.resolve('eval', command.evalId)
+      return {
+        evalId: result.eval.evalId,
+        requeuedTriggerIds: result.requeuedTriggerIds,
+      }
+    },
+
+    problemDismiss(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      const subjectId = command.subjectId ?? null
+      if (command.category === 'eval' && subjectId !== null) {
+        syncEvalHealth(project)
+        try {
+          // 显式忽略：领域侧释放扣住的 Trigger（不阻塞 Thread），落处置审计。
+          project.domain.dismissEval({ evalId: subjectId })
+        } catch (err) {
+          // 已被处置（如 24 小时自动释放）：幂等忽略，健康条目照常清除。
+          if (!(err instanceof SuperAgentDomainError && err.code === 'evalNotUnavailable')) {
+            throw err
+          }
+        }
+      }
+      project.health.dismiss(command.category, subjectId)
+      return project.health.report()
+    },
+
+    healthRetry(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      // 与 health()/problemDismiss 一致：先对账 unavailable Eval，再处置，
+      // 返回的报告即面板最新状态（状态回显）。
+      syncEvalHealth(project)
+      project.health.retry(command.category, command.subjectId ?? null)
+      return project.health.report()
     },
 
     dispatch(repoRoot, command) {

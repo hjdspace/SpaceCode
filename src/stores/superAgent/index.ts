@@ -52,6 +52,8 @@ import type {
   SuperAgentDispatchCommand,
   SuperAgentDispatchResult,
   SuperAgentExecutionPolicyView,
+  SuperAgentEvalReevaluateResult,
+  SuperAgentHealthCategory,
   SuperAgentHealthReport,
   SuperAgentPolicySetCommand,
   SuperAgentQueueSnapshot,
@@ -364,6 +366,50 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     return result
   }
 
+  /**
+   * T20 #90：重新评估 unavailable Eval —— Trigger 回队、计数清零；
+   * 成功后重拉健康报告（eval 主体项随之解除），状态回显。
+   */
+  async function reevaluateEval(
+    repoRoot: string,
+    evalId: string,
+  ): Promise<SuperAgentEvalReevaluateResult> {
+    const result = await api.superAgent.evalReevaluate(repoRoot, { evalId })
+    await loadHealth(repoRoot)
+    return result
+  }
+
+  /**
+   * T20 #90：忽略健康问题 —— eval 主体同时释放对应 Eval；响应即最新报告
+   * （含处置审计），直接写回镜像。
+   */
+  async function dismissProblem(
+    repoRoot: string,
+    category: SuperAgentHealthCategory,
+    subjectId: string | null,
+  ): Promise<SuperAgentHealthReport> {
+    const report = await api.superAgent.problemDismiss(repoRoot, {
+      category,
+      ...(subjectId !== null ? { subjectId } : {}),
+    })
+    healthReport.value = report
+    return report
+  }
+
+  /** T20 #90：重试健康项 —— 清零连续失败计数；响应即最新报告。 */
+  async function retryHealthProblem(
+    repoRoot: string,
+    category: SuperAgentHealthCategory,
+    subjectId: string | null,
+  ): Promise<SuperAgentHealthReport> {
+    const report = await api.superAgent.healthRetry(repoRoot, {
+      category,
+      ...(subjectId !== null ? { subjectId } : {}),
+    })
+    healthReport.value = report
+    return report
+  }
+
   /** 订阅 health.changed；只接受当前绑定项目的报告，返回退订函数。 */
   function watchHealth(): () => void {
     return api.superAgent.onHealthChanged((repoRoot, report) => {
@@ -492,6 +538,9 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     stopTicket,
     messageTicket,
     retryTicket,
+    reevaluateEval,
+    dismissProblem,
+    retryHealthProblem,
     bindWorker,
     unbindWorker,
     takeoverWorker,

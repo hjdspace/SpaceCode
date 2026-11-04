@@ -59,6 +59,8 @@ export default {
     evalNotDelivered: 'The evaluation has not been delivered yet or is already finished',
     evalNotFound: 'Evaluation record not found',
     evalPolicyStale: 'The authorization policy changed; this evaluation result is stale',
+    evalNotUnavailable:
+      'This evaluation is not awaiting disposal (already disposed or past the 24-hour window)',
     noAnswer: 'The question has not been claimed by a worker; it cannot be sent as an answer',
     invalidOutbound: 'Invalid outbound message payload',
     invalidPolicy: 'Invalid authorization policy configuration',
@@ -166,9 +168,21 @@ export default {
   health: {
     entry: 'System issues',
     title: 'System issues',
-    readonlyHint: 'Read-only report. Actions will arrive in a later phase.',
+    summary: 'System issues {count}',
+    actionableHint:
+      'Retry or dismiss an issue; failed evaluations can be re-evaluated (within 24 hours)',
     empty: 'All systems operational',
     relatedTicket: 'Related ticket: {ticketId}',
+    retry: 'Retry',
+    dismiss: 'Dismiss',
+    dismissConfirm: 'A dismissed issue will not prompt again. Dismiss it?',
+    dismissConfirmYes: 'Dismiss',
+    dismissConfirmNo: 'Cancel',
+    reevaluate: 'Re-evaluate',
+    retryDone: 'Retried. The failure streak has been reset',
+    dismissDone: 'Dismissed. This issue will not prompt again',
+    reevaluateDone: 'Re-evaluated. Messages return to the pending evaluation queue',
+    actionFailedHint: 'Action failed: {message}. Please retry later',
     categories: {
       'effect:launch': 'Worker launch',
       'effect:delivery': 'Message delivery',

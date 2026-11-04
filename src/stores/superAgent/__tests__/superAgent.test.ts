@@ -153,16 +153,18 @@ function healthItem(overrides: Partial<SuperAgentHealthItem> = {}): SuperAgentHe
     lastFailedAt: '2026-01-01T00:00:00Z',
     ticketId: null,
     reflectedOnTicket: false,
+    subjectId: null,
     ...overrides,
   }
 }
 
-function healthReport(items: SuperAgentHealthItem[], overrides: Partial<SuperAgentHealthReport> = {}) {
+function healthReport(items: SuperAgentHealthItem[], overrides: Partial<SuperAgentHealthReport> = {}): SuperAgentHealthReport {
   return {
     repoRoot: 'D:/repo',
     problemCount: items.filter((item) => item.status === 'error' && !item.reflectedOnTicket).length,
     degradedCount: items.filter((item) => item.status === 'degraded' && !item.reflectedOnTicket).length,
     items,
+    dispositions: [],
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
   }

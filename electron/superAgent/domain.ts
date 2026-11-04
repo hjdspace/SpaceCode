@@ -431,6 +431,24 @@ export interface SubmitEvalDecisionResult {
   duplicate: boolean
 }
 
+/** T20 #90：unavailable Eval 重新评估 —— 批次 Trigger 回队、连续超时计数清零。 */
+export interface ReevaluateEvalInput {
+  evalId: string
+  at?: string
+}
+
+export interface ReevaluateEvalResult {
+  eval: SuperAgentEval
+  /** 实际回队的 Trigger（已被其他工单消费的不抢归属）。 */
+  requeuedTriggerIds: string[]
+}
+
+/** T20 #90：unavailable Eval 显式忽略 —— Trigger 释放不回队，不阻塞 Thread。 */
+export interface DismissEvalInput {
+  evalId: string
+  at?: string
+}
+
 /** T16 #86：续接前重校验 —— 按 Mandate 来源 Trigger 在当前 Policy 下重新过 Gate。 */
 export interface RevalidateTicketResult {
   valid: boolean
@@ -613,6 +631,10 @@ export interface SuperAgentDomain {
    * Decision → Mandate → pending Assignment 审计链。
    */
   submitEvalDecision(input: SubmitEvalDecisionInput): SubmitEvalDecisionResult
+  /** T20 #90：unavailable Eval 重新评估 —— Trigger 回队、计数清零、落处置审计。 */
+  reevaluateEval(input: ReevaluateEvalInput): ReevaluateEvalResult
+  /** T20 #90：unavailable Eval 显式忽略 —— Trigger 释放不回队、落处置审计。 */
+  dismissEval(input: DismissEvalInput): SuperAgentEval
   /**
    * T16 #86：续接前 revalidate —— 按 Mandate 的来源 Trigger 在当前 Policy 下
    * 重新过 Gate；失效（名单移除/scope 收紧/bot 化/已撤回）则续接被拒。
@@ -746,6 +768,11 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     ? // 重水化：缺失字段补默认，已有事实原样保留；未知字段透传（前向兼容）。
       { ...fresh(), ...options.initialState }
     : fresh()
+
+  // T20 #90：旧快照的 Eval 记录缺失 disposal 字段时补 null（缺失字段补默认）。
+  for (const evalRecord of Object.values(state.evals)) {
+    if (evalRecord.disposal === undefined) evalRecord.disposal = null
+  }
 
   const atNow = (at?: string): string => at ?? now().toISOString()
 
@@ -1808,6 +1835,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       deliveredAt: null,
       deadlineAt: null,
       decision: null,
+      disposal: null,
     }
     state.evals[evalRecord.evalId] = evalRecord
     const admittedIds = new Set(evalRecord.triggerIds)
@@ -1863,6 +1891,61 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     thread.evaluating = false
     nextOrdinal()
     return { eval: evalRecord, outcome: 'requeued' }
+  }
+
+  /**
+   * T20 #90：unavailable Eval 的人工处置 —— 重新评估。批次里未被其他工单
+   * 消费的 Trigger 回队，连续超时计数清零（重新评估重置计数），Thread 可
+   * 立即开新一轮评估；处置事实落 disposal 审计。
+   */
+  function reevaluateEval(input: ReevaluateEvalInput): ReevaluateEvalResult {
+    const evalRecord = requireEval(input.evalId)
+    if (evalRecord.state !== 'unavailable') {
+      throw superAgentError('evalNotUnavailable', {
+        evalId: input.evalId,
+        state: evalRecord.state,
+      })
+    }
+    const at = atNow(input.at)
+    const thread = state.threads[evalRecord.threadId]
+    if (!thread) throw superAgentError('threadNotFound', { threadId: evalRecord.threadId })
+
+    // 已被其他工单消费的 Trigger 不抢归属（与 accept 去重同规则）。
+    const requeuedTriggerIds = evalRecord.triggerIds.filter((triggerId) => {
+      const trigger = state.triggers[triggerId]
+      return trigger !== undefined && trigger.disposition.ticketIds.length === 0
+    })
+    requeueTriggers(thread, requeuedTriggerIds)
+    thread.expired = 0
+    thread.evaluating = false
+    evalRecord.state = 'reevaluated'
+    evalRecord.disposal = { action: 'reevaluated', at }
+    nextOrdinal()
+    return { eval: evalRecord, requeuedTriggerIds }
+  }
+
+  /**
+   * T20 #90：unavailable Eval 的人工处置 —— 显式忽略。扣住的 Trigger
+   * 释放但不回队（不阻塞 Thread、不再提示），处置事实落 disposal 审计。
+   */
+  function dismissEval(input: DismissEvalInput): SuperAgentEval {
+    const evalRecord = requireEval(input.evalId)
+    if (evalRecord.state !== 'unavailable') {
+      throw superAgentError('evalNotUnavailable', {
+        evalId: input.evalId,
+        state: evalRecord.state,
+      })
+    }
+    const at = atNow(input.at)
+    const thread = state.threads[evalRecord.threadId]
+    if (!thread) throw superAgentError('threadNotFound', { threadId: evalRecord.threadId })
+
+    thread.expired = 0
+    thread.evaluating = false
+    evalRecord.state = 'dismissed'
+    evalRecord.disposal = { action: 'dismissed', at }
+    nextOrdinal()
+    return evalRecord
   }
 
   /** auto 模式 accept 建单：Decision → Mandate（含命中规则）→ pending Assignment。 */
@@ -2708,6 +2791,8 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     startEval,
     deliverEval,
     expireEval,
+    reevaluateEval,
+    dismissEval,
     submitEvalDecision,
     revalidateTicket,
     followupOwners,

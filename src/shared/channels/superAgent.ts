@@ -365,6 +365,33 @@ export interface SuperAgentAttentionAnswerResult {
   duplicate: boolean
 }
 
+// ── 健康与 Eval 处置命令（T20 #90）───────────────────────────────
+
+/** 重新评估：只对 unavailable 的 Eval 开放；Trigger 回队、连续超时计数清零。 */
+export interface SuperAgentEvalReevaluateCommand {
+  evalId: string
+}
+
+export interface SuperAgentEvalReevaluateResult {
+  evalId: string
+  /** 实际回队的 Trigger（已被其他工单消费的不抢归属）。 */
+  requeuedTriggerIds: string[]
+}
+
+/** 忽略健康问题：eval 类别带 subjectId 时同时释放对应 unavailable Eval。 */
+export interface SuperAgentProblemDismissCommand {
+  category: SuperAgentHealthCategory
+  /** 处置主体（Eval id）；null/省略表示系统级问题。 */
+  subjectId?: string | null
+}
+
+/** 重试健康项：清零该类别的连续失败计数，之后失败从 1 次重新计数。 */
+export interface SuperAgentHealthRetryCommand {
+  category: SuperAgentHealthCategory
+  /** 处置主体（Eval id）；null/省略表示系统级问题。 */
+  subjectId?: string | null
+}
+
 // ── 健康模型（T13 #83）───────────────────────────────────────────
 
 /**
@@ -405,6 +432,20 @@ export interface SuperAgentHealthItem {
   ticketId: string | null
   /** 永久投递失败已显示在工单卡片上，不重复计入系统问题汇总。 */
   reflectedOnTicket: boolean
+  /**
+   * 处置主体（T20 #90）：如 eval 类别对应的 Eval id；null 表示系统级问题。
+   * 主体项按事件计数（不累计抖动），创建即 error（立即可处置）。
+   */
+  subjectId: string | null
+}
+
+/** T20 #90：健康处置审计 —— 每次重试/忽略/重新评估都落一条不可变记录。 */
+export interface SuperAgentHealthDisposition {
+  category: SuperAgentHealthCategory
+  /** 处置主体；null 表示系统级（无 subject）。 */
+  subjectId: string | null
+  action: 'retry' | 'dismiss' | 'reevaluated'
+  at: string
 }
 
 export interface SuperAgentHealthReport {
@@ -414,6 +455,8 @@ export interface SuperAgentHealthReport {
   /** 单次/两次抖动（degraded）计数，仅供汇总；不进入面板问题列表。 */
   degradedCount: number
   items: SuperAgentHealthItem[]
+  /** 处置审计（T20 #90），按时间升序、封顶保留最近若干条。 */
+  dispositions: SuperAgentHealthDisposition[]
   updatedAt: string
 }
 
@@ -497,6 +540,20 @@ export const superAgentNamespace = defineNamespace({
     attentionAnswer: {
       req: [] as unknown as [repoRoot: string, command: SuperAgentAttentionAnswerCommand],
       res: null as unknown as SuperAgentAttentionAnswerResult,
+    },
+    // 健康与 Eval 处置（T20 #90）：unavailable Eval 可重新评估或显式忽略；
+    // 系统问题面板从只读升级为可操作（重试/忽略），处置都落审计。
+    evalReevaluate: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentEvalReevaluateCommand],
+      res: null as unknown as SuperAgentEvalReevaluateResult,
+    },
+    problemDismiss: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentProblemDismissCommand],
+      res: null as unknown as SuperAgentHealthReport,
+    },
+    healthRetry: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentHealthRetryCommand],
+      res: null as unknown as SuperAgentHealthReport,
     },
     // 暂停与恢复（T11 #81）：暂停是持久领域事实（跨重启保持），期间阻止新
     // launch/delivery；恢复时补投挂起输入并续跑队列。

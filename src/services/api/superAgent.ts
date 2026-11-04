@@ -30,8 +30,19 @@ const invokeApi = createRendererApi(
       problemCount: 0,
       degradedCount: 0,
       items: [],
+      dispositions: [],
       updatedAt: new Date(0).toISOString(),
     }),
+    evalReevaluate: () => {
+      // 处置依赖主进程领域运行时，非桌面环境明确拒绝而不是假装成功
+      throw new Error('eval reevaluate is not available in the desktop-less runtime')
+    },
+    problemDismiss: () => {
+      throw new Error('problem dismiss is not available in the desktop-less runtime')
+    },
+    healthRetry: () => {
+      throw new Error('health retry is not available in the desktop-less runtime')
+    },
     dispatch: () => {
       // 显式派工依赖主进程 Router/Worker 运行时，非桌面环境明确拒绝而非假排队
       throw new Error('Super Agent is only available in the desktop app')

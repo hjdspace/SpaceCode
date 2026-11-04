@@ -539,3 +539,80 @@ describe('registerSuperAgentIPCHandlers policy & checkpoint（T12 #82）', () =>
     ).rejects.toThrow(/checkpointUnavailable/)
   })
 })
+
+describe('registerSuperAgentIPCHandlers 健康与 Eval 处置（T20 #90）', () => {
+  it('registers evalReevaluate / problemDismiss / healthRetry on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}evalReevaluate`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}problemDismiss`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}healthRetry`,
+      expect.any(Function),
+    )
+  })
+
+  it('round-trips healthRetry and problemDismiss, echoing the audited report', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const service = createBroadcastingSuperAgentService()
+    for (let i = 0; i < 3; i++) {
+      service.recordHealthFailure('/repo/a', 'engine', { code: 'slotUnavailable' })
+    }
+    expect(service.health('/repo/a').problemCount).toBe(1)
+
+    // 重试：清零计数 + retry 审计，报告随响应回显（状态回显）。
+    const retried = await invokeDispatch('healthRetry', '/repo/a', { category: 'engine' })
+    expect(retried.problemCount).toBe(0)
+    expect(retried.dispositions).toEqual([
+      { category: 'engine', subjectId: null, action: 'retry', at: expect.any(String) },
+    ])
+
+    // 忽略：隐藏问题 + dismiss 审计。
+    for (let i = 0; i < 3; i++) {
+      service.recordHealthFailure('/repo/a', 'engine', { code: 'slotUnavailable' })
+    }
+    const dismissed = await invokeDispatch('problemDismiss', '/repo/a', { category: 'engine' })
+    expect(dismissed.problemCount).toBe(0)
+    expect(dismissed.items).toEqual([])
+    expect(dismissed.dispositions).toEqual([
+      { category: 'engine', subjectId: null, action: 'retry', at: expect.any(String) },
+      { category: 'engine', subjectId: null, action: 'dismiss', at: expect.any(String) },
+    ])
+  })
+
+  it('rejects malformed disposal commands at the entry', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invokeDispatch('evalReevaluate', '/repo/a', null)).rejects.toThrow(
+      /eval reevaluate/,
+    )
+    await expect(invokeDispatch('evalReevaluate', '/repo/a', { evalId: ' ' })).rejects.toThrow(
+      /eval reevaluate/,
+    )
+    await expect(invokeDispatch('problemDismiss', '/repo/a', { category: '' })).rejects.toThrow(
+      /problem dismiss/,
+    )
+    await expect(
+      invokeDispatch('problemDismiss', '/repo/a', { category: 'eval', subjectId: 42 }),
+    ).rejects.toThrow(/problem dismiss/)
+    await expect(invokeDispatch('healthRetry', '/repo/a', null)).rejects.toThrow(/health retry/)
+    await expect(invokeDispatch('healthRetry', '/repo/a', { category: 'engine' })).resolves.toMatchObject(
+      { repoRoot: '/repo/a' },
+    )
+  })
+
+  it('forwards evalReevaluate errors from the service (evalNotFound for unknown ids)', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invokeDispatch('evalReevaluate', '/repo/a', { evalId: 'missing' })).rejects.toThrow(
+      /evalNotFound/,
+    )
+  })
+})

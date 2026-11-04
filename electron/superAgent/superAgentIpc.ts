@@ -47,7 +47,10 @@ import {
   type SuperAgentAttentionEvent,
   type SuperAgentDispatchCommand,
   type SuperAgentCheckpointRollbackCommand,
+  type SuperAgentEvalReevaluateCommand,
   type SuperAgentHealthReport,
+  type SuperAgentProblemDismissCommand,
+  type SuperAgentHealthRetryCommand,
   type SuperAgentQueueSnapshot,
   type SuperAgentTakeoverChangedEvent,
   type SuperAgentPolicySetCommand,
@@ -197,6 +200,42 @@ function requireCheckpointRollbackCommand(input: unknown): SuperAgentCheckpointR
   return input as SuperAgentCheckpointRollbackCommand
 }
 
+/** T20 #90：重新评估命令入口校验 —— evalId 必须是非空字符串。 */
+function requireEvalReevaluateCommand(input: unknown): SuperAgentEvalReevaluateCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('eval reevaluate command is required')
+  }
+  const evalId = (input as Record<string, unknown>).evalId
+  if (typeof evalId !== 'string' || evalId.trim() === '') {
+    throw new Error('invalid eval reevaluate command: evalId is required')
+  }
+  return input as SuperAgentEvalReevaluateCommand
+}
+
+/**
+ * T20 #90：健康处置命令入口校验 —— category 必须是非空字符串；
+ * subjectId 可选（null/缺省表示系统级问题，提供时必须是非空字符串）。
+ */
+function requireHealthDisposeCommand<
+  T extends { category: unknown; subjectId?: unknown },
+>(input: unknown, label: string): T {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error(`${label} command is required`)
+  }
+  const command = input as Record<string, unknown>
+  if (typeof command.category !== 'string' || command.category.trim() === '') {
+    throw new Error(`invalid ${label} command: category is required`)
+  }
+  if (
+    command.subjectId !== undefined &&
+    command.subjectId !== null &&
+    (typeof command.subjectId !== 'string' || command.subjectId.trim() === '')
+  ) {
+    throw new Error(`invalid ${label} command: subjectId must be a non-empty string`)
+  }
+  return input as T
+}
+
 /** health.changed 广播：所有未销毁窗口都能收到，Renderer 无需轮询。 */
 function broadcastHealthChanged(repoRoot: string, report: SuperAgentHealthReport): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -304,6 +343,27 @@ export function registerSuperAgentIPCHandlers(
     health: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.health(root))
+    },
+    evalReevaluate: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireEvalReevaluateCommand(command)
+      return runNoted(service, root, () => service.evalReevaluate(root, req))
+    },
+    problemDismiss: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireHealthDisposeCommand<SuperAgentProblemDismissCommand>(
+        command,
+        'problem dismiss',
+      )
+      return runNoted(service, root, () => service.problemDismiss(root, req))
+    },
+    healthRetry: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireHealthDisposeCommand<SuperAgentHealthRetryCommand>(
+        command,
+        'health retry',
+      )
+      return runNoted(service, root, () => service.healthRetry(root, req))
     },
     dispatch: (repoRoot: unknown, command: unknown) => {
       const root = requireRepoRoot(repoRoot)

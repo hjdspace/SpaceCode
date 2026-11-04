@@ -78,6 +78,8 @@ export type SuperAgentErrorCode =
   | 'evalNotFound'
   // conflict：T16 #86 旧 Policy 版本的评估结果不得落地
   | 'evalPolicyStale'
+  // refused：T20 #90 处置命令只对 unavailable 的 Eval 开放
+  | 'evalNotUnavailable'
   // refused：T18 #88 受控 reply —— 未认领的人问题不得外发为回答
   | 'noAnswer'
   // refused：T18 #88 Outbox 载荷非法（通道为空 / reply 文本为空 / 引用不匹配）
@@ -144,6 +146,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   invalidPolicy: 'refused',
   evalNotFound: 'missing',
   evalPolicyStale: 'conflict',
+  evalNotUnavailable: 'refused',
   noAnswer: 'refused',
   invalidOutbound: 'refused',
   notHandbackable: 'refused',

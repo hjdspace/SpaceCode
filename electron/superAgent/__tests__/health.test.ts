@@ -212,3 +212,165 @@ describe('createSuperAgentHealthTracker', () => {
     expect(tracker.report().items[0].lastFailedAt).toBe('2026-01-01T00:00:00.000Z')
   })
 })
+
+describe('createSuperAgentHealthTracker 处置（T20 #90）', () => {
+  it('records a subject problem as an immediately actionable error item', () => {
+    const tracker = createSuperAgentHealthTracker({ repoRoot: '/repo/a' })
+
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-1' })
+
+    const item = tracker.report().items[0]
+    expect(item.subjectId).toBe('eval-1')
+    expect(item.status).toBe('error')
+    expect(item.code).toBe('evalUnavailable')
+    expect(tracker.report().problemCount).toBe(1)
+  })
+
+  it('keeps subject problems isolated per subject and idempotent on repeated syncs', () => {
+    const tracker = createSuperAgentHealthTracker({ repoRoot: '/repo/a' })
+
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-1' })
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-1' })
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-2' })
+
+    const items = tracker.report().items
+    expect(items).toHaveLength(2)
+    expect(items.map((item) => item.subjectId).sort()).toEqual(['eval-1', 'eval-2'])
+    // 同一主体重复上报只刷新事实，不累计抖动计数。
+    for (const item of items) {
+      expect(item.consecutiveFailures).toBe(1)
+      expect(item.status).toBe('error')
+    }
+    expect(tracker.report().problemCount).toBe(2)
+  })
+
+  it('keeps subject problems separate from system-level entries in the same category', () => {
+    const tracker = createSuperAgentHealthTracker({ repoRoot: '/repo/a' })
+
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-1' })
+    tracker.recordFailure('eval')
+
+    const items = tracker.report().items
+    expect(items).toHaveLength(2)
+    expect(items.find((item) => item.subjectId === null)?.status).toBe('degraded')
+    expect(items.find((item) => item.subjectId === 'eval-1')?.status).toBe('error')
+  })
+
+  it('dismiss hides a system problem until it recovers, and recovery re-arms prompting', () => {
+    const tracker = createSuperAgentHealthTracker({
+      repoRoot: '/repo/a',
+      now: () => new Date('2026-01-01T00:00:00Z'),
+    })
+    failConsecutive(tracker, 'engine', FAILURES_BEFORE_ERROR)
+    expect(tracker.report().problemCount).toBe(1)
+
+    tracker.dismiss('engine', null)
+
+    // 忽略后不再重复提示：条目退出汇总与问题列表，即使失败仍在继续。
+    tracker.recordFailure('engine')
+    const report = tracker.report()
+    expect(report.items).toEqual([])
+    expect(report.problemCount).toBe(0)
+
+    // 处置审计保留。
+    expect(report.dispositions).toEqual([
+      { category: 'engine', subjectId: null, action: 'dismiss', at: '2026-01-01T00:00:00.000Z' },
+    ])
+
+    // 恢复（成功）后重新武装：后续失败重新提示。
+    tracker.recordSuccess('engine')
+    tracker.recordFailure('engine')
+    expect(tracker.report().items).toHaveLength(1)
+  })
+
+  it('dismiss removes a subject problem entirely', () => {
+    const tracker = createSuperAgentHealthTracker({
+      repoRoot: '/repo/a',
+      now: () => new Date('2026-01-01T00:00:00Z'),
+    })
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-1' })
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-2' })
+
+    tracker.dismiss('eval', 'eval-1')
+
+    const report = tracker.report()
+    expect(report.items.map((item) => item.subjectId)).toEqual(['eval-2'])
+    expect(report.dispositions).toEqual([
+      { category: 'eval', subjectId: 'eval-1', action: 'dismiss', at: '2026-01-01T00:00:00.000Z' },
+    ])
+  })
+
+  it('retry resets the failure streak and records the audit', () => {
+    const tracker = createSuperAgentHealthTracker({
+      repoRoot: '/repo/a',
+      now: () => new Date('2026-01-01T00:00:00Z'),
+    })
+    failConsecutive(tracker, 'engine', FAILURES_BEFORE_ERROR)
+
+    tracker.retry('engine', null)
+
+    const report = tracker.report()
+    expect(report.items).toEqual([])
+    expect(report.problemCount).toBe(0)
+    expect(report.dispositions).toEqual([
+      { category: 'engine', subjectId: null, action: 'retry', at: '2026-01-01T00:00:00.000Z' },
+    ])
+    // 重试后失败从 1 次重新计数。
+    tracker.recordFailure('engine')
+    expect(tracker.report().items[0].status).toBe('degraded')
+  })
+
+  it('resolve removes a subject problem and records a reevaluated audit', () => {
+    const tracker = createSuperAgentHealthTracker({
+      repoRoot: '/repo/a',
+      now: () => new Date('2026-01-01T00:00:00Z'),
+    })
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-1' })
+
+    tracker.resolve('eval', 'eval-1')
+
+    const report = tracker.report()
+    expect(report.items).toEqual([])
+    expect(report.dispositions).toEqual([
+      {
+        category: 'eval',
+        subjectId: 'eval-1',
+        action: 'reevaluated',
+        at: '2026-01-01T00:00:00.000Z',
+      },
+    ])
+  })
+
+  it('disposals still notify subscribers', () => {
+    const reports: number[] = []
+    const tracker = createSuperAgentHealthTracker({ repoRoot: '/repo/a' })
+    tracker.subscribe((report) => reports.push(report.problemCount))
+
+    failConsecutive(tracker, 'engine', FAILURES_BEFORE_ERROR)
+    tracker.retry('engine', null)
+
+    // 3 次失败各通知一次（degraded/degraded/error），retry 再通知一次。
+    expect(reports).toEqual([0, 0, 1, 0])
+  })
+
+  it('records success for a category with subject entries by clearing them all', () => {
+    const tracker = createSuperAgentHealthTracker({ repoRoot: '/repo/a' })
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-1' })
+    tracker.recordFailure('eval', { code: 'evalUnavailable', subjectId: 'eval-2' })
+
+    tracker.recordSuccess('eval')
+
+    expect(tracker.report().items).toEqual([])
+  })
+
+  it('keeps the disposition audit capped so a chatty category cannot grow it unbounded', () => {
+    const tracker = createSuperAgentHealthTracker({ repoRoot: '/repo/a' })
+
+    for (let i = 0; i < 60; i++) {
+      tracker.recordFailure('engine')
+      tracker.retry('engine', null)
+    }
+
+    expect(tracker.report().dispositions.length).toBeLessThanOrEqual(50)
+  })
+})

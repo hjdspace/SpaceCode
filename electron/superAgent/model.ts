@@ -412,7 +412,8 @@ export interface SuperAgentPolicy {
  * queued：已建批未送达（不计时）；delivered：候选已送 Router（deadline 计时）；
  * decided：已裁决（accept/stop/ignore）；requeued：超时或版本变化回队；
  * unavailable：连续第 3 次超时 / 模型自报不可评估，等待人工处置；
- * discarded：Policy 版本变化被丢弃。
+ * discarded：Policy 版本变化被丢弃；
+ * reevaluated/dismissed：T20 #90 人工处置出口（重新评估回队 / 显式忽略释放）。
  */
 export type SuperAgentEvalState =
   | 'queued'
@@ -421,6 +422,14 @@ export type SuperAgentEvalState =
   | 'requeued'
   | 'unavailable'
   | 'discarded'
+  | 'reevaluated'
+  | 'dismissed'
+
+/** T20 #90：unavailable Eval 的人工处置事实（审计用）。 */
+export interface SuperAgentEvalDisposal {
+  action: 'reevaluated' | 'dismissed'
+  at: string
+}
 
 /** T16 #86：Eval 的裁决事实；observe 模式 accept 也落这里（不建单）。 */
 export interface SuperAgentEvalDecision {
@@ -450,6 +459,8 @@ export interface SuperAgentEval {
   deliveredAt: string | null
   deadlineAt: string | null
   decision: SuperAgentEvalDecision | null
+  /** T20 #90：unavailable 后的人工处置事实；未处置为 null。 */
+  disposal: SuperAgentEvalDisposal | null
 }
 
 /** 单写者持有的全部领域事实。 */

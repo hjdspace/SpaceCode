@@ -1,67 +1,167 @@
+<template>
+  <section
+    class="super-agent-health"
+    data-testid="super-agent-health"
+    :class="{ actionable: problems.length > 0 }"
+  >
+    <header class="health-summary">
+      <span
+        class="summary-count"
+        :class="problems.length > 0 ? 'has-problems' : 'all-clear'"
+        data-testid="super-agent-health-summary"
+      >
+        {{ t('superAgent.health.summary', { count: problems.length }) }}
+      </span>
+    </header>
+
+    <ul v-if="problems.length > 0" class="health-items" data-testid="super-agent-health-items">
+      <li
+        v-for="item in problems"
+        :key="itemKey(item)"
+        class="health-item"
+        :class="{ 'subject-item': item.subjectId !== null }"
+        :data-testid="`super-agent-health-item-${itemKey(item)}`"
+      >
+        <div class="item-main">
+          <span class="item-category">{{ t(healthCategoryI18nKey(item.category)) }}</span>
+          <span class="item-error">{{ t(item.codeI18nKey) }}</span>
+          <span
+            v-if="item.ticketId"
+            class="item-ticket"
+            :data-testid="`super-agent-health-ticket-${itemKey(item)}`"
+          >
+            {{ t('superAgent.health.relatedTicket', { ticketId: item.ticketId }) }}
+          </span>
+        </div>
+
+        <!-- T20：面板从只读升级为可操作。忽略走两步确认，避免误触。 -->
+        <div class="item-actions">
+          <template v-if="confirmingKey !== itemKey(item)">
+            <button
+              v-if="isEvalSubject(item)"
+              type="button"
+              class="action reevaluate"
+              :data-testid="`super-agent-health-reevaluate-${itemKey(item)}`"
+              @click="emit('reevaluate', item.subjectId as string)"
+            >
+              {{ t('superAgent.health.reevaluate') }}
+            </button>
+            <button
+              v-else
+              type="button"
+              class="action retry"
+              :data-testid="`super-agent-health-retry-${itemKey(item)}`"
+              @click="emit('retry', item.category, item.subjectId)"
+            >
+              {{ t('superAgent.health.retry') }}
+            </button>
+            <button
+              type="button"
+              class="action dismiss"
+              :data-testid="`super-agent-health-dismiss-${itemKey(item)}`"
+              @click="confirmingKey = itemKey(item)"
+            >
+              {{ t('superAgent.health.dismiss') }}
+            </button>
+          </template>
+          <template v-else>
+            <span class="confirm-text">{{ t('superAgent.health.dismissConfirm') }}</span>
+            <button
+              type="button"
+              class="action dismiss confirm"
+              :data-testid="`super-agent-health-dismiss-confirm-${itemKey(item)}`"
+              @click="confirmDismiss(item)"
+            >
+              {{ t('superAgent.health.dismissConfirmYes') }}
+            </button>
+            <button
+              type="button"
+              class="action cancel"
+              :data-testid="`super-agent-health-dismiss-cancel-${itemKey(item)}`"
+              @click="confirmingKey = null"
+            >
+              {{ t('superAgent.health.dismissConfirmNo') }}
+            </button>
+          </template>
+        </div>
+      </li>
+    </ul>
+
+    <p v-else class="health-empty" data-testid="super-agent-health-empty">
+      {{ t('superAgent.health.empty') }}
+    </p>
+
+    <footer class="health-hint" data-testid="super-agent-health-hint">
+      {{ t('superAgent.health.actionableHint') }}
+    </footer>
+  </section>
+</template>
+
 <script setup lang="ts">
 /**
- * 只读系统问题面板（T13 #83）。
- *
- * MVP 只上报不可操作：不提供重试/忽略等处置按钮，问题项仅展示类别、
- * 稳定错误码的本地化文案与关联工单。delivery 永久失败已由工单卡片
- * 呈现，不会出现在这里（store 已过滤 reflectedOnTicket 项）。
- * 类别/错误码均为开放字符串，未知项回退通用文案键。
+ * T13 #83 健康面板（T20 #90 升级为可操作）：
+ * 问题项支持重试 / 忽略（两步确认）；unavailable Eval（eval 类别主体项）
+ * 支持重新评估 / 忽略。面板只负责呈现与确认交互，处置动作交给父级
+ * （SuperAgentView → superAgent store）完成并回显状态。
  */
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { SuperAgentHealthItem } from '@/shared/channels/superAgent'
 import { healthCategoryI18nKey } from '@/lib/superAgent/healthText'
 
 defineProps<{
+  /** error 级且未由工单卡片呈现的问题项。 */
   problems: SuperAgentHealthItem[]
 }>()
 
+const emit = defineEmits<{
+  (e: 'retry', category: SuperAgentHealthItem['category'], subjectId: string | null): void
+  (e: 'dismiss', category: SuperAgentHealthItem['category'], subjectId: string | null): void
+  (e: 'reevaluate', evalId: string): void
+}>()
+
 const { t } = useI18n()
+
+/** 两步确认的目标项 key；null 表示无待确认项。 */
+const confirmingKey = ref<string | null>(null)
+
+function itemKey(item: SuperAgentHealthItem): string {
+  return item.subjectId !== null ? `${item.category}-${item.subjectId}` : item.category
+}
+
+/** eval 类别的主体项（unavailable Eval）：处置出口是重新评估而非重试。 */
+function isEvalSubject(item: SuperAgentHealthItem): boolean {
+  return item.category === 'eval' && item.subjectId !== null
+}
+
+function confirmDismiss(item: SuperAgentHealthItem): void {
+  confirmingKey.value = null
+  emit('dismiss', item.category, item.subjectId)
+}
 </script>
 
-<template>
-  <section class="super-agent-health" data-testid="super-agent-health">
-    <h3 class="title">{{ t('superAgent.health.title') }}</h3>
-    <p class="hint">{{ t('superAgent.health.readonlyHint') }}</p>
-
-    <ul v-if="problems.length" class="problem-list">
-      <li v-for="problem in problems" :key="problem.category" class="problem-item">
-        <span class="category">{{ t(healthCategoryI18nKey(problem.category)) }}</span>
-        <span class="message">{{ t(problem.codeI18nKey) }}</span>
-        <span v-if="problem.ticketId" class="ticket">
-          {{ t('superAgent.health.relatedTicket', { ticketId: problem.ticketId }) }}
-        </span>
-      </li>
-    </ul>
-
-    <p v-else class="empty">{{ t('superAgent.health.empty') }}</p>
-  </section>
-</template>
-
 <style scoped lang="scss">
+@use '@/styles/variables' as *;
+
 .super-agent-health {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-light);
-  background: var(--bg-primary);
-  font-size: 12px;
 }
 
-.title {
-  margin: 0;
-  font-size: 13px;
+.health-summary .summary-count {
   font-weight: 600;
-  color: var(--text-primary);
+
+  &.has-problems {
+    color: var(--danger, #d93025);
+  }
+
+  &.all-clear {
+    color: var(--text-muted);
+  }
 }
 
-.hint,
-.empty {
-  margin: 0;
-  color: var(--text-muted);
-}
-
-.problem-list {
+.health-items {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -70,26 +170,95 @@ const { t } = useI18n()
   list-style: none;
 }
 
-.problem-item {
+.health-item {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--bg-elevated);
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-hover);
+  border: 1px solid transparent;
+
+  // T20：主体项（unavailable Eval）与系统级问题视觉区分。
+  &.subject-item {
+    border-color: var(--border-accent, var(--text-muted));
+  }
+
+  .item-main {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 12px;
+
+    .item-category {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .item-error {
+      color: var(--text-muted);
+    }
+
+    .item-ticket {
+      color: var(--text-muted);
+      font-family: $font-mono;
+    }
+  }
+
+  .item-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    .confirm-text {
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+
+    .action {
+      padding: 3px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+
+      &:hover {
+        background: var(--surface-hover);
+      }
+
+      &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      &.reevaluate {
+        border-color: var(--primary, var(--border-color));
+      }
+
+      &.dismiss.confirm {
+        color: var(--danger, #d93025);
+        border-color: var(--danger, #d93025);
+      }
+
+      &.cancel {
+        color: var(--text-muted);
+      }
+    }
+  }
 }
 
-.category {
-  font-weight: 600;
-  color: var(--text-primary);
+.health-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
-.message {
-  color: var(--text-secondary);
-}
-
-.ticket {
+.health-hint {
+  margin: 0;
+  font-size: 12px;
   color: var(--text-muted);
 }
 </style>
