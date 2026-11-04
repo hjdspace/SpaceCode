@@ -1,14 +1,22 @@
 /**
- * 串行调度器（T05 #75）。
+ * 调度器（T05 #75；T12 #82 扩展为策略驱动）。
  *
- * 默认 serial/maxWorkers=1、共享根目录、无 worktree；槽位在任何 await 之前
- * 同步预留（覆盖 prepare、启动、唤醒）。新工单按 createdOrdinal FIFO 排队，
+ * 执行策略是持久领域事实（domain.state.executionPolicy），每次调度动态读取，
+ * 变更经 applyPolicy 即时生效。默认 serial/1、共享根目录、无 worktree；显式
+ * 并行强制 per-ticket worktree（构造时校验持久状态不变量）。槽位在任何 await
+ * 之前同步预留（覆盖 prepare、启动、唤醒）。新工单按 createdOrdinal FIFO 排队，
  * 无槽位时排队且队列可见（queue() 快照 + onQueueChanged 通知）。
  *
- * launch 流程：脏区检查（提示 + 现状注入，不阻断）→ 上下文组装（Inline & Spill）
- * → pending→running → 调 launcher 接缝。launcher 为 null 表示 Executor 未接入，
- * 工单保持排队，不假装启动；launch 失败时 Assignment 结束为 failed、槽位释放、
- * 队列继续，并经 onLaunchError 上报健康（effect:launch）。
+ * T12 #82 handoff 槽位释放语义：handoff Report（waiting/ready/blocked/failed/
+ * dropped）先标记意图；对应 turn 已结束、Report 之后没有新 Input、且没有占槽
+ * 后台工作（MVP 以 Worker 最终 Report 前确认子 agent 结束替代枚举）三个条件全
+ * 满足后才经 handoff() 提前释放槽位 —— launch 落定时的释放幂等，不会二次扣减。
+ *
+ * launch 流程：检查点保存（每轮启动前）→ 脏区检查（提示 + 现状注入，不阻断）
+ * → per-ticket worktree（并行策略）→ 上下文组装（Inline & Spill）→ pending→running
+ * → 调 launcher 接缝。launcher 为 null 表示 Executor 未接入，工单保持排队，
+ * 不假装启动；launch 失败时 Assignment 结束为 failed、槽位释放、队列继续，
+ * 并经 onLaunchError 上报健康（effect:launch）。
  */
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -20,14 +28,31 @@ import type {
 import { assembleWorkerFirstMessage, createFileSpillWriter, type SpillWriter } from './context'
 import type { DispatchInput, DispatchResult, SuperAgentDomain } from './domain'
 import { superAgentError } from './errors'
-import { defaultWorkspaceProbe, type SuperAgentWorkspaceStatus, type WorkspaceProbe } from './workspace'
+import { createCheckpointStore, type SuperAgentCheckpointStore } from './checkpoint'
+import { createTicketWorktreePreparer, type TicketWorktreePreparer } from './ticketWorktree'
+import {
+  createExecFileGitRunner,
+  defaultWorkspaceProbe,
+  type SuperAgentWorkspaceStatus,
+  type WorkspaceProbe,
+} from './workspace'
+
+export interface WorkerWorktreeInfo {
+  absolute: string
+  relative: string
+  branch: string
+  reused: boolean
+}
 
 export interface WorkerLaunchRequest {
   ticketId: string
   assignmentId: string
+  /** Worker 实际执行的根目录：串行 = repoRoot，并行 = per-ticket worktree。 */
   repoRoot: string
   firstMessage: string
   workspace: SuperAgentWorkspaceStatus
+  /** T12 #82：per-ticket worktree 信息；串行为 null。 */
+  worktree: WorkerWorktreeInfo | null
 }
 
 /** Executor 接缝：真实 Worker 会话启动由后续任务接入；测试注入 fake。 */
@@ -42,9 +67,10 @@ export interface SuperAgentSchedulerOptions {
   launcher?: WorkerLauncher | null
   probe?: WorkspaceProbe
   spillWriter?: SpillWriter
-  /** 默认 1；>1 必须显式 worktree，共享目录并行写被代码拒绝。 */
-  maxWorkers?: number
-  worktree?: boolean
+  /** T12 #82：每轮 launch 前保存检查点；缺省内建（按 repoRoot 保留最新一份）。 */
+  checkpoints?: SuperAgentCheckpointStore
+  /** T12 #82：per-ticket worktree 准备器；缺省复用 Factory worktree 基建。 */
+  preparer?: TicketWorktreePreparer
   onQueueChanged?: (snapshot: SuperAgentQueueSnapshot) => void
   onLaunchError?: (ticketId: string, err: unknown) => void
   /** T06 #76：pending Assignment 已占槽、launch 尚未回报 → 卡片 preparing 子态。 */
@@ -59,13 +85,23 @@ export interface SchedulerDispatchOutcome extends DispatchResult {
   queuePosition: number
 }
 
+/** T12 #82：Executor 通知 handoff 的状态 —— turn 已结束 + 后台工作占槽情况。 */
+export interface SchedulerHandoffStatus {
+  turnEnded: boolean
+  /** MVP：Worker 最终 Report 前确认子 agent 已结束 → false；有占槽工作 → true。 */
+  backgroundWork: boolean
+}
+
 interface ReservedSlot {
   ticketId: string
   assignmentId: string
   dirty: boolean | null
+  /** T12 #82：handoff 提前释放标记 —— launch 落定时据此跳过二次扣减。 */
+  released: boolean
 }
 
-const DEFAULT_MAX_WORKERS = 1
+/** handoff Report 种类：先标意图，满足释放条件后释放逻辑槽位。 */
+const HANDOFF_REPORT_KINDS = new Set(['waiting', 'ready', 'blocked', 'failed', 'dropped'])
 
 export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
   const {
@@ -74,16 +110,25 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     launcher,
     probe = defaultWorkspaceProbe,
     spillWriter = createFileSpillWriter(join(tmpdir(), 'spacecode-super-agent-spill')),
-    maxWorkers = DEFAULT_MAX_WORKERS,
+    checkpoints = createCheckpointStore({ run: createExecFileGitRunner() }),
+    preparer = createTicketWorktreePreparer(),
     onQueueChanged,
     onLaunchError,
     onPreparingChanged,
     onDomainChanged,
   } = options
 
-  // 共享目录（无 worktree）不允许并行写：代码拒绝，而不是靠提示词约束。
-  if (maxWorkers > DEFAULT_MAX_WORKERS && !options.worktree) {
-    throw superAgentError('slotUnavailable', { maxWorkers, worktree: 0 })
+  /** 策略是持久领域事实：每次调度读取当前值，变更即时生效。 */
+  const policy = () => domain.state.executionPolicy
+
+  // 并行必须 per-ticket worktree（共享目录并行写被代码拒绝）；正常路径由
+  // domain.setExecutionPolicy 结构性保证，此处守住持久状态损坏的兜底。
+  if (policy().mode === 'parallel' && policy().worktree !== 'per-ticket') {
+    throw superAgentError('parallelRequiresWorktree', {
+      mode: policy().mode,
+      maxWorkers: policy().maxWorkers,
+      worktree: policy().worktree,
+    })
   }
 
   let active = 0
@@ -124,7 +169,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
         dirty: null,
       }))
 
-    return { repoRoot, maxWorkers, running, queued }
+    return { repoRoot, maxWorkers: policy().maxWorkers, running, queued }
   }
 
   function notify(): void {
@@ -145,13 +190,18 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     // T11 #81：shutdown draining 与项目暂停期间都不再启动新 launch
     // （暂停只阻止新 launch/delivery；活动 turn 不被静默打断）。
     if (stopping || domain.state.paused) return
-    while (active < maxWorkers) {
+    while (active < policy().maxWorkers) {
       const next = pendingAssignments().find(
         (assignment) => !reserved.has(assignment.ticketId),
       )
       if (!next) break
       active += 1
-      reserved.set(next.ticketId, { ticketId: next.ticketId, assignmentId: next.assignmentId, dirty: null })
+      reserved.set(next.ticketId, {
+        ticketId: next.ticketId,
+        assignmentId: next.assignmentId,
+        dirty: null,
+        released: false,
+      })
       onPreparingChanged?.(next.ticketId, true)
       // 占槽即 preparing：seq 未变但卡片派生状态变了，投影据此发 ticket.updated
       onDomainChanged?.()
@@ -168,33 +218,99 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     }
   }
 
+  /**
+   * T12 #82：释放槽位（幂等）。handoff 提前释放与 launch 落定释放共用；
+   * 已释放（slot.released）直接返回，绝二次扣减 active。
+   */
+  function releaseSlot(slot: ReservedSlot): void {
+    if (slot.released) return
+    slot.released = true
+    reserved.delete(slot.ticketId)
+    active -= 1
+    // 先接续下一张再广播，保证快照反映 pump 后的队列现状
+    pump()
+    notify()
+  }
+
+  /**
+   * T12 #82：handoff 槽位释放语义 —— handoff Report（waiting/ready/blocked/
+   * failed/dropped）先标意图；Executor 确认「turn 已结束」与「无占槽后台工作」
+   * （MVP：Worker 最终 Report 前确认子 agent 已结束）后调用本方法提前释放槽位。
+   *
+   * 释放条件（全部满足才释放）：
+   *  1. 该 ticket 占着未释放的槽位；
+   *  2. 最新 Report 是 handoff 种类（progress 不算）；
+   *  3. turn 已结束（turnEnded）；
+   *  4. handoff Report 之后没有新 Input（有 → 需要唤醒，槽位保留）；
+   *  5. 无占槽后台工作（backgroundWork=false）。
+   *
+   * 返回 true 表示槽位已释放（下一张排队工单立即占槽）。
+   */
+  function handoff(ticketId: string, status: SchedulerHandoffStatus): boolean {
+    const slot = reserved.get(ticketId)
+    if (!slot || slot.released) return false
+    if (!status.turnEnded) return false
+    if (status.backgroundWork) return false
+    const assignment = domain.state.assignments[slot.assignmentId]
+    const report = assignment?.report ?? null
+    if (!report || !HANDOFF_REPORT_KINDS.has(report.kind)) return false
+    const ticket = domain.state.tickets[ticketId]
+    const hasLaterInput = (ticket?.inputIds ?? []).some((inputId) => {
+      const input = domain.state.inputs[inputId]
+      return input !== undefined && input.ordinal > report.ordinal
+    })
+    if (hasLaterInput) return false
+    releaseSlot(slot)
+    return true
+  }
+
   async function launch(ticketId: string, assignmentId: string): Promise<void> {
     const slot = reserved.get(ticketId)
     try {
       const workspace = await probe.probe(repoRoot)
+      // T12 #82：每轮启动前保存检查点（HEAD/status/untracked/diff），供按文件人工回退
+      if (workspace.head) {
+        await checkpoints.save(repoRoot, workspace)
+      }
       const ticket = domain.state.tickets[ticketId]
       const state = domain.state
+      // T12 #82：并行策略强制 per-ticket worktree —— Worker 在独立工作树执行
+      let workerRoot = repoRoot
+      let worktree: WorkerWorktreeInfo | null = null
+      if (state.executionPolicy.worktree === 'per-ticket') {
+        const prepared = await preparer.prepare(repoRoot, ticketId)
+        if (!prepared.ok) {
+          throw superAgentError('worktreeUnavailable', {
+            ticketId,
+            detail: prepared.detail ?? prepared.error,
+          })
+        }
+        worktree = prepared.worktree
+        workerRoot = prepared.worktree.absolute
+      }
+      const workerWorkspace = worktree ? await probe.probe(workerRoot) : workspace
       const firstMessage = assembleWorkerFirstMessage({
         ticket,
         mandate: state.mandates[ticket.mandateId],
         decision: state.decisions[ticketId],
         trigger: state.triggers[ticket.origin.triggerId],
-        workspace,
+        workspace: workerWorkspace,
         contextPaths: dispatchContext.get(ticketId)?.contextPaths ?? [],
         attachments: dispatchContext.get(ticketId)?.attachments ?? [],
         spillWriter,
       })
       domain.launchAssignment({ assignmentId })
-      if (slot) slot.dirty = workspace.dirty
+      if (slot) slot.dirty = workerWorkspace.dirty
       // 已回报 assignmentStarted：preparing 子态结束，卡片回到领域阶段
       onPreparingChanged?.(ticketId, false)
       onDomainChanged?.()
       await launcher?.launch({
         ticketId,
         assignmentId,
-        repoRoot,
+        repoRoot: workerRoot,
         firstMessage: firstMessage.text,
-        workspace,
+        workspace: workerWorkspace,
+        worktree,
       })
     } catch (err) {
       // 启动失败：Assignment 以 failed 收尾（不换 Assignment 的重试留给后续任务），
@@ -208,11 +324,12 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       onLaunchError?.(ticketId, err)
       onDomainChanged?.()
     } finally {
-      reserved.delete(ticketId)
-      active -= 1
-      // 先接续下一张再广播，保证快照反映 pump 后的队列现状
-      pump()
-      notify()
+      if (slot) {
+        releaseSlot(slot)
+      } else {
+        pump()
+        notify()
+      }
     }
   }
 
@@ -275,7 +392,21 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     notify()
   }
 
-  return { dispatch, queue, retry, settle, resume }
+  /**
+   * T12 #82：策略变更即时生效 —— service 在 setExecutionPolicy 落领域后调用，
+   * 按新上限补跑 pump 并广播队列现状。
+   */
+  function applyPolicy(): void {
+    pump()
+    notify()
+  }
+
+  /** T12 #82：是否有 Worker 占槽（策略热切换闸门：运行中不热切换）。 */
+  function hasActiveWorkers(): boolean {
+    return reserved.size > 0
+  }
+
+  return { dispatch, queue, retry, settle, resume, handoff, applyPolicy, hasActiveWorkers }
 }
 
 export type SuperAgentScheduler = ReturnType<typeof createSuperAgentScheduler>

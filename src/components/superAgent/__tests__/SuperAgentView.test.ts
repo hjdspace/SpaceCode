@@ -59,6 +59,13 @@ const probe = vi.hoisted(() => ({
   loadQueue: vi.fn().mockResolvedValue(undefined),
   watchQueue: vi.fn().mockReturnValue(() => {}),
   queue: null as SuperAgentQueueSnapshot | null,
+  // ── 执行策略与检查点（T12 #82，并发会话维护）：仅补桩保证挂载流程可跑 ──
+  loadPolicy: vi.fn().mockResolvedValue(undefined),
+  setPolicy: vi.fn().mockResolvedValue(undefined),
+  loadCheckpoint: vi.fn().mockResolvedValue(undefined),
+  rollbackCheckpointFiles: vi.fn().mockResolvedValue({ rolled: [], skipped: [] }),
+  executionPolicy: null as { repoRoot: string; policy: { mode: 'serial' | 'parallel'; maxWorkers: number; worktree: 'none' | 'per-ticket' } } | null,
+  checkpointInfo: null as { repoRoot: string; checkpoint: { savedAt: string; head: string | null; entries: string[] } | null; changedFiles: string[] } | null,
   // ── Attention 气泡（T08 #78，并发会话维护）：仅补桩保证挂载流程可跑 ──
   loadAttentions: vi.fn().mockResolvedValue(undefined),
   watchAttentions: vi.fn().mockReturnValue(() => {}),
@@ -162,6 +169,13 @@ vi.mock('@/stores/superAgent', () => ({
     loadQueue: probe.loadQueue,
     watchQueue: probe.watchQueue,
     get queue() { return probe.queue },
+    // ── 执行策略与检查点（T12 #82，并发会话维护）：仅补桩保证挂载流程可跑 ──
+    loadPolicy: probe.loadPolicy,
+    setPolicy: probe.setPolicy,
+    loadCheckpoint: probe.loadCheckpoint,
+    rollbackCheckpointFiles: probe.rollbackCheckpointFiles,
+    get executionPolicy() { return probe.executionPolicy },
+    get checkpointInfo() { return probe.checkpointInfo },
     loadTickets: probe.loadTickets,
     watchTickets: probe.watchTickets,
     get ticketBoard() { return probe.ticketBoard },

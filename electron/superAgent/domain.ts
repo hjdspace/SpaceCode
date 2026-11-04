@@ -27,6 +27,8 @@ import type {
   SuperAgentDecision,
   SuperAgentDomainState,
   SuperAgentEndedBy,
+  SuperAgentExecutionMode,
+  SuperAgentExecutionPolicy,
   SuperAgentIdempotencyEntry,
   SuperAgentInput,
   SuperAgentInputKind,
@@ -41,7 +43,18 @@ import type {
   SuperAgentTicketStage,
   SuperAgentTrigger,
   SuperAgentTriggerAddress,
+  SuperAgentWorktreeMode,
 } from './model'
+
+/** T12 #82：默认串行（1 worker，共享根目录）—— 与 T05 行为一致。 */
+export const DEFAULT_EXECUTION_POLICY: SuperAgentExecutionPolicy = {
+  mode: 'serial',
+  maxWorkers: 1,
+  worktree: 'none',
+}
+
+const PARALLEL_MIN_WORKERS = 2
+const PARALLEL_MAX_WORKERS = 6
 
 export interface TriggerDraft {
   /** Source 事件键；同一键重复投递只返回原 Trigger。 */
@@ -283,6 +296,20 @@ export interface MarkReviewRemindedInput {
   at?: string
 }
 
+/** T12 #82：执行策略变更 —— worktree 由 mode 派生，运行中不热切换的闸门在上层。 */
+export interface SetExecutionPolicyInput {
+  mode: SuperAgentExecutionMode
+  /** 缺省：serial → 1，parallel → 2。 */
+  maxWorkers?: number
+  at?: string
+}
+
+export interface SetExecutionPolicyResult {
+  policy: SuperAgentExecutionPolicy
+  /** 相同策略重复设置不推进 seq。 */
+  changed: boolean
+}
+
 export interface SuperAgentDomainOptions {
   now?: () => Date
   newId?: (kind: string) => string
@@ -332,6 +359,12 @@ export interface SuperAgentDomain {
   resumeProject(input?: { at?: string }): SuperAgentDomainState
   /** T10 #80：review 超时提醒水位外发（只前进，离开 review/结束拒绝）。 */
   markReviewReminded(input: MarkReviewRemindedInput): SuperAgentTicket
+  /**
+   * T12 #82：执行策略变更（持久领域事实）。worktree 由 mode 派生：并行强制
+   * per-ticket worktree，串行回到共享根目录；上限校验 serial=1、parallel=2–6。
+   * 运行中不热切换（有 Worker 活动时拒绝）的闸门在 service/scheduler 层。
+   */
+  setExecutionPolicy(input: SetExecutionPolicyInput): SetExecutionPolicyResult
   stageOf(ticketId: string): SuperAgentTicketStage
 }
 
@@ -362,6 +395,35 @@ function newThread(threadId: string, source: string): SuperAgentThread {
   }
 }
 
+/**
+ * T12 #82：解析目标执行策略（纯函数）—— worktree 由 mode 派生，上限校验
+ * serial=1、parallel=2–6。setExecutionPolicy 与 service 闸门共用，保证派生
+ * 逻辑单一出处。
+ */
+export function resolveExecutionPolicy(input: SetExecutionPolicyInput): SuperAgentExecutionPolicy {
+  const mode: SuperAgentExecutionMode = input.mode
+  if (mode !== 'serial' && mode !== 'parallel') {
+    throw superAgentError('invalidWorkerLimit', { mode })
+  }
+  const maxWorkers = input.maxWorkers ?? (mode === 'parallel' ? PARALLEL_MIN_WORKERS : 1)
+  if (
+    !Number.isInteger(maxWorkers) ||
+    (mode === 'serial'
+      ? maxWorkers !== 1
+      : maxWorkers < PARALLEL_MIN_WORKERS || maxWorkers > PARALLEL_MAX_WORKERS)
+  ) {
+    throw superAgentError('invalidWorkerLimit', { maxWorkers, mode })
+  }
+  // 并行强制 per-ticket worktree（共享目录并行写被代码拒绝）；
+  // 串行回共享根目录。
+  const worktree: SuperAgentWorktreeMode = mode === 'parallel' ? 'per-ticket' : 'none'
+  if (mode === 'parallel' && worktree !== 'per-ticket') {
+    // 结构上不可达（worktree 由 mode 派生）；保留防御以守住「并行必须 worktree」
+    throw superAgentError('parallelRequiresWorktree', { mode })
+  }
+  return { mode, maxWorkers, worktree }
+}
+
 export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): SuperAgentDomain {
   const now = options.now ?? (() => new Date())
   const newId = options.newId ?? ((kind: string) => `${kind}-${randomUUID()}`)
@@ -380,6 +442,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     handbacks: [],
     paused: false,
     pausedAt: null,
+    executionPolicy: { ...DEFAULT_EXECUTION_POLICY },
   })
   const state: SuperAgentDomainState = options.initialState
     ? // 重水化：缺失字段补默认，已有事实原样保留；未知字段透传（前向兼容）。
@@ -1194,6 +1257,23 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return state
   }
 
+  /**
+   * T12 #82：执行策略变更。worktree 由 mode 派生（并行强制 per-ticket，
+   * 串行共享根目录），上限 serial=1、parallel=2–6；相同策略幂等不推进 seq。
+   */
+  function setExecutionPolicy(input: SetExecutionPolicyInput): SetExecutionPolicyResult {
+    const next = resolveExecutionPolicy(input)
+    const changed =
+      state.executionPolicy.mode !== next.mode ||
+      state.executionPolicy.maxWorkers !== next.maxWorkers ||
+      state.executionPolicy.worktree !== next.worktree
+    if (changed) {
+      state.executionPolicy = next
+      nextOrdinal()
+    }
+    return { policy: state.executionPolicy, changed }
+  }
+
   function report(command: ReportCommand): ReportResult {
     const ticket = requireTicket(command.ticketId)
     const assignment = state.assignments[command.assignmentId]
@@ -1384,6 +1464,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     pauseProject,
     resumeProject,
     markReviewReminded,
+    setExecutionPolicy,
     stageOf,
   }
 }

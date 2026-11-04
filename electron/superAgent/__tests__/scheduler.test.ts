@@ -85,6 +85,8 @@ function makeScheduler(options: { launcher?: WorkerLauncher | null; probeStatus?
     launcher: options.launcher ?? null,
     probe: { probe: probeFn },
     spillWriter: (ticketId, name) => `/spill/${ticketId}/${name}`,
+    // T12 #82：单测注入 no-op 检查点（默认实现走真实 git）
+    checkpoints: { save: async () => {}, latest: () => null, rollbackFiles: async () => ({ rolled: [], skipped: [] }) },
     onQueueChanged,
     onLaunchError,
     now: () => new Date(AT),
@@ -247,21 +249,15 @@ describe('serial scheduling', () => {
 })
 
 describe('scheduler policy guard', () => {
-  it('rejects parallel workers on a shared directory (no worktree)', () => {
+  // T12 #82：策略迁移至 domain.state.executionPolicy —— 默认串行由上方用例覆盖，
+  // 并行必须 worktree 的常规校验在 domain.setExecutionPolicy（见 domain-policy.test.ts）。
+  // 此处只守构造期兜底：持久状态损坏（parallel + 共享目录）时拒绝构造。
+  it('rejects construction when persisted policy is parallel on a shared directory (corrupt state)', () => {
     const domain = makeDomain()
-    expect(() =>
-      createSuperAgentScheduler({ domain, repoRoot: '/repo', maxWorkers: 2, worktree: false }),
-    ).toThrowError(expect.objectContaining({ code: 'slotUnavailable' }))
-  })
-
-  it('allows explicit worktree isolation to raise the worker cap', () => {
-    const domain = makeDomain()
-    const scheduler = createSuperAgentScheduler({
-      domain,
-      repoRoot: '/repo',
-      maxWorkers: 2,
-      worktree: true,
-    })
-    expect(scheduler.queue().maxWorkers).toBe(2)
+    domain.setExecutionPolicy({ mode: 'parallel', maxWorkers: 2 })
+    ;(domain.state.executionPolicy as { worktree: string }).worktree = 'none'
+    expect(() => createSuperAgentScheduler({ domain, repoRoot: '/repo', launcher: null })).toThrowError(
+      expect.objectContaining({ code: 'parallelRequiresWorktree' }),
+    )
   })
 })

@@ -480,3 +480,62 @@ describe('registerSuperAgentIPCHandlers pause & resume（T11 #81）', () => {
     expect(JSON.stringify(queueAfterResume)).toBeDefined()
   })
 })
+
+describe('registerSuperAgentIPCHandlers policy & checkpoint（T12 #82）', () => {
+  it('registers policy / policySet / checkpoint / checkpointRollback on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}policy`, expect.any(Function))
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}policySet`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}checkpoint`, expect.any(Function))
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}checkpointRollback`,
+      expect.any(Function),
+    )
+  })
+
+  it('serves the default serial policy and rejects unconfirmed parallel at the entry', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const policy = await invoke('policy', '/repo/a')
+    expect(policy.policy).toEqual({ mode: 'serial', maxWorkers: 1, worktree: 'none' })
+
+    // 开启并行必须 UI 二次确认（confirmed）
+    await expect(
+      invokeDispatch('policySet', '/repo/a', { mode: 'parallel', maxWorkers: 2 }),
+    ).rejects.toThrow(/policyConfirmRequired/)
+    // 结构校验在领域层完成：上限越界稳定报错
+    await expect(
+      invokeDispatch('policySet', '/repo/a', { mode: 'parallel', maxWorkers: 9, confirmed: true }),
+    ).rejects.toThrow()
+    // 非法命令入口拒绝
+    await expect(invokeDispatch('policySet', '/repo/a', null)).rejects.toThrow(/policy set/)
+    await expect(invokeDispatch('policySet', '/repo/a', { mode: 'boost' })).rejects.toThrow(
+      /policy set/,
+    )
+  })
+
+  it('serves checkpoint info and rejects malformed rollback commands at the entry', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const info = await invoke('checkpoint', '/repo/a')
+    expect(info).toEqual({ repoRoot: '/repo/a', checkpoint: null, changedFiles: [] })
+
+    await expect(invokeDispatch('checkpointRollback', '/repo/a', null)).rejects.toThrow(
+      /checkpoint rollback/,
+    )
+    await expect(invokeDispatch('checkpointRollback', '/repo/a', { files: [] })).rejects.toThrow(
+      /checkpoint rollback/,
+    )
+    await expect(
+      invokeDispatch('checkpointRollback', '/repo/a', { files: [' '] }),
+    ).rejects.toThrow(/checkpoint rollback/)
+    // 无检查点时按文件回退稳定报错（missing）
+    await expect(
+      invokeDispatch('checkpointRollback', '/repo/a', { files: ['src/a.ts'] }),
+    ).rejects.toThrow(/checkpointUnavailable/)
+  })
+})

@@ -94,10 +94,28 @@ const invokeApi = createRendererApi(
     },
     pause: () => {
       // 暂停依赖主进程领域运行时与持久化状态，非桌面环境明确拒绝
-      throw new Error('pause is only available in desktop')
+      throw new Error('pause is not available in the desktop-less runtime')
     },
     resume: () => {
-      throw new Error('resume is only available in desktop')
+      throw new Error('resume is not available in the desktop-less runtime')
+    },
+    policy: () => ({
+      // 非桌面环境没有调度运行时：返回默认串行策略（只读，无副作用）
+      repoRoot: '',
+      policy: { mode: 'serial' as const, maxWorkers: 1, worktree: 'none' as const },
+    }),
+    policySet: () => {
+      // 策略变更依赖主进程领域落库，非桌面环境明确拒绝
+      throw new Error('policy set is not available in the desktop-less runtime')
+    },
+    checkpoint: () => ({
+      // 非桌面环境没有执行运行时：无检查点、无回退候选
+      repoRoot: '',
+      checkpoint: null,
+      changedFiles: [],
+    }),
+    checkpointRollback: () => {
+      throw new Error('checkpoint rollback is not available in the desktop-less runtime')
     },
   },
 )

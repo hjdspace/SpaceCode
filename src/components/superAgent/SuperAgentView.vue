@@ -113,6 +113,13 @@
 
     <SuperAgentHealth v-if="superAgentStore.healthPanelOpen" :problems="superAgentStore.healthProblems" />
 
+    <!-- 执行策略与检查点回退（T12 #82）：串/并行开关（并行强制 per-ticket worktree，
+         两步确认）、检查点按文件显式回退入口。 -->
+    <ExecutionPolicyControl
+      v-if="appStore.projectRoot"
+      :repo-root="appStore.projectRoot"
+    />
+
     <!-- Attention 非模态问答气泡（T08 #78）：工单卡片上方的薄层区块；
          open 展示就地回答入口，answered 折叠保留审计，withdrawn 已被过滤。 -->
     <div v-if="superAgentStore.attentionBubbles.length" class="attention-bubbles" data-testid="super-agent-attentions">
@@ -223,6 +230,7 @@ import type { SuperAgentQueueEntry, SuperAgentTicketCard } from '@/shared/channe
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
+import ExecutionPolicyControl from './ExecutionPolicyControl.vue'
 import AttentionBubble from './AttentionBubble.vue'
 import WorkerTaskCard from './WorkerTaskCard.vue'
 import { buildOutgoingMessage } from '@/lib/composer-outgoing'

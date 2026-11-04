@@ -54,6 +54,19 @@ export type SuperAgentErrorCode =
   | 'projectStoreUnavailable'
   // refused：T11 #81 显式 shutdown 期间停止接受新命令
   | 'shuttingDown'
+  // refused：T12 #82 执行策略 —— 并行上限越界 / 并行缺 worktree / 开启未确认
+  | 'invalidWorkerLimit'
+  | 'parallelRequiresWorktree'
+  | 'policyConfirmRequired'
+  // refused：T12 #82 有 Worker 活动时拒绝热切换策略
+  | 'policyChangeBlocked'
+  // unavailable：T12 #82 并行要求 git 仓库 / per-ticket worktree 创建失败
+  | 'worktreeUnavailable'
+  // missing/refused/unavailable：T12 #82 检查点 —— 无检查点 / 文件在检查点前已脏 / 路径越界 / 回退失败
+  | 'checkpointUnavailable'
+  | 'checkpointFileDirty'
+  | 'checkpointInvalidFile'
+  | 'checkpointRollbackFailed'
 
 export type SuperAgentErrorParams = Record<string, string | number>
 
@@ -93,6 +106,15 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   slotUnavailable: 'unavailable',
   projectStoreUnavailable: 'unavailable',
   shuttingDown: 'refused',
+  invalidWorkerLimit: 'refused',
+  parallelRequiresWorktree: 'refused',
+  policyConfirmRequired: 'refused',
+  policyChangeBlocked: 'refused',
+  worktreeUnavailable: 'unavailable',
+  checkpointUnavailable: 'missing',
+  checkpointFileDirty: 'refused',
+  checkpointInvalidFile: 'refused',
+  checkpointRollbackFailed: 'unavailable',
 }
 
 export const SUPER_AGENT_ERROR_CODES = Object.keys(ERROR_CATEGORIES) as SuperAgentErrorCode[]

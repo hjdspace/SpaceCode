@@ -43,11 +43,16 @@ import type {
   SuperAgentAttentionBoard,
   SuperAgentAttentionEvent,
   SuperAgentBindResult,
+  SuperAgentCheckpointInfo,
+  SuperAgentCheckpointRollbackCommand,
+  SuperAgentCheckpointRollbackResult,
   SuperAgentDispatchCommand,
   SuperAgentDispatchResult,
   SuperAgentErrorPayload,
+  SuperAgentExecutionPolicyView,
   SuperAgentHealthCategory,
   SuperAgentHealthReport,
+  SuperAgentPolicySetCommand,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
   SuperAgentTakeoverChangedEvent,
@@ -67,9 +72,15 @@ import type {
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { superAgentWorkerSessionId } from '@/shared/channels/superAgent'
-import { createSuperAgentDomain, type AddInputResult, type SuperAgentDomain } from './domain'
+import {
+  createSuperAgentDomain,
+  resolveExecutionPolicy,
+  type AddInputResult,
+  type SuperAgentDomain,
+} from './domain'
 import type { SuperAgentReportKind, SuperAgentTicket } from './model'
 import { superAgentError, serializeSuperAgentError } from './errors'
+import { createCheckpointStore, parsePorcelainEntry, type SuperAgentCheckpointStore } from './checkpoint'
 import {
   createSuperAgentAttentionProjector,
   type SuperAgentAttentionProjector,
@@ -88,6 +99,11 @@ import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
 import type { ProjectStore, ProjectStoreDeps } from './store'
 import type { SuperAgentDomainState } from './model'
 import { waitsForPerson } from './stage'
+import {
+  createExecFileGitRunner,
+  defaultWorkspaceProbe,
+  type WorkspaceProbe,
+} from './workspace'
 
 const STALE_AFTER_MS = 5_000
 /** T11 #81：显式 shutdown 的在途 Effect 有界等待参考值（§9.5，10 秒）。 */
@@ -115,6 +131,8 @@ interface ProjectState {
   phase: 'open' | 'draining' | 'closed'
   /** T11 #81：本次打开时的启动恢复结果（无持久化时为 null）。 */
   startupRecovery: StartupRecoveryResult | null
+  /** T12 #82：检查点存储引用（scheduler 保存、checkpointRollback 回退共用）。 */
+  checkpoints: SuperAgentCheckpointStore
 }
 
 export interface SuperAgentServiceOptions {
@@ -149,6 +167,16 @@ export interface SuperAgentServiceOptions {
   shutdownTimeoutMs?: number
   /** T11 #81：Store 依赖注入（测试模拟旧进程死亡/陈旧锁）。 */
   storeDeps?: ProjectStoreDeps
+  /**
+   * T12 #82：工作区探针（开启并行时验证 git 仓库、检查点候选清单用）；
+   * 缺省 defaultWorkspaceProbe。
+   */
+  probe?: WorkspaceProbe
+  /**
+   * T12 #82：检查点存储（每轮 launch 前保存、按文件人工回退）。内部按
+   * repoRoot 分键，跨项目共享单实例；缺省内建（真实 git）。
+   */
+  checkpoints?: SuperAgentCheckpointStore
 }
 
 /** T09 #79：workerMessage 的投递请求（Executor 接入前接缝为 null）。 */
@@ -266,10 +294,36 @@ export interface SuperAgentService {
   pause(repoRoot: string): true
   /** T11 #81：解除暂停 —— 补投挂起的 pending 输入并续跑队列。 */
   resume(repoRoot: string): Promise<true>
+  /** T12 #82：读取执行策略（串行/并行、上限、worktree 形态）。 */
+  executionPolicy(repoRoot: string): SuperAgentExecutionPolicyView
+  /**
+   * T12 #82：执行策略变更 —— 校验顺序：结构校验（resolveExecutionPolicy）→
+   * 运行中不热切换（policyChangeBlocked）→ 并行需显式确认（policyConfirmRequired）
+   * 与 git 仓库（worktreeUnavailable）→ 落领域事实（持久化）→ applyPolicy 即时生效。
+   */
+  setExecutionPolicy(
+    repoRoot: string,
+    command: SuperAgentPolicySetCommand,
+  ): Promise<SuperAgentExecutionPolicyView>
+  /** T12 #82：最新检查点 + 检查点之后新增的脏文件清单（按文件回退候选）。 */
+  checkpoint(repoRoot: string): Promise<SuperAgentCheckpointInfo>
+  /** T12 #82：按文件显式回退到检查点状态（不整仓 reset，不做任何自动回滚）。 */
+  checkpointRollback(
+    repoRoot: string,
+    command: SuperAgentCheckpointRollbackCommand,
+  ): Promise<SuperAgentCheckpointRollbackResult>
+}
+
+/** T12 #82：检查点时已脏文件集合（这些是用户自己的改动，不允许回退）。 */
+function checkpointDirtyOf(cp: ReturnType<SuperAgentCheckpointStore['latest']> | null): Set<string> {
+  return new Set((cp?.entries ?? []).map((entry) => entry.replace(/\\/g, '/')))
 }
 
 export function createSuperAgentService(options: SuperAgentServiceOptions = {}): SuperAgentService {
   const projects = new Map<string, ProjectState>()
+  /** T12 #82：策略闸门与检查点候选清单共用的探针；检查点存储按 repoRoot 分键共享。 */
+  const probe = options.probe ?? defaultWorkspaceProbe
+  const checkpoints = options.checkpoints ?? createCheckpointStore({ run: createExecFileGitRunner() })
 
   /**
    * T11 #81：shutdown 期间停止接受新命令 —— draining 与 closed 都拒绝；
@@ -319,6 +373,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         domain,
         repoRoot,
         launcher: options.launcher ?? null,
+        checkpoints,
         onQueueChanged: (snapshot) => options.onQueueChanged?.(repoRoot, snapshot),
         onPreparingChanged: (ticketId, preparing) => projector.setPreparing(ticketId, preparing),
         onDomainChanged: () => {
@@ -358,6 +413,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         store,
         phase: 'open',
         startupRecovery,
+        checkpoints,
       }
       projects.set(repoRoot, project)
       // 持久化 scheduled effect：项目一落地即开始周期扫描（含一次即时重建扫描）
@@ -892,6 +948,98 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       await drainPendingInputs(project)
       project.scheduler.resume()
       return true
+    },
+
+    executionPolicy(repoRoot) {
+      const project = projectOf(repoRoot)
+      const policy = project.domain.state.executionPolicy
+      return {
+        repoRoot,
+        policy: { mode: policy.mode, maxWorkers: policy.maxWorkers, worktree: policy.worktree },
+      }
+    },
+
+    async setExecutionPolicy(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      // 结构校验先行：上限/派生与 domain 单一出处（resolveExecutionPolicy）
+      const next = resolveExecutionPolicy({ mode: command.mode, maxWorkers: command.maxWorkers })
+      const current = project.domain.state.executionPolicy
+      const changed =
+        current.mode !== next.mode ||
+        current.maxWorkers !== next.maxWorkers ||
+        current.worktree !== next.worktree
+      if (changed) {
+        // 运行中不热切换：有 Worker 占槽时拒绝策略变更
+        if (project.scheduler.hasActiveWorkers()) {
+          throw superAgentError('policyChangeBlocked', {
+            repoRoot,
+            mode: next.mode,
+            maxWorkers: next.maxWorkers,
+          })
+        }
+        if (next.mode === 'parallel') {
+          // 并行开启需 UI 二次确认显式携带
+          if (command.confirmed !== true) {
+            throw superAgentError('policyConfirmRequired', { repoRoot })
+          }
+          // 并行要求 per-ticket worktree：不是 git 仓库时拒绝开启
+          const workspace = await probe.probe(repoRoot)
+          if (!workspace.head) {
+            throw superAgentError('worktreeUnavailable', { repoRoot })
+          }
+        }
+        // 落持久领域事实（幂等；相同策略不推进 seq），再即时生效（pump + 队列广播）
+        project.domain.setExecutionPolicy({ mode: command.mode, maxWorkers: command.maxWorkers })
+        project.scheduler.applyPolicy()
+      }
+      return {
+        repoRoot,
+        policy: {
+          mode: next.mode,
+          maxWorkers: next.maxWorkers,
+          worktree: next.worktree,
+        },
+      }
+    },
+
+    async checkpoint(repoRoot) {
+      const project = projectOf(repoRoot)
+      const cp = project.checkpoints.latest(repoRoot)
+      const workspace = await probe.probe(repoRoot)
+      // 回退候选 = 当前脏文件中「检查点时还干净」的部分（检查点前已脏的是用户自己的
+      // 改动）；工作区不可用（非 git 仓库）时无可靠脏清单
+      const changedFiles = workspace.head
+        ? workspace.statusText
+            .split('\n')
+            .map((line) => parsePorcelainEntry(line))
+            .filter(
+              (entry): entry is string =>
+                entry !== null &&
+                !checkpointDirtyOf(cp).has(entry.replace(/\\/g, '/')),
+            )
+        : []
+      return {
+        repoRoot,
+        checkpoint: cp ? { savedAt: cp.savedAt, head: cp.head, entries: cp.entries } : null,
+        changedFiles,
+      }
+    },
+
+    async checkpointRollback(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      if (
+        !Array.isArray(command.files) ||
+        command.files.some((file) => typeof file !== 'string')
+      ) {
+        throw superAgentError('checkpointInvalidFile', { repoRoot })
+      }
+      const result = await project.checkpoints.rollbackFiles(repoRoot, command.files)
+      // 回退是工作区变化：投影与队列刷新（快照内含 dirty 标志）
+      project.projector.sync()
+      project.scheduler.applyPolicy()
+      return result
     },
   }
 }

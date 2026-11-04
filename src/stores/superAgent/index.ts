@@ -47,9 +47,13 @@ import type {
   SuperAgentAttentionBoard,
   SuperAgentAttentionView,
   SuperAgentBindResult,
+  SuperAgentCheckpointInfo,
+  SuperAgentCheckpointRollbackResult,
   SuperAgentDispatchCommand,
   SuperAgentDispatchResult,
+  SuperAgentExecutionPolicyView,
   SuperAgentHealthReport,
+  SuperAgentPolicySetCommand,
   SuperAgentQueueSnapshot,
   SuperAgentSnapshot,
   SuperAgentTakeoverState,
@@ -78,6 +82,10 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   const healthReport = ref<SuperAgentHealthReport | null>(null)
   const healthPanelOpen = ref(false)
   const queue = ref<SuperAgentQueueSnapshot | null>(null)
+  /** T12 #82：执行策略镜像（policy 通道；策略变更即时生效并持久化）。 */
+  const executionPolicy = ref<SuperAgentExecutionPolicyView | null>(null)
+  /** T12 #82：检查点信息镜像（最新检查点 + 检查点后新增脏文件，回退候选）。 */
+  const checkpointInfo = ref<SuperAgentCheckpointInfo | null>(null)
   /** 工单卡片看板镜像（T06 #76）：全量卡片 + 领域 seq 水位。 */
   const ticketBoard = ref<SuperAgentTicketBoard | null>(null)
   /** 各工单最新轻量进度（T06 #76）：节流后增量，断档不重拉。 */
@@ -189,6 +197,44 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     const next = await api.superAgent.queue(repoRoot)
     queue.value = next
     return next
+  }
+
+  /** T12 #82：拉取执行策略镜像（串/并行、上限、worktree 形态）。 */
+  async function loadPolicy(repoRoot: string): Promise<SuperAgentExecutionPolicyView> {
+    const next = await api.superAgent.policy(repoRoot)
+    executionPolicy.value = next
+    return next
+  }
+
+  /**
+   * T12 #82：执行策略变更 —— 开启并行必须 UI 二次确认后携带 confirmed；
+   * 变更即时生效，成功后刷新策略与队列快照（上限变化）。
+   */
+  async function setPolicy(
+    repoRoot: string,
+    command: SuperAgentPolicySetCommand,
+  ): Promise<SuperAgentExecutionPolicyView> {
+    const next = await api.superAgent.policySet(repoRoot, command)
+    executionPolicy.value = next
+    await loadQueue(repoRoot)
+    return next
+  }
+
+  /** T12 #82：拉取检查点信息（最新检查点 + 回退候选文件清单）。 */
+  async function loadCheckpoint(repoRoot: string): Promise<SuperAgentCheckpointInfo> {
+    const next = await api.superAgent.checkpoint(repoRoot)
+    checkpointInfo.value = next
+    return next
+  }
+
+  /** T12 #82：按文件显式回退到检查点状态；成功后刷新候选清单与工单看板。 */
+  async function rollbackCheckpointFiles(
+    repoRoot: string,
+    files: string[],
+  ): Promise<SuperAgentCheckpointRollbackResult> {
+    const result = await api.superAgent.checkpointRollback(repoRoot, { files })
+    await Promise.all([loadCheckpoint(repoRoot), loadTickets(repoRoot)])
+    return result
   }
 
   /** 全量拉取工单卡片看板（T06 #76）：初始加载与领域断档重拉共用。 */
@@ -418,6 +464,8 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     healthProblems,
     healthPanelOpen,
     queue,
+    executionPolicy,
+    checkpointInfo,
     ticketBoard,
     ticketProgress,
     workerMirrors,
@@ -433,6 +481,10 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     loadHealth,
     dispatch,
     loadQueue,
+    loadPolicy,
+    setPolicy,
+    loadCheckpoint,
+    rollbackCheckpointFiles,
     loadTickets,
     loadAttentions,
     answerAttention,

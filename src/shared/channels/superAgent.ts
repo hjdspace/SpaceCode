@@ -508,6 +508,24 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as true,
     },
+    // 执行策略与检查点（T12 #82）：串行（默认）与并行（强制 per-ticket worktree）
+    // 策略变更即时生效且运行中不热切换；检查点只支持人工按文件显式回退。
+    policy: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentExecutionPolicyView,
+    },
+    policySet: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentPolicySetCommand],
+      res: null as unknown as SuperAgentExecutionPolicyView,
+    },
+    checkpoint: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentCheckpointInfo,
+    },
+    checkpointRollback: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentCheckpointRollbackCommand],
+      res: null as unknown as SuperAgentCheckpointRollbackResult,
+    },
   },
   events: {
     onHealthChanged: {
@@ -546,6 +564,54 @@ export const superAgentNamespace = defineNamespace({
     },
   },
 })
+
+// ── 执行策略与检查点（T12 #82）────────────────────────────────────
+
+/** T12 #82：执行策略视图 —— worktree 由 mode 派生（并行强制 per-ticket）。 */
+export interface SuperAgentExecutionPolicyView {
+  repoRoot: string
+  policy: {
+    mode: 'serial' | 'parallel'
+    /** serial 固定 1；parallel 为 2–6。 */
+    maxWorkers: number
+    /** serial → 'none'（共享根目录）；parallel → 'per-ticket'。 */
+    worktree: 'none' | 'per-ticket'
+  }
+}
+
+/** T12 #82：策略变更命令 —— 开启并行必须显式确认（UI 二次确认后传 confirmed）。 */
+export interface SuperAgentPolicySetCommand {
+  mode: 'serial' | 'parallel'
+  /** 缺省：serial → 1，parallel → 2。 */
+  maxWorkers?: number
+  /** 切到 parallel 时必须 true；否则 policyConfirmRequired。 */
+  confirmed?: boolean
+}
+
+/** T12 #82：检查点视图（每轮 launch 前保存，按 repoRoot 保留最新一份）。 */
+export interface SuperAgentCheckpointView {
+  savedAt: string
+  head: string | null
+  /** 保存时已脏文件（含 untracked）；这些文件不允许回退（用户自己的改动）。 */
+  entries: string[]
+}
+
+/** T12 #82：检查点信息 —— 最新检查点 + 检查点之后新增的脏文件（回退候选）。 */
+export interface SuperAgentCheckpointInfo {
+  repoRoot: string
+  checkpoint: SuperAgentCheckpointView | null
+  changedFiles: string[]
+}
+
+/** T12 #82：按文件显式回退（不整仓 reset，不做任何自动回滚）。 */
+export interface SuperAgentCheckpointRollbackCommand {
+  files: string[]
+}
+
+export interface SuperAgentCheckpointRollbackResult {
+  rolled: string[]
+  skipped: { file: string; reason: 'dirty-at-checkpoint' | 'clean' }[]
+}
 
 export type SuperAgentRendererApi = DeriveRendererApi<typeof superAgentNamespace.channels>
 export type SuperAgentEventApi = DeriveEventApi<typeof superAgentNamespace.events>

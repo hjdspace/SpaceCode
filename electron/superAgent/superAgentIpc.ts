@@ -46,9 +46,11 @@ import {
   type SuperAgentAttentionAnswerCommand,
   type SuperAgentAttentionEvent,
   type SuperAgentDispatchCommand,
+  type SuperAgentCheckpointRollbackCommand,
   type SuperAgentHealthReport,
   type SuperAgentQueueSnapshot,
   type SuperAgentTakeoverChangedEvent,
+  type SuperAgentPolicySetCommand,
   type SuperAgentTicketMessageCommand,
   type SuperAgentTicketProgress,
   type SuperAgentTicketUpdateEvent,
@@ -159,6 +161,40 @@ function requireTicketMessageCommand(input: unknown): SuperAgentTicketMessageCom
     throw new Error('invalid ticket message command')
   }
   return input as SuperAgentTicketMessageCommand
+}
+
+/** T12 #82：策略变更命令 —— mode 必填且合法；maxWorkers/confirmed 可选。 */
+function requirePolicySetCommand(input: unknown): SuperAgentPolicySetCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('policy set command is required')
+  }
+  const command = input as Record<string, unknown>
+  if (command.mode !== 'serial' && command.mode !== 'parallel') {
+    throw new Error('invalid policy set command: mode must be serial or parallel')
+  }
+  if (command.maxWorkers !== undefined && typeof command.maxWorkers !== 'number') {
+    throw new Error('invalid policy set command: maxWorkers must be a number')
+  }
+  if (command.confirmed !== undefined && typeof command.confirmed !== 'boolean') {
+    throw new Error('invalid policy set command: confirmed must be a boolean')
+  }
+  return input as SuperAgentPolicySetCommand
+}
+
+/** T12 #82：按文件回退命令 —— files 必须是非空字符串数组（逐文件语义拒绝整批回退之外的形态）。 */
+function requireCheckpointRollbackCommand(input: unknown): SuperAgentCheckpointRollbackCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('checkpoint rollback command is required')
+  }
+  const command = input as Record<string, unknown>
+  if (
+    !Array.isArray(command.files) ||
+    command.files.length === 0 ||
+    command.files.some((file) => typeof file !== 'string' || file.trim() === '')
+  ) {
+    throw new Error('invalid checkpoint rollback command: files must be a non-empty string array')
+  }
+  return input as SuperAgentCheckpointRollbackCommand
 }
 
 /** health.changed 广播：所有未销毁窗口都能收到，Renderer 无需轮询。 */
@@ -343,6 +379,24 @@ export function registerSuperAgentIPCHandlers(
     resume: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.resume(root))
+    },
+    policy: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.executionPolicy(root))
+    },
+    policySet: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requirePolicySetCommand(command)
+      return runNoted(service, root, () => service.setExecutionPolicy(root, req))
+    },
+    checkpoint: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.checkpoint(root))
+    },
+    checkpointRollback: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireCheckpointRollbackCommand(command)
+      return runNoted(service, root, () => service.checkpointRollback(root, req))
     },
   })
 }

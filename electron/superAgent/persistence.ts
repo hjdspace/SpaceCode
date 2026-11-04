@@ -70,6 +70,7 @@ function persistingDomain(
     pauseProject: (input) => tracked(() => domain.pauseProject(input)),
     resumeProject: (input) => tracked(() => domain.resumeProject(input)),
     markReviewReminded: (input) => tracked(() => domain.markReviewReminded(input)),
+    setExecutionPolicy: (input) => tracked(() => domain.setExecutionPolicy(input)),
   }
 }
 

@@ -22,6 +22,22 @@ export type SuperAgentTicketStage =
   | 'working'
   | 'idle'
 
+/**
+ * T12 #82 执行策略：串行（默认，1 worker，共享根目录）与并行（显式开启，
+ * 强制 per-ticket worktree）。worktree 由 mode 派生：并行不存在共享目录形态。
+ */
+export type SuperAgentExecutionMode = 'serial' | 'parallel'
+
+export type SuperAgentWorktreeMode = 'none' | 'per-ticket'
+
+export interface SuperAgentExecutionPolicy {
+  mode: SuperAgentExecutionMode
+  /** serial 固定 1；parallel 为 2–6。 */
+  maxWorkers: number
+  /** 由 mode 派生：serial → 'none'，parallel → 'per-ticket'。 */
+  worktree: SuperAgentWorktreeMode
+}
+
 export type SuperAgentTicketOutcome = 'completed' | 'dropped' | 'stopped' | 'merged' | 'closed'
 
 export type SuperAgentTicketState = 'open' | 'ended'
@@ -317,4 +333,9 @@ export interface SuperAgentDomainState {
   paused: boolean
   /** T11 #81：最近一次进入暂停的时间；未暂停为 null。 */
   pausedAt: string | null
+  /**
+   * T12 #82：执行策略是持久领域事实（跨重启保持）。Scheduler 每次调度读取
+   * 当前值，策略变更即时生效（运行中不热切换的闸门在 service/scheduler 层）。
+   */
+  executionPolicy: SuperAgentExecutionPolicy
 }
