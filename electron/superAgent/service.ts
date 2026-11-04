@@ -490,7 +490,11 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           // 接受事实落盘后才标 delivered（重投成功时从 pending 转回 delivered）
           project.domain.deliverInput({ inputId: added.input.inputId })
         } else if (outcome === 'notAccepted') {
-          project.domain.requeueInput({ inputId: added.input.inputId })
+          // 可证明未接受：已投出的（delivered）退回 pending；重投路径本来就是
+          // pending 的保持不动（requeueInput 只接受 delivered → pending）
+          if (project.domain.state.inputs[added.input.inputId]?.status === 'delivered') {
+            project.domain.requeueInput({ inputId: added.input.inputId })
+          }
         } else if (outcome === 'unknown') {
           project.domain.markInputUncertain({
             inputId: added.input.inputId,

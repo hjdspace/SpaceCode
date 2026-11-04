@@ -1060,6 +1060,18 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       reason: command.reason,
     }
 
+    // T14 #84：工单收尾时最新代次一并收尾（endAssignment 对已收尾代次幂等）。
+    // 否则 completed 工单的 Worker 只读镜像永远显示 running —— 正是
+    // 「不出现『进程已退出但 Assignment 仍 running』」要杜绝的脏状态。
+    const latestAssignmentId = ticket.execution?.assignmentId
+    if (latestAssignmentId && state.assignments[latestAssignmentId]) {
+      endAssignment({
+        assignmentId: latestAssignmentId,
+        reason: command.outcome === 'stopped' ? 'stopped' : 'completed',
+        at: command.at,
+      })
+    }
+
     const withdrawnAttentionIds = withdrawOpenAttentions(ticket)
     ticket.delivery = null
 
