@@ -304,6 +304,68 @@ export interface SuperAgentAttention {
   requestId: string | null
 }
 
+// ── T18 #88：Outbox 与受控 reply ──────────────────────────────────────
+
+/** 外发工作类别 —— launch/delivery/relay/reply/reviewReminder 各自限流保序。 */
+export type SuperAgentOutboxKind =
+  | 'launch'
+  | 'delivery'
+  | 'relay'
+  | 'reply'
+  | 'reviewReminder'
+
+/** 受控 reply 的四种外发类型（§6.4 授权链）。 */
+export type SuperAgentReplyType = 'acknowledgement' | 'answer' | 'result' | 'attention'
+
+/** Outbox 消息状态：pending 待投递；sent 已回执；dropped 永久失败；withdrawn 已撤回。 */
+export type SuperAgentOutboxStatus = 'pending' | 'sent' | 'dropped' | 'withdrawn'
+
+/** reply 外发载荷：回答必须可追溯到 Worker 认领过的人问题。 */
+export interface SuperAgentOutboxReplyPayload {
+  kind: 'reply'
+  replyType: SuperAgentReplyType
+  text: string
+  /** acknowledgement / answer 引用的人消息 Input。 */
+  inReplyTo: string | null
+  /** attention 引用的 Attention。 */
+  attentionId: string | null
+  /** result 引用的 Report。 */
+  reportId: string | null
+}
+
+/** 外发载荷：kind 判别联合，内部 effect 与受控 reply 共用同一 Outbox。 */
+export type SuperAgentOutboxPayload =
+  | { kind: 'launch'; assignmentId: string }
+  | { kind: 'delivery'; inputId: string; requestId: string }
+  | { kind: 'relay'; reportId: string }
+  | { kind: 'reviewReminder' }
+  | SuperAgentOutboxReplyPayload
+
+/** Outbox 消息（§9.2 先持久化后执行）。 */
+export interface SuperAgentOutboxMessage {
+  /** 稳定外发 ID：永久去重的幂等键，也是崩溃对账的凭据。 */
+  messageId: string
+  ticketId: string
+  /** 投递通道（如 feishu:chat-1、github:issue-12、internal）。 */
+  channel: string
+  kind: SuperAgentOutboxKind
+  /** 落库序号：同一 ticket+channel 内保序。 */
+  ordinal: number
+  status: SuperAgentOutboxStatus
+  createdAt: string
+  payload: SuperAgentOutboxPayload
+  /** 投递尝试次数（waiting 回写时递增）。 */
+  attempts: number
+  /** 瞬时失败退避后的下次可试时间；null 表示立即可试。 */
+  nextAttemptAt: string | null
+  lastError: string | null
+  sentAt: string | null
+  /** 平台回执（平台 message id），崩溃对账的幂等凭据。 */
+  receipt: string | null
+  /** attention 被替换/清除时未发出消息的撤回时间。 */
+  withdrawnAt: string | null
+}
+
 export interface SuperAgentIdempotencyEntry {
   kind: 'trigger' | 'ticket' | 'input' | 'report' | 'message'
   id: string
@@ -426,4 +488,9 @@ export interface SuperAgentDomainState {
   policy: SuperAgentPolicy
   /** T16 #86：语义评估批次（按 Thread 串行），按 evalId 索引。 */
   evals: Record<string, SuperAgentEval>
+  /**
+   * T18 #88：Outbox 外发消息，按 messageId 索引。先持久化后执行，重启后
+   * pending 续做、sent 不重复投递；messageId 为永久去重幂等键。
+   */
+  outbox: Record<string, SuperAgentOutboxMessage>
 }

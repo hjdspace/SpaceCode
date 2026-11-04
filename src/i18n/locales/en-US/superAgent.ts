@@ -59,7 +59,12 @@ export default {
     evalNotDelivered: 'The evaluation has not been delivered yet or is already finished',
     evalNotFound: 'Evaluation record not found',
     evalPolicyStale: 'The authorization policy changed; this evaluation result is stale',
+    noAnswer: 'The question has not been claimed by a worker; it cannot be sent as an answer',
+    invalidOutbound: 'Invalid outbound message payload',
     invalidPolicy: 'Invalid authorization policy configuration',
+    notHandbackable: 'Only unclaimed human messages can be handed back to routing',
+    subscriptionProtected: 'The origin thread and followed threads cannot be unsubscribed',
+    notSubscribed: 'The ticket is not subscribed to this thread',
     unknown: 'An unknown error occurred',
   },
   policy: {

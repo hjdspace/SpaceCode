@@ -78,6 +78,16 @@ export type SuperAgentErrorCode =
   | 'evalNotFound'
   // conflict：T16 #86 旧 Policy 版本的评估结果不得落地
   | 'evalPolicyStale'
+  // refused：T18 #88 受控 reply —— 未认领的人问题不得外发为回答
+  | 'noAnswer'
+  // refused：T18 #88 Outbox 载荷非法（通道为空 / reply 文本为空 / 引用不匹配）
+  | 'invalidOutbound'
+  // refused：T17 #87 handback —— 只有可裁决的人消息才能交回（非人消息/上下文/已认领/他人工单）
+  | 'notHandbackable'
+  // refused：T17 #87 mark_unrelated —— 来源 Thread 与 follows 不允许退订
+  | 'subscriptionProtected'
+  // missing：T17 #87 工单没有订阅该 Thread，无从退订
+  | 'notSubscribed'
 
 export type SuperAgentErrorParams = Record<string, string | number>
 
@@ -134,6 +144,11 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   invalidPolicy: 'refused',
   evalNotFound: 'missing',
   evalPolicyStale: 'conflict',
+  noAnswer: 'refused',
+  invalidOutbound: 'refused',
+  notHandbackable: 'refused',
+  subscriptionProtected: 'refused',
+  notSubscribed: 'missing',
 }
 
 export const SUPER_AGENT_ERROR_CODES = Object.keys(ERROR_CATEGORIES) as SuperAgentErrorCode[]

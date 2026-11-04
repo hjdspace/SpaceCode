@@ -78,6 +78,14 @@ function persistingDomain(
     expireEval: (input) => tracked(() => domain.expireEval(input)),
     submitEvalDecision: (input) => tracked(() => domain.submitEvalDecision(input)),
     revalidateTicket: (ticketId) => domain.revalidateTicket(ticketId),
+    followupOwners: (triggerId) => domain.followupOwners(triggerId),
+    fastPathConsumed: (triggerId) => domain.fastPathConsumed(triggerId),
+    handbackInput: (input) => tracked(() => domain.handbackInput(input)),
+    markUnrelated: (input) => tracked(() => domain.markUnrelated(input)),
+    attachTicket: (input) => tracked(() => domain.attachTicket(input)),
+    pruneExpiredSubscriptions: (input) => tracked(() => domain.pruneExpiredSubscriptions(input)),
+    enqueueOutboxMessage: (input) => tracked(() => domain.enqueueOutboxMessage(input)),
+    settleOutboxMessage: (input) => tracked(() => domain.settleOutboxMessage(input)),
   }
 }
 

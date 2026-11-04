@@ -76,9 +76,10 @@ import {
   createSuperAgentDomain,
   resolveExecutionPolicy,
   type AddInputResult,
+  type EnqueueOutboxInput,
   type SuperAgentDomain,
 } from './domain'
-import type { SuperAgentReportKind, SuperAgentTicket } from './model'
+import type { SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
 import { superAgentError, serializeSuperAgentError } from './errors'
 import { createCheckpointStore, parsePorcelainEntry, type SuperAgentCheckpointStore } from './checkpoint'
 import {
@@ -94,6 +95,12 @@ import { createSuperAgentProgressProjector, type SuperAgentProgressProjector } f
 import { parseSuperAgentReportText } from './reportParser'
 import { createSuperAgentReviewReminder, type SuperAgentReviewReminder } from './reviewReminder'
 import { createSuperAgentScheduler, type WorkerLauncher } from './scheduler'
+import {
+  createSuperAgentOutbox,
+  type SuperAgentOutbox,
+  type SuperAgentOutboxChannel,
+  type SuperAgentOutboxLimits,
+} from './outbox'
 import { openPersistedSuperAgentProject } from './persistence'
 import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
 import type { ProjectStore, ProjectStoreDeps } from './store'
@@ -108,6 +115,15 @@ import {
 const STALE_AFTER_MS = 5_000
 /** T11 #81：显式 shutdown 的在途 Effect 有界等待参考值（§9.5，10 秒）。 */
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000
+
+/** T18 #88：Outbox 各类投递对应的健康类别（effect:<kind>）。 */
+const OUTBOX_HEALTH_CATEGORY: Record<SuperAgentOutboxKind, SuperAgentHealthCategory> = {
+  launch: 'effect:launch',
+  delivery: 'effect:delivery',
+  relay: 'effect:relay',
+  reply: 'effect:reply',
+  reviewReminder: 'effect:reviewReminder',
+}
 
 interface ProjectState {
   seq: number
@@ -125,6 +141,11 @@ interface ProjectState {
   takeover: { ticketId: string; at: string } | null
   /** T10 #80：review 超时提醒引擎（持久水位 + 周期扫描）。 */
   reviewReminder: SuperAgentReviewReminder
+  /**
+   * T18 #88：Outbox durable Effect runner。channel 接缝未配置时为 null
+   * （消息仍可入列持久化，Channel 适配器接入后续做）。
+   */
+  outbox: SuperAgentOutbox | null
   /** T11 #81：项目状态 Store（userDataDir 未提供时为 null，纯内存）。 */
   store: ProjectStore<SuperAgentDomainState> | null
   /** T11 #81：open → draining（停止接受命令，有界等在途）→ closed（锁已释放）。 */
@@ -158,6 +179,17 @@ export interface SuperAgentServiceOptions {
    * now/sweepIntervalMs 是测试注入接缝。
    */
   reviewReminder?: { hours?: number; now?: () => Date; sweepIntervalMs?: number }
+  /**
+   * T18 #88：Outbox durable Effect 配置。channel 为投递通道接缝（Desktop/
+   * IM/GitHub），未提供时不建 runner（消息仍可入列持久化，接入后续做）；
+   * limits/now/sweepIntervalMs 是限流与测试注入接缝。
+   */
+  outbox?: {
+    channel?: SuperAgentOutboxChannel | null
+    limits?: Partial<SuperAgentOutboxLimits>
+    now?: () => Date
+    sweepIntervalMs?: number
+  }
   /**
    * T11 #81：提供后启用每项目持久化与重启恢复（迁移 → 锁 → seq 重放 →
    * 启动恢复顺序）。未提供时保持纯内存行为。
@@ -275,6 +307,20 @@ export interface SuperAgentService {
   ticketRetry(repoRoot: string, command: SuperAgentTicketRetryCommand): SuperAgentTicketRetryResult
   /** T10 #80：手动扫描一次 review 超时提醒（周期扫描之外的对账/测试接缝）。 */
   sweepReviewReminders(repoRoot: string): number
+  /**
+   * T18 #88：主进程内部接缝 —— Outbox 入列（先持久化后执行）。受控 reply
+   * 的授权链在 Domain 校验；入列成功后立即泵送（channel 未配置时仅落库）。
+   * Router / Channel 适配器后续经此投递 acknowledgement/answer/result/
+   * attention 与 launch/delivery/relay/reviewReminder。
+   */
+  outboxEnqueue(
+    repoRoot: string,
+    command: EnqueueOutboxInput,
+  ): { messageId: string; status: SuperAgentOutboxStatus; duplicate: boolean }
+  /** T18 #88：读接缝 —— Outbox 全量消息（按落库序），供主进程审计/测试。 */
+  outboxQueue(repoRoot: string): SuperAgentOutboxMessage[]
+  /** T18 #88：手动泵送一次（测试接缝）；返回本次派发数。 */
+  sweepOutbox(repoRoot: string): number
   recordHealthSuccess(repoRoot: string, category: SuperAgentHealthCategory): void
   recordHealthFailure(
     repoRoot: string,
@@ -399,6 +445,34 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           projector.sync()
         },
       })
+      // T18 #88：Outbox runner —— sent 记健康恢复；waiting/dropped 计入对应
+      // effect:<kind> 健康项（失败信息带 ticketId 便于追溯）。
+      const outboxChannel = options.outbox?.channel ?? null
+      const outbox = outboxChannel
+        ? createSuperAgentOutbox({
+            domain,
+            channel: outboxChannel,
+            limits: options.outbox?.limits,
+            now: options.outbox?.now,
+            sweepIntervalMs: options.outbox?.sweepIntervalMs,
+            onSettled: (message) => {
+              const category = OUTBOX_HEALTH_CATEGORY[message.kind]
+              if (message.status === 'sent') {
+                health.recordSuccess(category)
+              } else if (message.status === 'dropped') {
+                health.recordFailure(category, {
+                  code: 'outboxDropped',
+                  ticketId: message.ticketId,
+                })
+              } else if (message.status === 'pending' && message.attempts > 0) {
+                health.recordFailure(category, {
+                  code: 'outboxWaiting',
+                  ticketId: message.ticketId,
+                })
+              }
+            },
+          })
+        : null
       project = {
         seq: 0,
         router: null,
@@ -410,6 +484,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         observedWorkers: new Set(),
         takeover: null,
         reviewReminder,
+        outbox,
         store,
         phase: 'open',
         startupRecovery,
@@ -418,6 +493,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       projects.set(repoRoot, project)
       // 持久化 scheduled effect：项目一落地即开始周期扫描（含一次即时重建扫描）
       reviewReminder.start()
+      // T18 #88：Outbox 落地即续做 —— pending 消息重启后立即恢复投递
+      outbox?.start()
       // T11 #81：恢复续跑 —— 持久化项目启动即补跑队列（busy 恢复代次与
       // 重启前已排队的 pending），并把恢复后的卡片/注意力现状推给已连接面板。
       if (startupRecovery) {
@@ -615,10 +692,13 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     project.phase = 'draining'
     // 2. 停止周期扫描类 scheduled effect
     project.reviewReminder.stop()
+    if (project.outbox) project.outbox.stop()
+    const bound = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
     // 3. 有界等待在途 launch 落定；超时直接结束（下次启动生成恢复代次）
-    const settledWithinBound = await project.scheduler.settle(
-      options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
-    )
+    const schedulerSettled = await project.scheduler.settle(bound)
+    // T18 #88：Outbox 在途 Channel 派发同样有界等待回写
+    const outboxSettled = project.outbox ? await project.outbox.settle(bound) : true
+    const settledWithinBound = schedulerSettled && outboxSettled
     // 4. 关闭完成：关 Store 释放项目锁
     project.phase = 'closed'
     project.store?.close()
@@ -907,6 +987,24 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
 
     sweepReviewReminders(repoRoot) {
       return projectOf(repoRoot).reviewReminder.sweep()
+    },
+
+    outboxEnqueue(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      const { message, duplicate } = project.domain.enqueueOutboxMessage(command)
+      // 入列成功立即泵送；channel 未配置（runner 为 null）时仅落库待后续做
+      project.outbox?.pump()
+      return { messageId: message.messageId, status: message.status, duplicate }
+    },
+
+    outboxQueue(repoRoot) {
+      return Object.values(projectOf(repoRoot).domain.state.outbox).sort(
+        (a, b) => a.ordinal - b.ordinal,
+      )
+    },
+
+    sweepOutbox(repoRoot) {
+      return projectOf(repoRoot).outbox?.pump() ?? 0
     },
 
     recordHealthSuccess(repoRoot, category) {

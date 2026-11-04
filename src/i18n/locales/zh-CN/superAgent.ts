@@ -58,7 +58,12 @@ export default {
     evalNotDelivered: '评估尚未送达或已结束，无法提交裁决',
     evalNotFound: '找不到对应的评估记录',
     evalPolicyStale: '授权策略已变更，本次评估结果已失效',
+    noAnswer: '该问题尚未被 Worker 认领，不能外发为回答',
+    invalidOutbound: '外发消息载荷不合法',
     invalidPolicy: '授权策略配置不合法',
+    notHandbackable: '只有未认领的人消息才能交回路由',
+    subscriptionProtected: '来源会话与工单跟随的会话不允许退订',
+    notSubscribed: '该工单没有订阅此会话',
     unknown: '发生未知错误',
   },
   policy: {

@@ -46,8 +46,11 @@ import type {
   SuperAgentMandate,
   SuperAgentMandateBasis,
   SuperAgentMandateStrength,
+  SuperAgentOutboxMessage,
+  SuperAgentOutboxPayload,
   SuperAgentPolicy,
   SuperAgentPolicyRule,
+  SuperAgentReplyType,
   SuperAgentReport,
   SuperAgentReportKind,
   SuperAgentSourceAdmission,
@@ -69,6 +72,13 @@ export const DEFAULT_EXECUTION_POLICY: SuperAgentExecutionPolicy = {
 
 const PARALLEL_MIN_WORKERS = 2
 const PARALLEL_MAX_WORKERS = 6
+
+/** T17 #87：订阅寿命 —— 已结束（非 stopped）工单的订阅最多保留两周（§6.2）。 */
+const DEFAULT_SUBSCRIPTION_TTL_MS = 14 * 24 * 60 * 60 * 1000
+
+/** T18 #88：waiting 回写指数退避基准与封顶（30s 起、每尝试翻倍、15min 封顶）。 */
+export const SUPER_AGENT_OUTBOX_BACKOFF_BASE_MS = 30_000
+export const SUPER_AGENT_OUTBOX_BACKOFF_CAP_MS = 15 * 60_000
 
 export interface TriggerDraft {
   /** Source 事件键；同一键重复投递只返回原 Trigger。 */
@@ -397,6 +407,90 @@ export interface RevalidateTicketResult {
   reason: string | null
 }
 
+/** T17 #87：Worker 交回一条人消息 —— 放弃本工单对该消息的裁决权（订阅保留）。 */
+export interface HandbackInputInput {
+  ticketId: string
+  inputId: string
+  at?: string
+}
+
+export interface HandbackInputResult {
+  input: SuperAgentInput
+  /** 交回后仍持有该消息的存活 owner。 */
+  ownersRemaining: string[]
+  /** 是否已回流 Eval（最后一个 owner 交回时恰一次）。 */
+  requeued: boolean
+}
+
+/** T17 #87：Worker 发现 Thread 无关 —— 退掉自己的订阅并交回该 Thread 的人消息。 */
+export interface MarkUnrelatedInput {
+  ticketId: string
+  threadId: string
+  at?: string
+}
+
+export interface MarkUnrelatedResult {
+  ticket: SuperAgentTicket
+  thread: SuperAgentThread
+  /** 本次交回的人消息 Input。 */
+  releasedInputIds: string[]
+  /** 其中已回流 Eval 的（最后一个 owner 交回）。 */
+  requeuedInputIds: string[]
+}
+
+/** T17 #87：Router attach —— 显式引用的消息挂接工单并订阅整条 Thread。 */
+export interface AttachTicketInput {
+  ticketId: string
+  triggerId: string
+  at?: string
+}
+
+export interface AttachTicketResult {
+  ticket: SuperAgentTicket
+  trigger: SuperAgentTrigger
+  /** 新增的工单输入；重复 attach（已消费）为 null。 */
+  input: SuperAgentInput | null
+  duplicate: boolean
+}
+
+/**
+ * T18 #88：Outbox 入列。受控 reply 的授权链在此校验（§6.4）：
+ * acknowledgement 指向本工单人消息且未结束；answer 指向 Worker 认领过的
+ * 人问题；result 只在 ready/completed/merged/dropped 允许且 progress 不得
+ * 冒充；attention 必须匹配当前 open Attention 文本。
+ */
+export interface EnqueueOutboxInput {
+  /** 稳定外发 ID：永久去重的幂等键，重复入列返回原消息。 */
+  messageId: string
+  ticketId: string
+  /** 投递通道；内部 effect 用 'internal'。 */
+  channel: string
+  payload: SuperAgentOutboxPayload
+  at?: string
+}
+
+export interface EnqueueOutboxResult {
+  message: SuperAgentOutboxMessage
+  /** messageId（或同一 Attention 的 attention 回复）重复入列时为 true。 */
+  duplicate: boolean
+}
+
+/** T18 #88：Channel 回写（receipt）。sent 带 platform message id 供崩溃对账。 */
+export interface SettleOutboxInput {
+  messageId: string
+  outcome: 'sent' | 'waiting' | 'gone'
+  /** sent 的平台回执；waiting/gone 的错误摘要（仅供日志）。 */
+  receipt?: string | null
+  error?: string | null
+  at?: string
+}
+
+export interface SettleOutboxResult {
+  message: SuperAgentOutboxMessage
+  /** 消息已终态（sent/dropped/withdrawn）后重复回写时为 true。 */
+  duplicate: boolean
+}
+
 export interface SuperAgentDomainOptions {
   now?: () => Date
   newId?: (kind: string) => string
@@ -404,6 +498,11 @@ export interface SuperAgentDomainOptions {
    * T16 #86：Eval 的 deadline 时限（候选送达 Router 起算）。缺省 60 秒。
    */
   evalTtlMs?: number
+  /**
+   * T17 #87：已结束（非 stopped）工单订阅的保留时长 —— 期满后订阅被清理，
+   * Source 不再为该 Thread 轮询。缺省两周（§6.2）。
+   */
+  subscriptionTtlMs?: number
   /**
    * T11 #81：从持久化快照重水化。缺失字段补默认（前向兼容），
    * 未知字段按结构透传保留（§9.4 未见过的字段必须可被忽略）。
@@ -488,6 +587,40 @@ export interface SuperAgentDomain {
    * 重新过 Gate；失效（名单移除/scope 收紧/bot 化/已撤回）则续接被拒。
    */
   revalidateTicket(ticketId: string): RevalidateTicketResult
+  /**
+   * T17 #87：当前仍可裁决这条人消息的工单（存活非 contextOnly 订阅 +
+   * 未交回、未认领的人消息输入）。人消息先归这些工单，Router 只能 stop。
+   */
+  followupOwners(triggerId: string): string[]
+  /** T17 #87：Trigger 是否已被存活的可裁决订阅消费（fast path 生效，不进 Eval）。 */
+  fastPathConsumed(triggerId: string): boolean
+  /**
+   * T17 #87：Worker 交回人消息 —— 交回一次（重复拒绝），订阅保留；
+   * 最后一个 owner 交回后消息回流 Eval 恰一次。
+   */
+  handbackInput(input: HandbackInputInput): HandbackInputResult
+  /**
+   * T17 #87：Worker 退掉自己对某 Thread 的订阅（只退自己；来源 Thread 与
+   * follows 除外）并交回该 Thread 未裁决的人消息。
+   */
+  markUnrelated(input: MarkUnrelatedInput): MarkUnrelatedResult
+  /**
+   * T17 #87：Router attach —— 订阅 Trigger 的全部 Thread 并把消息挂接为工单
+   * 输入；人消息归存活 owner 期间被代码拒绝（只能 stop）。
+   */
+  attachTicket(input: AttachTicketInput): AttachTicketResult
+  /**
+   * T17 #87：清理过期订阅 —— stopped 立即失效，已结束工单最多保留
+   * subscriptionTtlMs（缺省两周）；之后 Source 不再为该 Thread 轮询。
+   */
+  pruneExpiredSubscriptions(input?: { at?: string }): string[]
+  /**
+   * T18 #88：Outbox 入列（先持久化后执行）。受控 reply 授权链在此校验；
+   * messageId 永久去重，同一 open Attention 的 attention 回复只入列一次。
+   */
+  enqueueOutboxMessage(input: EnqueueOutboxInput): EnqueueOutboxResult
+  /** T18 #88：Channel 回写 —— sent 记平台回执、waiting 指数退避、gone 记 dropped。 */
+  settleOutboxMessage(input: SettleOutboxInput): SettleOutboxResult
   stageOf(ticketId: string): SuperAgentTicketStage
 }
 
@@ -551,6 +684,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
   const now = options.now ?? (() => new Date())
   const newId = options.newId ?? ((kind: string) => `${kind}-${randomUUID()}`)
   const evalTtlMs = options.evalTtlMs ?? 60_000
+  const subscriptionTtlMs = options.subscriptionTtlMs ?? DEFAULT_SUBSCRIPTION_TTL_MS
   const fresh = (): SuperAgentDomainState => ({
     seq: 0,
     triggers: {},
@@ -569,6 +703,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     executionPolicy: { ...DEFAULT_EXECUTION_POLICY },
     policy: cloneSuperAgentPolicy(DEFAULT_SUPER_AGENT_POLICY),
     evals: {},
+    outbox: {},
   })
   const state: SuperAgentDomainState = options.initialState
     ? // 重水化：缺失字段补默认，已有事实原样保留；未知字段透传（前向兼容）。
@@ -1159,8 +1294,27 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return ticket
   }
 
+  /**
+   * T18 #88：Attention 被替换/清除时，未发出的 attention 回复从 Outbox 撤回
+   * （回写为 withdrawn），保证「同一问题只提醒一次」且不外发已失效的问题。
+   */
+  function withdrawPendingAttentionReplies(ticketId: string, at: string): void {
+    for (const message of Object.values(state.outbox)) {
+      if (
+        message.status === 'pending' &&
+        message.ticketId === ticketId &&
+        message.payload.kind === 'reply' &&
+        message.payload.replyType === 'attention'
+      ) {
+        message.status = 'withdrawn'
+        message.withdrawnAt = at
+      }
+    }
+  }
+
   function withdrawOpenAttentions(
     ticket: SuperAgentTicket,
+    at: string,
   ): string[] {
     const withdrawn: string[] = []
     for (const attention of Object.values(state.attentions)) {
@@ -1170,7 +1324,49 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       }
     }
     ticket.attentionId = null
+    withdrawPendingAttentionReplies(ticket.ticketId, at)
     return withdrawn
+  }
+
+  /**
+   * T17 #87：释放一条人消息的归属 —— 从 Trigger 消费方移除本工单；无其他
+   * 消费方时回流 Eval 恰一次（pending 重排 + handbacks 落库）。工单结束收尾
+   * 与 Worker handback 共用此路径，保证「回流恰一次」语义单一出处。
+   * 返回是否已回流 Eval。
+   */
+  function releaseHumanInput(ticket: SuperAgentTicket, input: SuperAgentInput, at: string): boolean {
+    input.releasedAt = at
+
+    // 非 Trigger 派生的人消息没有其他 owner，直接回流 Eval；Trigger 消息要等最后一个
+    // 工单/上下文订阅释放后才回流，否则会重复触发 Eval。
+    let handedBackToEval = input.triggerId === null
+    if (input.triggerId) {
+      const trigger = state.triggers[input.triggerId]
+      if (trigger) {
+        trigger.disposition.ticketIds = trigger.disposition.ticketIds.filter(
+          (ticketId) => ticketId !== ticket.ticketId,
+        )
+        trigger.disposition.contextTicketIds = trigger.disposition.contextTicketIds.filter(
+          (ticketId) => ticketId !== ticket.ticketId,
+        )
+        const hasOtherOwner =
+          trigger.disposition.ticketIds.length > 0 ||
+          trigger.disposition.contextTicketIds.length > 0
+        if (!hasOtherOwner) {
+          handedBackToEval = true
+          trigger.disposition.handedBack = true
+          const threadId = trigger.threadIds[0]
+          const thread = threadId ? state.threads[threadId] : undefined
+          if (thread && !thread.pendingTriggerIds.includes(trigger.triggerId)) {
+            thread.pendingTriggerIds.push(trigger.triggerId)
+          }
+        }
+      }
+    }
+    if (handedBackToEval && !state.handbacks.includes(input.inputId)) {
+      state.handbacks.push(input.inputId)
+    }
+    return handedBackToEval
   }
 
   function endTicketInternal(
@@ -1199,7 +1395,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       })
     }
 
-    const withdrawnAttentionIds = withdrawOpenAttentions(ticket)
+    const withdrawnAttentionIds = withdrawOpenAttentions(ticket, command.at)
     ticket.delivery = null
 
     const releasedInputIds: string[] = []
@@ -1211,36 +1407,8 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       if (ticket.answers.includes(inputId)) continue
       if (input.releasedAt !== null) continue
 
-      input.releasedAt = command.at
+      releaseHumanInput(ticket, input, command.at)
       releasedInputIds.push(inputId)
-
-      // 非 Trigger 派生的人消息没有其他 owner，直接回流 Eval；Trigger 消息要等最后一个
-      // 工单/上下文订阅释放后才回流，否则会重复触发 Eval。
-      let handedBackToEval = input.triggerId === null
-      if (input.triggerId) {
-        const trigger = state.triggers[input.triggerId]
-        if (trigger) {
-          trigger.disposition.ticketIds = trigger.disposition.ticketIds.filter(
-            (ticketId) => ticketId !== ticket.ticketId,
-          )
-          trigger.disposition.contextTicketIds = trigger.disposition.contextTicketIds.filter(
-            (ticketId) => ticketId !== ticket.ticketId,
-          )
-          const hasOtherOwner =
-            trigger.disposition.ticketIds.length > 0 ||
-            trigger.disposition.contextTicketIds.length > 0
-          if (!hasOtherOwner) {
-            handedBackToEval = true
-            trigger.disposition.handedBack = true
-            const threadId = trigger.threadIds[0]
-            const thread = threadId ? state.threads[threadId] : undefined
-            if (thread && !thread.pendingTriggerIds.includes(trigger.triggerId)) {
-              thread.pendingTriggerIds.push(trigger.triggerId)
-            }
-          }
-        }
-      }
-      if (handedBackToEval && !state.handbacks.includes(inputId)) state.handbacks.push(inputId)
     }
 
     ticket.undelivered = []
@@ -1566,6 +1734,9 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     for (const triggerId of [...thread.pendingTriggerIds]) {
       const trigger = state.triggers[triggerId]
       if (!trigger) continue
+      // T17 #87 fast path 防御：仍有存活 owner 的人消息归 Worker 裁决，
+      // 不进 Eval（正常流程不会入队；此处兜底拦下陈旧队列里的持有消息）。
+      if (trigger.human && followupOwners(triggerId).length > 0) continue
       const gate = gateTrigger(state.policy, trigger)
       if (!gate.admitted) {
         filterTrigger({ triggerId, reason: gate.filtered })
@@ -1855,6 +2026,425 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     }
   }
 
+  // ── T17 #87：订阅 fast path 与 owner 语义（§6.2） ──────────────────
+
+  /** 当前仍可裁决这条人消息的工单：存活非 contextOnly 订阅 + 未交回、未认领的人消息输入。 */
+  function followupOwners(triggerId: string): string[] {
+    const trigger = state.triggers[triggerId]
+    if (!trigger || !trigger.human) return []
+    const owners = new Set<string>()
+    for (const threadId of trigger.threadIds) {
+      const thread = state.threads[threadId]
+      if (!thread) continue
+      for (const subscription of thread.subscriptions) {
+        // context-only 订阅只提供上下文，不赋予 follow-up 所有权。
+        if (subscription.contextOnly) continue
+        const ticket = state.tickets[subscription.ticketId]
+        if (!ticket || ticket.state !== 'open') continue
+        const holds = ticket.inputIds.some((inputId) => {
+          const record = state.inputs[inputId]
+          return (
+            record !== undefined &&
+            record.triggerId === triggerId &&
+            record.human &&
+            !record.context &&
+            record.releasedAt === null &&
+            !ticket.answers.includes(inputId)
+          )
+        })
+        if (holds) owners.add(ticket.ticketId)
+      }
+    }
+    return [...owners]
+  }
+
+  /** Trigger 是否已被存活的可裁决订阅消费（fast path 生效，不进 Eval、不重复建单）。 */
+  function fastPathConsumed(triggerId: string): boolean {
+    const trigger = state.triggers[triggerId]
+    if (!trigger) return false
+    return trigger.threadIds.some((threadId) => {
+      const thread = state.threads[threadId]
+      if (!thread) return false
+      return thread.subscriptions.some((subscription) => {
+        if (subscription.contextOnly) return false
+        const ticket = state.tickets[subscription.ticketId]
+        if (!ticket || ticket.state !== 'open') return false
+        return (
+          trigger.disposition.ticketIds.includes(subscription.ticketId) ||
+          trigger.disposition.contextTicketIds.includes(subscription.ticketId)
+        )
+      })
+    })
+  }
+
+  function handbackInput(input: HandbackInputInput): HandbackInputResult {
+    const target = state.inputs[input.inputId]
+    if (!target) throw superAgentError('inputNotFound', { inputId: input.inputId })
+    const ticket = requireTicket(input.ticketId)
+    if (target.ticketId !== ticket.ticketId) {
+      throw superAgentError('notHandbackable', {
+        ticketId: input.ticketId,
+        inputId: target.inputId,
+      })
+    }
+    if (ticket.state === 'ended') {
+      throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    }
+    // 只有 fan-out/attach 投递的、可裁决（非 context）人消息才能交回；
+    // 已被 answers 认领的消息是 Worker 的回答义务，不能交回。
+    if (!target.human || target.context || target.triggerId === null) {
+      throw superAgentError('notHandbackable', { inputId: target.inputId })
+    }
+    if (target.releasedAt !== null) {
+      throw superAgentError('handedBack', { inputId: target.inputId })
+    }
+    if (ticket.answers.includes(target.inputId)) {
+      throw superAgentError('notHandbackable', { inputId: target.inputId })
+    }
+
+    const requeued = releaseHumanInput(ticket, target, atNow(input.at))
+    nextOrdinal()
+    return { input: target, ownersRemaining: followupOwners(target.triggerId), requeued }
+  }
+
+  function markUnrelated(input: MarkUnrelatedInput): MarkUnrelatedResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') {
+      throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    }
+    // 来源 Thread 与工单自己 follow 的 Thread（如 PR）不允许退订。
+    if (input.threadId === ticket.threadId || ticket.follows.includes(input.threadId)) {
+      throw superAgentError('subscriptionProtected', {
+        ticketId: ticket.ticketId,
+        threadId: input.threadId,
+      })
+    }
+    const thread = state.threads[input.threadId]
+    if (!thread) throw superAgentError('threadNotFound', { threadId: input.threadId })
+    const subIndex = thread.subscriptions.findIndex(
+      (subscription) => subscription.ticketId === ticket.ticketId,
+    )
+    if (subIndex < 0) {
+      throw superAgentError('notSubscribed', {
+        ticketId: ticket.ticketId,
+        threadId: input.threadId,
+      })
+    }
+    // 只退自己的订阅：其他工单在同 Thread 的订阅不受影响。
+    thread.subscriptions.splice(subIndex, 1)
+
+    // 交回本工单从该 Thread 的 Trigger 派生、未裁决的人消息。
+    const at = atNow(input.at)
+    const releasedInputIds: string[] = []
+    const requeuedInputIds: string[] = []
+    for (const inputId of [...ticket.inputIds]) {
+      const candidate = state.inputs[inputId]
+      if (!candidate || !candidate.human || candidate.context || candidate.triggerId === null) {
+        continue
+      }
+      if (candidate.releasedAt !== null) continue
+      if (ticket.answers.includes(inputId)) continue
+      const trigger = state.triggers[candidate.triggerId]
+      if (!trigger || !trigger.threadIds.includes(input.threadId)) continue
+      if (releaseHumanInput(ticket, candidate, at)) requeuedInputIds.push(inputId)
+      releasedInputIds.push(inputId)
+    }
+    nextOrdinal()
+    return { ticket, thread, releasedInputIds, requeuedInputIds }
+  }
+
+  function attachTicket(input: AttachTicketInput): AttachTicketResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') {
+      throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    }
+    const trigger = state.triggers[input.triggerId]
+    if (!trigger) throw superAgentError('triggerNotFound', { triggerId: input.triggerId })
+
+    const consumedBySelf =
+      trigger.disposition.ticketIds.includes(ticket.ticketId) ||
+      trigger.disposition.contextTicketIds.includes(ticket.ticketId)
+    // attach 订阅整条 Thread：Trigger 的全部 threadIds 都补上可裁决订阅（幂等）。
+    const at = atNow(input.at)
+    const ensureSubscriptions = (): void => {
+      for (const threadId of trigger.threadIds) {
+        const thread = ensureThread(threadId, trigger.source)
+        if (!thread.subscriptions.some((subscription) => subscription.ticketId === ticket.ticketId)) {
+          thread.subscriptions.push({
+            ticketId: ticket.ticketId,
+            attachedAt: at,
+            contextOnly: false,
+          })
+        }
+      }
+    }
+
+    if (consumedBySelf) {
+      // 已消费过（含建单来源）：只补齐订阅，不重复投递；带回既有输入（若有）。
+      ensureSubscriptions()
+      const existing =
+        ticket.inputIds
+          .map((inputId) => state.inputs[inputId])
+          .find((record) => record !== undefined && record.triggerId === trigger.triggerId) ?? null
+      return { ticket, trigger, input: existing, duplicate: true }
+    }
+
+    // 人消息归存活 owner 期间，Router 只能 stop —— attach 被代码拒绝
+    // （显式引用的语义判断在 Router，域层拦机械约束）。
+    const owners = followupOwners(trigger.triggerId)
+    if (owners.length > 0) {
+      throw superAgentError('workerDecides', { triggerId: trigger.triggerId })
+    }
+
+    ensureSubscriptions()
+    const added = addInput({
+      ticketId: ticket.ticketId,
+      requestId: `attach:${trigger.triggerId}:${ticket.ticketId}`,
+      kind: 'trigger',
+      human: trigger.human,
+      context: !trigger.human,
+      text: trigger.text,
+      triggerId: trigger.triggerId,
+      at,
+    })
+    return { ticket, trigger, input: added.input, duplicate: added.duplicate }
+  }
+
+  function pruneExpiredSubscriptions(input: { at?: string } = {}): string[] {
+    const at = atNow(input.at)
+    const pruned: string[] = []
+    for (const thread of Object.values(state.threads)) {
+      const alive = thread.subscriptions.filter((subscription) => {
+        const ticket = state.tickets[subscription.ticketId]
+        if (!ticket) return false
+        if (ticket.state === 'open' || ticket.ended === null) return true
+        // 人工停止的 Ticket 不再接收自动输入：订阅立即失效。
+        if (ticket.ended.outcome === 'stopped') return false
+        // 其余结束态：最多保留订阅寿命（缺省两周），期满停止轮询。
+        return Date.parse(at) - Date.parse(ticket.ended.at) <= subscriptionTtlMs
+      })
+      if (alive.length !== thread.subscriptions.length) {
+        for (const subscription of thread.subscriptions) {
+          if (!alive.includes(subscription)) pruned.push(`${thread.threadId}:${subscription.ticketId}`)
+        }
+        thread.subscriptions = alive
+      }
+    }
+    if (pruned.length > 0) nextOrdinal()
+    return pruned
+  }
+
+  // ── T18 #88：Outbox 入列与回写（受控 reply 授权链见 §6.4） ─────────
+
+  function requireHumanInputOfTicket(ticket: SuperAgentTicket, inputId: string | null): SuperAgentInput {
+    const input = inputId !== null ? state.inputs[inputId] : undefined
+    if (!input || input.ticketId !== ticket.ticketId || !input.human) {
+      throw superAgentError('notAsker', { ticketId: ticket.ticketId, inputId: inputId ?? '' })
+    }
+    return input
+  }
+
+  /**
+   * 受控 reply 授权链：
+   *  - acknowledgement：指向到达本工单的人消息，工单已结束拒绝（ackEnded）；
+   *  - answer：指向 Worker 用 answers 认领过的人问题（未认领 → noAnswer）；
+   *  - result：只在 ready / completed / merged / dropped 允许，progress 不冒充
+   *    结果（引用的 Report kind 必须是 ready/dropped，否则 notReady）；
+   *  - attention：必须匹配当前未清除 Attention 的文本（notAttention）。
+   */
+  function validateOutboxReply(
+    ticket: SuperAgentTicket,
+    payload: Extract<SuperAgentOutboxPayload, { kind: 'reply' }>,
+  ): void {
+    if (payload.text.trim() === '') {
+      throw superAgentError('invalidOutbound', { ticketId: ticket.ticketId })
+    }
+
+    if (payload.replyType === 'acknowledgement') {
+      if (ticket.state === 'ended') {
+        throw superAgentError('ackEnded', { ticketId: ticket.ticketId })
+      }
+      requireHumanInputOfTicket(ticket, payload.inReplyTo)
+      return
+    }
+
+    if (payload.replyType === 'answer') {
+      if (ticket.state === 'ended') {
+        throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+      }
+      const input = requireHumanInputOfTicket(ticket, payload.inReplyTo)
+      if (!ticket.answers.includes(input.inputId)) {
+        throw superAgentError('noAnswer', { ticketId: ticket.ticketId, inputId: input.inputId })
+      }
+      return
+    }
+
+    if (payload.replyType === 'result') {
+      if (ticket.state === 'ended') {
+        const outcome = ticket.ended?.outcome
+        if (outcome !== 'completed' && outcome !== 'merged' && outcome !== 'dropped') {
+          throw superAgentError('notReady', { ticketId: ticket.ticketId })
+        }
+      } else if (stageOf(ticket.ticketId) !== 'person/review') {
+        throw superAgentError('notReady', { ticketId: ticket.ticketId })
+      }
+      const reportId = payload.reportId
+      const report =
+        reportId !== null
+          ? Object.values(state.reports).find(
+              (candidate) =>
+                candidate.ticketId === ticket.ticketId && candidate.reportId === reportId,
+            )
+          : undefined
+      if (!report) {
+        throw superAgentError('invalidOutbound', { ticketId: ticket.ticketId })
+      }
+      // progress 不外发为结果：只有 ready/dropped 报告可以作为结果引用
+      if (report.kind !== 'ready' && report.kind !== 'dropped') {
+        throw superAgentError('notReady', { ticketId: ticket.ticketId })
+      }
+      return
+    }
+
+    // replyType === 'attention'
+    const attentionId = payload.attentionId
+    const attention = attentionId !== null ? state.attentions[attentionId] : undefined
+    if (
+      !attention ||
+      attention.ticketId !== ticket.ticketId ||
+      attention.status !== 'open' ||
+      attention.question !== payload.text
+    ) {
+      throw superAgentError('notAttention', { attentionId: attentionId ?? '' })
+    }
+  }
+
+  function enqueueOutboxMessage(input: EnqueueOutboxInput): EnqueueOutboxResult {
+    const ticket = requireTicket(input.ticketId)
+    const channel = input.channel.trim()
+    if (channel === '') {
+      throw superAgentError('invalidOutbound', { messageId: input.messageId })
+    }
+    const payload = input.payload
+
+    // messageId 永久去重：即使消息已 sent/withdrawn，重复入列仍返回原消息
+    const key = idempotencyKey('message', input.messageId)
+    const fingerprint = canonical({ ticketId: ticket.ticketId, channel, payload })
+    const existing = findByIdempotencyKey(key)
+    if (existing) {
+      assertSameFact(existing, fingerprint)
+      return { message: state.outbox[existing.id], duplicate: true }
+    }
+
+    switch (payload.kind) {
+      case 'launch': {
+        const assignment = state.assignments[payload.assignmentId]
+        if (!assignment || assignment.ticketId !== ticket.ticketId) {
+          throw superAgentError('assignmentNotFound', { assignmentId: payload.assignmentId })
+        }
+        if (ticket.state === 'ended') {
+          throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+        }
+        break
+      }
+      case 'delivery': {
+        const target = state.inputs[payload.inputId]
+        if (!target || target.ticketId !== ticket.ticketId) {
+          throw superAgentError('inputNotFound', { inputId: payload.inputId })
+        }
+        if (ticket.state === 'ended') {
+          throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+        }
+        break
+      }
+      case 'relay': {
+        const relayed = Object.values(state.reports).find(
+          (candidate) =>
+            candidate.ticketId === ticket.ticketId && candidate.reportId === payload.reportId,
+        )
+        if (!relayed) {
+          throw superAgentError('invalidOutbound', { messageId: input.messageId })
+        }
+        if (ticket.state === 'ended') {
+          throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+        }
+        break
+      }
+      case 'reviewReminder': {
+        if (ticket.state === 'ended') {
+          throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+        }
+        break
+      }
+      case 'reply': {
+        validateOutboxReply(ticket, payload)
+        // 同一问题只提醒一次：同一 open Attention 已有未发出的 attention
+        // 回复时，不同 messageId 的重复外发也返回原消息
+        if (payload.replyType === 'attention' && payload.attentionId !== null) {
+          const sameAttention = Object.values(state.outbox).find(
+            (candidate) =>
+              candidate.status === 'pending' &&
+              candidate.payload.kind === 'reply' &&
+              candidate.payload.replyType === 'attention' &&
+              candidate.payload.attentionId === payload.attentionId,
+          )
+          if (sameAttention) return { message: sameAttention, duplicate: true }
+        }
+        break
+      }
+    }
+
+    const at = atNow(input.at)
+    const message: SuperAgentOutboxMessage = {
+      messageId: input.messageId,
+      ticketId: ticket.ticketId,
+      channel,
+      kind: payload.kind,
+      ordinal: nextOrdinal(),
+      status: 'pending',
+      createdAt: at,
+      payload,
+      attempts: 0,
+      nextAttemptAt: null,
+      lastError: null,
+      sentAt: null,
+      receipt: null,
+      withdrawnAt: null,
+    }
+    state.outbox[message.messageId] = message
+    state.idempotency[key] = { kind: 'message', id: message.messageId, fingerprint }
+    return { message, duplicate: false }
+  }
+
+  function settleOutboxMessage(input: SettleOutboxInput): SettleOutboxResult {
+    const message = state.outbox[input.messageId]
+    if (!message) {
+      throw superAgentError('invalidOutbound', { messageId: input.messageId })
+    }
+    // 终态幂等：sent/dropped/withdrawn 的重复回写返回原消息
+    if (message.status !== 'pending') return { message, duplicate: true }
+
+    const at = atNow(input.at)
+    if (input.outcome === 'sent') {
+      message.status = 'sent'
+      message.sentAt = at
+      message.receipt = input.receipt ?? null
+    } else if (input.outcome === 'waiting') {
+      message.attempts += 1
+      const backoffMs = Math.min(
+        SUPER_AGENT_OUTBOX_BACKOFF_BASE_MS * 2 ** (message.attempts - 1),
+        SUPER_AGENT_OUTBOX_BACKOFF_CAP_MS,
+      )
+      message.nextAttemptAt = new Date(Date.parse(at) + backoffMs).toISOString()
+      message.lastError = input.error ?? null
+    } else {
+      message.status = 'dropped'
+      message.lastError = input.error ?? null
+      message.nextAttemptAt = null
+    }
+    return { message, duplicate: false }
+  }
+
   function report(command: ReportCommand): ReportResult {
     const ticket = requireTicket(command.ticketId)
     const assignment = state.assignments[command.assignmentId]
@@ -1982,7 +2572,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
         attentionId = existingOpen.attentionId
       } else {
         // 新问题替换旧问题：旧的未发出问题必须撤回，不能出现两条矛盾气泡。
-        withdrawOpenAttentions(ticket)
+        withdrawOpenAttentions(ticket, at)
         const attention: SuperAgentAttention = {
           attentionId: newId('attention'),
           ticketId: ticket.ticketId,
@@ -2002,7 +2592,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
         attentionId = attention.attentionId
       }
     } else if (command.kind === 'ready') {
-      withdrawOpenAttentions(ticket)
+      withdrawOpenAttentions(ticket, at)
       attentionId = null
     }
 
@@ -2053,6 +2643,14 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     expireEval,
     submitEvalDecision,
     revalidateTicket,
+    followupOwners,
+    fastPathConsumed,
+    handbackInput,
+    markUnrelated,
+    attachTicket,
+    pruneExpiredSubscriptions,
+    enqueueOutboxMessage,
+    settleOutboxMessage,
     stageOf,
   }
 }
