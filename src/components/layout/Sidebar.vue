@@ -14,6 +14,25 @@
         <span class="icon-label">{{ t('sidebar.new') }}</span>
       </button>
 
+      <!-- Super Agent Entry (below New Chat) -->
+      <button
+        class="icon-btn super-agent-entry"
+        :class="{ active: appStore.activeCenterTab === 'super-agent' }"
+        data-testid="super-agent-entry"
+        @click="handleSuperAgentClick"
+        :title="t('superAgent.entry')"
+        :aria-label="t('superAgent.entry')"
+      >
+        <Sparkles :size="20" />
+        <span
+          v-if="superAgentStore.attentionCount > 0"
+          class="super-agent-badge"
+          data-testid="super-agent-attention-badge"
+          :title="t('superAgent.attentionBadge', { count: superAgentStore.attentionCount })"
+        >{{ superAgentStore.attentionCount }}</span>
+        <span class="icon-label">{{ t('superAgent.entry') }}</span>
+      </button>
+
       <div class="icon-divider" aria-hidden="true"></div>
 
       <!-- History Tab -->
@@ -379,6 +398,7 @@ import { useAppStore, type AppMode } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useScmStore } from '@/stores/scm'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
+import { useSuperAgentStore } from '@/stores/superAgent'
 import {
   Plus,
   FolderTree,
@@ -400,6 +420,7 @@ import {
   LayoutGrid,
   Workflow,
   Factory as FactoryIcon,
+  Sparkles,
   Wrench,
   X
 } from 'lucide-vue-next'
@@ -432,6 +453,7 @@ const sessionStore = useChatSessionStore()
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const scmStore = useScmStore()
+const superAgentStore = useSuperAgentStore()
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { addFileToFile } = useFileToChat()
@@ -463,7 +485,7 @@ function closeSessionSearch() {
 // 按当前 Work/Code 模式过滤会话列表（旧会话无 mode 字段时视为 'code'），
 // 再按搜索关键字过滤会话标题
 const filteredSessions = computed(() => {
-  const byMode = sessionStore.sessions.filter(s => !s.ephemeral && (s.mode || 'code') === appStore.mode)
+  const byMode = sessionStore.normalSessions.filter(s => !s.ephemeral && (s.mode || 'code') === appStore.mode)
   const query = sessionSearchQuery.value.trim().toLowerCase()
   if (!query) return byMode
   return byMode.filter(s => s.title.toLowerCase().includes(query))
@@ -491,7 +513,7 @@ async function handleModeSelect(mode: AppMode) {
   activeTab.value = 'history'
 
   // 切换到新模式下的最近会话；没有则创建新会话
-  const modeSessions = sessionStore.sessions.filter(s => !s.ephemeral && (s.mode || 'code') === mode)
+  const modeSessions = sessionStore.normalSessions.filter(s => !s.ephemeral && (s.mode || 'code') === mode)
   if (modeSessions.length > 0) {
     const targetSessionId = modeSessions[0].id
     await sessionStore.selectSession(targetSessionId)
@@ -593,6 +615,10 @@ function handleOrchestrationClick() {
 
 function handleFactoryClick() {
   appStore.openFactoryTab()
+}
+
+function handleSuperAgentClick() {
+  appStore.openSuperAgentTab()
 }
 
 function handleNewTerminal() {
@@ -1087,7 +1113,8 @@ onUnmounted(() => {
     }
   }
 
-  .scm-badge {
+  .scm-badge,
+  .super-agent-badge {
     position: absolute;
     top: 4px;
     right: 2px;
