@@ -217,21 +217,25 @@ function handleRename() {
 
 async function handleDelete() {
   if (!props.node) return
-  
-  const confirmed = await showConfirm(t('explorer.confirmDelete', { name: props.node.name }), { variant: 'danger' })
+  // 确认弹窗 Teleport 到 body, 按下它的 mousedown 会先被本组件的"点击外部"监听接住并
+  // emit('close'), 父组件随即把 node 置 null —— await 恢复后不能再读 props.node, 故先快照。
+  const node = props.node
+
+  const confirmed = await showConfirm(t('explorer.confirmDelete', { name: node.name }), { variant: 'danger' })
   if (!confirmed) return
-  
+
   try {
-    const result = await api.deleteFile(props.node.path)
+    const result = await api.deleteFile(node.path)
     if (result.success) {
-      console.log('[FileContextMenu] Deleted:', props.node.path)
-      emit('delete', props.node)
+      console.log('[FileContextMenu] Deleted:', node.path)
+      emit('delete', node)
     } else {
       await showAlert(t('explorer.deleteFailed', { error: result.error }))
     }
   } catch (err) {
     console.error('[FileContextMenu] Delete error:', err)
-    await showAlert(t('explorer.deleteFailedRetry'))
+    const reason = err instanceof Error ? err.message : String(err)
+    await showAlert(t('explorer.deleteFailed', { error: reason }))
   }
   emit('close')
 }
