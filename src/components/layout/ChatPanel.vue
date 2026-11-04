@@ -15,8 +15,13 @@
       <FactoryView />
     </div>
 
+    <!-- Super Agent workspace -->
+    <div v-if="superAgentMounted" v-show="isSuperAgentTab" class="super-agent-wrapper">
+      <SuperAgentView />
+    </div>
+
     <!-- Chat Content -->
-    <div v-show="!isTerminalTab && !isOrchestrationTab && !isFactoryTab" class="chat-content-wrapper">
+    <div v-show="!isTerminalTab && !isOrchestrationTab && !isFactoryTab && !isSuperAgentTab" class="chat-content-wrapper">
       <div v-if="!compact" class="chat-header">
         <div class="header-left">
           <h2>{{ currentSession?.title || t('common.newConversation') }}</h2>
@@ -337,6 +342,7 @@ const WorkAssistantPicker = defineAsyncComponent(() => import('../work/WorkAssis
 const TerminalPanel = defineAsyncComponent(() => import('../terminal/TerminalPanel.vue'))
 const OrchestrationCanvas = defineAsyncComponent(() => import('../orchestration/OrchestrationCanvas.vue'))
 const FactoryView = defineAsyncComponent(() => import('../factory/FactoryView.vue'))
+const SuperAgentView = defineAsyncComponent(() => import('../superAgent/SuperAgentView.vue'))
 const RewindDialog = defineAsyncComponent(() => import('../chat/RewindDialog.vue'))
 const CodeRewindConfirmDialog = defineAsyncComponent(() => import('../chat/CodeRewindConfirmDialog.vue'))
 const MessageSelector = defineAsyncComponent(() => import('../chat/MessageSelector.vue'))
@@ -924,6 +930,18 @@ watch(isFactoryTab, (active) => {
   if (active) factoryMounted.value = true
 })
 
+// Super Agent 是单例中置 tab（id 固定为 super-agent）
+const isSuperAgentTab = computed(() => {
+  if (props.compact) return false
+  if (props.paneTabId) return props.paneTabId === 'super-agent'
+  return appStore.activeCenterTab === 'super-agent'
+})
+
+const superAgentMounted = ref(isSuperAgentTab.value)
+watch(isSuperAgentTab, (active) => {
+  if (active) superAgentMounted.value = true
+})
+
 /** At least one conversation is bound to a real folder (sidebar / CLI cwd), not only default chat */
 const hasWorkspaceContext = computed(() =>
   sessionStore.sessions.some((s) => !!(s.workingDirectory && String(s.workingDirectory).trim()))
@@ -934,6 +952,7 @@ const showNoProjectWelcome = computed(() => {
   if (isTerminalTab.value) return false
   if (isOrchestrationTab.value) return false
   if (isFactoryTab.value) return false
+  if (isSuperAgentTab.value) return false
   // H5 模式下不显示“无项目”欢迎页 — 手机端通过镜像会话访问，
   // 即使桌面端没有打开项目，也应该显示聊天界面让用户能看到消息
   if (isH5Mode()) return false
@@ -1903,6 +1922,13 @@ async function handleRestoreHistorySession(session: any) {
 }
 
 .factory-wrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.super-agent-wrapper {
   flex: 1;
   overflow: hidden;
   display: flex;
