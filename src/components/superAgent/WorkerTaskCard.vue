@@ -10,6 +10,9 @@
  * delivery/blocked/failed 卡片带重试入口（canRetry 由投影下发，与阶段派生
  * 同源）；review 超时提醒过的卡片显示「验收超时」徽标。继续追问展开内联
  * 输入，提交经 ticketMessage 走主进程先落库再投递；离开 review 后输入自动收起。
+ * 停止对任何 open 工单都开放（canStop 由投影下发）—— 排队与在跑同样要有出口，
+ * 否则执行失败/卡住的工单只能等它自己跑完。
+ * 整行点击 = 打开 worker:&lt;ticketId&gt; 右侧标签（§10.3）；行内按钮各自 stop 冒泡。
  * 可见文案全部走 i18n（superAgent.ticket.*）。
  */
 import { computed, ref, watch } from 'vue'
@@ -43,6 +46,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  /** 设计 §10.3：点击卡片只打开 worker:<ticketId> 右侧标签，不自动接管。 */
+  open: [ticketId: string]
   /** T10 #80：接受验收。 */
   accept: [ticketId: string]
   /** T10 #80：停止出口。 */
@@ -116,7 +121,16 @@ function closeFollowup(): void {
 </script>
 
 <template>
-  <div class="worker-task-card" :data-state="card.state" data-testid="worker-task-card">
+  <div
+    class="worker-task-card"
+    :data-state="card.state"
+    data-testid="worker-task-card"
+    role="button"
+    tabindex="0"
+    :aria-label="card.title"
+    @click="emit('open', card.ticketId)"
+    @keydown.enter.prevent="emit('open', card.ticketId)"
+  >
     <div class="row">
       <component :is="icon" class="state-icon" :size="14" />
       <span class="title" data-testid="worker-task-card-title">{{ card.title }}</span>
@@ -142,30 +156,40 @@ function closeFollowup(): void {
         <button
           class="action accept"
           data-testid="worker-task-card-accept"
-          @click="emit('accept', card.ticketId)"
+          @click.stop="emit('accept', card.ticketId)"
         >
           {{ t('superAgent.ticket.accept') }}
         </button>
         <button
           class="action follow"
           data-testid="worker-task-card-continue"
-          @click="followupOpen = !followupOpen"
+          @click.stop="followupOpen = !followupOpen"
         >
           {{ t('superAgent.ticket.continue') }}
         </button>
         <button
           class="action stop"
           data-testid="worker-task-card-stop"
-          @click="emit('stop', card.ticketId)"
+          @click.stop="emit('stop', card.ticketId)"
         >
           {{ t('superAgent.ticket.stop') }}
         </button>
       </span>
+      <!-- 排队/在跑的工单也要有终止出口：ticketStop 对任何 open 工单都成立
+           （撤 Mandate、收尾在跑 Assignment），不能只在待验收时才给按钮。 -->
+      <button
+        v-else-if="card.canStop"
+        class="action stop"
+        data-testid="worker-task-card-stop"
+        @click.stop="emit('stop', card.ticketId)"
+      >
+        {{ t('superAgent.ticket.stop') }}
+      </button>
       <button
         v-if="card.canRetry"
         class="action retry"
         data-testid="worker-task-card-retry"
-        @click="emit('retry', card.ticketId)"
+        @click.stop="emit('retry', card.ticketId)"
       >
         {{ t('superAgent.ticket.retry') }}
       </button>
@@ -174,6 +198,7 @@ function closeFollowup(): void {
       v-if="followupOpen"
       class="followup"
       :data-testid="`worker-task-card-followup-${card.ticketId}`"
+      @click.stop
     >
       <input
         v-model="followupText"
@@ -204,6 +229,18 @@ function closeFollowup(): void {
   background: var(--bg-elevated);
   font-size: 12px;
   color: var(--text-primary);
+  // 整行是"打开这张工单的右侧工作态"的入口（§10.3），不是只读文本
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+
+  &:hover {
+    border-color: var(--accent-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 1px;
+  }
 }
 
 .row {
