@@ -70,6 +70,8 @@ describe('createSuperAgentRouterRunner message', () => {
       cwd: REPO,
       permissionMode: 'plan',
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
+      // 全部工具从引擎工具池移除：Router 只说话不出手（plan 模式挡写，但挡不住只读探索）
+      allowedTools: [],
     })
     expect(fake.sent[0]?.content).toBe('帮我把登录页修好')
   })
@@ -420,35 +422,30 @@ describe('createSuperAgentRouterRunner model', () => {
     expect(fake.started[0]?.config?.model).toBe('sonnet')
   })
 
-  it('switches a live session with setModel instead of respawning it', async () => {
+  it('switching the model on a live session stops and respawns it with the new model', async () => {
     const { runner, fake } = makeRunner()
     await runner.message({ text: '第一句', model: 'a' })
     fake.emit(SESSION, 'result', { result: '好' })
     await runner.message({ text: '第二句', model: 'b' })
 
-    expect(fake.started).toHaveLength(1)
-    expect(fake.models.map((call) => call.config?.model)).toEqual(['b'])
+    // 不发 set_model 控制请求：别名由引擎进程按 spawn 时的环境解析，进程起来
+    // 之后才同步进 settings.json 的槽位会被解析成旧值（选 A 跑 B 且无从察觉）。
+    // 停掉重拉走冷启动，引擎重读 settings.json。
+    expect(fake.stopped).toEqual([SESSION])
+    expect(fake.started).toHaveLength(2)
+    expect(fake.started[1]?.config?.model).toBe('b')
+    // 两句话都投出去了，没有丢
+    expect(fake.sent.map((call) => call.content)).toEqual(['第一句', '第二句'])
   })
 
-  it('does not repeat setModel for the same choice', async () => {
+  it('does not restart for the same choice', async () => {
     const { runner, fake } = makeRunner()
     await runner.message({ text: '第一句', model: 'a' })
     fake.emit(SESSION, 'result', { result: '好' })
     await runner.message({ text: '第二句', model: 'a' })
 
-    expect(fake.models).toHaveLength(0)
-  })
-
-  it('restarts the session when the control request fails', async () => {
-    const { runner, fake } = makeRunner()
-    await runner.message({ text: '第一句', model: 'a' })
-    fake.emit(SESSION, 'result', { result: '好' })
-    fake.failNextSetModel = new Error('engine refuses')
-    await runner.message({ text: '第二句', model: 'b' })
-
-    expect(fake.stopped).toEqual([SESSION])
-    expect(fake.started).toHaveLength(2)
-    expect(fake.started[1]?.config?.model).toBe('b')
+    expect(fake.started).toHaveLength(1)
+    expect(fake.stopped).toHaveLength(0)
   })
 
   it('applies the choice to a session restarted after the engine exited', async () => {
@@ -457,8 +454,9 @@ describe('createSuperAgentRouterRunner model', () => {
     fake.emit(SESSION, 'exit', { exitCode: 0 })
     await runner.message({ text: '第二句' })
 
-    // 重开时不再重复控制请求，但选择要跟着新配置留住
-    expect(fake.models).toHaveLength(0)
+    // 重开时不再重复停进程，但选择要跟着新配置留住
+    expect(fake.stopped).toHaveLength(0)
+    expect(fake.started).toHaveLength(2)
     expect(fake.started[1]?.config?.model).toBe('a')
   })
 })

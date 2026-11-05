@@ -5,9 +5,9 @@
  * 于是"让它做事它自己就做了"。这里把它挪回主进程，并钉住两件事：
  *
  * 1. **不能自己干活** —— 会话以 `permissionMode='plan'` 启动，写与执行在引擎层
- *    就被拒；角色说明再补一条"不要请求进入执行模式"，避免它把 plan 当成
- *    "先出计划再批准"的通道。工具面裁剪要等 EngineSessionConfig 支持
- *    allowedTools，那是另一件事（设计 §3.2 第 2 条），这里不假装已实现。
+ *    就被拒；再以 `allowedTools: []` 把全部工具从引擎工具池移除（设计 §3.2 第 2
+ *    条）：Router 只需要说话与路由围栏，看文件/跑命令是 Worker 的活。角色说明
+ *    里再补一条"不要请求进入执行模式"，避免它把 plan 当成"先出计划再批准"的通道。
  * 2. **动手只能靠路由指令** —— 回复尾部的 ```super-agent:route 块由宿主解析：
  *    accept 逐条走 service.dispatch 落 Decision/Mandate，attach 落一张工单的
  *    人消息输入，stop 走停止命令；授权仍由领域生成，模型拿不到（设计 §8.4）。
@@ -132,6 +132,8 @@ export function createSuperAgentRouterRunner(
       cwd: repoRoot,
       permissionMode: 'plan' as const,
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
+      // 全部工具移除：Router 只说话不出手（见文件头第 1 条）。引擎收到 --tools ""。
+      allowedTools: [],
       // 输入框的选择优先于设置页槽位；按引擎解析（claude-code 要槽位别名，pi 要真名），
       // 否则指定的模型会被代理静默丢弃 —— 见 src/utils/engineModel。
       ...(selectedModel
@@ -150,21 +152,18 @@ export function createSuperAgentRouterRunner(
   /**
    * 把输入框的模型选择落到引擎上。
    *
-   * 会话还没起 → 由 routerConfig 带进 spawn。已经活着 → 走控制请求在线换，
-   * 控制请求失败就把会话停掉、下一轮按新模型重新拉起（与主聊天同一回退路径），
-   * 而不是让人以为下拉框生效了。
+   * 会话还没起 → 由 routerConfig 带进 spawn。已经活着 → 停掉重拉，不发 set_model
+   * 控制请求：别名（haiku/sonnet/opus）由引擎在**自己进程内**解析，读的是 spawn
+   * 时从 settings.json 拿到的 ANTHROPIC_DEFAULT_*_MODEL，而槽位配置往往是进程起来
+   * 之后才同步进去的 —— 控制请求会拿旧环境解析，选了 A 跑的还是 B，且请求本身
+   * "成功"、无从察觉。停掉重拉走冷启动，引擎重读 settings.json，与主聊天切换
+   * 失败的重启回退是同一条路径。
    */
   async function applyModelSelection(): Promise<void> {
     if (!started || selectedModel === null || appliedModel === selectedModel) return
-    const base = bridge.loadConfig(repoRoot)
-    try {
-      await bridge.setModel(sessionId, bridge.resolveModelAlias(selectedModel, base.engineType))
-      appliedModel = selectedModel
-    } catch {
-      await bridge.stop(sessionId).catch(() => undefined)
-      started = false
-      appliedModel = null
-    }
+    await bridge.stop(sessionId).catch(() => undefined)
+    started = false
+    appliedModel = null
   }
 
   function errorCode(err: unknown, fallback: string): string {

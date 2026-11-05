@@ -72,6 +72,7 @@ import type {
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { useChatSessionStore } from '../chatSession'
+import { useTurnStore } from '../turn'
 
 /** 待验收超时提醒项：由卡片看板派生，同一工单复用同一条气泡。 */
 export interface SuperAgentReviewReminderItem {
@@ -198,8 +199,18 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     return result
   }
 
-  /** 中止 Router 当前轮次；不影响任何 Worker 的推进。 */
+  /**
+   * 中止 Router 当前轮次；不影响任何 Worker 的推进。
+   *
+   * 先给 turn store 打"用户主动中止"标记再停：引擎对中断轮次回的 result 带
+   * is_error=true（"API error"），没标记就会被 handleError 当成引擎故障弹错误
+   * 气泡 —— 与主聊天 turnStore.abort 的打标是同一条规则。标记在下一轮
+   * router-status 转为 running 时清除（见 watchRouterStatus），不会吞掉之后
+   * 的真实引擎错误。
+   */
   async function abortRouter(repoRoot: string): Promise<void> {
+    const sid = boundSessionId.value
+    if (sid) useTurnStore().markUserAborted(sid)
     await api.superAgent.routerAbort(repoRoot)
     routerRunning.value = false
   }
@@ -209,6 +220,10 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     return api.superAgent.onRouterStatus((repoRoot, router) => {
       if (snapshot.value?.repoRoot !== repoRoot) return
       routerRunning.value = router.running
+      // 新一轮开始 = 上次中止的带错 result 已经处理完，撤掉中止标记
+      if (router.running && boundSessionId.value) {
+        useTurnStore().clearUserAborted(boundSessionId.value)
+      }
     })
   }
 

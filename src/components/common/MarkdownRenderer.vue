@@ -445,7 +445,16 @@ function renderMarkdownBlocks(content: string): string[] {
         if (!text.trim()) continue
         htmls.push(escapeHtml(text))
       } else if (node.nodeType === Node.ELEMENT_NODE) {
-        htmls.push((node as Element).outerHTML)
+        const el = node as Element
+        // 整表超宽交给这层滚动容器, 而不是靠压缩列宽(见 .md-table-scroll)
+        if (el.tagName === 'TABLE') {
+          const scroller = document.createElement('div')
+          scroller.className = 'md-table-scroll'
+          scroller.appendChild(el)
+          htmls.push(scroller.outerHTML)
+          continue
+        }
+        htmls.push(el.outerHTML)
       }
     }
     return htmls
@@ -913,6 +922,17 @@ watch(() => props.content, (newVal, oldVal) => {
   }
 
   // 表格: 无单元格描边, 表头深磁贴 + 斑马纹
+  :deep(.md-table-scroll) {
+    max-width: 100%;
+    margin: 0.9em 0;
+    overflow-x: auto;
+    @include scrollbar-overlay;
+
+    > table {
+      margin: 0;
+    }
+  }
+
   :deep(table) {
     width: 100%;
     table-layout: auto;
@@ -926,7 +946,9 @@ watch(() => props.content, (newVal, oldVal) => {
       padding: 9px 14px;
       text-align: left;
       vertical-align: top;
-      overflow-wrap: anywhere;
+      // anywhere 与继承来的 break-word 都会计入 min-content, 让 auto 布局把窄列压到 1 字宽, "10" 折成两行
+      word-break: normal;
+      overflow-wrap: break-word;
     }
 
     th {

@@ -683,6 +683,21 @@ export function useTurnStore(injectedApi?: any) {
       await sendGoalContinuation(sessionId)
     }
 
+    /**
+     * 标记某会话当前轮次是用户主动中止的：随后到达的带错 result（引擎对中断
+     * 轮次回 is_error=true）按中止处理，不当成引擎故障弹错误气泡。
+     * 主聊天走 abort()（内部自带打标）；会话归主进程的（Super Agent Router）
+     * 由各自主管模块在停止动作里显式打标，清理交给 clearUserAborted。
+     */
+    function markUserAborted(sessionId: string): void {
+      userAbortedSessions.add(sessionId)
+    }
+
+    /** 清除用户中止标记：新一轮开始时调用，避免其后的真实引擎错误被静默吞掉。 */
+    function clearUserAborted(sessionId: string): void {
+      userAbortedSessions.delete(sessionId)
+    }
+
     /** 中止指定会话的当前 turn；缺省为目标为全局 currentSessionId。 */
     async function abort(targetSessionId?: string): Promise<void> {
       const sid = targetSessionId ?? sessionStore.currentSessionId
@@ -1371,6 +1386,8 @@ export function useTurnStore(injectedApi?: any) {
       pendingPermissions,
       sendMessage,
       abort,
+      markUserAborted,
+      clearUserAborted,
       releaseObservedSession,
       retryLastMessage,
       sendGoalSteering,
