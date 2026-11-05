@@ -4,6 +4,7 @@
  * 基建建独立工作树（幂等：重试复用同一目录；分支与工厂 agent/task-* 区分）。
  */
 import { describe, expect, it } from 'vitest'
+import { join, resolve } from 'path'
 import { createTicketWorktreePreparer, ticketWorktreeBranch } from '../ticketWorktree'
 import type { GitExecResult, GitRunner } from '../../factory/worktree'
 
@@ -15,7 +16,8 @@ function notOk(stderr: string): GitExecResult {
   return { ok: false, stdout: '', stderr, timedOut: false }
 }
 
-const REPO = 'D:/repo'
+// resolve 后才是平台无关的绝对路径：'D:/repo' 在 Linux 上会被当成相对路径。
+const REPO = resolve('D:/repo')
 const TICKET = 'ticket-00000000-0000-4000-8000-000000000001'
 
 describe('ticketWorktreeBranch', () => {
@@ -40,7 +42,9 @@ describe('createTicketWorktreePreparer', () => {
     const result = await preparer.prepare(REPO, TICKET)
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.worktree.absolute.replace(/\\/g, '/')).toBe(`${REPO}/.spacecode/worktrees/${TICKET}`)
+      expect(result.worktree.absolute.replace(/\\/g, '/')).toBe(
+        join(REPO, '.spacecode', 'worktrees', TICKET).replace(/\\/g, '/'),
+      )
       expect(result.worktree.branch).toBe(`agent/superagent-${TICKET}`)
       expect(result.worktree.reused).toBe(false)
     }
