@@ -228,6 +228,34 @@ describe('SessionProcess state machine — message type drives status & pending 
     expect(proc.getPendingToolCount()).toBe(1)
   })
 
+  it('keeps the session busy on a no-op empty result (num_turns=0) and settles on the follow-up', () => {
+    proc = wired()
+
+    // 空转 result：引擎这轮连 API 都没调 —— --resume 恢复时，被中断轮次合成的
+    // task-notification 排在用户 prompt 前面被当作独立命令处理（shouldQuery=false），
+    // 用户真正的 prompt 还在引擎队列里，紧接着会有第二个 result。
+    // 此时不能把会话标回 idle，否则 canSafelySuspend 放行挂起，
+    // SIGTERM 会把还在处理中的用户 prompt 一起杀掉。
+    feed(proc, '{"type":"result","result":"","num_turns":0}\n')
+    expect(proc.status).toBe('active')
+    expect(proc.isProcessing).toBe(true)
+    expect(proc.canSafelySuspend()).toBe(false)
+
+    feed(proc, '{"type":"result","result":"答复","num_turns":2}\n')
+    expect(proc.status).toBe('idle')
+    expect(proc.isProcessing).toBe(false)
+    expect(proc.canSafelySuspend()).toBe(true)
+  })
+
+  it('still settles to idle when the empty result carries turns (upstream exhausted retries)', () => {
+    proc = wired()
+
+    feed(proc, '{"type":"result","result":"","num_turns":2}\n')
+    expect(proc.status).toBe('idle')
+    expect(proc.isProcessing).toBe(false)
+    expect(proc.canSafelySuspend()).toBe(true)
+  })
+
   it('adopts the engine session id from a system/init frame', () => {
     proc = wired()
     expect(proc.engineSessionId).toBeNull()
