@@ -1249,13 +1249,28 @@ export class SessionProcess extends EventEmitter {
     this.trackLiveToolOutput(msg)
 
     if (msg.type === 'result') {
-      this.status = 'idle'
-      this.isProcessing = false
       const resultIsError = !!(msg as any).is_error
-      if (resultIsError) {
-        warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response completed with error | result=${String(msg.result).slice(0, 200)} | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+      // 引擎"空转"result：成功但零输出、num_turns=0 —— 引擎这轮连 API 都没调。
+      // 典型成因：--resume 恢复时，被中断轮次合成的 task-notification 排在用户
+      // prompt 前面先被处理（shouldQuery=false），引擎随后才会处理排队的真正
+      // prompt 并再发一个 result。这种 result 不能把会话标回 idle：一旦 idle，
+      // canSafelySuspend 会放行挂起，SIGTERM 会把还在处理中的用户 prompt 一起杀掉。
+      const isNoOpResult =
+        !resultIsError &&
+        !String((msg as any).result ?? '').trim() &&
+        (msg as any).num_turns === 0
+      if (isNoOpResult) {
+        this.status = 'active'
+        this.isProcessing = true
+        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] no-op empty result (num_turns=0) — keeping session busy for the queued follow-up prompt`)
       } else {
-        info('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response complete (result) | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+        this.status = 'idle'
+        this.isProcessing = false
+        if (resultIsError) {
+          warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response completed with error | result=${String(msg.result).slice(0, 200)} | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+        } else {
+          info('SessionProcess', `[${this.sessionId.slice(0, 8)}] LLM response complete (result) | costUsd=${msg.cost_usd} | durationMs=${msg.duration_ms} | numTurns=${msg.num_turns}`)
+        }
       }
       traceEvent({
         sessionId: this.sessionId,

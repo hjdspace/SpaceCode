@@ -12,7 +12,10 @@
  *  - 中止只作用于 Router，不影响 Worker。
  */
 import { describe, expect, it } from 'vitest'
-import { SUPER_AGENT_ROUTER_ROLE_PROMPT } from '../prompts'
+import {
+  SUPER_AGENT_ROUTE_REPAIR_PROMPT,
+  SUPER_AGENT_ROUTER_ROLE_PROMPT,
+} from '../prompts'
 import {
   createSuperAgentRouterRunner,
   type SuperAgentRouterAttachInput,
@@ -103,7 +106,7 @@ describe('createSuperAgentRouterRunner message', () => {
     expect(statuses).toEqual([true])
     expect(runner.isRunning()).toBe(true)
 
-    fake.emit(SESSION, 'result', { result: '你好，需要我做什么？' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '普通问答' }]) })
     expect(statuses).toEqual([true, false])
     expect(runner.isRunning()).toBe(false)
   })
@@ -111,7 +114,7 @@ describe('createSuperAgentRouterRunner message', () => {
   it('reuses the same session for the next turn instead of spawning again', async () => {
     const { runner, fake } = makeRunner()
     await runner.message({ text: '第一句' })
-    fake.emit(SESSION, 'result', { result: '好' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     await runner.message({ text: '第二句' })
 
     expect(fake.started).toHaveLength(1)
@@ -241,10 +244,50 @@ describe('createSuperAgentRouterRunner route protocol', () => {
   it('does not dispatch for an ordinary chat reply', async () => {
     const { runner, fake, dispatched, failures } = makeRunner()
     await runner.message({ text: '你好' })
-    fake.emit(SESSION, 'result', { result: '你好！' })
+    fake.emit(SESSION, 'result', {
+      result: `你好！\n\n${routeFence([{ kind: 'ignore', reason: '普通闲聊' }])}`,
+    })
 
     expect(dispatched).toHaveLength(0)
     expect(failures).toHaveLength(0)
+  })
+
+  it('repairs a missing route instead of dropping an execution request', async () => {
+    const { runner, fake, dispatched, failures } = makeRunner()
+    await runner.message({ text: '重启覆盖率会话' })
+    fake.emit(SESSION, 'result', {
+      result: '我先检查部分产出，然后重启覆盖率跑，并派一个 Explore 代理。',
+    })
+
+    expect(dispatched).toHaveLength(0)
+    expect(fake.sent).toHaveLength(2)
+    expect(fake.sent[1]?.content).toBe(SUPER_AGENT_ROUTE_REPAIR_PROMPT)
+    expect(runner.isRunning()).toBe(true)
+
+    fake.emit(SESSION, 'result', {
+      result: routeFence([{ kind: 'accept', title: '重启覆盖率会话与测试探索' }]),
+    })
+
+    expect(dispatched).toHaveLength(1)
+    expect(dispatched[0]).toMatchObject({
+      text: '重启覆盖率会话',
+      title: '重启覆盖率会话与测试探索',
+      requestId: `route:${SESSION}:1:0`,
+    })
+    expect(failures).toHaveLength(0)
+    expect(runner.isRunning()).toBe(false)
+  })
+
+  it('repairs a missing route at most once per human turn', async () => {
+    const { runner, fake, dispatched, failures } = makeRunner()
+    await runner.message({ text: '重启覆盖率会话' })
+    fake.emit(SESSION, 'result', { result: '我来重启。' })
+    fake.emit(SESSION, 'result', { result: '还是没有路由块。' })
+
+    expect(fake.sent).toHaveLength(2)
+    expect(dispatched).toHaveLength(0)
+    expect(failures).toEqual(['routeMissing'])
+    expect(runner.isRunning()).toBe(false)
   })
 
   it('refuses two conflicting blocks instead of picking one', async () => {
@@ -332,7 +375,7 @@ describe('createSuperAgentRouterRunner queueing', () => {
     runner.relay('[工单事件] ticket-1 ready')
 
     expect(fake.sent).toHaveLength(1)
-    fake.emit(SESSION, 'result', { result: '正在跑' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '汇报队列状态' }]) })
     await flush()
     expect(fake.sent).toHaveLength(2)
     expect(fake.sent[1]?.content).toBe('[工单事件] ticket-1 ready')
@@ -345,6 +388,18 @@ describe('createSuperAgentRouterRunner queueing', () => {
 
     expect(fake.pushed).toHaveLength(0)
     expect(fake.sent).toHaveLength(1)
+  })
+
+  it('does not request a route repair for a relayed ticket update', async () => {
+    const { runner, fake, failures } = makeRunner()
+    runner.relay('[工单事件] ticket-1 ready')
+    await flush()
+    fake.emit(SESSION, 'result', { result: '覆盖率工单已完成。' })
+    await flush()
+
+    expect(fake.sent).toHaveLength(1)
+    expect(failures).toHaveLength(0)
+    expect(runner.isRunning()).toBe(false)
   })
 
   it('keeps the input queued when the engine refuses the write', async () => {
@@ -362,7 +417,7 @@ describe('createSuperAgentRouterRunner queueing', () => {
     await flush()
     expect(fake.sent.map((call) => call.content)).toEqual(['建单'])
 
-    fake.emit(SESSION, 'result', { result: '好' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     await flush()
     expect(fake.sent.map((call) => call.content)).toEqual(['建单', '补一次'])
   })
@@ -383,7 +438,7 @@ describe('createSuperAgentRouterRunner status context', () => {
     const { runner, fake } = makeRunner(() => snapshot)
     await runner.message({ text: '第一问' })
     snapshot = 'B'
-    fake.emit(SESSION, 'result', { result: '好' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     await runner.message({ text: '第二问' })
 
     expect(fake.sent[0]?.content).toBe('第一问\n\nA')
@@ -425,7 +480,7 @@ describe('createSuperAgentRouterRunner model', () => {
   it('switching the model on a live session stops and respawns it with the new model', async () => {
     const { runner, fake } = makeRunner()
     await runner.message({ text: '第一句', model: 'a' })
-    fake.emit(SESSION, 'result', { result: '好' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     await runner.message({ text: '第二句', model: 'b' })
 
     // 不发 set_model 控制请求：别名由引擎进程按 spawn 时的环境解析，进程起来
@@ -441,7 +496,7 @@ describe('createSuperAgentRouterRunner model', () => {
   it('does not restart for the same choice', async () => {
     const { runner, fake } = makeRunner()
     await runner.message({ text: '第一句', model: 'a' })
-    fake.emit(SESSION, 'result', { result: '好' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     await runner.message({ text: '第二句', model: 'a' })
 
     expect(fake.started).toHaveLength(1)
@@ -486,7 +541,7 @@ describe('createSuperAgentRouterRunner abort', () => {
     await runner.message({ text: '还在想' })
     expect(await runner.settle(20)).toBe(false)
 
-    fake.emit(SESSION, 'result', { result: '想完了' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     expect(await runner.settle(20)).toBe(true)
   })
 })

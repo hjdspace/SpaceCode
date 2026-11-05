@@ -18,10 +18,15 @@
  * Router 不阻塞等 Worker —— 工单结果由 Executor 作为新输入投进会话尾部。
  */
 import {
+  SUPER_AGENT_ROUTE_REPAIR_PROMPT,
   SUPER_AGENT_ROUTER_ROLE_PROMPT,
   renderSuperAgentAttachedMessage,
 } from './prompts'
-import { parseSuperAgentRouteText, type SuperAgentRouteAction } from './routerActions'
+import {
+  findSuperAgentRouteBlocks,
+  parseSuperAgentRouteText,
+  type SuperAgentRouteAction,
+} from './routerActions'
 import { superAgentError } from './errors'
 import type { SuperAgentEngineBridge } from './engineBridge'
 
@@ -124,6 +129,8 @@ export function createSuperAgentRouterRunner(
   let selectedModel: string | null = null
   /** 已经落到当前这条会话上的模型选择；与 selectedModel 不一致才需要动作。 */
   let appliedModel: string | null = null
+  /** 当前人的轮次是否已要求补一次路由；中继轮不补，单个轮次最多补一次。 */
+  let routeRepairSent = false
 
   const routerConfig = () => {
     const base = bridge.loadConfig(repoRoot)
@@ -214,11 +221,33 @@ export function createSuperAgentRouterRunner(
     })
   }
 
+  async function repairRoute(): Promise<void> {
+    const repairTurn = turnSeq
+    try {
+      await bridge.sendMessage(sessionId, SUPER_AGENT_ROUTE_REPAIR_PROMPT)
+    } catch (err) {
+      // 中止后可能已经开始下一轮，迟到的补正失败不能收敛掉新轮次。
+      if (repairTurn !== turnSeq || !turnInFlight) return
+      turnInFlight = false
+      hooks.onFailure(errorCode(err, 'engineLaunchFailed'))
+      hooks.onStatusChanged(false)
+      void pump()
+    }
+  }
+
   const unsubscribe = bridge.onRouteEvent((sid, eventType, data) => {
     if (sid !== sessionId) return
     if (eventType === 'result') {
+      const text = resultText(data)
+      const missingRoute = turnSourceText !== null && findSuperAgentRouteBlocks(text).length === 0
+      if (missingRoute && !routeRepairSent) {
+        routeRepairSent = true
+        void repairRoute()
+        return
+      }
       turnInFlight = false
-      settleRoute(resultText(data))
+      if (missingRoute) hooks.onFailure('routeMissing')
+      settleRoute(text)
       hooks.onStatusChanged(false)
       void pump()
     } else if (eventType === 'error') {
@@ -255,6 +284,7 @@ export function createSuperAgentRouterRunner(
     if (next === undefined) return
     turnInFlight = true
     turnSeq += 1
+    routeRepairSent = false
     // 这一轮的目标正文只可能在"人在问话"时存在；中继轮带的是工单事实，不是需求。
     turnSourceText = next.human ? next.input.text : null
     hooks.onStatusChanged(true)

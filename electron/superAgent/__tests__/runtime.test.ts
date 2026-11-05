@@ -102,6 +102,35 @@ describe('super agent runtime wiring', () => {
     expect(firstWorkerMessage).toMatch(/assignmentId: \S+/)
   })
 
+  it('recovers a missing route and launches the worker for the original request', async () => {
+    const { service, fake } = makeService()
+    service.routerBind(REPO)
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, {
+      requestId: 'req-restart',
+      text: '重启覆盖率会话，并派一个 Explore 代理找候选模块',
+    })
+
+    fake.emit(routerSession, 'result', {
+      result: '我先检查部分产出，然后重启覆盖率跑，并派一个 Explore 代理。',
+    })
+    expect(service.tickets(REPO).tickets).toHaveLength(0)
+    expect(service.state(REPO).router?.running).toBe(true)
+
+    fake.emit(routerSession, 'result', {
+      result: routeFence([{ kind: 'accept', title: '重启覆盖率会话与测试探索' }]),
+    })
+    await flush()
+
+    const board = service.tickets(REPO)
+    expect(board.tickets).toHaveLength(1)
+    expect(board.tickets[0]).toMatchObject({ title: '重启覆盖率会话与测试探索', state: 'working' })
+    const workerSession = superAgentWorkerEngineSessionId(board.tickets[0]!.ticketId)
+    expect(fake.started.some((call) => call.sessionId === workerSession)).toBe(true)
+    const firstWorkerMessage = fake.sent.find((call) => call.sessionId === workerSession)?.content ?? ''
+    expect(firstWorkerMessage).toContain('重启覆盖率会话，并派一个 Explore 代理找候选模块')
+  })
+
   it('attaches a follow-up to the live ticket instead of opening a duplicate', async () => {
     const { service, fake } = makeService()
     service.routerBind(REPO)
