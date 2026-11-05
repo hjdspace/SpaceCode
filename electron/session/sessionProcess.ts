@@ -155,6 +155,13 @@ export interface SessionConfig {
   agent?: string
   /** 允许的工具列表（传给 CLI --allowedTools），空数组或 undefined 表示允许全部 */
   allowedTools?: string[]
+  /**
+   * 基础工具面（传给 CLI --tools）：undefined = 不裁剪（全部工具）；[] = 把全部
+   * 工具从工具池移除（引擎收到 --tools ""）；非空 = 只保留列出的工具。
+   * 与 --allowedTools（权限预批清单）是两个概念：--tools 的裁剪发生在引擎工具池
+   * 层面，被移除的工具连调用都不会发生 —— 无工具会话（Super Agent Router）用。
+   */
+  baseTools?: string[]
   /** 是否启用 thinking 模式 (extended thinking) */
   thinkingEnabled?: boolean
   /** 要恢复的会话 ID，使用 --resume 参数启动 */
@@ -1570,6 +1577,12 @@ export class SessionProcess extends EventEmitter {
     if (config.agent) args.push('--agent', config.agent)
     if (config.allowedTools && config.allowedTools.length > 0) {
       args.push('--allowedTools', ...config.allowedTools)
+    }
+    // --tools 是引擎的基础工具面（--tools help："" 禁用全部工具，"default" 全部，
+    // 或逗号/空格分隔的工具名）。undefined = 不下发。[] 时 join 为空串，引擎按
+    // 文档语义禁用全部工具。
+    if (config.baseTools !== undefined) {
+      args.push('--tools', config.baseTools.join(' '))
     }
 
     args.push('--permission-prompt-tool', 'stdio')
