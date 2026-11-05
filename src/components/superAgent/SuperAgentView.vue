@@ -1,18 +1,9 @@
 <template>
   <div class="super-agent-view">
-    <!-- 顶部操作区（T13 #83 + T05 #75）：左侧「新建工单」显式派工入口，
-         右侧系统问题汇总入口（只读面板，MVP 不可操作）。 -->
+    <!-- 顶部操作区（T13 #83）：系统问题汇总入口（只读面板，MVP 不可操作）。
+         派工不再有独立入口 —— Router 已能按对话建单（super-agent:route），
+         两个入口并存只会让人纠结"该在这儿填还是跟它说"。 -->
     <header class="health-entry">
-      <button
-        class="dispatch-chip"
-        :class="{ open: dispatchFormOpen }"
-        type="button"
-        data-testid="super-agent-dispatch-open"
-        @click="toggleDispatchForm"
-      >
-        <TicketPlus :size="14" />
-        <span>{{ t('superAgent.dispatch.openLabel') }}</span>
-      </button>
       <div class="entry-group">
         <!-- 待处理 Attention 计数（T08 #78）：按工单去重，与侧边栏徽章同源 -->
         <span
@@ -47,40 +38,6 @@
         </button>
       </div>
     </header>
-
-    <!-- 新建工单表单（T05）：独立于普通发送 —— 普通发送只对话 Router，只有这里建单。 -->
-    <form
-      v-if="dispatchFormOpen"
-      class="dispatch-form"
-      data-testid="super-agent-dispatch-form"
-      @submit.prevent="submitDispatch"
-    >
-      <input
-        v-model="dispatchTitle"
-        class="dispatch-title"
-        type="text"
-        data-testid="super-agent-dispatch-title"
-        :placeholder="t('superAgent.dispatch.titleLabel')"
-      />
-      <textarea
-        v-model="dispatchText"
-        class="dispatch-text"
-        rows="3"
-        data-testid="super-agent-dispatch-text"
-        :placeholder="t('superAgent.dispatch.textLabel')"
-      />
-      <div class="dispatch-actions">
-        <button type="button" class="dispatch-cancel" @click="closeDispatchForm">
-          {{ t('superAgent.dispatch.cancelLabel') }}
-        </button>
-        <button type="submit" class="dispatch-submit" data-testid="super-agent-dispatch-submit">
-          {{ t('superAgent.dispatch.submitLabel') }}
-        </button>
-      </div>
-      <p v-if="dispatchHint" class="dispatch-hint" data-testid="super-agent-dispatch-hint">
-        {{ dispatchHint }}
-      </p>
-    </form>
 
     <!-- 执行队列（T05）：串行调度现状，running + 排队位置 + 脏区提示，广播驱动。 -->
     <div
@@ -178,6 +135,7 @@
         :key="card.ticketId"
         :card="card"
         :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+        @open="handleTicketOpen"
         @accept="handleTicketAccept"
         @stop="handleTicketStop"
         @retry="handleTicketRetry"
@@ -196,6 +154,7 @@
           :messages="messages"
           :loading="isLoading"
           :session-id="routerSessionId"
+          presentation="im"
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
         />
@@ -235,7 +194,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlarmClockCheck, HeartPulse, MessageCircleQuestion, Sparkles, TicketPlus } from 'lucide-vue-next'
+import { AlarmClockCheck, HeartPulse, MessageCircleQuestion, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -278,10 +237,11 @@ const messages = computed(() =>
   routerSessionId.value ? sessionStore.getDisplayMessages(routerSessionId.value) : []
 )
 
-/** Router turn 进行中：MessageList 的轻量 typing + 计时与 Composer 的停止按钮都由它驱动 */
-const isLoading = computed(() =>
-  routerSessionId.value ? turnStore.getIsLoading(routerSessionId.value) : false
-)
+/**
+ * Router turn 进行中：真源是主进程 RouterRunner 的 router-status（会话归它），
+ * 不是本地 turn —— 渲染端只是观察者，关掉窗口也不影响 Router 收尾。
+ */
+const isLoading = computed(() => superAgentStore.routerRunning)
 
 const workingDirectory = computed(() =>
   routerSessionId.value
@@ -296,6 +256,8 @@ let stopWatchingQueue: (() => void) | null = null
 let stopWatchingTickets: (() => void) | null = null
 // ── Attention 气泡（T08 #78）：全量拉取 + asked/answered/withdrawn 订阅 ──
 let stopWatchingAttentions: (() => void) | null = null
+// ── Router 轮次状态（T21）：会话归主进程，typing/停止按钮跟着 router-status 走 ──
+let stopWatchingRouterStatus: (() => void) | null = null
 
 onMounted(async () => {
   const repoRoot = appStore.projectRoot
@@ -310,6 +272,7 @@ onMounted(async () => {
   stopWatchingQueue = superAgentStore.watchQueue()
   stopWatchingTickets = superAgentStore.watchTickets()
   stopWatchingAttentions = superAgentStore.watchAttentions()
+  stopWatchingRouterStatus = superAgentStore.watchRouterStatus()
 })
 
 onUnmounted(() => {
@@ -321,6 +284,8 @@ onUnmounted(() => {
   stopWatchingTickets = null
   stopWatchingAttentions?.()
   stopWatchingAttentions = null
+  stopWatchingRouterStatus?.()
+  stopWatchingRouterStatus = null
 })
 
 /** 看板卡片（T06）：排序沿用主进程投影（createdAt 升序）。 */
@@ -348,6 +313,17 @@ function handleTicketAccept(ticketId: string): void {
   const repoRoot = appStore.projectRoot
   if (!repoRoot) return
   void runTicketAction(() => superAgentStore.acceptTicket(repoRoot, ticketId))
+}
+
+/**
+ * 点击卡片 → 打开 worker:<ticketId> 右侧标签（§10.3）。
+ * 执行队列只覆盖 running/queued，失败与已完成的工单同样要能查执行历史 ——
+ * 卡片是唯一始终在场的入口，不能只在排队时可点。
+ */
+function handleTicketOpen(ticketId: string): void {
+  const card = ticketCards.value.find((item) => item.ticketId === ticketId)
+  if (!card) return
+  appStore.openWorkerTab(card.ticketId, card.title)
 }
 
 function handleTicketStop(ticketId: string): void {
@@ -421,59 +397,16 @@ function handleHealthReevaluate(evalId: string): void {
   )
 }
 
-// ── 显式派工（T05 #75）：「新建工单」独立动作，普通发送不建单 ──
-const dispatchFormOpen = ref(false)
-const dispatchTitle = ref('')
-const dispatchText = ref('')
-const dispatchHint = ref('')
-
+// ── 执行队列（T05）：running + 排队位，广播驱动；派工本身只由对话驱动 ──
 const queueEntries = computed<SuperAgentQueueEntry[]>(() => [
   ...(superAgentStore.queue?.running ?? []),
   ...(superAgentStore.queue?.queued ?? []),
 ])
 const queueVisible = computed(() => queueEntries.value.length > 0)
 
-function toggleDispatchForm(): void {
-  dispatchFormOpen.value = !dispatchFormOpen.value
-  dispatchHint.value = ''
-}
-
-function closeDispatchForm(): void {
-  dispatchFormOpen.value = false
-  dispatchHint.value = ''
-}
-
-async function submitDispatch(): Promise<void> {
-  const repoRoot = appStore.projectRoot
-  if (!repoRoot) return
-
-  const title = dispatchTitle.value.trim()
-  const text = dispatchText.value.trim()
-  if (title === '' || text === '') {
-    dispatchHint.value = t('superAgent.dispatch.requireTitle')
-    return
-  }
-
-  try {
-    const result = await superAgentStore.dispatch(repoRoot, {
-      requestId: createUuid(),
-      title,
-      text,
-    })
-    dispatchHint.value = result.duplicate
-      ? t('superAgent.dispatch.duplicateHint')
-      : result.queuePosition === 0
-        ? t('superAgent.dispatch.runningHint', { title })
-        : t('superAgent.dispatch.queuedHint', { title, position: result.queuePosition })
-    dispatchTitle.value = ''
-    dispatchText.value = ''
-  } catch (error) {
-    console.error('[SuperAgentView] dispatch failed:', error)
-    dispatchHint.value = t('superAgent.dispatch.failedHint')
-  }
-}
-
-// ── 模型展示（与主聊天同源的初值；Router 会话模型不在此切换）──────
+// ── 模型展示与切换（与主聊天同一口径）───────────────────────────
+// Router 会话归主进程，渲染端够不到 sessionStore.switchModel —— 选择只能随
+// 每条消息下发，由 RouterRunner 落到引擎上；不下发就等于下拉框是装饰品。
 const currentModel = ref('')
 
 onMounted(() => {
@@ -488,6 +421,8 @@ watch(() => settingsStore.config.model, (newModel) => {
 
 function handleModelChange(model: string) {
   currentModel.value = model
+  settingsStore.lastSelectedModel = model
+  settingsStore.saveSettings()
 }
 
 async function handleEffortChange(level: EffortLevel) {
@@ -505,30 +440,36 @@ function handleOpenSkills() {
   window.dispatchEvent(new CustomEvent('open-skills-manager'))
 }
 
-// ── 发送 / 中止：与主聊天共用同一份正文组装，marker 与附件格式逐字一致 ──
+// ── 发送 / 中止：交给主进程 RouterRunner（T21）──────────────────
+// 正文组装仍与主聊天共用同一份（marker 与附件格式逐字一致），但投递通路不同：
+// Router 会话归主进程且以 plan 模式起，走 turnStore 就等于把它降格成一条
+// 带全套写工具的普通聊天 —— 那正是"让它派活它自己干了"的根因。
 async function handleSend(content: string, attachments: AllAttachments, options?: SendOptions) {
-  const sid = routerSessionId.value
-  if (!sid) return
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
   const hasContent = content.trim().length > 0 || attachments.files.length > 0 || attachments.images.length > 0
   if (!hasContent) return
 
   const { messageContent, userContent } = buildOutgoingMessage(content, attachments, options)
   try {
-    await turnStore.sendMessage(messageContent, userContent, {
-      files: attachments.files,
-      images: attachments.images,
-    }, { sessionId: sid })
+    await superAgentStore.sendRouterMessage(repoRoot, {
+      requestId: createUuid(),
+      text: messageContent,
+      displayText: userContent,
+      ...(currentModel.value ? { model: currentModel.value } : {}),
+      ...(attachments.images.length > 0 ? { images: attachments.images } : {}),
+    })
   } catch (error) {
-    console.error('[SuperAgentView] sendMessage failed:', error)
+    console.error('[SuperAgentView] routerMessage failed:', error)
   }
 }
 
 async function handleStop() {
-  const sid = routerSessionId.value
-  if (!sid) return
+  const repoRoot = appStore.projectRoot
+  if (!repoRoot) return
   try {
-    // 只中止 Router 会话的当前 turn；Worker 会话由各自的 Assignment 管理，不受影响
-    await turnStore.abort(sid)
+    // 只中止 Router 这一轮；Worker 会话由各自的 Assignment 管理，不受影响
+    await superAgentStore.abortRouter(repoRoot)
   } catch (error) {
     console.error('[SuperAgentView] stop failed:', error)
   }
@@ -567,7 +508,10 @@ async function executeRouterCommand(command: string, args: string, sid: string):
     case 'clear':
     case 'reset':
     case 'new': {
-      await turnStore.abort(sid)
+      const repoRoot = appStore.projectRoot
+      if (!repoRoot) return ''
+      // 中止也走 Router 通路：turnStore.abort 按普通聊天会话寻址，会漏掉主进程那一轮
+      await superAgentStore.abortRouter(repoRoot)
       const session = sessionStore.getSession(sid)
       if (session) session.messages = []
       return t('chatPanel.commandCleared')
@@ -618,11 +562,16 @@ async function executeRouterCommand(command: string, args: string, sid: string):
     default: {
       const cmdDef = findCommand(command)
       if (cmdDef && (cmdDef.kind === 'sdk_command' || cmdDef.kind === 'codepilot_command')) {
+        const repoRoot = appStore.projectRoot
+        if (!repoRoot) return ''
         const fullCommand = args ? `/${command} ${args}` : `/${command}`
-        await turnStore.sendMessage(fullCommand, fullCommand, {
-          files: [],
-          images: [],
-        }, { sessionId: sid })
+        // 仍走 Router 通路：turnStore.sendMessage 会按普通聊天的配置去 init 引擎，
+        // 把这条常驻会话（plan 模式 + 角色说明）就地换掉。
+        await superAgentStore.sendRouterMessage(repoRoot, {
+          requestId: createUuid(),
+          text: fullCommand,
+          displayText: fullCommand,
+        })
         return ''
       }
       return t('chatPanel.commandUnknown', { command })
@@ -696,8 +645,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
   color: var(--status-warning, #c99a2e);
 }
 
-.health-chip,
-.dispatch-chip {
+.health-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -729,81 +677,6 @@ async function handleToolSkip(messageId: string, toolId: string) {
   font-weight: 600;
   line-height: 18px;
   text-align: center;
-}
-
-// ── 新建工单表单（T05）：标题 + 目标描述，独立于普通发送 ──
-.dispatch-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 6px 12px 0;
-  padding: 10px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md, 8px);
-  background: var(--bg-elevated);
-}
-
-.dispatch-title,
-.dispatch-text {
-  width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-
-  &:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-  }
-}
-
-.dispatch-text {
-  resize: vertical;
-  min-height: 60px;
-  font-family: inherit;
-}
-
-.dispatch-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.dispatch-cancel,
-.dispatch-submit {
-  padding: 4px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.dispatch-cancel {
-  border: 1px solid var(--border-light);
-  background: transparent;
-  color: var(--text-secondary);
-
-  &:hover {
-    background: var(--surface-hover);
-  }
-}
-
-.dispatch-submit {
-  border: 1px solid var(--accent-primary);
-  background: var(--accent-primary);
-  color: var(--bg-elevated);
-  font-weight: 600;
-
-  &:hover {
-    opacity: 0.9;
-  }
-}
-
-.dispatch-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 // ── 执行队列（T05）：串行调度现状（执行中/排队位置/脏区提示）──
