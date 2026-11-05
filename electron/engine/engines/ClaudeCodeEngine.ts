@@ -67,6 +67,11 @@ export class ClaudeCodeEngine implements IEngine {
       // 无人值守的调用方（定时任务）靠这个字段决定是否跳过权限确认，此前被丢弃
       permissionMode: config.permissionMode,
       systemPrompt: config.systemPrompt,
+      appendSystemPrompt: config.appendSystemPrompt,
+      // 基础工具面（引擎 --tools）：undefined = 不裁剪，[] = 移除全部工具。
+      // 无工具的会话（如 Super Agent Router）靠它说话而不动手 —— 与
+      // --allowedTools（权限预批清单）是两个概念。
+      baseTools: config.allowedTools,
       agent: config.agent,
       thinkingEnabled: config.thinkingEnabled,
       resumeSessionId: config.resumeSessionId,
