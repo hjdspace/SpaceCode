@@ -36,6 +36,7 @@ import {
 } from '../service'
 import { SUPER_AGENT_REPORT_FENCE } from '../reportParser'
 import { SUPER_AGENT_ERROR_CODES } from '../errors'
+import { superAgentWorkerEngineSessionId } from '../sessionId'
 import type { WorkerLaunchRequest } from '../scheduler'
 import type { ProjectStoreDeps } from '../store'
 
@@ -243,7 +244,8 @@ describe('T14 黄金路径：建单 → 派工 → Report → 卡片 → Attenti
     expect(h.deliveries[0]).toMatchObject({
       ticketId: dispatched.ticketId,
       requestId: 'msg-a-1',
-      sessionId: `superagent-worker-${dispatched.ticketId}`,
+      // 投递寻址用引擎会话 UUID（与 workerBind 镜像里同一个 id）
+      sessionId: superAgentWorkerEngineSessionId(dispatched.ticketId),
     })
 
     // 5. question Report：Attention 气泡出现，徽章计数按工单去重
