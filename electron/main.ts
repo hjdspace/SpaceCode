@@ -77,6 +77,7 @@ import {
   registerSuperAgentIPCHandlers,
 } from './superAgent/superAgentIpc'
 import type { SuperAgentService } from './superAgent/service'
+import { defaultSuperAgentEngineBridge } from './superAgent/engineBridge'
 import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
 import { H5Server } from './h5/h5Server'
 
@@ -274,8 +275,10 @@ app.whenReady().then(async () => {
   info('Startup', 'Factory IPC handlers registered')
 
   // T11 #81：userDataDir 启用 Super Agent 每项目持久化（迁移→锁→seq 重放→启动恢复）
+  // T21：引擎接缝在这里注入 —— Worker 由 Executor 真拉起、Router 会话归主进程。
   superAgentService = createBroadcastingSuperAgentService({
     userDataDir: app.getPath('userData'),
+    bridge: defaultSuperAgentEngineBridge,
   })
   registerSuperAgentIPCHandlers(superAgentService)
   info('Startup', 'Super Agent IPC handlers registered')
