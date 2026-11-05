@@ -368,6 +368,42 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
   /** 已经自动预览过的交付物，避免每轮结束都把同一个文件重新弹一次。 */
   const autoPreviewedPaths = new Set<string>()
 
+  // 引擎"空转"result（is_error=false、无输出、num_turns=0）的兜底计时器。
+  // 正常情况下引擎处理完排队命令后会紧跟第二个 result；若始终没有（例如
+  // UserPromptSubmit 钩子拦截了 prompt、或引擎队列意外清空），超时后报一个
+  // 准确的错误，而不是让回合永远停在"思考中"。
+  const noOpResultTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const NOOP_RESULT_FALLBACK_MS = 120_000
+
+  const disarmNoOpResultFallback = (sessionId: string) => {
+    const timer = noOpResultTimers.get(sessionId)
+    if (timer) {
+      clearTimeout(timer)
+      noOpResultTimers.delete(sessionId)
+    }
+  }
+
+  const armNoOpResultFallback = (sessionId: string, ts: TurnState) => {
+    disarmNoOpResultFallback(sessionId)
+    const timer = setTimeout(() => {
+      noOpResultTimers.delete(sessionId)
+      // 回合已结算（后续 result / abort / 进程退出）或已被新 turn 取代 → 无事可做
+      if (ts.settled || turnStates.get(sessionId) !== ts) return
+      logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] no follow-up result after no-op empty result — engine produced nothing for this send`)
+      handleError(
+        sessionId,
+        ts,
+        Object.assign(
+          new Error(
+            'The engine produced no output for this send. The previous turn was likely interrupted, and its recovery notification consumed this result. Please try resending.',
+          ),
+          { retryable: false },
+        ),
+      )
+    }, NOOP_RESULT_FALLBACK_MS)
+    noOpResultTimers.set(sessionId, timer)
+  }
+
   /**
    * 写文件工具成功落盘后记入账本。路径口径与会话改动列表必须一致，所以复用
    * store 里的解析（含工作目录补全与仓库相对化）。
@@ -1299,6 +1335,16 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       assistantMessageForEmptyCheck?.reasoning,
     )
     if (!isError && !looksLikeApiError && typeof result?.result === 'string' && !hasVisibleOutput) {
+      // 引擎"空转"result：is_error=false、无输出且 num_turns=0 —— 本轮连 API 都没调。
+      // 实测链路：会话被中断后重启（--resume），被杀后台任务合成的 task-notification
+      // 排在用户 prompt 前面被当作独立命令处理（shouldQuery=false），引擎先吐一个空
+      // "成功"result；用户真正的 prompt 还在引擎队列里，紧接着会有第二个 result。
+      // 这种 result 不能当失败收口，保持 turn 打开等下一个 result，超时才报错。
+      if (result.num_turns === 0) {
+        logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] no-op empty result (num_turns=0) — engine likely processed a queued system notification; keeping turn open for the follow-up result`)
+        armNoOpResultFallback(sessionId, ts)
+        return
+      }
       // 上游请求失败后引擎回了个"成功"的空结果。重发同一份历史只会再失败一次，
       // 所以标成不可重试 —— 否则按文本分类会落到 UNKNOWN，自动重发 5 次。
       const emptyResponseError = Object.assign(
@@ -1311,6 +1357,8 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
       handleError(sessionId, ts, emptyResponseError)
       return
     }
+
+    disarmNoOpResultFallback(sessionId)
 
     if (isError || looksLikeApiError) {
       const errorText = resultText || 'API error'
