@@ -18,6 +18,14 @@ export interface EngineSessionConfig {
   effortLevel?: EffortLevel
   systemPrompt?: string
   appendSystemPrompt?: string
+  /**
+   * 基础工具面（引擎 --tools）：undefined = 不裁剪（全部工具）；[] = 把全部工具
+   * 从工具池移除，会话只能对话；非空 = 只保留列出的工具。
+   * 与 --allowedTools（权限预批清单，SessionConfig.allowedTools）是两个概念：
+   * 这里的裁剪发生在引擎工具池层面，被移除的工具连调用都不会发生（设计 §3.2 第 2 条）。
+   * 只有 claude-code 引擎实现；pi 忽略。
+   */
+  allowedTools?: string[]
   agent?: string
   engineType?: EngineType
   resumeSessionId?: string
