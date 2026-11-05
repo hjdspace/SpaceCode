@@ -22,6 +22,14 @@ import { defineNamespace, type DeriveEventApi, type DeriveRendererApi } from '@/
 
 export const SUPER_AGENT_PREFIX = 'super-agent:'
 
+/**
+ * Router ↔ 宿主的建单协议围栏。
+ *
+ * Router 需要动手时在回复末尾输出这一个块，宿主解析后建单派工；它不是给人看的
+ * 内容，IM 展示模式按此 info string 过滤（与 Worker 的 super-agent:report 同一做法）。
+ */
+export const SUPER_AGENT_ROUTE_FENCE = 'super-agent:route'
+
 /** Router 会话的只读投影。T01 只有身份与运行状态，转录等内容留给后续阶段。 */
 export interface SuperAgentRouterState {
   sessionId: string
@@ -57,6 +65,8 @@ export interface SuperAgentDispatchCommand {
   requestId: string
   title: string
   text: string
+  /** Router 的路由说明（≤30 字，不授权）；渲染端派工不带它。 */
+  note?: string
   /** 派工时携带的 @ 上下文（相对路径）。 */
   contextPaths?: string[]
   attachments?: string[]
@@ -145,6 +155,11 @@ export interface SuperAgentTicketCard {
   reviewRemindedAt: string | null
   /** T10 #80：是否允许人工重试（仅 open 的 delivery/blocked/failed）。 */
   canRetry: boolean
+  /**
+   * 是否允许人工停止：open 工单都成立（queued 撤指派、在跑收 Assignment 并停会话）。
+   * 与 `canRetry` 同一做法由投影下发，卡片不自己从状态词推断。
+   */
+  canStop: boolean
 }
 
 /**
@@ -237,11 +252,39 @@ export interface SuperAgentTicketProgress {
 // ── Worker 只读镜像（T07 #77）────────────────────────────────────
 
 /**
- * Worker 稳定会话 id：`superagent-worker-<ticketId>` 派生（设计 §5.3）。
- * 跨 Assignment、重试与主进程重启保持稳定；不得当作 assignmentId 或 Ticket 身份。
+ * Worker 引擎会话 id 由 ticketId 稳定派生（UUIDv5），单一出处在
+ * `electron/superAgent/sessionId.ts` —— 可读标签不能交给 CLI，故这里不再导出
+ * 标签拼装函数；渲染端一律使用镜像 DTO 里带回的 sessionId。
  */
-export function superAgentWorkerSessionId(ticketId: string): string {
-  return `superagent-worker-${ticketId}`
+
+/**
+ * Router 对话命令（设计 §4.2）：Router 会话归主进程所有，渲染端不能走普通
+ * chatSession 的引擎发送路径 —— 那条路会把 Router 变成一条带全套写工具的日常聊天。
+ */
+export interface SuperAgentRouterMessageCommand {
+  /** UI 幂等键；重复提交同键不重复起轮。 */
+  requestId: string
+  /** 交给 Router 会话的正文（含 @ 上下文 marker，与主聊天同一序列化）。 */
+  text: string
+  /**
+   * 气泡里给人看的正文（marker 已还原成可读形式）。
+   * 引擎不回显宿主写进 stdin 的人消息，气泡由主进程推送，所以要给它一份
+   * 面向人的版本，而不是把 marker 原样贴进 IM 视图。
+   */
+  displayText?: string
+  /** 图片附件（与 claudeCode sendMessage 同一形状）；Router 用它看截图。 */
+  images?: unknown[]
+  /**
+   * 输入框当前选中的模型（显示名，与主聊天同一口径）。
+   * Router 会话归主进程，起会话时只会读到设置页的 sonnet 槽位；不带它就会出现
+   * 「下拉框选的是 A、message_start 报的是 B」。宿主按引擎解析后落进会话配置。
+   */
+  model?: string
+}
+
+export interface SuperAgentRouterMessageResult {
+  sessionId: string
+  running: boolean
 }
 
 /** Assignment 代次分段：UI 按 ticketId 定卡片，按此分段定右侧执行代次。 */
@@ -477,6 +520,15 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentBindResult,
     },
+    // Router 对话（T21）：会话归主进程，渲染端只发文本与看状态。
+    routerMessage: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentRouterMessageCommand],
+      res: null as unknown as SuperAgentRouterMessageResult,
+    },
+    routerAbort: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as true,
+    },
     health: {
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentHealthReport,
@@ -588,6 +640,11 @@ export const superAgentNamespace = defineNamespace({
     onHealthChanged: {
       channel: 'health-changed',
       args: [] as unknown as [repoRoot: string, report: SuperAgentHealthReport],
+    },
+    // Router 轮次起止广播（T21）：IM 视图的 typing/计时与 Composer 的停止按钮靠它。
+    onRouterStatus: {
+      channel: 'router-status',
+      args: [] as unknown as [repoRoot: string, router: SuperAgentRouterState],
     },
     onQueueChanged: {
       channel: 'queue-changed',
