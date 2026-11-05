@@ -137,8 +137,11 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
   const inFlightLaunches = new Set<Promise<void>>()
   /** T11 #81：shutdown 开始后不再启动新 launch（draining）。 */
   let stopping = false
-  /** 派工时的 @ 上下文与附件：dispatch 落表，launch 时注入 Worker 首轮消息。 */
-  const dispatchContext = new Map<string, { contextPaths: string[]; attachments: string[] }>()
+  /** 派工时的 @ 上下文、附件与路由说明：dispatch 落表，launch 时注入 Worker 首轮消息。 */
+  const dispatchContext = new Map<
+    string,
+    { contextPaths: string[]; attachments: string[]; note: string | null }
+  >()
 
   function pendingAssignments() {
     return Object.values(domain.state.assignments)
@@ -297,6 +300,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
         workspace: workerWorkspace,
         contextPaths: dispatchContext.get(ticketId)?.contextPaths ?? [],
         attachments: dispatchContext.get(ticketId)?.attachments ?? [],
+        note: dispatchContext.get(ticketId)?.note ?? null,
         spillWriter,
       })
       domain.launchAssignment({ assignmentId })
@@ -338,6 +342,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     dispatchContext.set(result.ticket.ticketId, {
       contextPaths: [...(input.contextPaths ?? [])],
       attachments: [...(input.attachments ?? [])],
+      note: input.note ?? null,
     })
     pump()
     const queuePosition = queuePositionOf(result.ticket.ticketId)
