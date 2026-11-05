@@ -24,13 +24,10 @@ export interface FakeBridge {
   sent: FakeBridgeCall[]
   aborted: string[]
   stopped: string[]
-  models: FakeBridgeCall[]
   pushed: SuperAgentUserPush[]
   /** startSession 的失败注入：一次性的，用完即清。 */
   failNextStart: Error | null
   failNextSend: Error | null
-  /** setModel 的失败注入（一次性）：用来验"控制请求失败就重启"这条回退。 */
-  failNextSetModel: Error | null
   emit(sessionId: string, eventType: string, data?: unknown): void
 }
 
@@ -62,14 +59,6 @@ export function createFakeBridge(): FakeBridge {
       stop: async (sessionId) => {
         fake.stopped.push(sessionId)
       },
-      setModel: async (sessionId, model) => {
-        if (fake.failNextSetModel) {
-          const err = fake.failNextSetModel
-          fake.failNextSetModel = null
-          throw err
-        }
-        fake.models.push({ sessionId, config: { cwd: '', model } })
-      },
       resolveModelAlias: (modelValue) => modelValue,
       onRouteEvent: (listener) => {
         listeners.push(listener)
@@ -86,11 +75,9 @@ export function createFakeBridge(): FakeBridge {
     sent: [],
     aborted: [],
     stopped: [],
-    models: [],
     pushed: [],
     failNextStart: null,
     failNextSend: null,
-    failNextSetModel: null,
     emit(sessionId, eventType, data) {
       for (const listener of [...listeners]) listener(sessionId, eventType, data)
     },
