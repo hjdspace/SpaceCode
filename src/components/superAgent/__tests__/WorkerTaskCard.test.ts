@@ -40,6 +40,7 @@ function card(overrides: Partial<SuperAgentTicketCard> = {}): SuperAgentTicketCa
     ended: null,
     reviewRemindedAt: null,
     canRetry: false,
+    canStop: true,
     ...overrides,
   }
 }
@@ -208,5 +209,43 @@ describe('WorkerTaskCard 验收、停止与重试出口（T10 #80）', () => {
       props: { card: card({ state: 'blocked', canRetry: false }) },
     })
     expect(blocked.find('[data-testid="worker-task-card-retry"]').exists()).toBe(false)
+  })
+
+  it('gives queued and running tickets a stop exit, and ended ones none', async () => {
+    const running = mount(WorkerTaskCard, { props: { card: card({ state: 'working' }) } })
+    await running.get('[data-testid="worker-task-card-stop"]').trigger('click')
+    expect(running.emitted('stop')).toEqual([['ticket-abcd1234efgh']])
+
+    const queued = mount(WorkerTaskCard, { props: { card: card({ state: 'queued' }) } })
+    expect(queued.find('[data-testid="worker-task-card-stop"]').exists()).toBe(true)
+
+    const done = mount(WorkerTaskCard, {
+      props: { card: card({ state: 'completed', canStop: false }) },
+    })
+    expect(done.find('[data-testid="worker-task-card-stop"]').exists()).toBe(false)
+  })
+
+  it('review keeps its own three outlets instead of a second stop button', () => {
+    const review = mount(WorkerTaskCard, { props: { card: card({ state: 'review' }) } })
+    expect(review.findAll('[data-testid="worker-task-card-stop"]')).toHaveLength(1)
+    expect(review.find('[data-testid="worker-task-card-review-actions"]').exists()).toBe(true)
+  })
+
+  it('clicking the card opens the worker tab; clicking an outlet does not', async () => {
+    const wrapper = mount(WorkerTaskCard, { props: { card: card({ state: 'failed', canRetry: true }) } })
+
+    await wrapper.get('[data-testid="worker-task-card"]').trigger('click')
+    expect(wrapper.emitted('open')).toEqual([['ticket-abcd1234efgh']])
+
+    const other = mount(WorkerTaskCard, { props: { card: card({ state: 'failed', canRetry: true }) } })
+    await other.get('[data-testid="worker-task-card-retry"]').trigger('click')
+    expect(other.emitted('open')).toBeUndefined()
+    expect(other.emitted('retry')).toHaveLength(1)
+  })
+
+  it('opens the worker tab from the keyboard too', async () => {
+    const wrapper = mount(WorkerTaskCard, { props: { card: card() } })
+    await wrapper.get('[data-testid="worker-task-card"]').trigger('keydown.enter')
+    expect(wrapper.emitted('open')).toEqual([['ticket-abcd1234efgh']])
   })
 })
