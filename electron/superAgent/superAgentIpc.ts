@@ -52,6 +52,8 @@ import {
   type SuperAgentProblemDismissCommand,
   type SuperAgentHealthRetryCommand,
   type SuperAgentQueueSnapshot,
+  type SuperAgentRouterMessageCommand,
+  type SuperAgentRouterState,
   type SuperAgentTakeoverChangedEvent,
   type SuperAgentPolicySetCommand,
   type SuperAgentTicketMessageCommand,
@@ -60,6 +62,7 @@ import {
   type SuperAgentWorkerMessageCommand,
 } from '@/shared/channels/superAgent'
 import { createSuperAgentService, type SuperAgentService } from './service'
+import type { SuperAgentEngineBridge } from './engineBridge'
 
 const SUPER_AGENT_EVENTS = eventChannels(superAgentNamespace.events, SUPER_AGENT_PREFIX)
 
@@ -76,6 +79,30 @@ function requireTicketId(ticketId: unknown): string {
     throw new Error('ticketId is required')
   }
   return ticketId
+}
+
+/**
+ * Router 对话命令入口校验（T21）：requestId 是 UI 幂等键，text 必须非空。
+ * 空文本不进领域 —— 起一轮 Router 会真花钱。
+ */
+function requireRouterMessageCommand(input: unknown): SuperAgentRouterMessageCommand {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('router message command is required')
+  }
+  const command = input as Record<string, unknown>
+  if (
+    typeof command.requestId !== 'string' ||
+    command.requestId.trim() === '' ||
+    typeof command.text !== 'string' ||
+    command.text.trim() === ''
+  ) {
+    throw new Error('invalid router message command')
+  }
+  // model 是可选的输入框选择：给了就必须是可用值，否则一路带到引擎只会变成静默回退
+  if (command.model !== undefined && (typeof command.model !== 'string' || command.model.trim() === '')) {
+    throw new Error('invalid router message command')
+  }
+  return input as SuperAgentRouterMessageCommand
 }
 
 /** 派工命令入口校验：requestId/title/text 必须是非空字符串（领域层兜底同样校验）。 */
@@ -299,14 +326,35 @@ function broadcastAttentionEvent(repoRoot: string, event: SuperAgentAttentionEve
   }
 }
 
-/** 创建接好 health.changed / queue-changed 广播的服务；独立导出以便测试广播链路。 */
+/**
+ * Router 轮次起止广播（T21）：载荷就是快照里的 router 投影，所有窗口直接应用
+ * 即幂等 —— IM 视图的 typing/计时与 Composer 停止按钮都跟着它，不看本地 turn。
+ */
+function broadcastRouterStatus(repoRoot: string, router: SuperAgentRouterState): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(SUPER_AGENT_EVENTS.onRouterStatus, repoRoot, router)
+    }
+  }
+}
+
+/**
+ * 创建接好广播的服务；独立导出以便测试广播链路。
+ *
+ * 引擎接缝由调用方（main.ts 的 composition root）注入：本模块刻意不在顶层
+ * import engineBridge —— 那会把整条引擎链（sessionProcess → mcpConfigStore →
+ * 模块级 `app.getPath`）拖进 `super-agent:*` 通道的加载路径，领域与 IPC 用例
+ * 都不需要它。未注入 bridge 时没有运行时：工单如实停在排队，不假装启动。
+ */
 export function createBroadcastingSuperAgentService(
-  options: { userDataDir?: string } = {},
+  options: { userDataDir?: string; bridge?: SuperAgentEngineBridge } = {},
 ): SuperAgentService {
   return createSuperAgentService({
     // T11 #81：提供 userDataDir 后启用每项目持久化与重启恢复
     userDataDir: options.userDataDir,
+    bridge: options.bridge,
     onHealthChanged: broadcastHealthChanged,
+    onRouterStatusChanged: broadcastRouterStatus,
     onQueueChanged: broadcastQueueChanged,
     onTicketUpdated: broadcastTicketUpdated,
     onTicketProgress: broadcastTicketProgress,
@@ -339,6 +387,15 @@ export function registerSuperAgentIPCHandlers(
     routerBind: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.routerBind(root))
+    },
+    routerMessage: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireRouterMessageCommand(command)
+      return runNoted(service, root, () => service.routerMessage(root, req))
+    },
+    routerAbort: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.routerAbort(root))
     },
     health: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
