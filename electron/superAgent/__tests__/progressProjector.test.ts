@@ -377,4 +377,33 @@ describe('ticket.progress 节流与独立水位', () => {
     expect(h.projector.cards().map((c) => c.ticketId)).toEqual([ticketId])
     expect(h.projector.cards()[0].state).toBe('queued')
   })
+
+  it('opens the stop exit for every open ticket and closes it once ended', () => {
+    const h = harness()
+    const { ticketId, assignmentId } = dispatchTicket(h)
+    // 排队中也要能停：否则串行队列里排队的工单只能干等
+    expect(h.projector.cards()[0]).toMatchObject({ state: 'queued', canStop: true })
+
+    h.domain.launchAssignment({ assignmentId })
+    h.projector.sync()
+    expect(h.projector.cards()[0]).toMatchObject({ state: 'working', canStop: true })
+
+    h.domain.ticketStop({ ticketId })
+    h.projector.sync()
+    expect(h.projector.cards()[0]).toMatchObject({ state: 'stopped', canStop: false })
+  })
+
+  it('peekProgress reads the same facts without advancing the progress watermark', () => {
+    const h = harness()
+    const { ticketId, assignmentId } = dispatchTicket(h)
+    h.domain.launchAssignment({ assignmentId })
+    h.projector.recordProgress(ticketId, { currentTool: 'Bash' })
+    const emitted = h.progress[h.progress.length - 1]
+
+    const peeked = h.projector.peekProgress(ticketId)
+
+    expect(peeked).toMatchObject({ ticketId, currentTool: 'Bash', seq: emitted.seq })
+    // 只读一次不该多发一条 ticket.progress
+    expect(h.progress).toHaveLength(1)
+  })
 })
