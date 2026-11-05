@@ -36,6 +36,14 @@ export type SuperAgentErrorCode =
   | 'reportNotUnique'
   | 'reportUnparsable'
   | 'reportInvalid'
+  // refused：Router 路由协议失败（严格 JSON 块校验）
+  | 'routeNotUnique'
+  | 'routeUnparsable'
+  | 'routeInvalid'
+  // refused：attach 落在中继轮 —— 本轮没有人的原话可带给工单
+  | 'attachWithoutSource'
+  // refused：Router 对话入参非法（T21）
+  | 'invalidRouterMessage'
   | 'workerDecides'
   | 'handedBack'
   | 'notReady'
@@ -116,6 +124,11 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   reportNotUnique: 'refused',
   reportUnparsable: 'refused',
   reportInvalid: 'refused',
+  routeNotUnique: 'refused',
+  routeUnparsable: 'refused',
+  routeInvalid: 'refused',
+  attachWithoutSource: 'refused',
+  invalidRouterMessage: 'refused',
   workerDecides: 'refused',
   handedBack: 'refused',
   notReady: 'refused',

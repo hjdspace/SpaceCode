@@ -50,6 +50,8 @@ export interface SuperAgentProgressProjector {
   recordProgress(ticketId: string, facts: SuperAgentReportProgressInput): void
   /** 最近一次同步后的卡片缓存（tickets 通道读取用）。 */
   cards(): SuperAgentTicketCard[]
+  /** 只读取某工单的轻量进度；不推进投影水位（StatusQuery 用它报 currentTool/elapsed）。 */
+  peekProgress(ticketId: string): SuperAgentTicketProgress | null
 }
 
 const DEFAULT_THROTTLE_MS = 1_000
@@ -148,10 +150,12 @@ export function createSuperAgentProgressProjector(
         : null,
       reviewRemindedAt: ticket.reviewRemindedAt,
       canRetry: canRetryTicket(facts),
+      // 停止对任何未结束工单都成立：领域侧撤回 Mandate、收尾在跑 Assignment（§10.3）
+      canStop: ticket.state === 'open',
     }
   }
 
-  function buildProgress(ticketId: string): SuperAgentTicketProgress | null {
+  function buildProgress(ticketId: string, advanceSeq = true): SuperAgentTicketProgress | null {
     const card = cardOf(ticketId)
     if (!card) return null
     const facts = progressFacts.get(ticketId)
@@ -162,7 +166,7 @@ export function createSuperAgentProgressProjector(
         elapsedMs = Math.max(0, nowMs() - Date.parse(assignment.startedAt))
       }
     }
-    progressSeq += 1
+    if (advanceSeq) progressSeq += 1
     return {
       repoRoot,
       seq: progressSeq,
@@ -262,7 +266,12 @@ export function createSuperAgentProgressProjector(
       .filter((card): card is SuperAgentTicketCard => card !== null)
   }
 
-  return { sync, setPreparing, recordProgress, cards }
+  function peekProgress(ticketId: string): SuperAgentTicketProgress | null {
+    // 只读快照：投影水位仍由 ticket.progress 通道独占，peek 不推进它
+    return buildProgress(ticketId, false)
+  }
+
+  return { sync, setPreparing, recordProgress, cards, peekProgress }
 }
 
 export type SuperAgentProgressProjectorInstance = ReturnType<typeof createSuperAgentProgressProjector>

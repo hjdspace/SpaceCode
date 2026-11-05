@@ -469,6 +469,18 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
   }
 
+  /**
+   * 重新读取一条会话的历史。
+   *
+   * Super Agent 的 Router/Worker 会话由主进程用稳定 id 建在引擎侧：应用重启后
+   * 渲染端只是把这条 id 登记进列表（登记即被标记为已水合），transcript 里其实
+   * 有内容。这里显式撤销标记再水一次，让 IM 视图与 Worker 面板重开就接上历史。
+   */
+  async function refreshSessionHistory(sessionId: string): Promise<void> {
+    hydratedSessionIds.delete(sessionId)
+    await hydrateSingleSession(sessionId)
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Prompt Stash
   // ────────────────────────────────────────────────────────────────────
@@ -2707,6 +2719,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     currentAgent,
     availableAgents,
     createSession,
+    refreshSessionHistory,
     attachObservedSession,
     detachObservedSession,
     initClaudeCodeSession,

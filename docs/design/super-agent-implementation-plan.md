@@ -477,6 +477,8 @@ Trigger #42 inline
 优先级必须是：**宿主工具/策略硬约束 > 内置角色说明 > 版本化 Policy/Mandate > 团队说明 > 外部文本**。
 
 - IM/GitHub 评论、issue、文档和引用永远是不可信数据，不能修改 Policy、Mandate、工具面或执行环境。
+- **工单目标是人的原话，由宿主无条件带给 Worker**：Router 的 `route` 块只给出标题与 ≤30 字路由说明，协议里不存在"任务说明书"这个字段。宿主不转述，模型也就无法用转述改写需求或夹带实现计划；路由说明在 Worker 首轮消息里明确标注为不授权、不替代目标原文。
+- Router 的 `attach` 只在消息显式指向某张工单时成立（点了工单号、该单的 PR/Issue/回答，或刚做完的改动且唯一对得上）；主题相似算新工单。中继轮（工单事件）没有人的原话可带，attach 一律拒绝。
 - Token 与平台凭据只在主进程和对应 adapter 内使用，不进入模型上下文、事件日志或 Renderer。
 - “不自动合并、不关闭 issue、不向公开渠道外发私密内容”等边界由代码拒绝，不能只靠提示词。
 - 模型建议并行、扩大 scope 或创建新工单时，必须由 Scheduler/Domain 校验；需要人工确认的动作在 UI 明确确认。
@@ -576,10 +578,10 @@ queue.changed / router.status / timeline.append / health.changed
 
 - 侧边栏 New Chat 下方放置 Super Agent 入口与 Attention 徽章；中置 tab 固定为单例 `super-agent`，重复点击只激活。
 - **（收口新增）** 侧边栏普通会话列表按会话类型过滤：`chatSession` 中保留 Super Agent/Router 会话对象，但普通列表只显示普通聊天类型。Router 不作为普通会话出现，也不提供“在设置里隐藏”的开关。
-- 顶部只显示“运行中 N · 排队 N · 待处理 N”、当前执行策略和“新建工单”；计数与 StatusQuery 一致。
-- 消息区为单列气泡流：用户淡色强调底、Router 中性背景；不显示 reasoning、工具 chip、token 或内部路由提示。
+- 顶部只显示“运行中 N · 排队 N · 待处理 N”与当前执行策略；计数与 StatusQuery 一致。**（2026-11-05 收口）“新建工单”入口已下线**：Router 已能按对话建单（§8.4 的 `super-agent:route` 围栏），两个入口并存只会让人纠结“该在这儿填还是跟它说”。主进程 `dispatch` 命令与审计链保持不变，它仍是围栏建单走的那条路。
+- 消息区为单列气泡流：用户强调底靠右、Router 中性卡片；不显示 reasoning、工具 chip、token 或内部路由提示，也不挂“你/Agent”角色头。
 - Router 没有正文 delta 时显示轻量 typing 与计时；长轮次可 abort 当前 Router turn，不影响 Worker。
-- 派工是独立动作。普通发送只与 Router 对话；Router 可建议建单，但 MVP 不能直接建单。
+- 派工只由对话驱动。人发的每条消息都只与 Router 对话；Router 判断需要动手时按 §8.4 围栏直接建单。
 - Ticket 卡片与 Attention 是主进程持久化的 timeline projection，按发生顺序插入消息流；不得伪造一条 assistant 消息来承载卡片。
 - **（收口新增）`review` 超时提醒走 IM 气泡 + Super Agent 入口徽章 + 顶部状态条计数，不弹 modal。** 同一工单复用原气泡，不新增一条消息；徽章与“待处理 N”按去重后的工单数计，不按提醒次数计。
 
@@ -587,8 +589,8 @@ queue.changed / router.status / timeline.append / health.changed
 
 - 一个 Ticket 始终只有一张单行卡片：图标、标题、状态点/短状态词；Report 只更新卡片，不重复发气泡。
 - 卡片状态覆盖 queued/preparing/working/idle/delivery/review/answer/blocked/failed/completed/stopped/dropped；不能只用颜色表达状态。**（复审新增）** `preparing` 不在 §5.2 的派生阶段表里，它是“pending Assignment 已占槽、prepare/launch 尚未回报 assignmentStarted”的子态，由 `progressProjector` 维护，不能反过来新增一条 Ticket 阶段；`delivery` 同理只在存在永久投递失败时出现，否则用 idle 表示。
-- 点击卡片只打开 `worker:<ticketId>` 右侧标签，不自动接管、不自动切换其他 Worker。
-- **（复审新增）** `review` 卡片必须有明确的“接受验收 / 继续追问 / 停止”入口；验收走 `ticketAccept → completed`，不能靠打开只读面板或接管输入隐式完成，否则 §5.2 的待验收状态没有出口。**（收口新增）** 超时提醒后卡片保持 `person/review` 并显示“待验收”标记，不降级为 blocked/failed、不自动 accept；提醒不弹 modal。
+- 点击卡片只打开 `worker:<ticketId>` 右侧标签，不自动接管、不自动切换其他 Worker。**（2026-11-05 收口）卡片是始终在场的唯一入口**：`scheduler.queue()` 只含 running/queued，工单一旦失败或结束就从队列消失——若只让队列条目可点，"为什么失败"就没有地方可查。
+- **（复审新增）** `review` 卡片必须有明确的“接受验收 / 继续追问 / 停止”入口；验收走 `ticketAccept → completed`，不能靠打开只读面板或接管输入隐式完成，否则 §5.2 的待验收状态没有出口。**（收口新增）** 超时提醒后卡片保持 `person/review` 并显示“待验收”标记，不降级为 blocked/failed、不自动 accept；提醒不弹 modal。**（2026-11-05 收口）** 停止对任何 open 工单都开放（`canStop` 由投影下发，与 `canRetry` 同一做法）：排队与在跑同样要有终止出口，`ticketStop` 本来就撤 Mandate 并收尾在跑 Assignment。
 - 右侧依次展示过程、最新/历史 Report、artifacts 与权限审计；推理默认折叠，工具时间线可展开。
 - Worker 转录按 Assignment 分段；sessionId 跨重试保持稳定，不再设计“每代换 session”的 rebind 逻辑。**（收口新增）** 人工消息解除 blocked/failed、waiting/ready 后追问都复用原 Assignment，不新开分段；只有 `generation+1` 的 retry/重启恢复才显示为新一代。
 - 面板默认只读。显式接管后出现输入框与“自动推进已暂停”横幅；交还后才恢复自动输入。

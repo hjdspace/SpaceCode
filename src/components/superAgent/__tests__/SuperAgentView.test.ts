@@ -31,6 +31,11 @@ const probe = vi.hoisted(() => ({
   routerSessionId: 'router-1' as string | null,
   sendMessage: vi.fn().mockResolvedValue(undefined),
   abort: vi.fn().mockResolvedValue(undefined),
+  // ── Router 对话改走主进程 RouterRunner（T21）──
+  sendRouterMessage: vi.fn().mockResolvedValue({ sessionId: 'router-1', running: true }),
+  abortRouter: vi.fn().mockResolvedValue(undefined),
+  watchRouterStatus: vi.fn().mockReturnValue(() => {}),
+  routerRunning: false,
   getIsLoading: vi.fn(() => false),
   addMessage: vi.fn().mockResolvedValue(undefined),
   getDisplayMessages: vi.fn(() => []),
@@ -163,6 +168,10 @@ vi.mock('@/stores/superAgent', () => ({
     bind: probe.bind,
     loadState: probe.loadState,
     get boundSessionId() { return probe.routerSessionId },
+    sendRouterMessage: probe.sendRouterMessage,
+    abortRouter: probe.abortRouter,
+    watchRouterStatus: probe.watchRouterStatus,
+    get routerRunning() { return probe.routerRunning },
     loadHealth: probe.loadHealth,
     watchHealth: probe.watchHealth,
     toggleHealthPanel: probe.toggleHealthPanel,
@@ -220,6 +229,10 @@ beforeEach(() => {
   probe.openWorkerTab.mockClear()
   probe.sendMessage.mockClear()
   probe.abort.mockClear()
+  probe.sendRouterMessage.mockClear()
+  probe.abortRouter.mockClear()
+  probe.watchRouterStatus.mockClear()
+  probe.routerRunning = false
   probe.addMessage.mockClear()
   probe.getIsLoading.mockReturnValue(false)
   probe.projectRoot = 'D:/repo'
@@ -324,7 +337,7 @@ describe('SuperAgentView router conversation wiring', () => {
     wrapper.unmount()
   })
 
-  it('发送走共享正文组装：@"引用 marker 与主聊天逐字一致，且按 Router 会话寻址', async () => {
+  it('发送走 Router 通路：正文组装与主聊天逐字一致，不碰 turnStore（T21）', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -333,27 +346,58 @@ describe('SuperAgentView router conversation wiring', () => {
       images: [],
     })
 
-    expect(probe.sendMessage).toHaveBeenCalledTimes(1)
-    const [messageContent, , , options] = probe.sendMessage.mock.calls[0]
-    expect(messageContent.startsWith('@"D:/repo/a.png"')).toBe(true)
-    expect(messageContent).toContain('看下这个')
-    expect(options).toEqual({ sessionId: 'router-1' })
+    // 走 turnStore 就等于让 Router 变成一条带全套写工具的普通聊天 —— 那正是
+    // 「让它派活它自己干了」的根因，这里把它钉住。
+    expect(probe.sendMessage).not.toHaveBeenCalled()
+    expect(probe.sendRouterMessage).toHaveBeenCalledTimes(1)
+    const [repoRoot, command] = probe.sendRouterMessage.mock.calls[0]
+    expect(repoRoot).toBe('D:/repo')
+    expect(command.text.startsWith('@"D:/repo/a.png"')).toBe(true)
+    expect(command.text).toContain('看下这个')
+    expect(command.requestId).toBeTruthy()
     wrapper.unmount()
   })
 
-  it('中止只作用于 Router turn，不触碰其它会话', async () => {
+  it('图片附件随 Router 消息一起投递，不被静默丢弃', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const images = [{ id: 'i1', name: 'shot.png', type: 'image', mimeType: 'image/png', previewUrl: '', data: 'x' }]
+
+    await wrapper.findComponent(ChatInput).vm.$emit('send', '这个界面不对', { files: [], images })
+
+    const [, command] = probe.sendRouterMessage.mock.calls[0]
+    expect(command.images).toEqual(images)
+    wrapper.unmount()
+  })
+
+  it('输入框选的模型随消息下发 —— 不带它 Router 只会用设置页的槽位模型', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findComponent(ChatInput).vm.$emit('send', '第一句', { files: [], images: [] })
+    expect(probe.sendRouterMessage.mock.calls[0][1].model).toBe('sonnet')
+
+    wrapper.findComponent(ChatInput).vm.$emit('update:model', 'glm-5-3-flash')
+    await flushPromises()
+    await wrapper.findComponent(ChatInput).vm.$emit('send', '第二句', { files: [], images: [] })
+    expect(probe.sendRouterMessage.mock.calls[1][1].model).toBe('glm-5-3-flash')
+    wrapper.unmount()
+  })
+
+  it('中止只作用于 Router 这一轮，不触碰 Worker 会话', async () => {
     const wrapper = mountView()
     await flushPromises()
 
     await wrapper.findComponent(ChatInput).vm.$emit('stop')
 
-    expect(probe.abort).toHaveBeenCalledTimes(1)
-    expect(probe.abort).toHaveBeenCalledWith('router-1')
+    expect(probe.abortRouter).toHaveBeenCalledTimes(1)
+    expect(probe.abortRouter).toHaveBeenCalledWith('D:/repo')
+    expect(probe.abort).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
-  it('Router turn 进行中：typing（MessageList loading）与 Composer 停止按钮同源驱动', async () => {
-    probe.getIsLoading.mockReturnValue(true)
+  it('Router turn 进行中：typing 与 Composer 停止按钮读主进程状态，不读本地 turn', async () => {
+    probe.routerRunning = true
     const wrapper = mountView()
     await flushPromises()
 
@@ -364,7 +408,15 @@ describe('SuperAgentView router conversation wiring', () => {
     wrapper.unmount()
   })
 
-  it('斜杠命令在 Router 会话内落消息：clear 中止 Router 并清空，UI 绑定命令给出宿主提示', async () => {
+  it('Router 气泡流走 IM 展示模式（同一渲染器，只减展示面）', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findComponent(MessageList).props('presentation')).toBe('im')
+    wrapper.unmount()
+  })
+
+  it('斜杠命令在 Router 会话内落消息：clear 走 Router 中止，UI 绑定命令给出宿主提示', async () => {
     const wrapper = mountView()
     await flushPromises()
     probe.addMessage.mockClear()
@@ -377,7 +429,7 @@ describe('SuperAgentView router conversation wiring', () => {
       expect.objectContaining({ role: 'user', content: '/clear' }),
       'router-1',
     )
-    expect(probe.abort).toHaveBeenCalledWith('router-1')
+    expect(probe.abortRouter).toHaveBeenCalledWith('D:/repo')
     expect(probe.addMessage).toHaveBeenCalledWith(
       expect.objectContaining({ role: 'assistant', content: 'chatPanel.commandCleared' }),
       'router-1',
@@ -394,15 +446,19 @@ describe('SuperAgentView router conversation wiring', () => {
     wrapper.unmount()
   })
 
-  it('sdk 命令透传给 Router 引擎（能力不裁剪）', async () => {
+  it('sdk 命令仍走 Router 通路（能力不裁剪，但不换掉这条会话的配置）', async () => {
     const wrapper = mountView()
     await flushPromises()
-    probe.sendMessage.mockClear()
+    probe.sendRouterMessage.mockClear()
 
     await wrapper.findComponent(ChatInput).vm.$emit('slash-command', 'compact', '', { files: [], images: [] })
     await flushPromises()
 
-    expect(probe.sendMessage).toHaveBeenCalledWith('/compact', '/compact', { files: [], images: [] }, { sessionId: 'router-1' })
+    expect(probe.sendMessage).not.toHaveBeenCalled()
+    expect(probe.sendRouterMessage).toHaveBeenCalledWith('D:/repo', expect.objectContaining({
+      text: '/compact',
+      displayText: '/compact',
+    }))
     wrapper.unmount()
   })
 })
@@ -533,73 +589,13 @@ describe('SuperAgentView dispatch & queue（T05 #75）', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1)
   })
 
-  it('「新建工单」是独立动作：默认不显示表单，点击展开，普通发送不建单', async () => {
+  it('派工入口已下线：不再有「新建工单」chip 与表单', async () => {
     const wrapper = mountView()
     await flushPromises()
 
+    expect(wrapper.find('[data-testid="super-agent-dispatch-open"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="super-agent-dispatch-form"]').exists()).toBe(false)
-    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
-    expect(wrapper.find('[data-testid="super-agent-dispatch-form"]').exists()).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('空标题提交只提示校验文案，不调用派工', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
-
-    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
-
     expect(probe.dispatch).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toBe(
-      'superAgent.dispatch.requireTitle',
-    )
-    wrapper.unmount()
-  })
-
-  it('提交派工：requestId 幂等键非空、携带标题与目标，结果提示排队位置', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
-
-    await wrapper.find('[data-testid="super-agent-dispatch-title"]').setValue('修复登录')
-    await wrapper.find('[data-testid="super-agent-dispatch-text"]').setValue('登录按钮无响应')
-    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
-    await flushPromises()
-
-    expect(probe.dispatch).toHaveBeenCalledTimes(1)
-    const [repoRoot, command] = probe.dispatch.mock.calls[0]
-    expect(repoRoot).toBe('D:/repo')
-    expect(command.requestId).not.toBe('')
-    expect(command.title).toBe('修复登录')
-    expect(command.text).toBe('登录按钮无响应')
-    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toContain(
-      'superAgent.dispatch.queuedHint',
-    )
-    wrapper.unmount()
-  })
-
-  it('重复派工请求返回幂等提示文案', async () => {
-    probe.dispatch.mockResolvedValue({
-      ticketId: 'ticket-1',
-      assignmentId: 'assignment-1',
-      decisionId: 'decision-1',
-      mandateId: 'mandate-1',
-      queuePosition: 0,
-      duplicate: true,
-    } as SuperAgentDispatchResult)
-    const wrapper = mountView()
-    await flushPromises()
-    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
-
-    await wrapper.find('[data-testid="super-agent-dispatch-title"]').setValue('修复登录')
-    await wrapper.find('[data-testid="super-agent-dispatch-text"]').setValue('登录按钮无响应')
-    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toBe(
-      'superAgent.dispatch.duplicateHint',
-    )
     wrapper.unmount()
   })
 
@@ -624,23 +620,6 @@ describe('SuperAgentView dispatch & queue（T05 #75）', () => {
     expect(queuePanel.text()).toContain('工单二')
     expect(queuePanel.text()).toContain('superAgent.queue.position')
     expect(queuePanel.text()).toContain('superAgent.queue.dirtyHint')
-    wrapper.unmount()
-  })
-
-  it('派工被拒时显示失败提示文案', async () => {
-    probe.dispatch.mockRejectedValue(new Error('engine down'))
-    const wrapper = mountView()
-    await flushPromises()
-    await wrapper.find('[data-testid="super-agent-dispatch-open"]').trigger('click')
-
-    await wrapper.find('[data-testid="super-agent-dispatch-title"]').setValue('修复登录')
-    await wrapper.find('[data-testid="super-agent-dispatch-text"]').setValue('登录按钮无响应')
-    await wrapper.find('[data-testid="super-agent-dispatch-form"]').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="super-agent-dispatch-hint"]').text()).toBe(
-      'superAgent.dispatch.failedHint',
-    )
     wrapper.unmount()
   })
 
@@ -695,6 +674,7 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
           ended: null,
           reviewRemindedAt: '2026-01-02T00:00:00.000Z',
           canRetry: false,
+          canStop: true,
         },
         {
           ticketId: 'ticket-2',
@@ -708,6 +688,7 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
           ended: null,
           reviewRemindedAt: null,
           canRetry: true,
+          canStop: true,
         },
       ],
     }
@@ -747,6 +728,21 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     card.vm.$emit('retry', 'ticket-2')
     await flushPromises()
     expect(probe.retryTicket).toHaveBeenCalledWith('D:/repo', 'ticket-2')
+    wrapper.unmount()
+  })
+
+  it('点击卡片打开该工单的右侧面板 —— 队列里已经没有的失败工单也要有入口', async () => {
+    probe.ticketBoard = reviewBoard()
+    probe.openWorkerTab.mockClear()
+    const wrapper = mountView()
+    await flushPromises()
+
+    const cards = wrapper.findAllComponents(WorkerTaskCard)
+    cards[1].vm.$emit('open', 'ticket-2')
+    await flushPromises()
+
+    // ticket-2 是 failed：scheduler.queue() 早就不含它，卡片是唯一在场的入口
+    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-2', '修复注册')
     wrapper.unmount()
   })
 

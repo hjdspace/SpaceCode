@@ -9,7 +9,10 @@
  *  - 派工与队列（T05）：dispatch 走 IPC 幂等命令并刷新队列，queue-changed
  *    只更新当前项目，loadQueue 拉取队列快照。
  *  - 工单卡片（T06 #76）：loadTickets 全量拉取看板；ticket-updated 水位一致
- *    时原位应用（幂等）、断档时全量重拉；ticket-progress 断档不重拉、只存最新。
+ *    时原位应用（幂等）、断档时全量重拉；ticket-progress 断档不重拉、只存最新；
+ *  - Router 对话（T21 #91）：发消息交给主进程 RouterRunner（不走渲染端 turn），
+ *    routerRunning 跟着 IPC 返回与 router-status 广播走，bind/bindWorker 都重读
+ *    引擎转录，重启后 IM 历史与 Worker 面板不会变成空白。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -27,6 +30,9 @@ import { useChatSessionStore } from '../../chatSession'
 
 const mocks = vi.hoisted(() => ({
   routerBind: vi.fn(),
+  routerMessage: vi.fn(),
+  routerAbort: vi.fn(),
+  onRouterStatus: vi.fn(),
   state: vi.fn(),
   health: vi.fn(),
   onHealthChanged: vi.fn(),
@@ -40,12 +46,16 @@ const mocks = vi.hoisted(() => ({
   workerUnbind: vi.fn(),
   traceEvent: vi.fn(),
   stop: vi.fn().mockResolvedValue(undefined),
+  getFullSession: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/services/electronAPI', () => ({
   api: {
     superAgent: {
       routerBind: mocks.routerBind,
+      routerMessage: mocks.routerMessage,
+      routerAbort: mocks.routerAbort,
+      onRouterStatus: mocks.onRouterStatus,
       state: mocks.state,
       health: mocks.health,
       onHealthChanged: mocks.onHealthChanged,
@@ -60,6 +70,7 @@ vi.mock('@/services/electronAPI', () => ({
     },
     claudeCode: {
       stop: mocks.stop,
+      getFullSession: mocks.getFullSession,
       listAgents: vi.fn().mockResolvedValue([]),
       listAllSessions: vi.fn().mockResolvedValue([]),
     },
@@ -85,6 +96,7 @@ function snapshot(overrides: Record<string, unknown> = {}) {
     staleAfterMs: 5000,
     router: { sessionId: 'router-1', running: false },
     attention: { unanswered: 0 },
+    review: { reminded: 0 },
     ...overrides,
   }
 }
@@ -94,6 +106,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   mocks.stop.mockResolvedValue(undefined)
+  mocks.getFullSession.mockResolvedValue(null)
 })
 
 function loadStores() {
@@ -412,6 +425,7 @@ function ticketCard(overrides: Partial<SuperAgentTicketCard> = {}): SuperAgentTi
     ended: null,
     reviewRemindedAt: null,
     canRetry: false,
+    canStop: true,
     ...overrides,
   }
 }
@@ -530,5 +544,93 @@ describe('superAgent store 工单卡片（T06 #76）', () => {
 
     expect(superAgent.ticketBoard).toBeNull()
     expect(superAgent.ticketProgress['ticket-1']).toBeUndefined()
+  })
+})
+
+describe('superAgent store router conversation（T21 #91）', () => {
+  it('sends through the main-process router runner, not the renderer turn', async () => {
+    const { superAgent } = loadStores()
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+    mocks.routerMessage.mockResolvedValue({ sessionId: 'router-1', running: true })
+
+    await superAgent.bind('D:/repo')
+    const result = await superAgent.sendRouterMessage('D:/repo', {
+      requestId: 'req-1',
+      text: '帮我把登录页修好',
+    })
+
+    expect(mocks.routerMessage).toHaveBeenCalledWith('D:/repo', {
+      requestId: 'req-1',
+      text: '帮我把登录页修好',
+    })
+    expect(result.sessionId).toBe('router-1')
+    expect(superAgent.routerRunning).toBe(true)
+  })
+
+  it('clears the running flag when the abort is acknowledged', async () => {
+    const { superAgent } = loadStores()
+    mocks.routerMessage.mockResolvedValue({ sessionId: 'router-1', running: true })
+    mocks.routerAbort.mockResolvedValue(true)
+
+    await superAgent.sendRouterMessage('D:/repo', { requestId: 'req-1', text: '干活' })
+    await superAgent.abortRouter('D:/repo')
+
+    expect(mocks.routerAbort).toHaveBeenCalledWith('D:/repo')
+    expect(superAgent.routerRunning).toBe(false)
+  })
+
+  it('follows router-status only for the bound project, and stops after unsubscribe', () => {
+    const { superAgent } = loadStores()
+    let listener: ((repoRoot: string, router: { sessionId: string; running: boolean }) => void) | undefined
+    mocks.onRouterStatus.mockImplementation((cb) => {
+      listener = cb
+      return () => {}
+    })
+
+    const unsubscribe = superAgent.watchRouterStatus()
+    superAgent.snapshot = snapshot()
+
+    listener?.('D:/other', { sessionId: 'router-x', running: true })
+    expect(superAgent.routerRunning).toBe(false)
+
+    listener?.('D:/repo', { sessionId: 'router-1', running: true })
+    expect(superAgent.routerRunning).toBe(true)
+
+    unsubscribe()
+    expect(mocks.onRouterStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-reads the router transcript on bind: IM history survives a restart', async () => {
+    const { superAgent, chat } = loadStores()
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+    mocks.getFullSession.mockResolvedValue({
+      messages: [
+        { type: 'user', uuid: 'u1', timestamp: '2026-11-05T02:00:00.000Z', message: { role: 'user', content: '做一个考勤表' } },
+        { type: 'assistant', uuid: 'a1', timestamp: '2026-11-05T02:00:05.000Z', message: { role: 'assistant', content: '已派给 worker。' } },
+      ],
+    })
+
+    await superAgent.bind('D:/repo')
+
+    expect(mocks.getFullSession).toHaveBeenCalledWith('D:/repo', 'router-1', undefined)
+    const contents = chat.sessions.find(s => s.id === 'router-1')!.messages.map(m => m.content)
+    expect(contents).toEqual(['做一个考勤表', '已派给 worker。'])
+  })
+
+  it('re-reads the worker transcript on bindWorker: 右侧面板接的是真实转录', async () => {
+    const { superAgent, chat } = loadStores()
+    mocks.workerBind.mockResolvedValue(workerMirror())
+    mocks.getFullSession.mockResolvedValue({
+      messages: [
+        { type: 'user', uuid: 'w1', timestamp: '2026-11-05T02:00:00.000Z', message: { role: 'user', content: '工单任务正文' } },
+        { type: 'assistant', uuid: 'w2', timestamp: '2026-11-05T02:00:09.000Z', message: { role: 'assistant', content: '已改完。' } },
+      ],
+    })
+
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+
+    expect(mocks.getFullSession).toHaveBeenCalledWith('D:/repo', 'superagent-worker-ticket-1', undefined)
+    const contents = chat.sessions.find(s => s.id === 'superagent-worker-ticket-1')!.messages.map(m => m.content)
+    expect(contents).toEqual(['工单任务正文', '已改完。'])
   })
 })

@@ -82,6 +82,7 @@ function card(overrides: Partial<SuperAgentTicketCard> = {}): SuperAgentTicketCa
     ended: null,
     reviewRemindedAt: null,
     canRetry: false,
+    canStop: true,
     ...overrides,
   }
 }

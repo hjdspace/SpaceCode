@@ -8,6 +8,7 @@
  */
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { renderSuperAgentRoutingNote } from './prompts'
 import type {
   SuperAgentDecision,
   SuperAgentMandate,
@@ -43,6 +44,8 @@ export interface WorkerFirstMessageInput {
   /** 派工时携带的 @ 上下文（相对路径）。 */
   contextPaths: string[]
   attachments: string[]
+  /** Router 的路由说明（≤30 字）；只是旁注，不授权也不替代目标原文。 */
+  note?: string | null
   spillWriter: SpillWriter
 }
 
@@ -62,8 +65,9 @@ function spillMarkdown(title: string, content: string): string {
 }
 
 export function assembleWorkerFirstMessage(input: WorkerFirstMessageInput): WorkerFirstMessage {
-  const { ticket, mandate, decision, trigger, workspace, contextPaths, attachments, spillWriter } =
-    input
+  const {
+    ticket, mandate, decision, trigger, workspace, contextPaths, attachments, note, spillWriter,
+  } = input
   const spillFiles: string[] = []
 
   const sections: string[] = []
@@ -96,6 +100,10 @@ export function assembleWorkerFirstMessage(input: WorkerFirstMessageInput): Work
     goalSection = `## 目标\n\n${goalText.slice(0, read)}\n${truncatePlaceholder(goalText.length, read, spillPath)}`
   }
   sections.push(goalSection)
+
+  // ── Router 的路由说明：紧跟目标，位置本身就说明了它的从属 ──
+  const noteSection = renderSuperAgentRoutingNote(note)
+  if (noteSection !== '') sections.push(noteSection)
 
   // ── 共享工作区现状：launch 前脏区检查结果注入首条消息 ──
   const workspaceText = workspace.dirty

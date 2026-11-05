@@ -5,7 +5,7 @@
       :messages="props.messages"
     />
     <div class="message-list" ref="listRef" :class="{ 'has-messages': props.messages.length > 0 || props.loading }">
-      <div class="messages-container">
+      <div class="messages-container" :class="{ im: props.presentation === 'im' }">
         <div v-if="props.messages.length === 0 && !props.loading" class="empty-state">
           <MessageSquare :size="48" />
           <p>{{ t('chat.startConversation') }}</p>
@@ -19,6 +19,7 @@
               :message="item.group!.messages[0]"
               :session-id="props.sessionId"
               :readonly="props.readonly"
+              :presentation="props.presentation"
               :can-rewind="!props.readonly && mode !== 'design' && item.group!.messages[0].id !== props.messages[props.messages.length - 1]?.id"
               @tool-submit="(mId, tId, ans) => emit('toolSubmit', mId, tId, ans)"
               @tool-skip="(mId, tId) => emit('toolSkip', mId, tId)"
@@ -36,6 +37,7 @@
               :loading="props.loading && item.group!.id === messageGroups[messageGroups.length - 1]?.id"
               :turn-start-time="turnStartTime"
               :mode="mode === 'design' ? 'design' : undefined"
+              :presentation="props.presentation"
               @tool-submit="(tId, ans) => emit('toolSubmit', item.group!.id, tId, ans)"
               @tool-skip="(tId) => emit('toolSkip', item.group!.id, tId)"
             />
@@ -53,13 +55,13 @@
             </div>
           </div>
           <CurrentTurnChangeCard
-            v-else-if="mode !== 'design' && item.type === 'turn-card'"
+            v-else-if="mode !== 'design' && item.type === 'turn-card' && presentation !== 'im'"
             :card-data="item.card!"
             class="turn-change-card-wrapper"
           />
           <!-- 本轮产物清单：三种模式都可能产出可打开的交付物 -->
           <ArtifactSummaryCard
-            v-else-if="item.type === 'artifact-card'"
+            v-else-if="item.type === 'artifact-card' && presentation !== 'im'"
             :artifacts="item.artifacts!"
           />
         </template>
@@ -151,6 +153,14 @@ const props = defineProps<{
    * turn checkpoints 之类的当前会话副作用 —— 它渲染的往往不是 currentSessionId。
    */
   readonly?: boolean
+  /**
+   * 展示模式（只改展示面，不换渲染器）：
+   * - `im`：Super Agent 的 Router 气泡流 —— 不显示推理折叠、工具卡片、
+   *   token/模型统计与本轮改动汇总；Router 与宿主之间的建单协议块也剥掉。
+   *   正文仍走同一套 Markdown 渲染，避免两种视图的排版漂移。
+   * - 不传：主聊天原样渲染。
+   */
+  presentation?: 'im'
 }>()
 
 interface MessageGroup {
@@ -668,6 +678,16 @@ onUnmounted(() => {
   > * {
     flex-shrink: 0;
   }
+}
+
+/*
+ * IM 气泡流（设计 §10.2）：更窄的单列，条目之间靠间距而不是分隔线拉开。
+ * 只影响 presentation='im' 的宿主（Super Agent Router），主聊天排版不变。
+ */
+.messages-container.im {
+  max-width: 720px;
+  gap: 10px;
+  padding: 18px 20px 12px;
 }
 
 .session-dialog-list {

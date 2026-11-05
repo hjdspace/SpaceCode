@@ -25,6 +25,14 @@ const invokeApi = createRendererApi(
     routerBind: () => {
       throw new Error('Super Agent is only available in the desktop app')
     },
+    routerMessage: () => {
+      // Router 会话归主进程 RouterRunner；没有主进程就没有这一轮
+      throw new Error('router message is only available in the desktop app')
+    },
+    routerAbort: () => {
+      // 没有 Router 轮次可中止；幂等成功
+      return true as const
+    },
     health: () => ({
       repoRoot: '',
       problemCount: 0,

@@ -1,17 +1,21 @@
 <template>
-  <div class="agent-timeline">
-    <!-- Timeline header with avatar -->
-    <div class="timeline-header">
+  <div class="agent-timeline" :class="{ im: presentation === 'im' }">
+    <!-- Timeline header with avatar（IM 气泡流不挂角色头，见设计 §10.2） -->
+    <div v-if="presentation !== 'im'" class="timeline-header">
       <div class="timeline-avatar">
         <Bot :size="16" />
       </div>
       <span class="timeline-agent-name">{{ t('timeline.agent') }}</span>
-      <span class="timeline-status-badge" :class="overallStatus">
+      <span
+        v-if="presentation !== 'im'"
+        class="timeline-status-badge"
+        :class="overallStatus"
+      >
         <Loader2 v-if="overallStatus === 'running'" :size="10" class="spin-icon" />
         {{ statusLabel }}
       </span>
-      <!-- 用时计时器 -->
-      <div class="timeline-timer" :class="overallStatus">
+      <!-- 用时计时器（IM 模式的计时由外层 typing 承担，不在每条气泡上挂秒表） -->
+      <div v-if="presentation !== 'im'" class="timeline-timer" :class="overallStatus">
         <Clock :size="12" class="timer-icon" />
         <span class="timer-value">{{ timerText }}</span>
       </div>
@@ -375,8 +379,9 @@
 
     </div>
 
-    <!-- 用时汇总条：复用 TurnSummaryBar 组件 -->
+    <!-- 用时汇总条：复用 TurnSummaryBar 组件（IM 展示模式不显示 token/模型统计） -->
     <TurnSummaryBar
+      v-if="presentation !== 'im'"
       :metadata="finalMetadata"
       :reasoning-duration-ms="reasoningDurationMs"
       :loading="overallStatus === 'running'"
@@ -402,6 +407,7 @@ import LoadingState from './LoadingState.vue'
 import { useActivityLabels } from '@/composables/useTurnActivity'
 import ReasoningCard from './ReasoningCard.vue'
 import { stripDesignTags } from '@/utils/chat/buildBlocks'
+import { stripSuperAgentRouterProtocol } from '@/utils/chat/stripRouterProtocol'
 import { formatDurationMs } from '@/utils/formatDuration'
 import { extractEditParts } from '@/lib/editInput'
 import { errorHandler } from '@/services/errorHandler'
@@ -486,6 +492,12 @@ const props = defineProps<{
   turnStartTime?: number
   /** 只读镜像（观察面板）：授权、错误重试与特殊工具卡的应答入口都不生效。 */
   readonly?: boolean
+  /**
+   * 展示模式（只减展示面，不换渲染器）：
+   * `im` = Super Agent Router 的气泡流 —— 只留正文与错误，剥掉推理、工具事件、
+   * 模型/token 统计与汇总条，并摘掉 Router 与宿主之间的建单协议块。
+   */
+  presentation?: 'im'
 }>()
 
 const expandedEvents = reactive<Record<string, boolean>>({})
@@ -646,14 +658,21 @@ let _cachedTimelineKey = ''
  *    `**粗体**`、列表、表格的语法边界截断成互不相干的碎片。
  * 3. 合并之后才剥离设计专用标签，保证跨帧的 <od-card> 仍能整体匹配。
  */
-function normalizeMessageEvents(events: TimelineEvent[], from: number, designMode: boolean): void {
+function normalizeMessageEvents(
+  events: TimelineEvent[],
+  from: number,
+  designMode: boolean,
+  imMode: boolean,
+): void {
   const normalized: TimelineEvent[] = []
   let textRun: TimelineEvent[] = []
 
   const flushTextRun = () => {
     if (!textRun.length) return
     const raw = textRun.map(event => event.content).join('')
-    const content = designMode ? stripDesignTags(raw) : raw
+    const stripped = designMode ? stripDesignTags(raw) : raw
+    // 合并之后才剥协议块：跨帧的围栏要整体匹配，逐块剥会把半截 JSON 留下。
+    const content = imMode ? stripSuperAgentRouterProtocol(stripped) : stripped
     if (content.trim()) {
       normalized.push({
         ...textRun[0],
@@ -803,7 +822,9 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
   const placedDialogIds = new Set<string>()
 
   const finalMetadataMessageId = props.loading ? '' : getFinalMetadataMessageId(msgs)
-  const modeKey = props.mode || 'default'
+  // 展示模式并入缓存键：IM 模式剥了协议块与工具事件，切模式若命中旧缓存
+  // 就会继续看到上一个展示面的内容（同类事故见本文件 769-772 的注释）。
+  const modeKey = `${props.mode || 'default'}-${props.presentation || 'default'}`
   const key = msgs.length > 0
     ? `${modeKey}-${msgs.length}-${msgs[0]?.id}-${msgs[msgs.length - 1]?.id}-${toolStateKey}-${metadataStateKey}-${contentStateKey}-${finalMetadataMessageId}-${dialogStateKey}`
     : `empty-${modeKey}-${dialogStateKey}`
@@ -915,7 +936,7 @@ function buildTimelineEvents(msgs: Message[]): TimelineEvent[] {
     }
 
     insertDialogEvents(events, msgEventsStart, msg.id, dialogs, placedDialogIds)
-    normalizeMessageEvents(events, msgEventsStart, props.mode === 'design')
+    normalizeMessageEvents(events, msgEventsStart, props.mode === 'design', props.presentation === 'im')
 
     if (msg.id === finalMetadataMessageId && hasFinalMetadata(msg.metadata)) {
       events.push({
@@ -963,6 +984,13 @@ const timelineEvents = computed<TimelineEvent[]>(() => {
 })
 
 const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
+  // IM 展示模式只留正文与错误：推理、工具、元数据事件都不进气泡流。
+  // 收敛在这一个过滤点，模板里的工具分组/单行卡/特殊卡自然都不再产出。
+  if (props.presentation === 'im') {
+    return timelineEvents.value.filter(
+      (event) => event.type === 'text' || event.type === 'error',
+    )
+  }
   return timelineEvents.value.filter((event) => {
     if (event.type !== 'tool_call') return true
     const tool = toolOf(event)
@@ -1421,6 +1449,46 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
 <style lang="scss" scoped>
 .agent-timeline {
   padding: 12px 0;
+}
+
+/*
+ * IM 气泡流（设计 §10.2）：Router 的正文是一条中性底气泡，时间线的角色头、
+ * 连接轴与缩进都不属于这个视图。正文仍走同一套 Markdown 渲染 —— 只换外壳，
+ * 不另起渲染器，否则两种视图的排版会从此漂移。
+ */
+.agent-timeline.im {
+  padding: 0;
+
+  .timeline-events,
+  .timeline-waiting {
+    margin-left: 0;
+  }
+
+  .timeline-event {
+    display: block;
+    min-height: 0;
+  }
+
+  .event-spacer {
+    display: none;
+  }
+
+  .event-body {
+    flex: none;
+    padding: 0;
+  }
+
+  .event-text-content {
+    display: inline-block;
+    max-width: min(86%, 560px);
+    padding: 8px 12px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    border-bottom-left-radius: var(--radius-xs);
+    background: var(--bg-elevated);
+    font-size: var(--text-md);
+    line-height: 1.55;
+  }
 }
 
 .timeline-header {

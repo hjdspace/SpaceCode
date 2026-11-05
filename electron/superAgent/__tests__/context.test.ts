@@ -69,7 +69,7 @@ function makeFixture(overrides: { text?: string; contextPaths?: string[]; attach
 function assemble(
   fixture: Fixture,
   workspace: SuperAgentWorkspaceStatus,
-  overrides: { contextPaths?: string[]; attachments?: string[] } = {},
+  overrides: { contextPaths?: string[]; attachments?: string[]; note?: string | null } = {},
 ) {
   const state = fixture.domain.state
   return assembleWorkerFirstMessage({
@@ -80,6 +80,7 @@ function assemble(
     workspace,
     contextPaths: overrides.contextPaths ?? ['src/login.ts'],
     attachments: overrides.attachments ?? ['docs/需求.md'],
+    note: overrides.note,
     spillWriter: fixture.spillWriter,
   })
 }
@@ -103,6 +104,21 @@ describe('assembleWorkerFirstMessage', () => {
     expect(text).toContain('@src/login.ts')
     expect(text).toContain('docs/需求.md')
     expect(message.spillFiles).toEqual([])
+  })
+
+  it('renders the routing note right after the goal and marks it non-authorizing', () => {
+    const fixture = makeFixture()
+    const withNote = assemble(fixture, CLEAN, { note: '人点名了设置页' })
+
+    expect(withNote.text).toContain('## 路由说明')
+    expect(withNote.text).toContain('不授权、不替代上面的目标原文')
+    expect(withNote.text).toContain('人点名了设置页')
+    // 位置本身就是从属关系：紧跟目标，排在现状与派工上下文之前
+    expect(withNote.text.indexOf('## 路由说明')).toBeLessThan(
+      withNote.text.indexOf('## 共享工作区现状'),
+    )
+    // 没有旁注就不该留一个空标题
+    expect(assemble(fixture, CLEAN).text).not.toContain('## 路由说明')
   })
 
   it('injects a clean-workspace note when the repository is clean', () => {
