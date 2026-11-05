@@ -1,7 +1,7 @@
 <template>
   <div
     class="message-item"
-    :class="[message.role, { notification: isTaskNotification }]"
+    :class="[message.role, { notification: isTaskNotification, im: presentation === 'im' }]"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
   >
@@ -18,7 +18,7 @@
       </div>
 
       <template v-else>
-        <div class="message-header">
+        <div v-if="presentation !== 'im'" class="message-header">
           <span class="role-label">{{ message.role === 'user' ? t('chat.you') : message.role === 'system' ? 'System' : t('chat.claude') }}</span>
           <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
         </div>
@@ -54,16 +54,16 @@
           </div>
         </div>
         
-        <!-- 思考过程 -->
+        <!-- 思考过程（IM 展示模式剥掉：Router 气泡流不给人看推理） -->
         <ReasoningCard
-          v-if="message.reasoning"
+          v-if="message.reasoning && presentation !== 'im'"
           :reasoning="message.reasoning"
           :is-thinking="reasoningIsThinking(message)"
         />
         
-        <!-- 工具调用 -->
+        <!-- 工具调用（IM 展示模式剥掉） -->
         <ToolCallList
-          v-if="message.toolCalls?.length"
+          v-if="message.toolCalls?.length && presentation !== 'im'"
           :tool-calls="message.toolCalls"
           :session-id="props.sessionId"
           :readonly="props.readonly"
@@ -115,8 +115,10 @@
           class="message-action-bar"
           :class="{ 'is-visible': isHovered }"
         >
+          <!-- 回滚/编辑依赖主聊天的 turnStore 通路，IM 视图没有接线：
+               在这里出现就是死按钮，只留复制。 -->
           <button
-            v-if="canRewind !== false"
+            v-if="canRewind !== false && presentation !== 'im'"
             class="action-button"
             :title="t('chat.rewind')"
             :aria-label="t('chat.rewind')"
@@ -125,7 +127,7 @@
             <RotateCcw :size="13" />
           </button>
           <button
-            v-if="!readonly"
+            v-if="!readonly && presentation !== 'im'"
             class="action-button"
             :title="t('chat.editMessage')"
             :aria-label="t('chat.editMessage')"
@@ -144,8 +146,8 @@
           </button>
         </div>
         
-        <!-- 元数据 -->
-        <MessageMetadata v-if="message.role === 'assistant' && message.metadata" :metadata="message.metadata" />
+        <!-- 元数据（token/模型/用时）：IM 展示模式剥掉 -->
+        <MessageMetadata v-if="message.role === 'assistant' && message.metadata && presentation !== 'im'" :metadata="message.metadata" />
 
         <!-- 工作台快捷入口: 识别输出中的 localhost/URL/本地 HTML/Markdown -->
         <div v-if="workbenchTargets.length" class="workbench-hint-bar">
@@ -209,6 +211,11 @@ const props = defineProps<{
   sessionId?: string
   /** 只读镜像（观察面板）：不提供编辑/回退/工具应答入口。 */
   readonly?: boolean
+  /**
+   * 展示模式（由 MessageList 下传；只减展示面，不换渲染器）。
+   * `im` = Super Agent Router 气泡流：剥掉推理、工具卡与 token/模型统计。
+   */
+  presentation?: 'im'
 }>()
 
 const emit = defineEmits<{
@@ -529,6 +536,61 @@ function handleUserCopy(e: ClipboardEvent) {
       background: var(--surface-glass);
       color: var(--accent-primary);
       border: 1px solid var(--surface-border);
+    }
+  }
+
+  /*
+   * IM 气泡流（设计 §10.2）：单列气泡，没有分隔线也没有角色头。
+   * 用户 = accent 底强调、靠右；Router 侧的正文由 AgentTimeline 出中性底气泡。
+   * 正文仍走同一套 Markdown 渲染 —— 只换外壳，不另起渲染器。
+   */
+  &.im {
+    gap: 8px;
+    max-width: 86%;
+    padding: 2px 0;
+    border-top: 0;
+
+    .message-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: var(--radius-sm);
+    }
+
+    .message-body {
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+
+    .message-content {
+      padding: 8px 12px;
+      border-radius: var(--radius-lg);
+      font-size: var(--text-md);
+      line-height: 1.55;
+    }
+
+    .message-action-bar {
+      padding-left: 34px;
+    }
+  }
+
+  &.im.user {
+    // .minimap-anchor 是整宽的块级容器，不是 flex 子项 —— 靠右只能靠外边距
+    margin-left: auto;
+
+    .message-avatar {
+      background: var(--accent-primary);
+      color: #fff;
+    }
+
+    .message-content {
+      background: var(--accent-primary);
+      border-color: transparent;
+      border-bottom-right-radius: var(--radius-xs);
+
+      p,
+      .user-text {
+        color: #fff;
+      }
     }
   }
 }
