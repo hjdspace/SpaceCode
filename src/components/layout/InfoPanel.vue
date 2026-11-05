@@ -25,6 +25,8 @@
 
       <SideTaskPanel v-else-if="mode === 'side-task'" />
 
+      <WorkerLivePanel v-else-if="mode === 'worker'" />
+
       <DesignFileWorkspace v-else-if="mode === 'design-preview'" />
 
       <PreviewPanel
@@ -183,6 +185,7 @@ import MarkdownViewer from '../common/MarkdownViewer.vue'
 import ToolDiffViewer from '../common/ToolDiffViewer.vue'
 import SubagentPanel from './SubagentPanel.vue'
 import SideTaskPanel from './SideTaskPanel.vue'
+import WorkerLivePanel from '../superAgent/WorkerLivePanel.vue'
 import {
   INSPECTOR_SCRIPT,
   INSPECTOR_SELECT_PREFIX,

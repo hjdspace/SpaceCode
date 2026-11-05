@@ -1325,44 +1325,9 @@ async function handleSend(content: string, attachments: AllAttachments, options?
     appStore.openArtifactsPanel()
   }
 
-  const userTyped = content.trim()
-  let messageContent = userTyped
-
-  // 上传/粘贴的附件用引擎认识的 @"绝对路径" 引用写进正文，模型才能真正读到文件内容；
-  // 展示用的气泡正文不包含这些引用（见下方 displayLabel）。
-  const engineReferencedFiles = attachments.files.filter(
-    att => att.source === 'upload' || att.source === 'paste'
-  )
-  if (engineReferencedFiles.length > 0) {
-    const fileRefs = engineReferencedFiles.map(att => `@"${att.path}"`).join(' ')
-    messageContent = messageContent ? `${fileRefs} ${messageContent}` : fileRefs
-  }
-
-  if (attachments.files.length > 0) {
-    const attachmentInfo = attachments.files.map(att =>
-      att.isFolder ? `[Folder: ${att.name}]` : `[File: ${att.name}]`
-    ).join(', ')
-
-    if (messageContent) {
-      messageContent += `\n\nAttachments: ${attachmentInfo}`
-    } else {
-      messageContent = `Attachments: ${attachmentInfo}`
-    }
-  }
-
-  if (attachments.images.length > 0) {
-    const imageInfo = attachments.images.map(img => `[Image: ${img.name}]`).join(', ')
-    if (messageContent) {
-      messageContent += `\n\nImages: ${imageInfo}`
-    } else {
-      messageContent = `Images: ${imageInfo}`
-    }
-  }
-
-  const displayLabel = options?.displayLabel && options.displayLabel !== messageContent
-    ? options.displayLabel
-    : userTyped
-  const userContent = displayLabel !== messageContent ? displayLabel : undefined
+  // 发送正文组装抽到 lib/composer-outgoing（与 Super Agent Router 宿主共用同一份，
+  // 保证 @"路径" 引用与附件摘要块的格式在所有宿主逐字一致）
+  const { messageContent, userContent } = buildOutgoingMessage(content, attachments, options)
 
   console.log('[ChatPanel] Calling turnStore.sendMessage...')
   try {
@@ -1442,7 +1407,13 @@ async function handleSlashCommand(command: string, args: string, attachments: Al
 }
 
 // 导入新的命令系统
-import { BUILT_IN_COMMANDS, COMMAND_PROMPTS, findCommand, type CommandKind } from '@/lib/constants/commands'
+import { findCommand } from '@/lib/constants/commands'
+import { buildOutgoingMessage } from '@/lib/composer-outgoing'
+import {
+  generateCostMessage as generateCostMessageText,
+  generateHelpMessage as generateHelpMessageText,
+  generateKeybindingsMessage as generateKeybindingsMessageText,
+} from '@/lib/slashCommandMessages'
 
 // ── /goal 命令处理 ──────────────────────────────────────────────
 // 引擎 headless 模式下 /goal（local-jsx）被过滤，目标生命周期由应用侧
@@ -1618,31 +1589,9 @@ case 'mcp':
   }
 }
 
-// 生成帮助信息
+// 生成帮助信息：与 Super Agent Router 宿主共用 lib/slashCommandMessages 的同一份实现
 function generateHelpMessage(): string {
-  const immediate = BUILT_IN_COMMANDS.filter((c) => c.immediate || c.kind === 'immediate')
-  const sdk = BUILT_IN_COMMANDS.filter((c) => c.kind === 'sdk_command')
-  const codepilot = BUILT_IN_COMMANDS.filter((c) => c.kind === 'codepilot_command')
-
-  return `## ${t('chatPanel.helpTitle')}
-
-### ${t('chatPanel.helpInstant')}
-${immediate.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
-
-### ${t('chatPanel.helpSdk')}
-${sdk.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
-
-### ${t('chatPanel.helpCodepilot')}
-${codepilot.map((c) => `- **/${c.name}** — ${c.description}`).join('\n')}
-
-### ${t('chatPanel.helpCustomSkills')}
-${t('chatPanel.helpCustomSkillsDesc')}
-
-**${t('chatPanel.helpTips')}**:
-- ${t('chatPanel.helpTipBrowse')}
-- ${t('chatPanel.helpTipMention')}
-- ${t('chatPanel.helpTipNewline')}
-- ${t('chatPanel.helpTipProject')}`
+  return generateHelpMessageText(t)
 }
 
 // 获取并展示 Git Diff
@@ -1676,42 +1625,9 @@ async function fetchAndShowDiff() {
   }
 }
 
-// 生成 Token 用量信息
+// 生成 Token 用量信息：与 Super Agent Router 宿主共用 lib/slashCommandMessages 的同一份实现
 function generateCostMessage(): string {
-  const messages = paneRawMessages.value
-  let totalInput = 0
-  let totalOutput = 0
-  let turnCount = 0
-
-  for (const msg of messages) {
-    // Estimate tokens (rough approximation: 1 token ≈ 4 characters)
-    const content = msg.content || ''
-    const estimatedTokens = Math.ceil(content.length / 4)
-
-    if (msg.role === 'user') {
-      totalInput += estimatedTokens
-    } else if (msg.role === 'assistant') {
-      totalOutput += estimatedTokens
-      turnCount++
-    }
-  }
-
-  const totalTokens = totalInput + totalOutput
-
-  if (turnCount === 0) {
-    return `## ${t('chatPanel.costTitle')}\n\n${t('chatPanel.costNoMessages')}`
-  }
-
-  return `## ${t('chatPanel.costTitleEstimated')}
-
-| ${t('chatPanel.costMetric')} | ${t('chatPanel.costCount')} |
-|--------|-------|
-| ${t('chatPanel.costInputTokens')} | ${totalInput.toLocaleString()} |
-| ${t('chatPanel.costOutputTokens')} | ${totalOutput.toLocaleString()} |
-| **${t('chatPanel.costTotalTokens')}** | **${totalTokens.toLocaleString()}** |
-| ${t('chatPanel.costTurns')} | ${turnCount} |
-
-*${t('chatPanel.costNote')}*`
+  return generateCostMessageText(paneRawMessages.value, t)
 }
 
 // 生成上下文信息
@@ -1740,18 +1656,7 @@ function generateContextMessage(): string {
 }
 
 function generateKeybindingsMessage(): string {
-  return `## ${t('chatPanel.keybindingsTitle')}
-
-| ${t('chatPanel.keybindingsShortcut')} | ${t('chatPanel.keybindingsAction')} |
-|----------|--------|
-| Enter | ${t('chatPanel.keybindingsSendMessage')} |
-| Shift+Enter | ${t('chatPanel.keybindingsNewLine')} |
-| / | ${t('chatPanel.keybindingsCommandPalette')} |
-| @ | ${t('chatPanel.keybindingsMentionFile')} |
-| Escape | ${t('chatPanel.keybindingsCloseMenu')} |
-| ↑↓ | ${t('chatPanel.keybindingsNavigate')} |
-| Tab | ${t('chatPanel.keybindingsAcceptSuggestion')} |
-| Ctrl+Z | ${t('chatPanel.keybindingsUndo')} |`
+  return generateKeybindingsMessageText(t)
 }
 
 // 处理打开技能管理器

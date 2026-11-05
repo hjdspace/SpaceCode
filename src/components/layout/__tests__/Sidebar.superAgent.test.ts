@@ -75,6 +75,8 @@ describe('Sidebar Super Agent entry', () => {
     const wrapper = mountSidebar(pinia)
     expect(wrapper.find('[data-testid="super-agent-attention-badge"]').exists()).toBe(false)
 
+    // T10 #80：入口徽章 = Attention + review 超时提醒（都按工单去重后合并；
+    // review 工单不可能同时挂 open Attention，两组集合天然不相交）
     superAgentStore.snapshot = {
       repoRoot: 'D:/repo',
       seq: 1,
@@ -82,10 +84,11 @@ describe('Sidebar Super Agent entry', () => {
       staleAfterMs: 5000,
       router: null,
       attention: { unanswered: 3 },
+      review: { reminded: 2 },
     }
 
     return wrapper.vm.$nextTick().then(() => {
-      expect(wrapper.find('[data-testid="super-agent-attention-badge"]').text()).toBe('3')
+      expect(wrapper.find('[data-testid="super-agent-attention-badge"]').text()).toBe('5')
       wrapper.unmount()
     })
   })

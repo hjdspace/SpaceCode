@@ -31,6 +31,21 @@ export interface SlashCommand {
 
 // ── Pure logic (exported for testing) ──────────────────────────
 
+/**
+ * 宿主裁剪：按名称（含别名）隐藏命令 —— 只影响菜单展示，不裁剪组件能力。
+ * Super Agent Router 等宿主用它隐藏依赖主聊天本地 UI 的命令（rewind/diff/context）。
+ * 空排除列表时原样返回输入引用（纯过滤，无 mutation）。
+ */
+export function excludeSlashCommands<T extends { name: string; aliases?: string[] }>(
+  commands: T[],
+  excluded: readonly string[],
+): T[] {
+  if (excluded.length === 0) return commands
+  return commands.filter(
+    cmd => !excluded.includes(cmd.name) && !(cmd.aliases?.some(alias => excluded.includes(alias)) ?? false)
+  )
+}
+
 /** Check if text before cursor triggers slash command menu */
 export function checkSlashTrigger(textBeforeCursor: string): { triggered: boolean; query: string } | null {
   const lastNewLine = textBeforeCursor.lastIndexOf('\n')
@@ -72,7 +87,11 @@ export function removeSlashTriggerText(text: string): { cleaned: string; trigger
 
 // ── Composable ─────────────────────────────────────────────────
 
-export function useSlashCommands(options: { workingDirectory?: () => string } = {}) {
+export function useSlashCommands(options: {
+  workingDirectory?: () => string
+  /** 宿主裁剪：要隐藏的内置命令名（含别名）；只影响菜单，不裁剪派发能力 */
+  excludeCommands?: () => string[]
+} = {}) {
   const commandPalette = useCommandPalette()
   const skillsStore = useSkillsStore()
   const mcpStore = useMcpStore()
@@ -93,7 +112,7 @@ export function useSlashCommands(options: { workingDirectory?: () => string } = 
 
   // Computed command lists
   const builtinSlashCommands = computed<SlashCommand[]>(() => {
-    return BUILT_IN_COMMANDS.map(cmd => ({
+    return excludeSlashCommands(BUILT_IN_COMMANDS, options.excludeCommands?.() ?? []).map(cmd => ({
       name: cmd.name,
       description: cmd.description,
       icon: (cmd.icon && iconMap[cmd.icon]) || Zap,

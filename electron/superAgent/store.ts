@@ -113,6 +113,11 @@ export class ProjectStoreError extends Error {
 export interface ProjectStoreDeps {
   now?: () => Date
   isProcessAlive?: (pid: number) => boolean
+  /**
+   * T11 #81：锁持有者是否仍在本进程内活跃（默认查 ACTIVE_LOCKS）。
+   * 测试注入 () => false 可模拟「本进程已崩溃、换新进程接管陈旧锁」的重启。
+   */
+  isLockHeldInProcess?: (holder: { pid: number; token: string }) => boolean
   writeJsonAtomic?: (path: string, value: unknown) => void
   appendFile?: (path: string, data: string) => void
 }
@@ -269,6 +274,8 @@ function acquireProjectLock(
   path: string,
   isProcessAlive: (pid: number) => boolean,
   now: () => Date,
+  isLockHeldInProcess: (holder: { pid: number; token: string }) => boolean = (holder) =>
+    ACTIVE_LOCKS.has(lockKey(path, holder.token)),
 ): string {
   mkdirSync(dirname(path), { recursive: true })
   const token = randomUUID()
@@ -285,7 +292,7 @@ function acquireProjectLock(
   }
   if (existing.kind === 'lock') {
     const holder = existing.lock
-    if (ACTIVE_LOCKS.has(lockKey(path, holder.token)) || isProcessAlive(holder.pid)) {
+    if (isLockHeldInProcess(holder) || isProcessAlive(holder.pid)) {
       throw new ProjectStoreError('locked', `project is locked by pid ${holder.pid}`, {
         pid: holder.pid,
         path,
@@ -397,7 +404,12 @@ export function openProjectStore<TState>(options: OpenProjectStoreOptions<TState
     quarantine: join(dir, PROJECT_QUARANTINE_FILE),
   }
 
-  const token = acquireProjectLock(paths.lock, isProcessAlive, now)
+  const token = acquireProjectLock(
+    paths.lock,
+    isProcessAlive,
+    now,
+    deps.isLockHeldInProcess,
+  )
 
   const quarantined: StoreQuarantineEntry[] = []
   const seqGaps: StoreSeqGap[] = []

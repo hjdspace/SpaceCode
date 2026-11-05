@@ -1,13 +1,14 @@
 /**
- * Super Agent renderer API — invoke channels 从 shared 定义表驱动生成。
- * 非桌面桥接（H5 等）没有 Router 运行时：state 返回空快照，bind 明确拒绝。
+ * Super Agent renderer API — invoke channels 与事件从 shared 定义表驱动生成。
+ * 非桌面桥接（H5 等）没有 Router 运行时：state/queue 返回空投影，bind 与 dispatch
+ * 明确拒绝，health.changed / queue-changed 订阅退化为 noop。
  */
 import { superAgentNamespace } from '@/shared/channels/superAgent'
-import type { SuperAgentRendererApi } from '@/shared/channels/superAgent'
-import { createRendererApi, type AnyElectronAPI } from '@/shared/rendererApi'
+import type { SuperAgentRendererApi, SuperAgentEventApi } from '@/shared/channels/superAgent'
+import { createRendererApi, createEventApi, type AnyElectronAPI } from '@/shared/rendererApi'
 import { electronAPI } from './_context'
 
-export const superAgent: SuperAgentRendererApi = createRendererApi(
+const invokeApi = createRendererApi(
   superAgentNamespace.channels,
   'superAgent',
   electronAPI as unknown as AnyElectronAPI,
@@ -19,9 +20,120 @@ export const superAgent: SuperAgentRendererApi = createRendererApi(
       staleAfterMs: 5000,
       router: null,
       attention: { unanswered: 0 },
+      review: { reminded: 0 },
     }),
     routerBind: () => {
       throw new Error('Super Agent is only available in the desktop app')
     },
+    health: () => ({
+      repoRoot: '',
+      problemCount: 0,
+      degradedCount: 0,
+      items: [],
+      dispositions: [],
+      updatedAt: new Date(0).toISOString(),
+    }),
+    evalReevaluate: () => {
+      // 处置依赖主进程领域运行时，非桌面环境明确拒绝而不是假装成功
+      throw new Error('eval reevaluate is not available in the desktop-less runtime')
+    },
+    problemDismiss: () => {
+      throw new Error('problem dismiss is not available in the desktop-less runtime')
+    },
+    healthRetry: () => {
+      throw new Error('health retry is not available in the desktop-less runtime')
+    },
+    dispatch: () => {
+      // 显式派工依赖主进程 Router/Worker 运行时，非桌面环境明确拒绝而非假排队
+      throw new Error('Super Agent is only available in the desktop app')
+    },
+    queue: () => ({
+      repoRoot: '',
+      maxWorkers: 1,
+      running: [],
+      queued: [],
+    }),
+    tickets: () => ({
+      // 非桌面环境没有工单运行时：空看板、seq 0，与主进程初始状态一致
+      repoRoot: '',
+      seq: 0,
+      tickets: [],
+    }),
+    workerBind: () => {
+      // Worker 镜像依赖主进程编排运行时，非桌面环境明确拒绝而非假镜像
+      throw new Error('Super Agent is only available in the desktop app')
+    },
+    workerUnbind: () => {
+      // 非桌面环境没有已启动的镜像可停；幂等成功
+      return true as const
+    },
+    workerTakeover: () => {
+      // 非桌面环境没有 Worker 可接管；交还幂等成功，接管不可用
+      throw new Error('worker takeover is only available in desktop')
+    },
+    workerRelease: () => {
+      // 非桌面环境没有接管态可交还；幂等成功
+      return true as const
+    },
+    workerMessage: () => {
+      // 非桌面环境没有引擎投递链路；拒绝而不是假装成功
+      throw new Error('worker message is only available in desktop')
+    },
+    attentions: () => ({
+      // 非桌面环境没有 Attention 运行时：空看板、待处理 0，与主进程初始状态一致
+      repoRoot: '',
+      attentions: [],
+      pendingTickets: 0,
+    }),
+    attentionAnswer: () => {
+      // 回答依赖主进程领域落库与投递链路，非桌面环境明确拒绝
+      throw new Error('attention answer is only available in desktop')
+    },
+    ticketAccept: () => {
+      // 验收依赖主进程领域落库，非桌面环境明确拒绝而不是假装成功
+      throw new Error('ticket accept is only available in desktop')
+    },
+    ticketStop: () => {
+      throw new Error('ticket stop is only available in desktop')
+    },
+    ticketMessage: () => {
+      // 追问依赖引擎投递链路（与 workerMessage 同一套对账），非桌面环境拒绝
+      throw new Error('ticket message is only available in desktop')
+    },
+    ticketRetry: () => {
+      throw new Error('ticket retry is only available in desktop')
+    },
+    pause: () => {
+      // 暂停依赖主进程领域运行时与持久化状态，非桌面环境明确拒绝
+      throw new Error('pause is not available in the desktop-less runtime')
+    },
+    resume: () => {
+      throw new Error('resume is not available in the desktop-less runtime')
+    },
+    policy: () => ({
+      // 非桌面环境没有调度运行时：返回默认串行策略（只读，无副作用）
+      repoRoot: '',
+      policy: { mode: 'serial' as const, maxWorkers: 1, worktree: 'none' as const },
+    }),
+    policySet: () => {
+      // 策略变更依赖主进程领域落库，非桌面环境明确拒绝
+      throw new Error('policy set is not available in the desktop-less runtime')
+    },
+    checkpoint: () => ({
+      // 非桌面环境没有执行运行时：无检查点、无回退候选
+      repoRoot: '',
+      checkpoint: null,
+      changedFiles: [],
+    }),
+    checkpointRollback: () => {
+      throw new Error('checkpoint rollback is not available in the desktop-less runtime')
+    },
   },
 )
+
+const eventApi = createEventApi(superAgentNamespace.events, 'superAgent', electronAPI as unknown as AnyElectronAPI)
+
+export const superAgent: SuperAgentRendererApi & SuperAgentEventApi = {
+  ...invokeApi,
+  ...eventApi,
+}

@@ -13,6 +13,7 @@ import {
   superAgentError,
   superAgentErrorCategory,
   superAgentErrorI18nKey,
+  serializeSuperAgentError,
   type SuperAgentErrorCategory,
 } from '../errors'
 
@@ -86,5 +87,52 @@ describe('error locale skeleton', () => {
 
   it('keeps the same set of error keys across locales', () => {
     expect(Object.keys(zhCN.errors).sort()).toEqual(Object.keys(enUS.errors).sort())
+  })
+})
+
+describe('serializeSuperAgentError', () => {
+  it('serializes a domain error into the stable payload', () => {
+    const payload = serializeSuperAgentError(superAgentError('ticketEnded', { ticketId: 'ticket-1' }))
+
+    expect(payload).toEqual({
+      code: 'ticketEnded',
+      category: 'refused',
+      i18nKey: 'superAgent.errors.ticketEnded',
+      params: { ticketId: 'ticket-1' },
+      known: true,
+    })
+  })
+
+  it('accepts a known stable code carried by a plain error object', () => {
+    const payload = serializeSuperAgentError(Object.assign(new Error('boom'), { code: 'slotUnavailable' }))
+
+    expect(payload.code).toBe('slotUnavailable')
+    expect(payload.category).toBe('unavailable')
+    expect(payload.i18nKey).toBe('superAgent.errors.slotUnavailable')
+    expect(payload.known).toBe(true)
+  })
+
+  it('falls back to the generic key for an unknown code but keeps the code for audit', () => {
+    const payload = serializeSuperAgentError(Object.assign(new Error('boom'), { code: 'someFutureCode' }))
+
+    expect(payload.code).toBe('someFutureCode')
+    expect(payload.category).toBe('unknown')
+    expect(payload.i18nKey).toBe('superAgent.errors.unknown')
+    expect(payload.known).toBe(false)
+  })
+
+  it('falls back to the generic payload when the error carries no code at all', () => {
+    const payload = serializeSuperAgentError(new Error('network hiccup'))
+
+    expect(payload.code).toBe('unknown')
+    expect(payload.category).toBe('unknown')
+    expect(payload.i18nKey).toBe('superAgent.errors.unknown')
+    expect(payload.known).toBe(false)
+  })
+
+  it('never leaks the raw exception message into the payload', () => {
+    const payload = serializeSuperAgentError(new Error('secret stack detail'))
+
+    expect(JSON.stringify(payload)).not.toContain('secret stack detail')
   })
 })

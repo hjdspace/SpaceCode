@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw, watch } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow, MessagesSquare, Sparkles } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow, MessagesSquare, Sparkles, HardHat } from 'lucide-vue-next'
 import { useChatSessionStore } from './chatSession'
+import { useSuperAgentStore } from './superAgent'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
 import { useSplitLayoutStore } from './splitLayout'
 import { api } from '@/services/electronAPI'
@@ -68,7 +69,7 @@ export interface InputInjectPayload {
   targetSessionId?: string
 }
 
-export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview' | 'subagent' | 'side-task'
+export type InfoPanelTabType = 'file' | 'markdown' | 'diff' | 'tool-diff' | 'webview' | 'terminal' | 'artifacts' | 'office-preview' | 'design-preview' | 'subagent' | 'side-task' | 'worker'
 
 /** 侧边任务：与主会话并行的一次性辅助对话，关闭标签即销毁其临时会话 */
 export interface SideTask {
@@ -81,8 +82,21 @@ export interface InfoPanelTab {
   type: InfoPanelTabType
   title: string
   icon: any
-  data: FileInfo | ToolDiffData | WebviewTabData | ScmDiffTabData | null
+  data: FileInfo | ToolDiffData | WebviewTabData | ScmDiffTabData | WorkerTabData | null
   closeable: boolean
+}
+
+/** Worker 只读镜像标签（T07 #77）：按 ticketId 定位镜像与稳定会话 */
+export interface WorkerTabData {
+  ticketId: string
+  /** 打开标签时的项目根：关闭标签时按它寻址 unbind，避免切换项目后误发新项目。 */
+  repoRoot: string
+}
+
+/** 从 worker 标签数据里取 ticketId；非 worker 标签返回 null。 */
+export function workerTicketId(tab: InfoPanelTab | null): string | null {
+  if (!tab || tab.type !== 'worker') return null
+  return (tab.data as WorkerTabData | null)?.ticketId ?? null
 }
 
 export interface SubagentPanelState {
@@ -105,6 +119,9 @@ const WORK_WORKSPACE_CONFIRMED_STORAGE_KEY = 'app_work_workspace_confirmed'
 
 /** 右侧面板中承载侧边任务的固定标签 id */
 const SIDE_TASK_TAB_ID = 'side-task'
+
+/** Worker 只读镜像标签 id 前缀：worker:<ticketId>，多标签并存互不抢占 */
+const WORKER_TAB_PREFIX = 'worker:'
 
 /** 工作模式：code = 编码模式（默认）；work = 办公助手模式；design = 设计模式 */
 export type AppMode = 'work' | 'code' | 'design'
@@ -318,9 +335,13 @@ export const useAppStore = defineStore('app', () => {
     const index = infoPanelTabs.value.findIndex(t => t.id === tabId)
     if (index === -1) return
 
+    const closing = infoPanelTabs.value[index]
     if (tabId === SIDE_TASK_TAB_ID) disposeAllSideTasks()
 
     infoPanelTabs.value.splice(index, 1)
+
+    // Worker 标签关闭即停镜像（会话与转录保留，重开标签可从快照恢复）
+    unbindWorkerTab(closing)
 
     if (activeInfoTabId.value === tabId) {
       if (infoPanelTabs.value.length === 0) {
@@ -337,6 +358,7 @@ export const useAppStore = defineStore('app', () => {
 
   function closeAllInfoTabs() {
     disposeAllSideTasks()
+    for (const tab of infoPanelTabs.value) unbindWorkerTab(tab)
     infoPanelTabs.value = []
     activeInfoTabId.value = null
     infoPanelVisible.value = false
@@ -363,6 +385,32 @@ export const useAppStore = defineStore('app', () => {
     infoPanelVisible.value = false
     // 退出全屏，否则中间面板仍被隐藏
     infoPanelFullscreen.value = false
+  }
+
+  // ── Worker 只读镜像标签（T07 #77）──────────────────────────────
+
+  /**
+   * 点击工单卡片打开 Worker 只读标签：id 为 worker:<ticketId>，多标签并存、
+   * 重复点击复用已有标签，不抢占其他标签；只读观察，不自动接管。
+   * 镜像由 WorkerLivePanel 挂载时 bindWorker 建立。
+   */
+  function openWorkerTab(ticketId: string, title: string) {
+    openInfoTab({
+      id: `${WORKER_TAB_PREFIX}${ticketId}`,
+      type: 'worker',
+      title,
+      icon: markRaw(HardHat),
+      data: { ticketId, repoRoot: projectRoot.value },
+      closeable: true,
+    })
+  }
+
+  /** Worker 标签关闭即停镜像；会话与转录保留，后台推进不受影响 */
+  function unbindWorkerTab(tab: InfoPanelTab) {
+    if (tab.type !== 'worker') return
+    const data = tab.data as WorkerTabData | null
+    if (!data?.ticketId || !data.repoRoot) return
+    void useSuperAgentStore().unbindWorker(data.repoRoot, data.ticketId)
   }
 
   // ── 侧边任务（与主任务并行的临时辅助对话）─────────────────────────
@@ -1226,6 +1274,7 @@ export const useAppStore = defineStore('app', () => {
     toggleSettings,
     showInfoPanel,
     openSubagentPanel,
+    openWorkerTab,
     closeSubagentPanel,
     hideInfoPanel,
     toggleInfoPanel,

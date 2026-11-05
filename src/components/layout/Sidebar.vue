@@ -24,12 +24,14 @@
         :aria-label="t('superAgent.entry')"
       >
         <Sparkles :size="20" />
+        <!-- 入口徽章（T08/T10）：Attention + review 超时提醒按工单去重合并
+             （review 工单不可能同时挂 open Attention，两组集合天然不相交） -->
         <span
-          v-if="superAgentStore.attentionCount > 0"
+          v-if="superAgentEntryBadgeCount > 0"
           class="super-agent-badge"
           data-testid="super-agent-attention-badge"
-          :title="t('superAgent.attentionBadge', { count: superAgentStore.attentionCount })"
-        >{{ superAgentStore.attentionCount }}</span>
+          :title="t('superAgent.attentionBadge', { count: superAgentEntryBadgeCount })"
+        >{{ superAgentEntryBadgeCount }}</span>
         <span class="icon-label">{{ t('superAgent.entry') }}</span>
       </button>
 
@@ -454,6 +456,13 @@ const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const scmStore = useScmStore()
 const superAgentStore = useSuperAgentStore()
+/**
+ * 入口徽章计数（T08 #78 + T10 #80）：Attention 与 review 超时提醒都按工单
+ * 去重后合并 —— review 阶段的工单不可能同时挂 open Attention，不会重复计数。
+ */
+const superAgentEntryBadgeCount = computed(
+  () => superAgentStore.attentionCount + superAgentStore.reviewRemindedCount,
+)
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { addFileToFile } = useFileToChat()

@@ -115,3 +115,15 @@ export function deriveTicketStage(facts: TicketStageFacts): SuperAgentTicketStag
 
   return 'working'
 }
+
+/**
+ * T10 #80 人工重试闸门（设计 §7.4）：只有 open 且处于 person/delivery、
+ * person/blocked、person/failed 的工单允许重试。人工消息已到达 blocked/failed
+ * 时阶段已回到 working（消息交给执行方），自然不再开放；review/working/idle
+ * 一律拒绝。与阶段派生共用同一事实源，避免两处条件漂移。
+ */
+export function canRetryTicket(facts: TicketStageFacts): boolean {
+  if (facts.ticket.state !== 'open') return false
+  const stage = deriveTicketStage(facts)
+  return stage === 'person/delivery' || stage === 'person/blocked' || stage === 'person/failed'
+}

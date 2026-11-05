@@ -14,6 +14,9 @@ const { claudeCodeApi } = vi.hoisted(() => ({
   claudeCodeApi: {
     allowPermission: vi.fn().mockResolvedValue(undefined),
     denyPermission: vi.fn().mockResolvedValue(undefined),
+    // 工具应答兜底：真实 ChatStore 在会话寻址时会调用，缺 mock 会漏出 unhandled rejection
+    submitToolAnswer: vi.fn().mockResolvedValue(undefined),
+    skipToolAnswer: vi.fn().mockResolvedValue(undefined),
   },
 }))
 
