@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripSuperAgentRouterProtocol } from './stripRouterProtocol'
+import { stripSuperAgentRouterProtocol } from '../stripRouterProtocol'
 
 const FENCE = '```super-agent:route'
 
