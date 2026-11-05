@@ -134,6 +134,14 @@ export interface DispatchInput {
   repoRoot: string
   /** 工单目标描述；超预算部分由 Scheduler 落 Spill（见 context.ts）。 */
   text: string
+  /**
+   * Router 的路由说明（≤30 字）。
+   *
+   * 不授权、不持久：它只进 Worker 首轮消息的旁注段（scheduler 的 dispatchContext
+   * 与 contextPaths 同一通道），也不参与幂等指纹 —— 同一 requestId 换了一条旁注
+   * 仍是同一张工单，旁注不足以构成"不同事实"。
+   */
+  note?: string
   actor: string
   /** 派工时携带的 @ 上下文（相对路径），注入 Worker 首轮消息。 */
   contextPaths?: string[]
