@@ -210,6 +210,28 @@ describe('buildArgs — base protocol flags', () => {
   it('omits --allowedTools entirely when the list is empty so the engine allows all', () => {
     expect(buildArgs({ allowedTools: [] })).not.toContain('--allowedTools')
   })
+
+  /**
+   * baseTools 是基础工具面（引擎 --tools）：undefined = 不裁剪；[] = 全部工具从
+   * 工具池移除（引擎文档语义 --tools ""）；非空 = 只保留列出的工具。
+   * 与 --allowedTools（权限预批清单）是两个概念 —— Super Agent Router 用它实现
+   * "只说话不出手"。
+   */
+  it('omits --tools when baseTools is undefined so every tool stays', () => {
+    expect(buildArgs()).not.toContain('--tools')
+  })
+
+  it('passes --tools "" for an empty baseTools so the engine removes every tool', () => {
+    const args = buildArgs({ baseTools: [] })
+    const i = args.indexOf('--tools')
+    expect(args.slice(i, i + 2)).toEqual(['--tools', ''])
+  })
+
+  it('joins non-empty baseTools into a single --tools value', () => {
+    const args = buildArgs({ baseTools: ['Read', 'Grep'] })
+    const i = args.indexOf('--tools')
+    expect(args.slice(i, i + 2)).toEqual(['--tools', 'Read Grep'])
+  })
 })
 
 describe('buildArgs — --settings file selection', () => {
