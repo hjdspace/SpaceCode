@@ -57,6 +57,8 @@ import type {
   SuperAgentHealthReport,
   SuperAgentPolicySetCommand,
   SuperAgentQueueSnapshot,
+  SuperAgentRouterMessageCommand,
+  SuperAgentRouterMessageResult,
   SuperAgentSnapshot,
   SuperAgentTakeoverState,
   SuperAgentTicketActionResult,
@@ -81,6 +83,11 @@ export interface SuperAgentReviewReminderItem {
 export const useSuperAgentStore = defineStore('superAgent', () => {
   const snapshot = ref<SuperAgentSnapshot | null>(null)
   const boundSessionId = ref<string | null>(null)
+  /**
+   * Router 这一轮是否在跑 —— 真源是主进程 RouterRunner（router-status 事件），
+   * 不是本地 turn：会话归主进程，渲染端只是观察者。typing/计时与停止按钮都读它。
+   */
+  const routerRunning = ref(false)
   const healthReport = ref<SuperAgentHealthReport | null>(null)
   const healthPanelOpen = ref(false)
   const queue = ref<SuperAgentQueueSnapshot | null>(null)
@@ -169,8 +176,40 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     const result = await api.superAgent.routerBind(repoRoot)
     boundSessionId.value = result.sessionId
     snapshot.value = result.snapshot
+    routerRunning.value = result.running
     ensureRouterSession(result.sessionId, repoRoot)
+    // Router 会话由主进程持有且 id 稳定：重启后 transcript 里已有之前的对话，
+    // 不重读就只剩一个空聊天区（人会以为 IM 历史没了）。
+    await useChatSessionStore().refreshSessionHistory(result.sessionId)
     return result
+  }
+
+  /**
+   * 与 Router 对话（T21）：交给主进程 RouterRunner，不走渲染端 turnStore ——
+   * 走 turnStore 就等于让 Router 变成一条带全套写工具的普通聊天。
+   * Promise 只表示已受理，回复由 router-status 与流事件驱动。
+   */
+  async function sendRouterMessage(
+    repoRoot: string,
+    command: SuperAgentRouterMessageCommand,
+  ): Promise<SuperAgentRouterMessageResult> {
+    const result = await api.superAgent.routerMessage(repoRoot, command)
+    routerRunning.value = result.running
+    return result
+  }
+
+  /** 中止 Router 当前轮次；不影响任何 Worker 的推进。 */
+  async function abortRouter(repoRoot: string): Promise<void> {
+    await api.superAgent.routerAbort(repoRoot)
+    routerRunning.value = false
+  }
+
+  /** 订阅 router-status；只接受当前绑定项目的状态，返回退订函数。 */
+  function watchRouterStatus(): () => void {
+    return api.superAgent.onRouterStatus((repoRoot, router) => {
+      if (snapshot.value?.repoRoot !== repoRoot) return
+      routerRunning.value = router.running
+    })
   }
 
   async function loadState(repoRoot: string): Promise<SuperAgentSnapshot> {
@@ -254,6 +293,8 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     const mirror = await api.superAgent.workerBind(repoRoot, ticketId)
     workerMirrors.value[ticketId] = mirror
     ensureWorkerSession(mirror)
+    // Worker 会话 id 跨重启稳定：重开标签先接上 transcript，再由事件续流。
+    await useChatSessionStore().refreshSessionHistory(mirror.sessionId)
     return mirror
   }
 
@@ -504,6 +545,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   return {
     snapshot,
     boundSessionId,
+    routerRunning,
     attentionCount,
     healthReport,
     healthProblemCount,
@@ -523,6 +565,9 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     reviewReminders,
     reviewRemindedCount,
     bind,
+    sendRouterMessage,
+    abortRouter,
+    watchRouterStatus,
     loadState,
     loadHealth,
     dispatch,
