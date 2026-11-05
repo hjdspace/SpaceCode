@@ -1061,7 +1061,9 @@ describe('T14 暗色主题静态核验', () => {
   it('super-agent 组件的颜色声明全部经由主题变量（var(--…)），不硬编码', () => {
     const componentDir = resolve(process.cwd(), 'src/components/superAgent')
     const files = readdirSync(componentDir).filter((name) => name.endsWith('.vue'))
-    expect(files.length).toBeGreaterThanOrEqual(6)
+    // 防止目录为空时静默通过；不与组件数量耦合（组件可增删）。
+    expect(files.length).toBeGreaterThan(0)
+    expect(files).toContain('SuperAgentView.vue')
     const violations: string[] = []
     for (const name of files) {
       const lines = readFileSync(join(componentDir, name), 'utf8').split('\n')
