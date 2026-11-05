@@ -1,327 +1,492 @@
+// @vitest-environment node
 /**
- * RouterRunner：Router 会话改由主进程拥有（设计 §4.2、§6.3）。
+ * RouterRunner 的会话归属与路由协议（T21）。
  *
- * 之前 Router 就是渲染端的一条普通聊天：走 turnStore、带全套写文件工具，
- * 于是"让它做事它自己就做了"。这里把它挪回主进程，并钉住两件事：
- *
- * 1. **不能自己干活** —— 会话以 `permissionMode='plan'` 启动，写与执行在引擎层
- *    就被拒；角色说明再补一条"不要请求进入执行模式"，避免它把 plan 当成
- *    "先出计划再批准"的通道。工具面裁剪要等 EngineSessionConfig 支持
- *    allowedTools，那是另一件事（设计 §3.2 第 2 条），这里不假装已实现。
- * 2. **动手只能靠路由指令** —— 回复尾部的 ```super-agent:route 块由宿主解析：
- *    accept 逐条走 service.dispatch 落 Decision/Mandate，attach 落一张工单的
- *    人消息输入，stop 走停止命令；授权仍由领域生成，模型拿不到（设计 §8.4）。
- * 3. **人的原话不经过 Router 的手** —— 本轮人说的是什么，宿主就原样带给 Worker
- *    当工单目标；Router 的 \`note\` 只是路由旁注（≤30 字），没有转述的通道。
- *
- * 每项目同一时刻最多一轮：新到的中继说明排队到下一批，不并发写同一 stdin；
- * Router 不阻塞等 Worker —— 工单结果由 Executor 作为新输入投进会话尾部。
+ * 覆盖的是「Router 不再自己干活」这一层：
+ *  - 会话以 plan 模式起，角色说明走 appendSystemPrompt（稳定前缀，不逐轮重写）；
+ *  - 人的消息先推气泡再投递（引擎不回显宿主写进 stdin 的消息）；
+ *  - 回复尾部的 super-agent:route 块解析成 accept/attach/stop，每条一个稳定
+ *    requestId，同一轮重复落定不会重复建单；
+ *  - 工单目标是本轮人的原话，Router 只留 ≤30 字旁注；
+ *  - 每项目同一时刻最多一轮：忙时新到的中继排队，不并发写同一 stdin；
+ *  - 中止只作用于 Router，不影响 Worker。
  */
+import { describe, expect, it } from 'vitest'
+import { SUPER_AGENT_ROUTER_ROLE_PROMPT } from '../prompts'
 import {
-  SUPER_AGENT_ROUTER_ROLE_PROMPT,
-  renderSuperAgentAttachedMessage,
-} from './prompts'
-import { parseSuperAgentRouteText, type SuperAgentRouteAction } from './routerActions'
-import { superAgentError } from './errors'
-import type { SuperAgentEngineBridge } from './engineBridge'
+  createSuperAgentRouterRunner,
+  type SuperAgentRouterAttachInput,
+  type SuperAgentRouterDispatchInput,
+  type SuperAgentRouterStopInput,
+} from '../routerRunner'
+import { createFakeBridge, routeFence } from './fakeBridge'
 
-export interface SuperAgentRouterDispatchInput {
-  requestId: string
-  title: string
-  /** 工单目标：本轮人的原话；中继轮没有原话，才退回 Router 的路由说明。 */
-  text: string
-  /** Router 的路由说明（≤30 字，见 MAX_ROUTE_NOTE_CHARS）。 */
-  note: string | null
+const REPO = '/repo/a'
+const SESSION = 'router-session'
+
+function makeRunner(statusContext?: () => string) {
+  const fake = createFakeBridge()
+  const dispatched: SuperAgentRouterDispatchInput[] = []
+  const attached: SuperAgentRouterAttachInput[] = []
+  const stopped: SuperAgentRouterStopInput[] = []
+  const statuses: boolean[] = []
+  const failures: string[] = []
+
+  const runner = createSuperAgentRouterRunner({
+    repoRoot: REPO,
+    sessionId: SESSION,
+    bridge: fake.bridge,
+    hooks: {
+      dispatch: (input) => {
+        dispatched.push(input)
+        return { ticketId: `ticket-${dispatched.length}` }
+      },
+      attach: (input) => {
+        attached.push(input)
+      },
+      stop: (input) => {
+        stopped.push(input)
+      },
+      onStatusChanged: (running) => statuses.push(running),
+      onFailure: (code) => failures.push(code),
+      ...(statusContext ? { statusContext } : {}),
+    },
+  })
+  return { runner, fake, dispatched, attached, stopped, statuses, failures }
 }
 
-export interface SuperAgentRouterAttachInput {
-  requestId: string
-  ticketId: string
-  /** 挂接给该工单正文：本轮人的原话（含旁注标注）。 */
-  text: string
+async function flush(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-export interface SuperAgentRouterStopInput {
-  requestId: string
-  ticketId: string
-  note: string | null
-}
+describe('createSuperAgentRouterRunner message', () => {
+  it('starts the router in plan mode with the router role prompt', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '帮我把登录页修好' })
 
-export interface SuperAgentRouterRunnerOptions {
-  repoRoot: string
-  sessionId: string
-  /** 引擎接缝（生产注入真实通路；测试注入 fake）。 */
-  bridge: SuperAgentEngineBridge
-  hooks: {
-    /** 建单派工：幂等键由本轮 turn 序号派生，重复解析同一回复不会重复建单。 */
-    dispatch(input: SuperAgentRouterDispatchInput): { ticketId: string }
-    /** 把这轮人的原话挂到已有工单：与「继续追问」同一条投递路径。 */
-    attach(input: SuperAgentRouterAttachInput): void
-    /** 停一张工单：只有人明确要求停止时 Router 才会给出这条指令。 */
-    stop(input: SuperAgentRouterStopInput): void
-    /** 运行状态变化：service 据此更新快照 router.running 并广播。 */
-    onStatusChanged(running: boolean): void
-    /** 路由协议失败/引擎失败：计入健康，不打断人正在看的回复。 */
-    onFailure(code: string): void
-    /** 会话标题（渲染端会话名）。 */
-    titleOf?(): string
-    /**
-     * 活跃工单索引（设计 §8.1）：每轮追加到人消息尾部的一次性事实。
-     * 返回空串表示本轮不注入。不放 system 说明 —— 那会打没前缀缓存。
-     */
-    statusContext?(): string
-  }
-}
-
-/** 待投递的一轮输入：正文 + 给人看的气泡文本 + 图片附件。 */
-export interface SuperAgentRouterInput {
-  text: string
-  displayText?: string
-  images?: unknown[]
-  /** 输入框当前选中的模型（显示名）；不带它 Router 只会用设置页的槽位模型。 */
-  model?: string
-}
-
-export interface SuperAgentRouterRunner {
-  /** 人发来的消息：先推气泡，再排队投递。 */
-  message(input: SuperAgentRouterInput): Promise<void>
-  /** 工单事件中继：不推气泡（它不是人说的话）。 */
-  relay(text: string): void
-  /** 中止当前 Router 轮次；不影响任何 Worker。 */
-  abortTurn(): Promise<void>
-  isRunning(): boolean
-  /** 有界等待在途轮次落定（shutdown 语义）。 */
-  settle(timeoutMs: number): Promise<boolean>
-  dispose(): void
-}
-
-function resultText(data: unknown): string {
-  const record = data as { result?: unknown } | null | undefined
-  return typeof record?.result === 'string' ? record.result : ''
-}
-
-export function createSuperAgentRouterRunner(
-  options: SuperAgentRouterRunnerOptions,
-): SuperAgentRouterRunner {
-  const bridge = options.bridge
-  const { repoRoot, sessionId, hooks } = options
-
-  /**
-   * 待投递输入（人的消息与工单事件按到达顺序串行投递）。
-   * `human` 决定这一轮要不要配活跃工单索引 —— 只有人在问话时才需要。
-   */
-  const queue: { input: SuperAgentRouterInput; human: boolean }[] = []
-  let turnInFlight = false
-  let started = false
-  /** 轮次序号：与 route 下标一起构成幂等键。 */
-  let turnSeq = 0
-  /**
-   * 本轮的来源正文：人说的那句话，宿主直接拿它当工单目标。
-   * 中继轮（工单事件）没有人的原话，为 null。
-   */
-  let turnSourceText: string | null = null
-  /** 用户在输入框选中的模型（显示名）；null = 没选过，沿用设置页槽位。 */
-  let selectedModel: string | null = null
-  /** 已经落到当前这条会话上的模型选择；与 selectedModel 不一致才需要动作。 */
-  let appliedModel: string | null = null
-
-  const routerConfig = () => {
-    const base = bridge.loadConfig(repoRoot)
-    return {
-      ...base,
-      cwd: repoRoot,
-      permissionMode: 'plan' as const,
+    expect(fake.started).toHaveLength(1)
+    expect(fake.started[0]).toMatchObject({ sessionId: SESSION })
+    expect(fake.started[0]?.config).toMatchObject({
+      cwd: REPO,
+      permissionMode: 'plan',
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
-      // 输入框的选择优先于设置页槽位；按引擎解析（claude-code 要槽位别名，pi 要真名），
-      // 否则指定的模型会被代理静默丢弃 —— 见 src/utils/engineModel。
-      ...(selectedModel
-        ? { model: bridge.resolveModelAlias(selectedModel, base.engineType) }
-        : {}),
-    }
-  }
-
-  async function ensureStarted(): Promise<void> {
-    if (started) return
-    await bridge.startSession(sessionId, routerConfig())
-    appliedModel = selectedModel
-    started = true
-  }
-
-  /**
-   * 把输入框的模型选择落到引擎上。
-   *
-   * 会话还没起 → 由 routerConfig 带进 spawn。已经活着 → 走控制请求在线换，
-   * 控制请求失败就把会话停掉、下一轮按新模型重新拉起（与主聊天同一回退路径），
-   * 而不是让人以为下拉框生效了。
-   */
-  async function applyModelSelection(): Promise<void> {
-    if (!started || selectedModel === null || appliedModel === selectedModel) return
-    const base = bridge.loadConfig(repoRoot)
-    try {
-      await bridge.setModel(sessionId, bridge.resolveModelAlias(selectedModel, base.engineType))
-      appliedModel = selectedModel
-    } catch {
-      await bridge.stop(sessionId).catch(() => undefined)
-      started = false
-      appliedModel = null
-    }
-  }
-
-  function errorCode(err: unknown, fallback: string): string {
-    return err && typeof err === 'object' && 'code' in err
-      ? String((err as { code: unknown }).code)
-      : fallback
-  }
-
-  function settleRoute(text: string): void {
-    let routes: SuperAgentRouteAction[]
-    try {
-      routes = parseSuperAgentRouteText(text).routes
-    } catch (err) {
-      hooks.onFailure(errorCode(err, 'routeInvalid'))
-      return
-    }
-    const seq = turnSeq
-    // 目标 = 本轮人的原话，不是 Router 的转述；中继轮没有原话，才退回路由说明。
-    const sourceText = turnSourceText
-    routes.forEach((route, index) => {
-      const requestId = `route:${sessionId}:${seq}:${index}`
-      try {
-        if (route.kind === 'accept') {
-          hooks.dispatch({
-            requestId,
-            title: route.title,
-            text: sourceText ?? route.note ?? route.title,
-            note: route.note,
-          })
-        } else if (route.kind === 'attach') {
-          // attach 的全部内容就是"这条人消息属于那张单"；本轮没有人的原话可带时
-          // 它无从成立 —— 拒绝比投一段转述更诚实。
-          if (sourceText === null) {
-            throw superAgentError('attachWithoutSource', { ticketId: route.ticketId })
-          }
-          hooks.attach({
-            requestId,
-            ticketId: route.ticketId,
-            text: renderSuperAgentAttachedMessage({ note: route.note, sourceText }),
-          })
-        } else if (route.kind === 'stop') {
-          hooks.stop({ requestId, ticketId: route.ticketId, note: route.note })
-        }
-        // ignore 是"什么都不做"的显式记录：领域侧没有对应动作，也不该有。
-      } catch (err) {
-        hooks.onFailure(errorCode(err, 'invalidDispatch'))
-      }
+      // 全部工具从引擎工具池移除：Router 只说话不出手（plan 模式挡写，但挡不住只读探索）
+      allowedTools: [],
     })
-  }
-
-  const unsubscribe = bridge.onRouteEvent((sid, eventType, data) => {
-    if (sid !== sessionId) return
-    if (eventType === 'result') {
-      turnInFlight = false
-      settleRoute(resultText(data))
-      hooks.onStatusChanged(false)
-      void pump()
-    } else if (eventType === 'error') {
-      turnInFlight = false
-      hooks.onFailure('engineLaunchFailed')
-      hooks.onStatusChanged(false)
-      void pump()
-    } else if (eventType === 'exit') {
-      // 进程退场：下一轮按稳定 id 重新拉起（引擎自己 --resume 历史）。
-      turnInFlight = false
-      started = false
-      appliedModel = null
-      hooks.onStatusChanged(false)
-      void pump()
-    }
+    expect(fake.sent[0]?.content).toBe('帮我把登录页修好')
   })
 
-  /**
-   * 交给引擎的正文：原文 + 本轮的活跃工单索引。
-   *
-   * 快照只进引擎输入，不进气泡 —— 给人看的仍是他自己打的那句话。工单事件中继
-   * 不带它：那条输入本身就是工单事实，再叠一份索引只是重复花 token。
-   */
-  function engineText(input: SuperAgentRouterInput, human: boolean): string {
-    if (!human) return input.text
-    const context = hooks.statusContext?.() ?? ''
-    if (context === '') return input.text
-    return `${input.text}\n\n${context}`
-  }
+  it('pushes the human bubble before sending, with the display text', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '@src/login.ts 看下这个', displayText: '看下这个' })
 
-  async function pump(): Promise<void> {
-    if (turnInFlight || queue.length === 0) return
-    const next = queue.shift()
-    if (next === undefined) return
-    turnInFlight = true
-    turnSeq += 1
-    // 这一轮的目标正文只可能在"人在问话"时存在；中继轮带的是工单事实，不是需求。
-    turnSourceText = next.human ? next.input.text : null
-    hooks.onStatusChanged(true)
-    try {
-      await applyModelSelection()
-      await ensureStarted()
-      await bridge.sendMessage(sessionId, engineText(next.input, next.human), next.input.images)
-    } catch (err) {
-      // 投递失败：这一轮不算开始，输入留在队首等下一次泵送（不丢消息）。
-      queue.unshift(next)
-      turnInFlight = false
-      hooks.onFailure(errorCode(err, 'engineLaunchFailed'))
-      hooks.onStatusChanged(false)
-    }
-  }
+    expect(fake.pushed).toHaveLength(1)
+    expect(fake.pushed[0]).toMatchObject({
+      sessionId: SESSION,
+      content: '看下这个',
+      projectPath: REPO,
+      permissionMode: 'plan',
+    })
+  })
 
-  return {
-    async message(input: SuperAgentRouterInput): Promise<void> {
-      bridge.pushUserMessage({
-        sessionId,
-        content: input.displayText ?? input.text,
-        title: hooks.titleOf?.() ?? 'Super Agent',
-        projectPath: repoRoot,
-        permissionMode: 'plan',
-      })
-      if (input.model !== undefined && input.model !== '' && input.model !== selectedModel) {
-        selectedModel = input.model
-      }
-      queue.push({ input, human: true })
-      await pump()
-    },
+  it('passes image attachments through to the engine', async () => {
+    const { runner, fake } = makeRunner()
+    const images = [{ id: 'i1', name: 'shot.png', type: 'image', mimeType: 'image/png', previewUrl: '', data: 'x' }]
+    await runner.message({ text: '这个界面不对', images })
 
-    relay(text: string): void {
-      queue.push({ input: { text }, human: false })
-      void pump()
-    },
+    expect(fake.sent[0]?.images).toEqual(images)
+  })
 
-    async abortTurn(): Promise<void> {
-      if (!turnInFlight) return
-      try {
-        await bridge.abort(sessionId)
-      } catch {
-        // abort 失败仍按中止处理：状态收敛比细节重要，Worker 不受影响
-      }
-      turnInFlight = false
-      hooks.onStatusChanged(false)
-      void pump()
-    },
+  it('reports running while the turn is in flight and idle after the result', async () => {
+    const { runner, fake, statuses } = makeRunner()
+    await runner.message({ text: '你好' })
+    expect(statuses).toEqual([true])
+    expect(runner.isRunning()).toBe(true)
 
-    isRunning(): boolean {
-      return turnInFlight
-    },
+    fake.emit(SESSION, 'result', { result: '你好，需要我做什么？' })
+    expect(statuses).toEqual([true, false])
+    expect(runner.isRunning()).toBe(false)
+  })
 
-    async settle(timeoutMs: number): Promise<boolean> {
-      const deadline = Date.now() + timeoutMs
-      while (turnInFlight) {
-        if (Date.now() >= deadline) return false
-        await new Promise((resolve) => setTimeout(resolve, 20))
-      }
-      return true
-    },
+  it('reuses the same session for the next turn instead of spawning again', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '第一句' })
+    fake.emit(SESSION, 'result', { result: '好' })
+    await runner.message({ text: '第二句' })
 
-    dispose(): void {
-      unsubscribe()
-      queue.length = 0
-      turnInFlight = false
-    },
-  }
-}
+    expect(fake.started).toHaveLength(1)
+    expect(fake.sent).toHaveLength(2)
+  })
+
+  it('restarts the session after the engine exited', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '第一句' })
+    fake.emit(SESSION, 'exit', { exitCode: 0 })
+    await runner.message({ text: '第二句' })
+
+    expect(fake.started).toHaveLength(2)
+  })
+})
+
+describe('createSuperAgentRouterRunner route protocol', () => {
+  it('carries the human words as the ticket goal, not the router paraphrase', async () => {
+    const { runner, fake, dispatched } = makeRunner()
+    await runner.message({ text: '把设置页的保存按钮文案改成"保存"，顺手补个测试' })
+    fake.emit(SESSION, 'result', {
+      result: `好。\n\n${routeFence([
+        { kind: 'accept', title: '改保存按钮文案', note: '文案与测试一起做' },
+      ])}`,
+    })
+
+    expect(dispatched).toHaveLength(1)
+    expect(dispatched[0]).toMatchObject({
+      title: '改保存按钮文案',
+      // 目标是人说的那句话；Router 写的只有旁注
+      text: '把设置页的保存按钮文案改成"保存"，顺手补个测试',
+      note: '文案与测试一起做',
+      requestId: `route:${SESSION}:1:0`,
+    })
+  })
+
+  it('creates one ticket per accept with a stable per-turn id', async () => {
+    const { runner, fake, dispatched } = makeRunner()
+    await runner.message({ text: '分两张工单做' })
+    fake.emit(SESSION, 'result', {
+      result: `已建两张工单。\n\n${routeFence([
+        { kind: 'accept', title: '表单校验收口', note: 'validateField' },
+        { kind: 'accept', title: 'debounce 去重', note: null },
+      ])}`,
+    })
+
+    expect(dispatched).toHaveLength(2)
+    expect(dispatched[0]?.text).toBe('分两张工单做')
+    expect(dispatched[0]?.note).toBe('validateField')
+    expect(dispatched[1]?.requestId).toBe(`route:${SESSION}:1:1`)
+  })
+
+  it('attaches the human words to an existing ticket', async () => {
+    const { runner, fake, attached, dispatched } = makeRunner()
+    await runner.message({ text: '上次那个按钮也顺带对齐一下间距' })
+    fake.emit(SESSION, 'result', {
+      result: routeFence([{ kind: 'attach', ticketId: 'ticket-9', note: '同一处改动' }])
+    })
+
+    expect(dispatched).toHaveLength(0)
+    expect(attached).toHaveLength(1)
+    expect(attached[0]).toMatchObject({
+      requestId: `route:${SESSION}:1:0`,
+      ticketId: 'ticket-9',
+    })
+    // 原话在前、旁注在后：Worker 先看到人说了什么
+    expect(attached[0]?.text).toBe('上次那个按钮也顺带对齐一下间距\n\n[Router 旁注｜不授权、不替代上面的原文] 同一处改动')
+  })
+
+  it('stops only the ticket the router names', async () => {
+    const { runner, fake, stopped } = makeRunner()
+    await runner.message({ text: '第二张先别做了' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'stop', ticketId: 'ticket-2' }]) })
+
+    expect(stopped).toEqual([{ requestId: `route:${SESSION}:1:0`, ticketId: 'ticket-2', note: null }])
+  })
+
+  it('does nothing for ignore, and does not fail on it', async () => {
+    const { runner, fake, dispatched, attached, stopped, failures } = makeRunner()
+    await runner.message({ text: '你觉得这个布局怎么样' })
+    fake.emit(SESSION, 'result', {
+      result: `在讨论阶段。\n\n${routeFence([{ kind: 'ignore', reason: '普通讨论，没有实现意图' }])}`,
+    })
+
+    expect(dispatched).toHaveLength(0)
+    expect(attached).toHaveLength(0)
+    expect(stopped).toHaveLength(0)
+    expect(failures).toHaveLength(0)
+  })
+
+  it('refuses an attach that arrives on a relayed turn with no human words to carry', async () => {
+    const { runner, fake, attached, failures } = makeRunner()
+    runner.relay('[工单事件] ticket-1 ready')
+    await flush()
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'attach', ticketId: 'ticket-1' }]) })
+
+    // 中继轮没有人的原话可带，attach 无从成立：计健康，不投转述
+    expect(attached).toHaveLength(0)
+    expect(failures).toEqual(['attachWithoutSource'])
+  })
+
+  it('deduplicates a repeated result of the same turn via the idempotency key', async () => {
+    const { runner, fake, dispatched } = makeRunner()
+    await runner.message({ text: '建单' })
+    const text = routeFence([{ kind: 'accept', title: 'a' }])
+    fake.emit(SESSION, 'result', { result: text })
+    fake.emit(SESSION, 'result', { result: text })
+
+    // 同轮重复落定 → 同 requestId；领域侧按它幂等，不会多建一张
+    expect(dispatched).toHaveLength(2)
+    expect(dispatched[0]?.requestId).toBe(dispatched[1]?.requestId)
+  })
+
+  it('gives the next turn a new id so a genuinely repeated request still creates work', async () => {
+    const { runner, fake, dispatched } = makeRunner()
+    const text = routeFence([{ kind: 'accept', title: 'a' }])
+    await runner.message({ text: '建单' })
+    fake.emit(SESSION, 'result', { result: text })
+    await runner.message({ text: '再建一次' })
+    fake.emit(SESSION, 'result', { result: text })
+
+    expect(dispatched[0]?.requestId).not.toBe(dispatched[1]?.requestId)
+    // 新一轮的原话跟着换：目标不能停在上一轮人的话上
+    expect(dispatched[1]?.text).toBe('再建一次')
+  })
+
+  it('does not dispatch for an ordinary chat reply', async () => {
+    const { runner, fake, dispatched, failures } = makeRunner()
+    await runner.message({ text: '你好' })
+    fake.emit(SESSION, 'result', { result: '你好！' })
+
+    expect(dispatched).toHaveLength(0)
+    expect(failures).toHaveLength(0)
+  })
+
+  it('refuses two conflicting blocks instead of picking one', async () => {
+    const { runner, fake, dispatched, failures } = makeRunner()
+    await runner.message({ text: '建单' })
+    fake.emit(SESSION, 'result', {
+      result: `${routeFence([{ kind: 'accept', title: 'a' }])}\n\n${routeFence([{ kind: 'accept', title: 'c' }])}`,
+    })
+
+    expect(dispatched).toHaveLength(0)
+    expect(failures).toEqual(['routeNotUnique'])
+  })
+
+  it('records a protocol failure when the domain rejects the suggestion', async () => {
+    const fake = createFakeBridge()
+    const failures: string[] = []
+    const runner = createSuperAgentRouterRunner({
+      repoRoot: REPO,
+      sessionId: SESSION,
+      bridge: fake.bridge,
+      hooks: {
+        dispatch: () => {
+          throw Object.assign(new Error('duplicate request'), { code: 'conflict' })
+        },
+        attach: () => {},
+        stop: () => {},
+        onStatusChanged: () => {},
+        onFailure: (code) => failures.push(code),
+      },
+    })
+    await runner.message({ text: '建单' })
+    fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'accept', title: 'a' }]) })
+
+    // 建单被拒不能抛穿事件回调：转成稳定 code 上报健康，其余回复不受影响
+    expect(failures).toEqual(['conflict'])
+    runner.dispose()
+  })
+
+  it('keeps the other routes alive when one of them is refused', async () => {
+    const fake = createFakeBridge()
+    const stopped: string[] = []
+    const failures: string[] = []
+    const runner = createSuperAgentRouterRunner({
+      repoRoot: REPO,
+      sessionId: SESSION,
+      bridge: fake.bridge,
+      hooks: {
+        dispatch: () => {
+          throw Object.assign(new Error('ended'), { code: 'ticketEnded' })
+        },
+        attach: () => {},
+        stop: (input) => stopped.push(input.ticketId),
+        onStatusChanged: () => {},
+        onFailure: (code) => failures.push(code),
+      },
+    })
+    await runner.message({ text: '那张别做了，改做这个' })
+    fake.emit(SESSION, 'result', {
+      result: routeFence([
+        { kind: 'accept', title: 'a' },
+        { kind: 'stop', ticketId: 'ticket-3' },
+      ]),
+    })
+
+    // 一条被拒不拖累同批其余指令：人说的"别做了"仍然要落到停止上
+    expect(failures).toEqual(['ticketEnded'])
+    expect(stopped).toEqual(['ticket-3'])
+    runner.dispose()
+  })
+
+  it('ignores events from other sessions', async () => {
+    const { runner, fake, dispatched } = makeRunner()
+    await runner.message({ text: '建单' })
+    fake.emit('other-session', 'result', { result: routeFence([{ kind: 'accept', title: 'a' }]) })
+
+    expect(dispatched).toHaveLength(0)
+    expect(runner.isRunning()).toBe(true)
+  })
+})
+
+describe('createSuperAgentRouterRunner queueing', () => {
+  it('queues a relayed ticket event behind the running turn', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '现在怎么样了' })
+    runner.relay('[工单事件] ticket-1 ready')
+
+    expect(fake.sent).toHaveLength(1)
+    fake.emit(SESSION, 'result', { result: '正在跑' })
+    await flush()
+    expect(fake.sent).toHaveLength(2)
+    expect(fake.sent[1]?.content).toBe('[工单事件] ticket-1 ready')
+  })
+
+  it('does not push a bubble for relayed events', async () => {
+    const { runner, fake } = makeRunner()
+    runner.relay('[工单事件] ticket-1 ready')
+    await flush()
+
+    expect(fake.pushed).toHaveLength(0)
+    expect(fake.sent).toHaveLength(1)
+  })
+
+  it('keeps the input queued when the engine refuses the write', async () => {
+    const { runner, fake, failures, statuses } = makeRunner()
+    fake.failNextSend = new Error('stdin closed')
+    await runner.message({ text: '建单' })
+
+    expect(runner.isRunning()).toBe(false)
+    expect(failures.length).toBeGreaterThan(0)
+    expect(statuses[statuses.length - 1]).toBe(false)
+    expect(fake.sent).toHaveLength(0)
+
+    // 消息不丢：再泵一次时先把没投出去的那条投出去，队列一次只走一轮
+    runner.relay('补一次')
+    await flush()
+    expect(fake.sent.map((call) => call.content)).toEqual(['建单'])
+
+    fake.emit(SESSION, 'result', { result: '好' })
+    await flush()
+    expect(fake.sent.map((call) => call.content)).toEqual(['建单', '补一次'])
+  })
+})
+
+describe('createSuperAgentRouterRunner status context', () => {
+  it('appends the ticket index to the engine input, not to the human bubble', async () => {
+    const { runner, fake } = makeRunner(() => '[工单快照]\n槽位：1/1 执行中 · 0 排队')
+    await runner.message({ text: '现在有哪些活', displayText: '现在有哪些活' })
+
+    expect(fake.sent[0]?.content).toBe('现在有哪些活\n\n[工单快照]\n槽位：1/1 执行中 · 0 排队')
+    // 气泡只给人自己打的那句话，快照是宿主与模型之间的东西
+    expect(fake.pushed[0]?.content).toBe('现在有哪些活')
+  })
+
+  it('rebuilds the snapshot each turn instead of freezing the first one', async () => {
+    let snapshot = 'A'
+    const { runner, fake } = makeRunner(() => snapshot)
+    await runner.message({ text: '第一问' })
+    snapshot = 'B'
+    fake.emit(SESSION, 'result', { result: '好' })
+    await runner.message({ text: '第二问' })
+
+    expect(fake.sent[0]?.content).toBe('第一问\n\nA')
+    expect(fake.sent[1]?.content).toBe('第二问\n\nB')
+  })
+
+  it('does not stack the snapshot onto relayed ticket events', async () => {
+    const { runner, fake } = makeRunner(() => '[工单快照]')
+    runner.relay('[工单事件] ticket-1 ready')
+    await flush()
+
+    expect(fake.sent[0]?.content).toBe('[工单事件] ticket-1 ready')
+  })
+
+  it('sends the raw text when the host has nothing to report', async () => {
+    const { runner, fake } = makeRunner(() => '')
+    await runner.message({ text: '你好' })
+
+    expect(fake.sent[0]?.content).toBe('你好')
+  })
+})
+
+describe('createSuperAgentRouterRunner model', () => {
+  it('starts the session with the picked model resolved for the engine', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '建单', model: 'glm-5-3-flash' })
+
+    expect(fake.started[0]?.config?.model).toBe('glm-5-3-flash')
+  })
+
+  it('keeps the settings slot model when the composer has no choice', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '你好' })
+
+    // fake loadConfig 给的 sonnet 就是设置页槽位值，不该被覆盖
+    expect(fake.started[0]?.config?.model).toBe('sonnet')
+  })
+
+  it('switching the model on a live session stops and respawns it with the new model', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '第一句', model: 'a' })
+    fake.emit(SESSION, 'result', { result: '好' })
+    await runner.message({ text: '第二句', model: 'b' })
+
+    // 不发 set_model 控制请求：别名由引擎进程按 spawn 时的环境解析，进程起来
+    // 之后才同步进 settings.json 的槽位会被解析成旧值（选 A 跑 B 且无从察觉）。
+    // 停掉重拉走冷启动，引擎重读 settings.json。
+    expect(fake.stopped).toEqual([SESSION])
+    expect(fake.started).toHaveLength(2)
+    expect(fake.started[1]?.config?.model).toBe('b')
+    // 两句话都投出去了，没有丢
+    expect(fake.sent.map((call) => call.content)).toEqual(['第一句', '第二句'])
+  })
+
+  it('does not restart for the same choice', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '第一句', model: 'a' })
+    fake.emit(SESSION, 'result', { result: '好' })
+    await runner.message({ text: '第二句', model: 'a' })
+
+    expect(fake.started).toHaveLength(1)
+    expect(fake.stopped).toHaveLength(0)
+  })
+
+  it('applies the choice to a session restarted after the engine exited', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '第一句', model: 'a' })
+    fake.emit(SESSION, 'exit', { exitCode: 0 })
+    await runner.message({ text: '第二句' })
+
+    // 重开时不再重复停进程，但选择要跟着新配置留住
+    expect(fake.stopped).toHaveLength(0)
+    expect(fake.started).toHaveLength(2)
+    expect(fake.started[1]?.config?.model).toBe('a')
+  })
+})
+
+describe('createSuperAgentRouterRunner abort', () => {
+  it('aborts only the router turn and flushes the queued input', async () => {
+    const { runner, fake, statuses } = makeRunner()
+    await runner.message({ text: '慢一点' })
+    runner.relay('排队的一条')
+    await runner.abortTurn()
+
+    expect(fake.aborted).toEqual([SESSION])
+    // 中止即收敛为空闲；随后队列里那条立刻起新轮，状态又回到 running
+    expect(statuses).toEqual([true, false, true])
+    await flush()
+    expect(fake.sent.map((call) => call.content)).toEqual(['慢一点', '排队的一条'])
+  })
+
+  it('does nothing when no turn is in flight', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.abortTurn()
+    expect(fake.aborted).toHaveLength(0)
+  })
+
+  it('settles false while a turn is still running', async () => {
+    const { runner, fake } = makeRunner()
+    await runner.message({ text: '还在想' })
+    expect(await runner.settle(20)).toBe(false)
+
+    fake.emit(SESSION, 'result', { result: '想完了' })
+    expect(await runner.settle(20)).toBe(true)
+  })
+})
