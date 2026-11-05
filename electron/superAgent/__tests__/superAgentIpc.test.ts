@@ -671,7 +671,9 @@ describe('registerSuperAgentIPCHandlers router conversation（T21）', () => {
     )
 
     // 轮次收口后广播 running:false，IM 视图的 typing 与停止按钮跟着落回
-    fake.emit(result.sessionId, 'result', { result: '好的。' })
+    fake.emit(result.sessionId, 'result', {
+      result: `好的。\n\n${routeFence([{ kind: 'ignore', reason: '仅回复，不直接执行' }])}`,
+    })
     await flushing()
     expect(probe.send).toHaveBeenCalledWith(
       ROUTER_STATUS_CHANNEL,
