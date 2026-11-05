@@ -36,7 +36,6 @@
  * 命令 → 有界等待在途 launch → 关 Store 释放锁；暂停是持久领域事实，跨重启
  * 保持。未提供 userDataDir 时保持纯内存行为（测试/旧用例）。
  */
-import { randomUUID } from 'crypto'
 import type {
   SuperAgentAttentionAnswerCommand,
   SuperAgentAttentionAnswerResult,
@@ -58,6 +57,9 @@ import type {
   SuperAgentPolicySetCommand,
   SuperAgentProblemDismissCommand,
   SuperAgentQueueSnapshot,
+  SuperAgentRouterMessageCommand,
+  SuperAgentRouterMessageResult,
+  SuperAgentRouterState,
   SuperAgentSnapshot,
   SuperAgentTakeoverChangedEvent,
   SuperAgentTakeoverState,
@@ -75,7 +77,6 @@ import type {
   SuperAgentWorkerMessageResult,
   SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
-import { superAgentWorkerSessionId } from '@/shared/channels/superAgent'
 import {
   createSuperAgentDomain,
   resolveExecutionPolicy,
@@ -115,6 +116,26 @@ import {
   defaultWorkspaceProbe,
   type WorkspaceProbe,
 } from './workspace'
+import {
+  createSuperAgentExecutor,
+  isSuperAgentHandoffReport,
+  type SuperAgentExecutor,
+  type SuperAgentExecutorIngestResult,
+} from './executor'
+import {
+  createSuperAgentRouterRunner,
+  type SuperAgentRouterRunner,
+} from './routerRunner'
+import {
+  renderSuperAgentRouterEvent,
+  renderSuperAgentRouterStatusContext,
+} from './prompts'
+import { createSuperAgentSessionStatusQuery } from './sessionStatusQuery'
+import {
+  superAgentRouterEngineSessionId,
+  superAgentWorkerEngineSessionId,
+} from './sessionId'
+import type { SuperAgentEngineBridge } from './engineBridge'
 
 const STALE_AFTER_MS = 5_000
 /** T11 #81：显式 shutdown 的在途 Effect 有界等待参考值（§9.5，10 秒）。 */
@@ -160,11 +181,26 @@ interface ProjectState {
   startupRecovery: StartupRecoveryResult | null
   /** T12 #82：检查点存储引用（scheduler 保存、checkpointRollback 回退共用）。 */
   checkpoints: SuperAgentCheckpointStore
+  /**
+   * Worker 运行时（launcher/投递/停止的真身）。Executor 需要 project 的
+   * domain 与 scheduler，只能在 project 落地后挂上；挂上前工单保持排队。
+   */
+  executor: SuperAgentExecutor | null
+  /** Router 运行时：会话归属主进程，建单由回复尾部的协议块驱动。 */
+  routerRunner: SuperAgentRouterRunner | null
 }
 
 export interface SuperAgentServiceOptions {
   /** 健康项变化时回调（IPC 层据此广播 health.changed）。 */
   onHealthChanged?: (repoRoot: string, report: SuperAgentHealthReport) => void
+  /** T21：Router 轮次起止时回调（IPC 层据此广播 router-status）。 */
+  onRouterStatusChanged?: (repoRoot: string, router: SuperAgentRouterState) => void
+  /**
+   * T21：引擎接缝（Executor / RouterRunner 共用）。由生产入口
+   * `createBroadcastingSuperAgentService` 注入真实通路；未注入时不建运行时，
+   * 工单保持排队、Router 不建会话 —— 领域用例不必加载引擎链路，也不假装启动。
+   */
+  bridge?: SuperAgentEngineBridge
   /** T20 #90：处置窗口对账用的时钟；测试注入接缝。 */
   now?: () => Date
   /** 队列变化时回调（IPC 层据此广播 queue-changed）。 */
@@ -226,7 +262,9 @@ export interface SuperAgentWorkerDeliveryRequest {
   inputId: string
   /** 幂等/对账键。 */
   requestId: string
-  /** Worker 稳定会话 ID。 */
+  /** 项目根：Executor 需要它按同一档配置重新拉起空闲的 Worker 会话。 */
+  repoRoot: string
+  /** Worker 引擎会话 id（UUIDv5 派生，跨代次与重启稳定）。 */
   sessionId: string
   text: string
 }
@@ -262,6 +300,16 @@ export interface SuperAgentShutdownResult {
 export interface SuperAgentService {
   state(repoRoot: string): SuperAgentSnapshot
   routerBind(repoRoot: string): SuperAgentBindResult
+  /**
+   * Router 对话（T21）：文本交给主进程 RouterRunner —— 会话以 plan 模式起，
+   * Router 只能回答与建单，不能自己动代码。Promise 只表示已受理，不表示回复完成。
+   */
+  routerMessage(
+    repoRoot: string,
+    command: SuperAgentRouterMessageCommand,
+  ): Promise<SuperAgentRouterMessageResult>
+  /** 中止 Router 当前轮次；不影响任何 Worker。 */
+  routerAbort(repoRoot: string): Promise<true>
   health(repoRoot: string): SuperAgentHealthReport
   /** T20 #90：重新评估 unavailable Eval —— Trigger 回队、计数清零、落审计。 */
   evalReevaluate(
@@ -466,7 +514,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       const scheduler = createSuperAgentScheduler({
         domain,
         repoRoot,
-        launcher: options.launcher ?? null,
+        launcher: resolveLauncher(repoRoot),
         checkpoints,
         onQueueChanged: (snapshot) => options.onQueueChanged?.(repoRoot, snapshot),
         onPreparingChanged: (ticketId, preparing) => projector.setPreparing(ticketId, preparing),
@@ -537,8 +585,11 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         phase: 'open',
         startupRecovery,
         checkpoints,
+        executor: null,
+        routerRunner: null,
       }
       projects.set(repoRoot, project)
+      wireRuntime(project, repoRoot)
       // 持久化 scheduled effect：项目一落地即开始周期扫描（含一次即时重建扫描）
       reviewReminder.start()
       // T18 #88：Outbox 落地即续做 —— pending 消息重启后立即恢复投递
@@ -552,6 +603,318 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       }
     }
     return project
+  }
+
+  /**
+   * 调度器的 launcher 接缝。
+   *
+   * 注入的 fake 优先（领域用例）；否则只有配了引擎接缝才给一个「延迟取 Executor」
+   * 的 launcher —— Executor 反过来要用 scheduler，只能在 project 落地之后才存在，
+   * 而 launcher 在 scheduler 构造时就得传进去。两者都没配 → null：工单如实排队，
+   * 不假装启动。
+   */
+  function resolveLauncher(repoRoot: string): WorkerLauncher | null {
+    if (options.launcher !== undefined) return options.launcher ?? null
+    if (!options.bridge) return null
+    return {
+      launch: (request) => {
+        const executor = projects.get(repoRoot)?.executor
+        if (!executor) {
+          return Promise.reject(superAgentError('engineLaunchFailed', { repoRoot }))
+        }
+        return executor.launch(request)
+      },
+    }
+  }
+
+  /**
+   * 派工落领域 + 投影同步。公开的 `dispatch` 与 Router 建单协议共用同一条路径，
+   * Decision/Mandate 与幂等键都由领域生成 —— 模型拿不到授权（设计 §8.4）。
+   */
+  function applyDispatch(
+    repoRoot: string,
+    project: ProjectState,
+    command: SuperAgentDispatchCommand,
+  ): SuperAgentDispatchResult {
+    const outcome = project.scheduler.dispatch({
+      requestId: command.requestId,
+      title: command.title,
+      repoRoot,
+      text: command.text,
+      note: command.note,
+      actor: command.actor ?? 'desktop-user',
+      contextPaths: command.contextPaths ?? [],
+      attachments: command.attachments ?? [],
+    })
+    // T06 #76：新建工单是领域事实，派生卡片即时投影
+    project.projector.sync()
+    project.attentionProjector.sync()
+    return {
+      ticketId: outcome.ticket.ticketId,
+      assignmentId: outcome.assignment.assignmentId,
+      decisionId: outcome.decision.decisionId,
+      mandateId: outcome.mandate.mandateId,
+      queuePosition: outcome.queuePosition,
+      duplicate: outcome.duplicate,
+    }
+  }
+
+  /**
+   * 停止工单（T10 #80）：先持久化停止意图，再 abort 在跑的一轮。
+   *
+   * 命令保持同步 —— 渲染端与 Router 都不等引擎收尾；停止事实已经落库，
+   * 引擎没停下来只留健康痕迹，不复活已停的工单。
+   */
+  function applyTicketStop(
+    repoRoot: string,
+    project: ProjectState,
+    command: { ticketId: string; reason?: string },
+  ): SuperAgentTicketActionResult {
+    assertCommandsAllowed(project, repoRoot)
+    const result = project.domain.ticketStop({
+      ticketId: command.ticketId,
+      reason: command.reason,
+    })
+    project.projector.sync()
+    project.attentionProjector.sync()
+    void project.executor?.stopTicket(command.ticketId).catch(() => {
+      project.health.recordFailure('effect:launch', {
+        code: 'engineLaunchFailed',
+        ticketId: command.ticketId,
+      })
+    })
+    return {
+      repoRoot,
+      ticketId: result.ticket.ticketId,
+      outcome: 'stopped',
+      endedAt: result.ticket.ended?.at ?? '',
+    }
+  }
+
+  /**
+   * Router 的 attach（T21）：把这轮人的原话作为人消息投给一张活着的工单。
+   *
+   * 走的是「继续追问」同一条路径（domain.ticketMessage + requestId 对账投递），
+   * 所以已结束或被闸门锁住的工单会按领域既有语义拒绝。
+   */
+  function applyRouterAttach(
+    repoRoot: string,
+    project: ProjectState,
+    command: { ticketId: string; requestId: string; text: string },
+  ): void {
+    assertCommandsAllowed(project, repoRoot)
+    if (!project.domain.state.tickets[command.ticketId]) {
+      throw superAgentError('ticketNotFound', { ticketId: command.ticketId })
+    }
+    const added = project.domain.ticketMessage({
+      ticketId: command.ticketId,
+      requestId: command.requestId,
+      text: command.text,
+    })
+    project.projector.sync()
+    project.attentionProjector.sync()
+    // 投递是有界的异步收尾：失败按 Input 状态落定（delivered/pending/uncertain），
+    // 不回灌 Router —— 它不能替引擎确认消息到了没有。
+    void settleWorkerInputDelivery(repoRoot, project, command, added).catch(() => {
+      project.health.recordFailure('effect:delivery', {
+        code: 'deliveryUnknown',
+        ticketId: command.ticketId,
+        subjectId: added.input.inputId,
+      })
+    })
+  }
+
+  /**
+   * Worker 消息 → Report 事实。Executor 的事件回灌与内部接缝共用；
+   * 协议失败抛稳定错误码，由调用方（Executor）按失败收尾并上报健康。
+   */
+  function applyWorkerReport(
+    project: ProjectState,
+    input: { text: string },
+  ): SuperAgentWorkerReportResult {
+    const parsed = parseSuperAgentReportText(input.text)
+    const assignment = project.domain.state.assignments[parsed.assignmentId]
+    if (!assignment) {
+      // 伪造/错位：assignmentId 不属于本项目的任何执行，稳定拒绝
+      throw superAgentError('assignmentNotFound', { assignmentId: parsed.assignmentId })
+    }
+    const result = project.domain.report({
+      ticketId: assignment.ticketId,
+      assignmentId: parsed.assignmentId,
+      reportId: parsed.reportId,
+      kind: parsed.kind,
+      summary: parsed.summary,
+      question: parsed.question,
+      askedBy: parsed.askedBy,
+      answers: parsed.answers,
+      details: parsed.details,
+      artifacts: parsed.artifacts,
+    })
+    if (parsed.progress) {
+      project.projector.recordProgress(assignment.ticketId, parsed.progress)
+    }
+    // Report 是领域事实：卡片即时投影（现有卡片原位更新，不重复发气泡）
+    project.projector.sync()
+    // question/answers 变化驱动 Attention 气泡（T08 #78）
+    project.attentionProjector.sync()
+    return {
+      ticketId: assignment.ticketId,
+      reportId: result.report.reportId,
+      kind: result.report.kind,
+      summary: result.report.summary,
+      at: result.report.at,
+      duplicate: result.duplicate,
+      attentionId: result.attentionId,
+    }
+  }
+
+  /**
+   * Router 投影落地（幂等）。
+   *
+   * 会话 id 由项目根稳定派生（设计 §5.3）：重启后仍是同一条 Router 会话，
+   * 引擎按已有 transcript --resume，IM 历史不会每次从零开始。
+   */
+  function ensureRouterProjection(
+    project: ProjectState,
+    repoRoot: string,
+  ): { sessionId: string; running: boolean } {
+    if (!project.router) {
+      project.router = {
+        sessionId: superAgentRouterEngineSessionId(repoRoot),
+        running: project.routerRunner?.isRunning() ?? false,
+      }
+      project.seq += 1
+    }
+    return project.router
+  }
+
+  /**
+   * Router 轮次状态收敛：把 Runner 的真值写回 router 投影再广播。
+   *
+   * 投影只反映 Router 自己，不动领域 seq —— 卡片断档重拉看的是领域水位，
+   * 与 typing 状态无关，把两者混在一起会让每次闲聊都触发全量重拉。
+   */
+  function notifyRouterStatus(project: ProjectState, repoRoot: string): void {
+    if (!project.router) return
+    project.router.running = project.routerRunner?.isRunning() ?? false
+    options.onRouterStatusChanged?.(repoRoot, { ...project.router })
+  }
+
+  /**
+   * 运行时接线（设计 §4.2、§7.1）。
+   *
+   * Executor 与 RouterRunner 反过来都要用 project 的 domain/scheduler/projector，
+   * 只能在 project 落地后创建 —— 在此之前 launcher/workerDeliverer 是 null，
+   * 工单保持排队而不假装启动。注入接缝（options.launcher / options.workerDeliverer /
+   * options.bridge）保留给测试：给了就不再用真实引擎通路。
+   */
+  function wireRuntime(project: ProjectState, repoRoot: string): void {
+    const bridge = options.bridge
+    // 没有引擎接缝 = 没有运行时可接（领域用例、未接线的环境）：launcher 保持
+    // null，工单如实排队；Router 会话也不会被拉起。
+    if (!bridge) return
+
+    // 注入了 fake launcher 的用例不建真实 Executor（它的事件订阅会白挂着）；
+    // 只有走引擎接缝时才需要。
+    if (options.launcher === undefined) {
+      project.executor = createSuperAgentExecutor({
+        bridge,
+        resolveGeneration: (assignmentId) =>
+          project.domain.state.assignments[assignmentId]?.generation ?? 1,
+        titleOf: (ticketId) => project.domain.state.tickets[ticketId]?.title ?? ticketId,
+        hooks: {
+          ingest: (text) => {
+            const report = applyWorkerReport(project, { text })
+            return {
+              final: isSuperAgentHandoffReport(report.kind),
+              kind: report.kind,
+              summary: report.summary,
+              ticketId: report.ticketId,
+            }
+          },
+          onProtocolFailure: (context) => {
+            // 协议失败按设计 §7.4 落一份 failed Report（原文只进日志，不进领域），
+            // reportId 绑定 assignmentId：同一执行的重复失败被幂等确认，不刷屏。
+            try {
+              project.domain.report({
+                ticketId: context.ticketId,
+                assignmentId: context.assignmentId,
+                reportId: `protocol-failure:${context.assignmentId}`,
+                kind: 'failed',
+                summary: '本轮结束没有有效的最终 Report（汇报协议失败）',
+              })
+            } catch {
+              // 执行已结束等非法迁移：只留健康，不伪造事实
+            }
+            project.health.recordFailure('effect:launch', {
+              code: 'reportInvalid',
+              ticketId: context.ticketId,
+            })
+            project.projector.sync()
+            project.attentionProjector.sync()
+          },
+          onInterrupted: (context) => {
+            project.health.recordFailure('effect:launch', {
+              code: 'engineLaunchFailed',
+              ticketId: context.ticketId,
+            })
+          },
+          relay: (info) => {
+            const ticket = project.domain.state.tickets[info.ticketId]
+            project.routerRunner?.relay(
+              renderSuperAgentRouterEvent({
+                ticketId: info.ticketId,
+                title: ticket?.title ?? info.ticketId,
+                kind: info.kind,
+                summary: info.summary,
+              }),
+            )
+          },
+        },
+      })
+    }
+
+    const statusQuery = createSuperAgentSessionStatusQuery({
+      repoRoot,
+      domain: project.domain,
+      cards: () => project.projector.cards(),
+      queue: () => project.scheduler.queue(),
+      progress: (ticketId) => project.projector.peekProgress(ticketId),
+    })
+
+    const routerRunner = createSuperAgentRouterRunner({
+      repoRoot,
+      sessionId: superAgentRouterEngineSessionId(repoRoot),
+      bridge,
+      hooks: {
+        dispatch: (input) =>
+          applyDispatch(repoRoot, project, {
+            requestId: input.requestId,
+            title: input.title,
+            // 目标 = 本轮人的原话（routerRunner 带上），note 只是路由旁注。
+            text: input.text,
+            note: input.note ?? undefined,
+            actor: 'router',
+          }),
+        attach: (input) => applyRouterAttach(repoRoot, project, input),
+        stop: (input) =>
+          // reason 用旁注：人在快照上看到的是卡片，被停的原因留在工单事实里。
+          applyTicketStop(repoRoot, project, {
+            ticketId: input.ticketId,
+            reason: input.note ?? undefined,
+          }),
+        onStatusChanged: () => notifyRouterStatus(project, repoRoot),
+        onFailure: (code) => project.health.recordFailure('effect:relay', { code }),
+        // 每轮把人正问的"有哪些活在跑"的答案送到模型面前（§8.1）。读路径先同步
+        // 一次投影，卡片水位与领域事实不一致时自愈，而不是注入一份过期快照。
+        statusContext: () => {
+          project.projector.sync()
+          return renderSuperAgentRouterStatusContext(statusQuery.statusQuery())
+        },
+      },
+    })
+
+    project.routerRunner = routerRunner
   }
 
   /** Worker 只读镜像快照：稳定 sessionId + running + 按 generation 升序的代次分段。 */
@@ -581,7 +944,10 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       repoRoot,
       ticketId,
       title: ticket.title,
-      sessionId: superAgentWorkerSessionId(ticketId),
+      // 引擎会话 id（UUIDv5 派生，见 sessionId.ts）：渲染端按它登记只读会话，
+      // 事件与 transcript 都挂在同一个 id 上；可读标签 superagent-worker-<ticket>
+      // 不能直接交给 CLI。
+      sessionId: superAgentWorkerEngineSessionId(ticketId),
       running: segments.some((segment) => segment.state === 'running'),
       takenOver: project.takeover?.ticketId === ticketId,
       segments,
@@ -589,15 +955,27 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   }
 
   /**
+   * 投递接缝：注入的 fake 优先（测试），否则用本项目的 Executor。
+   * 两者都没有（Executor 尚未接线）才返回 null —— 输入只落库不假投。
+   */
+  function resolveWorkerDeliverer(
+    project: ProjectState,
+  ): SuperAgentWorkerDeliverer | null {
+    if (options.workerDeliverer !== undefined) return options.workerDeliverer ?? null
+    return project.executor?.deliver ?? null
+  }
+
+  /**
    * T09/T10 共用：先落库后投递的 requestId 对账 —— 可证明未接受（pending）
    * 才重投；delivered/read 已接受跳过；uncertain 禁止盲目重投并产生 Attention。
    */
   async function settleWorkerInputDelivery(
+    repoRoot: string,
     project: ProjectState,
     command: { ticketId: string; requestId: string; text: string },
     added: AddInputResult,
   ): Promise<SuperAgentWorkerMessageResult> {
-    const deliverer = options.workerDeliverer ?? null
+    const deliverer = resolveWorkerDeliverer(project)
     if (deliverer) {
       // duplicate 路径的 gated 是「未投出」而非「闸门拦截」，按 status 判断即可
       const shouldDeliver = added.duplicate
@@ -608,7 +986,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           ticketId: command.ticketId,
           inputId: added.input.inputId,
           requestId: command.requestId,
-          sessionId: superAgentWorkerSessionId(command.ticketId),
+          repoRoot,
+          sessionId: superAgentWorkerEngineSessionId(command.ticketId),
           text: command.text,
         })
         if (outcome === 'accepted') {
@@ -679,8 +1058,11 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
    * 只投当前闸门已开、最新代次 pending/running 的工单；notAccepted 保持
    * pending（下次路径重投），unknown 转 uncertain + Attention，禁止盲目重投。
    */
-  async function drainPendingInputs(project: ProjectState): Promise<void> {
-    const deliverer = options.workerDeliverer ?? null
+  async function drainPendingInputs(
+    repoRoot: string,
+    project: ProjectState,
+  ): Promise<void> {
+    const deliverer = resolveWorkerDeliverer(project)
     if (!deliverer) return
     const state = project.domain.state
     for (const ticket of Object.values(state.tickets)) {
@@ -715,7 +1097,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           ticketId: ticket.ticketId,
           inputId,
           requestId: input.requestId,
-          sessionId: superAgentWorkerSessionId(ticket.ticketId),
+          repoRoot,
+          sessionId: superAgentWorkerEngineSessionId(ticket.ticketId),
           text: input.text,
         })
         if (outcome === 'accepted') {
@@ -747,8 +1130,13 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     // T18 #88：Outbox 在途 Channel 派发同样有界等待回写
     const outboxSettled = project.outbox ? await project.outbox.settle(bound) : true
     const settledWithinBound = schedulerSettled && outboxSettled
-    // 4. 关闭完成：关 Store 释放项目锁
+    // 4. 关闭完成：停运行时订阅（在途 launch 已由 scheduler.settle 收口），
+    //    关 Store 释放项目锁
     project.phase = 'closed'
+    project.routerRunner?.dispose()
+    project.executor?.dispose()
+    project.routerRunner = null
+    project.executor = null
     project.store?.close()
     return { repoRoot, settledWithinBound }
   }
@@ -761,15 +1149,43 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     routerBind(repoRoot) {
       const project = projectOf(repoRoot)
       assertCommandsAllowed(project, repoRoot)
-      if (!project.router) {
-        project.router = { sessionId: randomUUID(), running: false }
-        project.seq += 1
-      }
+      const router = ensureRouterProjection(project, repoRoot)
       return {
-        sessionId: project.router.sessionId,
-        running: project.router.running,
+        sessionId: router.sessionId,
+        running: project.routerRunner?.isRunning() ?? false,
         snapshot: snapshotOf(repoRoot, project),
       }
+    },
+
+    async routerMessage(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      const runner = project.routerRunner
+      if (!runner) {
+        throw superAgentError('engineLaunchFailed', { repoRoot })
+      }
+      if (typeof command.text !== 'string' || command.text.trim() === '') {
+        throw superAgentError('invalidRouterMessage', { repoRoot })
+      }
+      // 先落地投影再起轮：running 广播挂在投影上，投影不在就没人收 typing 状态
+      const router = ensureRouterProjection(project, repoRoot)
+      await runner.message({
+        text: command.text,
+        displayText: command.displayText,
+        images: command.images,
+        model: command.model,
+      })
+      return {
+        sessionId: router.sessionId,
+        running: runner.isRunning(),
+      }
+    },
+
+    async routerAbort(repoRoot) {
+      const project = projectOf(repoRoot)
+      // 只中止 Router 这一轮：Worker 不受影响（设计 §10.2）
+      await project.routerRunner?.abortTurn()
+      return true
     },
 
     health(repoRoot) {
@@ -828,27 +1244,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     dispatch(repoRoot, command) {
       const project = projectOf(repoRoot)
       assertCommandsAllowed(project, repoRoot)
-      const outcome = project.scheduler.dispatch({
-        requestId: command.requestId,
-        title: command.title,
-        repoRoot,
-        text: command.text,
-        actor: command.actor ?? 'desktop-user',
-        contextPaths: command.contextPaths ?? [],
-        attachments: command.attachments ?? [],
-      })
-      // T06 #76：新建工单是领域事实，派生卡片即时投影（launcher 为 null 时
-      // scheduler 不会回调 onDomainChanged，这里兜底）
-      project.projector.sync()
-      project.attentionProjector.sync()
-      return {
-        ticketId: outcome.ticket.ticketId,
-        assignmentId: outcome.assignment.assignmentId,
-        decisionId: outcome.decision.decisionId,
-        mandateId: outcome.mandate.mandateId,
-        queuePosition: outcome.queuePosition,
-        duplicate: outcome.duplicate,
-      }
+      return applyDispatch(repoRoot, project, command)
     },
 
     queue(repoRoot) {
@@ -874,40 +1270,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       if (project.phase === 'closed') {
         throw superAgentError('shuttingDown', { repoRoot })
       }
-      const parsed = parseSuperAgentReportText(input.text)
-      const assignment = project.domain.state.assignments[parsed.assignmentId]
-      if (!assignment) {
-        // 伪造/错位：assignmentId 不属于本项目的任何执行，稳定拒绝
-        throw superAgentError('assignmentNotFound', { assignmentId: parsed.assignmentId })
-      }
-      const result = project.domain.report({
-        ticketId: assignment.ticketId,
-        assignmentId: parsed.assignmentId,
-        reportId: parsed.reportId,
-        kind: parsed.kind,
-        summary: parsed.summary,
-        question: parsed.question,
-        askedBy: parsed.askedBy,
-        answers: parsed.answers,
-        details: parsed.details,
-        artifacts: parsed.artifacts,
-      })
-      if (parsed.progress) {
-        project.projector.recordProgress(assignment.ticketId, parsed.progress)
-      }
-      // Report 是领域事实：卡片即时投影（现有卡片原位更新，不重复发气泡）
-      project.projector.sync()
-      // question/answers 变化驱动 Attention 气泡（T08 #78）
-      project.attentionProjector.sync()
-      return {
-        ticketId: assignment.ticketId,
-        reportId: result.report.reportId,
-        kind: result.report.kind,
-        summary: result.report.summary,
-        at: result.report.at,
-        duplicate: result.duplicate,
-        attentionId: result.attentionId,
-      }
+      return applyWorkerReport(project, input)
     },
 
     workerBind(repoRoot, ticketId) {
@@ -992,7 +1355,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       })
 
       // 再投递：与 ticketMessage 共用 requestId 对账（settleWorkerInputDelivery）
-      return settleWorkerInputDelivery(project, command, added)
+      return settleWorkerInputDelivery(repoRoot, project, command, added)
     },
 
     attentions(repoRoot) {
@@ -1041,20 +1404,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     },
 
     ticketStop(repoRoot, command) {
-      const project = projectOf(repoRoot)
-      assertCommandsAllowed(project, repoRoot)
-      const result = project.domain.ticketStop({
-        ticketId: command.ticketId,
-        reason: command.reason,
-      })
-      project.projector.sync()
-      project.attentionProjector.sync()
-      return {
-        repoRoot,
-        ticketId: result.ticket.ticketId,
-        outcome: 'stopped',
-        endedAt: result.ticket.ended?.at ?? '',
-      }
+      return applyTicketStop(repoRoot, projectOf(repoRoot), command)
     },
 
     async ticketMessage(repoRoot, command) {
@@ -1071,7 +1421,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         text: command.text,
       })
       // 再投递：与 workerMessage 共用 requestId 对账（settleWorkerInputDelivery）
-      return settleWorkerInputDelivery(project, command, added)
+      return settleWorkerInputDelivery(repoRoot, project, command, added)
     },
 
     ticketRetry(repoRoot, command) {
@@ -1144,7 +1494,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       assertCommandsAllowed(project, repoRoot)
       project.domain.resumeProject()
       // 暂停期间到达的人消息不丢：补投挂起输入后续跑队列
-      await drainPendingInputs(project)
+      await drainPendingInputs(repoRoot, project)
       project.scheduler.resume()
       return true
     },
