@@ -50,10 +50,6 @@ export interface SuperAgentEngineBridge {
   abort(sessionId: string): Promise<void>
   stop(sessionId: string): Promise<void>
   /**
-   * 在线换模型（引擎控制请求）。会话不是运行态时由调用方决定回退（重启带新配置）。
-   */
-  setModel(sessionId: string, model: string): Promise<void>
-  /**
    * 把输入框选的模型名解析成该引擎认的值。
    *
    * 与主聊天同一套规则（src/utils/engineModel）：claude-code 要 haiku/sonnet/opus
@@ -94,7 +90,6 @@ export const defaultSuperAgentEngineBridge: SuperAgentEngineBridge = {
     engineGateway.sendMessage(sessionId, content, images as never),
   abort: (sessionId) => engineGateway.abort(sessionId),
   stop: (sessionId) => engineGateway.stop(sessionId),
-  setModel: (sessionId, model) => engineGateway.setModel(sessionId, model),
   resolveModelAlias: (modelValue, engineType) => resolveEngineModelAlias(modelValue, engineType),
   onRouteEvent: (listener) => EngineFactory.onRouteEvent(listener),
   pushUserMessage: pushUserMessageToRenderer,
