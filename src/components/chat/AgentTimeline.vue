@@ -1464,6 +1464,12 @@ function getFinalMetadataMessageId(msgs: Message[]): string {
     margin-left: 0;
   }
 
+  // 相邻气泡之间留出呼吸间距：分组内多条 assistant 消息各自成一条气泡，
+  // 默认堆叠间距为 0，会整列挤压在一起。
+  .timeline-event + .timeline-event {
+    margin-top: 10px;
+  }
+
   .timeline-event {
     display: block;
     min-height: 0;

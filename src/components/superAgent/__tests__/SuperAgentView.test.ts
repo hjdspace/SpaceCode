@@ -217,8 +217,18 @@ import WorkerTaskCard from '../WorkerTaskCard.vue'
 function mountView() {
   return mount(SuperAgentView, {
     global: {
-      // 只替换渲染层，保留组件引用与 props 供断言
-      stubs: { ChatInput: true, MessageList: true },
+      // 只替换渲染层，保留组件引用与 props 供断言。
+      // MessageList 桩渲染 append 插槽：工单卡片（T06）已移入时间线末尾，
+      // 桩不渲染插槽的话这些卡片的接线断言全部落空。
+      stubs: {
+        ChatInput: true,
+        // 保留 name 与 props 声明：findComponent({ name }) 与 props() 断言仍可用
+        MessageList: {
+          name: 'MessageList',
+          props: ['messages', 'loading', 'sessionId', 'presentation', 'readonly', 'mode'],
+          template: '<div><slot name="append" /></div>',
+        },
+      },
     },
   })
 }

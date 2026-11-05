@@ -86,13 +86,6 @@
       </p>
     </template>
 
-    <!-- 执行策略与检查点回退（T12 #82）：串/并行开关（并行强制 per-ticket worktree，
-         两步确认）、检查点按文件显式回退入口。 -->
-    <ExecutionPolicyControl
-      v-if="appStore.projectRoot"
-      :repo-root="appStore.projectRoot"
-    />
-
     <!-- Attention 非模态问答气泡（T08 #78）：工单卡片上方的薄层区块；
          open 展示就地回答入口，answered 折叠保留审计，withdrawn 已被过滤。 -->
     <div v-if="superAgentStore.attentionBubbles.length" class="attention-bubbles" data-testid="super-agent-attentions">
@@ -126,28 +119,9 @@
       </div>
     </div>
 
-    <!-- 工单卡片（T06 #76）：时间线上方薄层区块，不侵入时间线组件内部；
-         key=ticketId 保证 Report 只原位更新现有卡片，不重复发气泡。
-         T10 #80：review 卡片的验收/继续追问/停止三出口与重试入口在此接线。 -->
-    <div v-if="ticketCards.length" class="ticket-cards" data-testid="super-agent-tickets">
-      <WorkerTaskCard
-        v-for="card in ticketCards"
-        :key="card.ticketId"
-        :card="card"
-        :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
-        @open="handleTicketOpen"
-        @accept="handleTicketAccept"
-        @stop="handleTicketStop"
-        @retry="handleTicketRetry"
-        @message="handleTicketMessage"
-      />
-    </div>
-    <p v-if="ticketActionHint" class="ticket-action-hint" data-testid="super-agent-ticket-action-hint">
-      {{ ticketActionHint }}
-    </p>
-
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
-         loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。 -->
+         loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。
+         工单卡片走时间线末尾的 append 插槽：跟随 LLM 答复依次展示，不钉在顶部。 -->
     <template v-if="routerSessionId">
       <div class="super-agent-messages">
         <MessageList
@@ -157,7 +131,29 @@
           presentation="im"
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
-        />
+        >
+          <template #append>
+            <!-- 工单卡片（T06 #76）：key=ticketId 保证 Report 只原位更新现有卡片，
+                 不重复发气泡。T10 #80：review 卡片的验收/继续追问/停止三出口与
+                 重试入口在此接线。 -->
+            <div v-if="ticketCards.length" class="ticket-cards" data-testid="super-agent-tickets">
+              <WorkerTaskCard
+                v-for="card in ticketCards"
+                :key="card.ticketId"
+                :card="card"
+                :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+                @open="handleTicketOpen"
+                @accept="handleTicketAccept"
+                @stop="handleTicketStop"
+                @retry="handleTicketRetry"
+                @message="handleTicketMessage"
+              />
+            </div>
+            <p v-if="ticketActionHint" class="ticket-action-hint" data-testid="super-agent-ticket-action-hint">
+              {{ ticketActionHint }}
+            </p>
+          </template>
+        </MessageList>
       </div>
 
       <ChatInput
@@ -205,7 +201,6 @@ import type { SuperAgentQueueEntry, SuperAgentTicketCard } from '@/shared/channe
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
-import ExecutionPolicyControl from './ExecutionPolicyControl.vue'
 import AttentionBubble from './AttentionBubble.vue'
 import WorkerTaskCard from './WorkerTaskCard.vue'
 import { buildOutgoingMessage } from '@/lib/composer-outgoing'
@@ -774,9 +769,18 @@ async function handleToolSkip(messageId: string, toolId: string) {
   }
 }
 
-// T10 #80：出口动作失败的非模态提示
+// ── 工单卡片（T06 #76）：挂在工作时间线末尾的 append 插槽里，随时间线滚动，
+//    单行卡片纵排，跟随 LLM 答复依次展示 ──
+.ticket-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+}
+
+// T10 #80：出口动作失败的非模态提示（同在时间线末尾）
 .ticket-action-hint {
-  margin: 4px 12px 0;
+  margin: 4px 0 0;
   font-size: 12px;
   color: var(--status-error, #d4564d);
 }
@@ -790,14 +794,6 @@ async function handleToolSkip(messageId: string, toolId: string) {
   &.failed {
     color: var(--status-error, #d4564d);
   }
-}
-
-// ── 工单卡片（T06 #76）：时间线上方薄层区块，单行卡片纵排 ──
-.ticket-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 6px 12px 0;
 }
 
 .super-agent-empty {
