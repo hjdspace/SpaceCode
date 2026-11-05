@@ -6,7 +6,9 @@
  *  - 缺 repoRoot 时拒绝执行，不做静默兜底；
  *  - 健康变化经 onHealthChanged 广播到所有窗口（health.changed 事件）；
  *  - 派工与队列（T05）：dispatch/queue 通道转发、非法派工命令拒绝、
- *    队列变化经 queue-changed 广播到所有窗口。
+ *    队列变化经 queue-changed 广播到所有窗口；
+ *  - Router 对话（T21）：routerMessage/routerAbort 通道与入口校验，
+ *    轮次起止经 router-status 广播，未注入引擎接缝时如实拒绝而不是假启动。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -36,6 +38,11 @@ import {
   createBroadcastingSuperAgentService,
   registerSuperAgentIPCHandlers,
 } from '../superAgentIpc'
+import {
+  superAgentRouterEngineSessionId,
+  superAgentWorkerEngineSessionId,
+} from '../sessionId'
+import { createFakeBridge, routeFence } from './fakeBridge'
 import { SUPER_AGENT_PREFIX } from '@/shared/channels/superAgent'
 
 const HEALTH_CHANGED_CHANNEL = `${SUPER_AGENT_PREFIX}health-changed`
@@ -614,5 +621,104 @@ describe('registerSuperAgentIPCHandlers 健康与 Eval 处置（T20 #90）', () 
     await expect(invokeDispatch('evalReevaluate', '/repo/a', { evalId: 'missing' })).rejects.toThrow(
       /evalNotFound/,
     )
+  })
+})
+
+describe('registerSuperAgentIPCHandlers router conversation（T21）', () => {
+  const ROUTER_STATUS_CHANNEL = `${SUPER_AGENT_PREFIX}router-status`
+
+  function flushing() {
+    return new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  it('registers routerMessage and routerAbort on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}routerMessage`, expect.any(Function))
+    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}routerAbort`, expect.any(Function))
+  })
+
+  it('rejects a malformed command before the engine is touched', async () => {
+    const fake = createFakeBridge()
+    registerSuperAgentIPCHandlers(createBroadcastingSuperAgentService({ bridge: fake.bridge }))
+
+    await expect(invokeDispatch('routerMessage', '', { requestId: 'r1', text: '干活' })).rejects.toThrow(/repoRoot/)
+    await expect(invokeDispatch('routerMessage', '/repo/a', null)).rejects.toThrow(/router message/)
+    await expect(
+      invokeDispatch('routerMessage', '/repo/a', { requestId: ' ', text: '干活' }),
+    ).rejects.toThrow(/router message/)
+    await expect(
+      invokeDispatch('routerMessage', '/repo/a', { requestId: 'r1', text: '   ' }),
+    ).rejects.toThrow(/router message/)
+    expect(fake.sent).toHaveLength(0)
+  })
+
+  it('runs the turn through the injected bridge and broadcasts router-status to every window', async () => {
+    const fake = createFakeBridge()
+    registerSuperAgentIPCHandlers(createBroadcastingSuperAgentService({ bridge: fake.bridge }))
+
+    const result = await invokeDispatch('routerMessage', '/repo/a', {
+      requestId: 'r1',
+      text: '帮我把登录页修好',
+      displayText: '帮我把登录页修好',
+    })
+
+    expect(result).toMatchObject({ sessionId: superAgentRouterEngineSessionId('/repo/a'), running: true })
+    expect(probe.send).toHaveBeenCalledWith(
+      ROUTER_STATUS_CHANNEL,
+      '/repo/a',
+      expect.objectContaining({ sessionId: result.sessionId, running: true }),
+    )
+
+    // 轮次收口后广播 running:false，IM 视图的 typing 与停止按钮跟着落回
+    fake.emit(result.sessionId, 'result', { result: '好的。' })
+    await flushing()
+    expect(probe.send).toHaveBeenCalledWith(
+      ROUTER_STATUS_CHANNEL,
+      '/repo/a',
+      expect.objectContaining({ sessionId: result.sessionId, running: false }),
+    )
+  })
+
+  it('aborts only the router turn; workers keep running', async () => {
+    const fake = createFakeBridge()
+    const service = createBroadcastingSuperAgentService({ bridge: fake.bridge })
+    registerSuperAgentIPCHandlers(service)
+
+    service.routerBind('/repo/a')
+    await invokeDispatch('routerMessage', '/repo/a', { requestId: 'r1', text: '修登录页' })
+    fake.emit(superAgentRouterEngineSessionId('/repo/a'), 'result', {
+      result: routeFence([{ kind: 'accept', title: '修复登录页', note: '让登录页可提交' }]),
+    })
+    await flushing()
+
+    const routerSession = superAgentRouterEngineSessionId('/repo/a')
+    const ticket = service.tickets('/repo/a').tickets[0]!
+    const workerSession = superAgentWorkerEngineSessionId(ticket.ticketId)
+
+    // 再起一轮不收口，走停止按钮那条路径
+    await invokeDispatch('routerMessage', '/repo/a', { requestId: 'r2', text: '现在进度如何' })
+    await invoke('routerAbort', '/repo/a')
+
+    expect(fake.aborted).toEqual([routerSession])
+    expect(fake.aborted).not.toContain(workerSession)
+    expect(fake.stopped).not.toContain(workerSession)
+    expect(service.state('/repo/a').router?.running).toBe(false)
+    // Worker 不受 Router 停止影响，工单仍在进行中
+    expect(service.tickets('/repo/a').tickets[0]!.state).toBe(ticket.state)
+  })
+
+  it('refuses to answer an unscoped router abort', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invoke('routerAbort', '')).rejects.toThrow(/repoRoot/)
+  })
+
+  it('tells the renderer the truth when no runtime is wired', async () => {
+    registerSuperAgentIPCHandlers(createBroadcastingSuperAgentService())
+
+    await expect(
+      invokeDispatch('routerMessage', '/repo/a', { requestId: 'r1', text: '干活' }),
+    ).rejects.toThrow(/engineLaunchFailed/)
   })
 })
