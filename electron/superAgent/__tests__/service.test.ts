@@ -13,6 +13,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createSuperAgentService } from '../service'
 import { superAgentError } from '../errors'
+import { superAgentWorkerEngineSessionId } from '../sessionId'
 
 describe('createSuperAgentService', () => {
   it('returns an empty snapshot with a seq watermark before any bind', () => {
@@ -269,7 +270,13 @@ describe('createSuperAgentService worker mirror（T07 #77）', () => {
 
     expect(mirror.ticketId).toBe(dispatched.ticketId)
     expect(mirror.title).toBe('修复登录')
-    expect(mirror.sessionId).toBe(`superagent-worker-${dispatched.ticketId}`)
+    // 引擎会话 id：由 ticketId 稳定派生的 UUID（CLI 只认 UUID，可读标签会被拒），
+    // 跨 Assignment、重试与重启都不变。
+    expect(mirror.sessionId).toBe(superAgentWorkerEngineSessionId(dispatched.ticketId))
+    expect(mirror.sessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
+    expect(service.workerBind('/repo/a', dispatched.ticketId).sessionId).toBe(mirror.sessionId)
     expect(mirror.running).toBe(false)
     // Executor 未接入：Assignment 保持 pending，代次 1；Report 留给 T06
     expect(mirror.segments).toHaveLength(1)
