@@ -1,53 +1,33 @@
-import { describe, it, expect } from 'vitest'
-import { stripSuperAgentRouterProtocol } from '../stripRouterProtocol'
+/**
+ * 剥掉 Router 与宿主之间的建单协议块（IM 展示模式用）。
+ *
+ * ```super-agent:route 块里是给宿主解析的 JSON：它的结果已经变成工单卡片
+ * 出现在同一条时间线里，把协议本身贴给人看只会造成噪音。
+ *
+ * 流式过程中围栏可能还没闭合，所以除了成对块，还要把「已开栏但未闭合」的尾巴
+ * 一并吞掉 —— 否则人会先看到半截 JSON，收口时它又突然消失。
+ */
+import { SUPER_AGENT_ROUTE_FENCE } from '@/shared/channels/superAgent'
 
-const FENCE = '```super-agent:route'
+/**
+ * 成对的协议块（已闭合）。
+ *
+ * 前导换行与尾随换行一起吃掉：块夹在两段正文中间时，只删前半会让上下各留一个
+ * 空行，气泡里凭空多出一道空白。
+ */
+const CLOSED_PATTERN = new RegExp(
+  `(^|\\n)[ \\t]*\`{3}${SUPER_AGENT_ROUTE_FENCE}[\\s\\S]*?\`{3}[ \\t]*\\n?`,
+  'g',
+)
 
-describe('stripSuperAgentRouterProtocol', () => {
-  it('剥掉闭合的建单协议块，保留人读的正文', () => {
-    const text = [
-      '收到，我把这个活派给 worker。',
-      '',
-      FENCE,
-      '{ "version": 1, "tickets": [{ "title": "做考勤表", "text": "做一个考勤表" }] }',
-      '```',
-    ].join('\n')
+/** 只开了栏、还没闭合的协议块（流式中）。 */
+const OPEN_PATTERN = new RegExp(
+  `(^|\\n)[ \\t]*\`{3}${SUPER_AGENT_ROUTE_FENCE}[\\s\\S]*$`,
+)
 
-    expect(stripSuperAgentRouterProtocol(text)).toBe('收到，我把这个活派给 worker。')
-  })
-
-  it('流式途中未闭合的围栏也整体吞掉，不留半截 JSON', () => {
-    const text = [
-      '我先建单。',
-      '',
-      FENCE,
-      '{ "version": 1, "tickets": [{ "title": "做考勤表"',
-    ].join('\n')
-
-    expect(stripSuperAgentRouterProtocol(text)).toBe('我先建单。')
-  })
-
-  it('协议块前后的正文都保留，只删块本身', () => {
-    const text = [
-      '前一句。',
-      '',
-      FENCE,
-      '{}',
-      '```',
-      '',
-      '后一句。',
-    ].join('\n')
-
-    expect(stripSuperAgentRouterProtocol(text)).toBe('前一句。\n\n后一句。')
-  })
-
-  it('不碰其他语言的代码块', () => {
-    const text = ['看这段：', '', '```ts', 'const a = 1', '```'].join('\n')
-
-    expect(stripSuperAgentRouterProtocol(text)).toBe(text)
-  })
-
-  it('整条回复只有协议块时返回空串（交给调用方丢弃该文本事件）', () => {
-    expect(stripSuperAgentRouterProtocol(`${FENCE}\n{}\n\``)).toBe('')
-  })
-})
+export function stripSuperAgentRouterProtocol(text: string): string {
+  const withoutClosed = text.replace(CLOSED_PATTERN, '')
+  const openMatch = OPEN_PATTERN.exec(withoutClosed)
+  const cut = openMatch ? withoutClosed.slice(0, openMatch.index) : withoutClosed
+  return cut.replace(/[\s]+$/, '')
+}
