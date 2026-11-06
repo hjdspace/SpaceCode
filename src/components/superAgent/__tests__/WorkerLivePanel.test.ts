@@ -12,6 +12,8 @@ import type { SuperAgentWorkerMirror } from '@/shared/channels/superAgent'
 
 const probe = vi.hoisted(() => ({
   projectRoot: 'D:/repo',
+  /** 标签打开时打的项目根；与实时 projectRoot 分开，才能测出"跟着实时指针漂移"的回归。 */
+  tabRepoRoot: 'D:/repo',
   ticketId: 'ticket-1' as string | null,
   mirror: null as SuperAgentWorkerMirror | null,
   bindWorker: vi.fn().mockResolvedValue(undefined),
@@ -47,14 +49,14 @@ vi.mock('@/stores/app', () => ({
         type: 'worker',
         title: '工单',
         icon: null,
-        data: { ticketId: probe.ticketId, repoRoot: probe.projectRoot },
+        data: { ticketId: probe.ticketId, repoRoot: probe.tabRepoRoot },
         closeable: true,
       }
     },
   }),
   // 与实现同源的收窄辅助：直接复刻 store 侧判别逻辑
-  workerTicketId: (tab: { type?: string; data?: { ticketId?: string } | null } | null) =>
-    tab && tab.type === 'worker' ? (tab.data?.ticketId ?? null) : null,
+  workerTabData: (tab: { type?: string; data?: { ticketId?: string; repoRoot?: string } | null } | null) =>
+    tab && tab.type === 'worker' ? (tab.data ?? null) : null,
 }))
 
 vi.mock('@/stores/superAgent', () => ({
@@ -116,6 +118,7 @@ function mountPanel() {
 
 beforeEach(() => {
   probe.projectRoot = 'D:/repo'
+  probe.tabRepoRoot = 'D:/repo'
   probe.ticketId = 'ticket-1'
   probe.mirror = null
   probe.takeoverTicketId = null
@@ -335,6 +338,18 @@ describe('WorkerLivePanel takeover & giveback（T09 #79）', () => {
     expect(wrapper.find('[data-testid="worker-takeover-banner"]').exists()).toBe(false)
     expect(wrapper.findComponent(AgentTimeline).props('readonly')).toBe(true)
     expect(wrapper.findComponent(ChatInput).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('中置页切到别的项目后，旧工单标签仍按标签打开时的项目根寻址', async () => {
+    probe.tabRepoRoot = 'D:/repo'
+    // 全局项目指针已经漂走：这张工单属于还没切过去的旧项目
+    probe.projectRoot = 'D:/other-project'
+
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(probe.bindWorker).toHaveBeenCalledWith('D:/repo', 'ticket-1')
     wrapper.unmount()
   })
 })
