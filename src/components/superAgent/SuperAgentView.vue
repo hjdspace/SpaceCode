@@ -71,7 +71,8 @@
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
          loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。
          工单单位（卡片 + 该单的 Worker 提问 + 待验收超时提醒）按创建时间锚定在
-         派工那条助手回复下方；缺少历史时整体落在末尾，不堆到页面顶部。 -->
+         派工那条助手回复下方；早于整段对话的旧单钳到最早那条回复，只有助手回复
+         全部缺失时才整体落在末尾。 -->
     <template v-if="routerSessionId">
       <div class="super-agent-messages">
         <MessageList
@@ -290,7 +291,11 @@ const ticketAnchors = computed(() => {
         closest = message
       }
     }
-    if (closest) anchors.set(card.ticketId, toRaw(closest))
+    // 早于整段对话的工单（由主聊天/IM 派发，Router 转录里没有它那一轮）钳到最早的
+    // 助手回复：卡片顺序跟着 createdAt 走才读得通。挂到末尾等于宣称最新这条回复
+    // 刚产出了一张旧单 —— 上一轮那张「已停止」的卡片就是这样把人骗到的。
+    const anchor = closest ?? assistants[0]
+    if (anchor) anchors.set(card.ticketId, toRaw(anchor))
   }
   return anchors
 })
