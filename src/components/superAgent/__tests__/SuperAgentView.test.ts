@@ -28,8 +28,12 @@ import type {
 
 const probe = vi.hoisted(() => ({
   bind: vi.fn().mockResolvedValue(undefined),
+  switchProject: vi.fn().mockResolvedValue(undefined),
   loadState: vi.fn().mockResolvedValue(undefined),
-  projectRoot: 'D:/repo',
+  /** 响应式的项目根（由 @/stores/app 的 mock 建），测试经它驱动 watch 切换 */
+  appState: null as { projectRoot: string } | null,
+  /** 本页绑定的项目根：动作寻址看它，不看实时 projectRoot */
+  boundRepoRoot: 'D:/repo' as string | null,
   routerSessionId: 'router-1' as string | null,
   sendMessage: vi.fn().mockResolvedValue(undefined),
   abort: vi.fn().mockResolvedValue(undefined),
@@ -123,13 +127,20 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }))
 
-vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({
-    get projectRoot() { return probe.projectRoot },
-    openTerminalTab: probe.openTerminalTab,
-    openWorkerTab: probe.openWorkerTab,
-  }),
-}))
+vi.mock('@/stores/app', async () => {
+  // 项目根得真是响应式：视图靠 watch(appStore.projectRoot) 跟随切换项目，
+  // 普通对象上的 getter 永远不会触发 watch，测试就会假绿。
+  const { reactive } = await import('vue')
+  const appState = reactive({ projectRoot: 'D:/repo' })
+  probe.appState = appState
+  return {
+    useAppStore: () => ({
+      get projectRoot() { return appState.projectRoot },
+      openTerminalTab: probe.openTerminalTab,
+      openWorkerTab: probe.openWorkerTab,
+    }),
+  }
+})
 
 vi.mock('@/stores/settings', () => ({
   useSettingsStore: () => ({
@@ -172,8 +183,10 @@ vi.mock('@/stores/turn', () => ({
 vi.mock('@/stores/superAgent', () => ({
   useSuperAgentStore: () => ({
     bind: probe.bind,
+    switchProject: probe.switchProject,
     loadState: probe.loadState,
     get boundSessionId() { return probe.routerSessionId },
+    get boundRepoRoot() { return probe.boundRepoRoot },
     sendRouterMessage: probe.sendRouterMessage,
     abortRouter: probe.abortRouter,
     watchRouterStatus: probe.watchRouterStatus,
@@ -220,6 +233,14 @@ import ChatInput from '../../chat/ChatInput.vue'
 import MessageList from '../../chat/MessageList.vue'
 import WorkerTaskCard from '../WorkerTaskCard.vue'
 
+/**
+ * 切换全局项目指针。必须写响应式 store 而不是 probe 上的普通字段，
+ * 否则视图里 watch(appStore.projectRoot) 根本不触发，测试会假绿。
+ */
+function setProjectRoot(path: string): void {
+  probe.appState!.projectRoot = path
+}
+
 function mountView() {
   return mount(SuperAgentView, {
     global: {
@@ -247,6 +268,8 @@ beforeEach(() => {
   HTMLElement.prototype.scrollTo = vi.fn()
   probe.getDisplayMessages.mockReturnValue([])
   probe.bind.mockClear()
+  probe.switchProject.mockClear().mockResolvedValue(undefined)
+  probe.boundRepoRoot = 'D:/repo'
   probe.loadState.mockClear()
   probe.openWorkerTab.mockClear()
   probe.sendMessage.mockClear()
@@ -257,7 +280,7 @@ beforeEach(() => {
   probe.routerRunning = false
   probe.addMessage.mockClear()
   probe.getIsLoading.mockReturnValue(false)
-  probe.projectRoot = 'D:/repo'
+  setProjectRoot('D:/repo')
   probe.routerSessionId = 'router-1'
   probe.loadHealth.mockClear()
   probe.watchHealth.mockClear()
@@ -324,15 +347,58 @@ beforeEach(() => {
   probe.attentionCount = 0
 })
 
+function reviewBoard(): SuperAgentTicketBoard {
+  return {
+    repoRoot: 'D:/repo',
+    seq: 3,
+    tickets: [
+      {
+        ticketId: 'ticket-1',
+        title: '修复登录',
+        state: 'review',
+        assignmentId: 'assignment-1',
+        generation: 1,
+        scopePaths: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        ended: null,
+        reviewRemindedAt: '2026-01-02T00:00:00.000Z',
+        canRetry: false,
+        canStop: true,
+      },
+      {
+        ticketId: 'ticket-2',
+        title: '修复注册',
+        state: 'failed',
+        assignmentId: 'assignment-2',
+        generation: 1,
+        scopePaths: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        ended: null,
+        reviewRemindedAt: null,
+        canRetry: true,
+        canStop: true,
+      },
+    ],
+  }
+}
+
+/** 卡片创建时间要晚于锚点助手回复，才会落进那条回复的时间线单位里。 */
+function anchoredBoard(board: SuperAgentTicketBoard): SuperAgentTicketBoard {
+  return { ...board, tickets: board.tickets.map((t) => ({ ...t, createdAt: '2026-01-01T00:00:02Z' })) }
+}
+
 describe('SuperAgentView empty state', () => {
-  it('无项目根时保持空态且不做 IPC', async () => {
-    probe.projectRoot = ''
+  it('无项目根时保持空态：只退出作用域，不拉任何镜像', async () => {
+    setProjectRoot('')
     probe.routerSessionId = null
     const wrapper = mountView()
 
     expect(wrapper.text()).toContain('superAgent.emptyTitle')
     await flushPromises()
-    expect(probe.bind).not.toHaveBeenCalled()
+    // 空根的意义是"清掉旧项目的镜像"，不是去主进程问一个新项目
+    expect(probe.switchProject).toHaveBeenCalledWith('')
     expect(probe.loadState).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -539,7 +605,7 @@ describe('SuperAgentView snapshot/subscription lifecycle', () => {
 
   it('绑定未完成就卸载，不继续加载也不创建泄漏的订阅', async () => {
     let resolveBind!: () => void
-    probe.bind.mockImplementationOnce(() => new Promise<void>(resolve => { resolveBind = resolve }))
+    probe.switchProject.mockImplementationOnce(() => new Promise<void>(resolve => { resolveBind = resolve }))
     const wrapper = mountView()
     wrapper.unmount()
     resolveBind()
@@ -566,7 +632,7 @@ describe('SuperAgentView health entry（T13 #83）', () => {
   })
 
   it('无项目根时不做健康 IPC', async () => {
-    probe.projectRoot = ''
+    setProjectRoot('')
     probe.routerSessionId = null
     const wrapper = mountView()
     await flushPromises()
@@ -746,48 +812,6 @@ describe('SuperAgentView dispatch & queue（T05 #75）', () => {
 })
 
 describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
-  function reviewBoard(): SuperAgentTicketBoard {
-    return {
-      repoRoot: 'D:/repo',
-      seq: 3,
-      tickets: [
-        {
-          ticketId: 'ticket-1',
-          title: '修复登录',
-          state: 'review',
-          assignmentId: 'assignment-1',
-          generation: 1,
-          scopePaths: [],
-          createdAt: '2026-01-01T00:00:00Z',
-          updatedAt: '2026-01-01T00:00:00Z',
-          ended: null,
-          reviewRemindedAt: '2026-01-02T00:00:00.000Z',
-          canRetry: false,
-          canStop: true,
-        },
-        {
-          ticketId: 'ticket-2',
-          title: '修复注册',
-          state: 'failed',
-          assignmentId: 'assignment-2',
-          generation: 1,
-          scopePaths: [],
-          createdAt: '2026-01-01T00:00:00Z',
-          updatedAt: '2026-01-01T00:00:00Z',
-          ended: null,
-          reviewRemindedAt: null,
-          canRetry: true,
-          canStop: true,
-        },
-      ],
-    }
-  }
-
-  /** 卡片创建时间要晚于锚点助手回复，才会落进那条回复的时间线单位里。 */
-  function anchoredBoard(board: SuperAgentTicketBoard): SuperAgentTicketBoard {
-    return { ...board, tickets: board.tickets.map((t) => ({ ...t, createdAt: '2026-01-01T00:00:02Z' })) }
-  }
-
   it('真实 MessageList 中的 Worker 卡片可见且点击打开右侧执行过程', async () => {
     probe.ticketBoard = reviewBoard()
     probe.getDisplayMessages.mockReturnValue([
@@ -1030,6 +1054,59 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
 
     expect(wrapper.findAll('[data-testid="super-agent-ticket-entry-ticket-1"]')).toHaveLength(1)
     expect(wrapper.findAll('[data-testid^="super-agent-review-reminder-"]')).toHaveLength(0)
+    wrapper.unmount()
+  })
+})
+
+/**
+ * 项目作用域（跟随全局项目指针）。
+ *
+ * 本组件是"粘住的 v-if + v-show"挂载的，切项目不会重挂 —— 早先因此永远停在
+ * 第一次打开时的项目，而且动作发的是实时指针，出现"看 A 的卡片、命令打到 B"。
+ */
+describe('SuperAgentView 项目切换', () => {
+  it('全局项目指针变了就重绑，并按新根重拉镜像与重寻址订阅', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    setProjectRoot('D:/other')
+    await nextTick()
+    await flushPromises()
+
+    expect(probe.switchProject).toHaveBeenLastCalledWith('D:/other')
+    expect(probe.loadState).toHaveBeenLastCalledWith('D:/other')
+    expect(probe.loadTickets).toHaveBeenLastCalledWith('D:/other')
+    // 订阅只建一次：换根靠 store 侧按 repoRoot 过滤，不重复订阅
+    expect(probe.watchTickets).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('动作只发绑定根，实时项目指针先漂走也打不到另一个项目', async () => {
+    probe.ticketBoard = reviewBoard()
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 屏幕上仍是 D:/repo 的卡片（还没重绑完），全局指针已经切走
+    setProjectRoot('D:/other')
+    const card = wrapper.getComponent(WorkerTaskCard)
+    card.vm.$emit('accept', 'ticket-1')
+    await flushPromises()
+
+    expect(probe.acceptTicket).toHaveBeenCalledWith('D:/repo', 'ticket-1')
+    wrapper.unmount()
+  })
+
+  it('未绑定项目时动作直接停手，不拿空根去敲主进程', async () => {
+    probe.ticketBoard = reviewBoard()
+    probe.boundRepoRoot = null
+    const wrapper = mountView()
+    await flushPromises()
+
+    const card = wrapper.getComponent(WorkerTaskCard)
+    card.vm.$emit('accept', 'ticket-1')
+    await flushPromises()
+
+    expect(probe.acceptTicket).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })
