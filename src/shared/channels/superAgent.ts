@@ -11,6 +11,8 @@
  *   workerMessage    — 接管输入：先落 Domain Input 再按调度投递，requestId 对账（T09 #79）
  *   attentions       — Attention 气泡全量看板（T08 #78）
  *   attentionAnswer  — 就地回答：先落 Domain Input 再投递给对应 Worker（T08 #78）
+ *   authorizationPolicy     — 只读当前授权策略（版本化 Policy）（T25 #96）
+ *   authorizationPolicySet  — 授权策略写入：任一子项变化 version+1 并丢弃重排 Eval（T25 #96）
  * 事件：
  *   health-changed — 健康项变化时广播（repoRoot, report）
  *   takeover-changed — 接管/交还广播（repoRoot, event），takeover=null 表示已交还（T09 #79）
@@ -685,6 +687,17 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as true,
     },
+    // 授权策略（T25 #96）：T16 的版本化 Policy —— acceptMode 默认 off，
+    // 外部候选默认不建单，需要人显式在设置区开启；写入后 version 递增并
+    // 重排运行中 Eval。命名刻意避开 executionPolicy（#92 已把 policy 留给授权）。
+    authorizationPolicy: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentAuthorizationPolicyView,
+    },
+    authorizationPolicySet: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentAuthorizationPolicySetCommand],
+      res: null as unknown as SuperAgentAuthorizationPolicySetResult,
+    },
     // 执行策略与检查点（T12 #82）：串行（默认）与并行（强制 per-ticket worktree）
     // 策略变更即时生效且运行中不热切换；检查点只支持人工按文件显式回退。
     // 命名用 executionPolicy（#92），与领域层授权策略 setPolicy 区分开。
@@ -747,6 +760,59 @@ export const superAgentNamespace = defineNamespace({
     },
   },
 })
+
+// ── 授权策略（T25 #96）───────────────────────────────────────────
+
+/**
+ * 自动接受模式（T16 #86）：off 不进入语义 Eval（默认，外部事件只落库）；
+ * observe 完整评估但只记录「本会接受」，不建单；auto 接受即建单。
+ * Desktop 显式派工不依赖 acceptMode。
+ */
+export type SuperAgentAcceptMode = 'off' | 'observe' | 'auto'
+
+/** 语义 Eval 命中后写入 Mandate 并下发给 Worker 的规则。 */
+export interface SuperAgentPolicyRule {
+  name: string
+  instruction: string
+}
+
+/** 每 Source 准入表：channels 空 = 整个 Source；bots 最多产生 inferred 候选。 */
+export interface SuperAgentSourceAdmission {
+  source: string
+  channels: string[]
+  allowlist: string[]
+  bots: string[]
+}
+
+/** 版本化授权策略（领域事实的只读副本）。 */
+export interface SuperAgentAuthorizationPolicy {
+  /** 任一子项变化即 +1；旧版本 Eval 被丢弃重排。 */
+  version: number
+  acceptMode: SuperAgentAcceptMode
+  rules: SuperAgentPolicyRule[]
+  admissions: SuperAgentSourceAdmission[]
+}
+
+/** authorizationPolicy 通道返回的当前策略。 */
+export interface SuperAgentAuthorizationPolicyView {
+  repoRoot: string
+  policy: SuperAgentAuthorizationPolicy
+}
+
+/** 策略变更命令：缺省子项保持原值（与领域 setPolicy 同语义）。 */
+export interface SuperAgentAuthorizationPolicySetCommand {
+  acceptMode?: SuperAgentAcceptMode
+  rules?: SuperAgentPolicyRule[]
+  admissions?: SuperAgentSourceAdmission[]
+}
+
+/** 写入结果：带上变化标记与被丢弃重排的 Eval，供 UI 提示。 */
+export interface SuperAgentAuthorizationPolicySetResult extends SuperAgentAuthorizationPolicyView {
+  /** 无变化时幂等：不推进 version，也不丢弃 Eval。 */
+  changed: boolean
+  /** 因版本变化被丢弃并重排回队的运行中 Eval。 */
+  discardedEvalIds: string[]
+}
 
 // ── 执行策略与检查点（T12 #82）────────────────────────────────────
 

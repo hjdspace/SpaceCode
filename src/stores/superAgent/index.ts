@@ -46,6 +46,9 @@ import type {
   SuperAgentAttentionAnswerResult,
   SuperAgentAttentionBoard,
   SuperAgentAttentionView,
+  SuperAgentAuthorizationPolicySetCommand,
+  SuperAgentAuthorizationPolicySetResult,
+  SuperAgentAuthorizationPolicyView,
   SuperAgentBindResult,
   SuperAgentCheckpointInfo,
   SuperAgentCheckpointRollbackResult,
@@ -97,6 +100,11 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   const executionPolicy = ref<SuperAgentExecutionPolicyView | null>(null)
   /** T12 #82：检查点信息镜像（最新检查点 + 检查点后新增脏文件，回退候选）。 */
   const checkpointInfo = ref<SuperAgentCheckpointInfo | null>(null)
+  /**
+   * T25 #96：授权策略镜像（版本化 Policy）。
+   * 按需加载（打开设置组时），项目切换时随中置页一起清空。
+   */
+  const authorizationPolicy = ref<SuperAgentAuthorizationPolicyView | null>(null)
   /** 工单卡片看板镜像（T06 #76）：全量卡片 + 领域 seq 水位。 */
   const ticketBoard = ref<SuperAgentTicketBoard | null>(null)
   /** 各工单最新轻量进度（T06 #76）：节流后增量，断档不重拉。 */
@@ -196,6 +204,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     queue.value = null
     executionPolicy.value = null
     checkpointInfo.value = null
+    authorizationPolicy.value = null
     ticketBoard.value = null
     ticketProgress.value = {}
     attentionBoard.value = null
@@ -343,6 +352,30 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     const next = await api.superAgent.executionPolicySet(repoRoot, command)
     if (isBoundProject(next.repoRoot)) executionPolicy.value = next
     await loadQueue(repoRoot)
+    return next
+  }
+
+  /** T25 #96：拉取授权策略（版本化 Policy）镜像；按需调用，不预拉。 */
+  async function loadAuthorizationPolicy(
+    repoRoot: string,
+  ): Promise<SuperAgentAuthorizationPolicyView> {
+    const next = await api.superAgent.authorizationPolicy(repoRoot)
+    if (isBoundProject(next.repoRoot)) authorizationPolicy.value = next
+    return next
+  }
+
+  /**
+   * T25 #96：写入授权策略 —— 缺省子项保持原值；任一变化 version+1 并
+   * 丢弃重排运行中 Eval。返回 changed/discardedEvalIds 供 UI 提示。
+   */
+  async function setAuthorizationPolicy(
+    repoRoot: string,
+    command: SuperAgentAuthorizationPolicySetCommand,
+  ): Promise<SuperAgentAuthorizationPolicySetResult> {
+    const next = await api.superAgent.authorizationPolicySet(repoRoot, command)
+    if (isBoundProject(next.repoRoot)) {
+      authorizationPolicy.value = { repoRoot: next.repoRoot, policy: next.policy }
+    }
     return next
   }
 
@@ -663,6 +696,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     queue,
     executionPolicy,
     checkpointInfo,
+    authorizationPolicy,
     ticketBoard,
     ticketProgress,
     workerMirrors,
@@ -684,6 +718,8 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     loadQueue,
     loadPolicy,
     setPolicy,
+    loadAuthorizationPolicy,
+    setAuthorizationPolicy,
     loadCheckpoint,
     rollbackCheckpointFiles,
     loadTickets,

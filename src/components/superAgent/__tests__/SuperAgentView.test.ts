@@ -81,6 +81,23 @@ const probe = vi.hoisted(() => ({
   rollbackCheckpointFiles: vi.fn().mockResolvedValue({ rolled: [], skipped: [] }),
   executionPolicy: null as { repoRoot: string; policy: { mode: 'serial' | 'parallel'; maxWorkers: number; worktree: 'none' | 'per-ticket' } } | null,
   checkpointInfo: null as { repoRoot: string; checkpoint: { savedAt: string; head: string | null; entries: string[] } | null; changedFiles: string[] } | null,
+  // ── 授权策略（T25 #96）──
+  loadAuthorizationPolicy: vi.fn().mockResolvedValue(undefined),
+  setAuthorizationPolicy: vi.fn().mockResolvedValue({
+    repoRoot: 'D:/repo',
+    policy: { version: 2, acceptMode: 'observe', rules: [], admissions: [] },
+    changed: true,
+    discardedEvalIds: [] as string[],
+  }),
+  authorizationPolicy: null as {
+    repoRoot: string
+    policy: {
+      version: number
+      acceptMode: 'off' | 'observe' | 'auto'
+      rules: Array<{ name: string; instruction: string }>
+      admissions: Array<{ source: string; channels: string[]; allowlist: string[]; bots: string[] }>
+    }
+  } | null,
   // ── Attention 气泡（T08 #78，并发会话维护）：仅补桩保证挂载流程可跑 ──
   loadAttentions: vi.fn().mockResolvedValue(undefined),
   watchAttentions: vi.fn().mockReturnValue(() => {}),
@@ -211,6 +228,10 @@ vi.mock('@/stores/superAgent', () => ({
     rollbackCheckpointFiles: probe.rollbackCheckpointFiles,
     get executionPolicy() { return probe.executionPolicy },
     get checkpointInfo() { return probe.checkpointInfo },
+    // ── 授权策略（T25 #96）──
+    loadAuthorizationPolicy: probe.loadAuthorizationPolicy,
+    setAuthorizationPolicy: probe.setAuthorizationPolicy,
+    get authorizationPolicy() { return probe.authorizationPolicy },
     loadTickets: probe.loadTickets,
     watchTickets: probe.watchTickets,
     get ticketBoard() { return probe.ticketBoard },
@@ -229,6 +250,7 @@ vi.mock('@/stores/superAgent', () => ({
 }))
 
 import SuperAgentView from '../SuperAgentView.vue'
+import AuthorizationPolicyPanel from '../AuthorizationPolicyPanel.vue'
 import ChatInput from '../../chat/ChatInput.vue'
 import MessageList from '../../chat/MessageList.vue'
 import WorkerTaskCard from '../WorkerTaskCard.vue'
@@ -345,6 +367,9 @@ beforeEach(() => {
   probe.reviewRemindedCount = 0
   probe.attentionBubbles = []
   probe.attentionCount = 0
+  probe.loadAuthorizationPolicy.mockClear()
+  probe.setAuthorizationPolicy.mockClear()
+  probe.authorizationPolicy = null
 })
 
 function reviewBoard(): SuperAgentTicketBoard {
@@ -727,6 +752,92 @@ describe('SuperAgentView health entry（T13 #83）', () => {
 
     expect(probe.reevaluateEval).toHaveBeenCalledWith('D:/repo', 'eval-1')
     expect(wrapper.find('[data-testid="super-agent-health-action-hint"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+})
+
+describe('SuperAgentView authorization policy（T25 #96）', () => {
+  it('opens the settings panel, lazily loads the policy and shows the version', async () => {
+    probe.authorizationPolicy = {
+      repoRoot: 'D:/repo',
+      policy: { version: 3, acceptMode: 'off', rules: [], admissions: [] },
+    }
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 默认收起，不预拉策略
+    expect(wrapper.find('[data-testid="super-agent-authorization-entry"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="super-agent-authorization-policy"]').exists()).toBe(false)
+    expect(probe.loadAuthorizationPolicy).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(probe.loadAuthorizationPolicy).toHaveBeenCalledWith('D:/repo')
+    expect(wrapper.find('[data-testid="super-agent-authorization-policy"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="authorization-version"]').text()).toContain(
+      'superAgent.authorization.version',
+    )
+    wrapper.unmount()
+  })
+
+  it('delegates the save to the store and echoes version + discarded evals', async () => {
+    probe.authorizationPolicy = {
+      repoRoot: 'D:/repo',
+      policy: { version: 3, acceptMode: 'off', rules: [], admissions: [] },
+    }
+    probe.setAuthorizationPolicy.mockResolvedValue({
+      repoRoot: 'D:/repo',
+      policy: { version: 4, acceptMode: 'auto', rules: [], admissions: [] },
+      changed: true,
+      discardedEvalIds: ['eval-1'],
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    const panel = wrapper.findComponent(AuthorizationPolicyPanel)
+    panel.vm.$emit('save', { acceptMode: 'auto' })
+    await flushPromises()
+
+    expect(probe.setAuthorizationPolicy).toHaveBeenCalledWith('D:/repo', { acceptMode: 'auto' })
+    const hint = wrapper.find('[data-testid="authorization-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('superAgent.authorization.savedChanged')
+    expect(hint.classes()).not.toContain('failed')
+    wrapper.unmount()
+  })
+
+  it('shows a failed hint when the save is rejected', async () => {
+    probe.authorizationPolicy = {
+      repoRoot: 'D:/repo',
+      policy: { version: 3, acceptMode: 'off', rules: [], admissions: [] },
+    }
+    probe.setAuthorizationPolicy.mockRejectedValue(new Error('invalidPolicy'))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    wrapper.findComponent(AuthorizationPolicyPanel).vm.$emit('save', { acceptMode: 'auto' })
+    await flushPromises()
+
+    const hint = wrapper.find('[data-testid="authorization-hint"]')
+    expect(hint.text()).toBe('superAgent.authorization.saveFailed')
+    expect(hint.classes()).toContain('failed')
+    wrapper.unmount()
+  })
+
+  it('does not touch IPC without a bound project', async () => {
+    probe.boundRepoRoot = null
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(probe.loadAuthorizationPolicy).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

@@ -18,6 +18,17 @@
             {{ superAgentStore.healthProblemCount }}
           </span>
         </button>
+        <!-- 授权策略（T25 #96）：设置组按需展开，避免每次进页面都多一次 IPC。 -->
+        <button
+          class="health-chip"
+          :class="{ open: authorizationPanelOpen }"
+          type="button"
+          data-testid="super-agent-authorization-entry"
+          @click="toggleAuthorizationPanel"
+        >
+          <ShieldCheck :size="14" />
+          <span>{{ t('superAgent.authorization.entry') }}</span>
+        </button>
       </div>
     </header>
 
@@ -70,6 +81,18 @@
         {{ healthActionHint }}
       </p>
     </template>
+
+    <!-- 授权策略设置组（T25 #96）：acceptMode 默认 off（外部候选默认不建单），
+         保存后 version 递增；发生变化时回显被丢弃重排的运行中 Eval。 -->
+    <AuthorizationPolicyPanel
+      v-if="authorizationPanelOpen"
+      :policy="superAgentStore.authorizationPolicy?.policy ?? null"
+      :loading="authorizationLoading"
+      :saving="authorizationSaving"
+      :hint="authorizationHint"
+      :hint-failed="authorizationHintFailed"
+      @save="handleAuthorizationSave"
+    />
 
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
          loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。
@@ -171,7 +194,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HeartPulse, Sparkles } from 'lucide-vue-next'
+import { HeartPulse, Sparkles, ShieldCheck } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -180,6 +203,7 @@ import { useSuperAgentStore } from '@/stores/superAgent'
 import { createUuid } from '@/utils/uuid'
 import type {
   SuperAgentAttentionView,
+  SuperAgentAuthorizationPolicySetCommand,
   SuperAgentQueueEntry,
   SuperAgentTicketCard,
 } from '@/shared/channels/superAgent'
@@ -187,6 +211,7 @@ import type { SuperAgentReviewReminderItem } from '@/stores/superAgent'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
+import AuthorizationPolicyPanel from './AuthorizationPolicyPanel.vue'
 import AttentionBubble from './AttentionBubble.vue'
 import TicketTimelineEntry from './TicketTimelineEntry.vue'
 import RouterWorkBadge from './RouterWorkBadge.vue'
@@ -273,6 +298,8 @@ async function followProjectRoot(repoRoot: string): Promise<void> {
     superAgentStore.loadTickets(repoRoot),
     superAgentStore.loadAttentions(repoRoot),
   ])
+  // 设置组已展开时跟随换项目重读授权策略；收起时不浪费一次 IPC。
+  if (authorizationPanelOpen.value) void loadAuthorizationPolicy()
 }
 
 onMounted(() => followProjectRoot(appStore.projectRoot))
@@ -458,6 +485,66 @@ function handleHealthReevaluate(evalId: string): void {
     () => superAgentStore.reevaluateEval(repoRoot, evalId),
     'superAgent.health.reevaluateDone',
   )
+}
+
+// ── 授权策略（T25 #96）：设置组按需展开并懒加载；保存回显版本与丢弃评估。
+//    acceptMode 默认 off —— 外部候选默认不建单，必须由人显式打开。 ──
+const authorizationPanelOpen = ref(false)
+const authorizationLoading = ref(false)
+const authorizationSaving = ref(false)
+const authorizationHint = ref('')
+const authorizationHintFailed = ref(false)
+
+function toggleAuthorizationPanel(): void {
+  authorizationPanelOpen.value = !authorizationPanelOpen.value
+  authorizationHint.value = ''
+  authorizationHintFailed.value = false
+  if (authorizationPanelOpen.value) void loadAuthorizationPolicy()
+}
+
+async function loadAuthorizationPolicy(): Promise<void> {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  authorizationLoading.value = true
+  try {
+    await superAgentStore.loadAuthorizationPolicy(repoRoot)
+  } catch (error) {
+    console.error('[SuperAgentView] load authorization policy failed:', error)
+    authorizationHintFailed.value = true
+    authorizationHint.value = t('superAgent.authorization.loadFailed', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  } finally {
+    authorizationLoading.value = false
+  }
+}
+
+async function handleAuthorizationSave(
+  command: SuperAgentAuthorizationPolicySetCommand,
+): Promise<void> {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  authorizationSaving.value = true
+  authorizationHint.value = ''
+  authorizationHintFailed.value = false
+  try {
+    const result = await superAgentStore.setAuthorizationPolicy(repoRoot, command)
+    // 只有真正推进 version 才提示丢弃；幂等保存不吓唬人。
+    authorizationHint.value = result.changed
+      ? t('superAgent.authorization.savedChanged', {
+          version: result.policy.version,
+          count: result.discardedEvalIds.length,
+        })
+      : t('superAgent.authorization.saved', { version: result.policy.version })
+  } catch (error) {
+    console.error('[SuperAgentView] save authorization policy failed:', error)
+    authorizationHintFailed.value = true
+    authorizationHint.value = t('superAgent.authorization.saveFailed', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  } finally {
+    authorizationSaving.value = false
+  }
 }
 
 // ── 执行队列（T05）：running + 排队位，广播驱动；派工本身只由对话驱动 ──

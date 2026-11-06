@@ -731,3 +731,71 @@ describe('registerSuperAgentIPCHandlers router conversation（T21）', () => {
     ).rejects.toThrow(/engineLaunchFailed/)
   })
 })
+
+describe('registerSuperAgentIPCHandlers authorizationPolicy（T25 #96）', () => {
+  it('registers authorizationPolicy / authorizationPolicySet on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}authorizationPolicy`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}authorizationPolicySet`,
+      expect.any(Function),
+    )
+  })
+
+  it('serves the conservative default and round-trips a change', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const view = await invoke('authorizationPolicy', '/repo/a')
+    expect(view.policy).toEqual({ version: 1, acceptMode: 'off', rules: [], admissions: [] })
+
+    const saved = await invokeDispatch('authorizationPolicySet', '/repo/a', {
+      acceptMode: 'auto',
+      rules: [{ name: 'Guard', instruction: 'Never touch secrets' }],
+      admissions: [{ source: 'feishu:ops', channels: [], allowlist: ['alice'], bots: [] }],
+    })
+    expect(saved.changed).toBe(true)
+    expect(saved.policy.version).toBe(2)
+    expect(saved.policy.acceptMode).toBe('auto')
+    expect(saved.policy.rules).toEqual([{ name: 'Guard', instruction: 'Never touch secrets' }])
+    expect(saved.discardedEvalIds).toEqual([])
+
+    // 读通道回读同一份策略（持久化生效）
+    expect((await invoke('authorizationPolicy', '/repo/a')).policy.version).toBe(2)
+  })
+
+  it('rejects missing repoRoot before touching the domain', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invoke('authorizationPolicy', '')).rejects.toThrow(/repoRoot/)
+    await expect(invokeDispatch('authorizationPolicySet', ' ', { acceptMode: 'off' })).rejects.toThrow(
+      /repoRoot/,
+    )
+  })
+
+  it('rejects malformed commands at the entry with the stable invalidPolicy code', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const malformed: unknown[] = [
+      null,
+      { acceptMode: 'always' },
+      { rules: 'nope' },
+      { rules: [{ name: '', instruction: 'x' }] },
+      { rules: [{ name: 'ok' }] },
+      { admissions: [{}] },
+      { admissions: [{ source: 'feishu:ops', channels: 'c1' }] },
+      { admissions: [{ source: '', channels: [], allowlist: [], bots: [] }] },
+    ]
+    for (const command of malformed) {
+      await expect(
+        invokeDispatch('authorizationPolicySet', '/repo/a', command),
+      ).rejects.toMatchObject({ code: 'invalidPolicy' })
+    }
+
+    // 入口拒绝不落库
+    expect((await invoke('authorizationPolicy', '/repo/a')).policy.version).toBe(1)
+  })
+})

@@ -49,6 +49,9 @@ import type {
   SuperAgentAttentionAnswerResult,
   SuperAgentAttentionBoard,
   SuperAgentAttentionEvent,
+  SuperAgentAuthorizationPolicySetCommand,
+  SuperAgentAuthorizationPolicySetResult,
+  SuperAgentAuthorizationPolicyView,
   SuperAgentBindResult,
   SuperAgentCheckpointInfo,
   SuperAgentCheckpointRollbackCommand,
@@ -97,6 +100,7 @@ import {
 import type { SuperAgentAttention, SuperAgentExecutionPolicy, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
 import { SuperAgentDomainError, superAgentError, serializeSuperAgentError } from './errors'
 import { createCheckpointStore, parsePorcelainEntry, type SuperAgentCheckpointStore } from './checkpoint'
+import { cloneSuperAgentPolicy } from './policy'
 import {
   createSuperAgentAttentionProjector,
   type SuperAgentAttentionProjector,
@@ -459,6 +463,19 @@ export interface SuperAgentService {
   pause(repoRoot: string): true
   /** T11 #81：解除暂停 —— 补投挂起的 pending 输入并续跑队列。 */
   resume(repoRoot: string): Promise<true>
+  /**
+   * T25 #96：读取授权策略（T16 的版本化 Policy）。
+   * acceptMode 默认 off：外部候选默认不建单，需要显式开启。
+   */
+  authorizationPolicy(repoRoot: string): SuperAgentAuthorizationPolicyView
+  /**
+   * T25 #96：授权策略写入 —— 薄封装 domain.setPolicy（缺省子项保持原值、
+   * 任一变化 version+1 并丢弃重排运行中 Eval），随后同步投影。
+   */
+  authorizationPolicySet(
+    repoRoot: string,
+    command: SuperAgentAuthorizationPolicySetCommand,
+  ): Promise<SuperAgentAuthorizationPolicySetResult>
   /** T12 #82：读取执行策略（串行/并行、上限、worktree 形态）。 */
   executionPolicy(repoRoot: string): SuperAgentExecutionPolicyView
   /**
@@ -1833,6 +1850,37 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       await drainPendingInputs(repoRoot, project)
       project.scheduler.resume()
       return true
+    },
+
+    authorizationPolicy(repoRoot) {
+      const project = projectOf(repoRoot)
+      return {
+        repoRoot,
+        // 深拷贝：视图跨 IPC/测试边界，调用方不得借引用改到领域状态
+        policy: cloneSuperAgentPolicy(project.domain.state.policy),
+      }
+    },
+
+    async authorizationPolicySet(repoRoot, command) {
+      const project = projectOf(repoRoot)
+      assertCommandsAllowed(project, repoRoot)
+      const result = project.domain.setPolicy({
+        acceptMode: command.acceptMode,
+        rules: command.rules,
+        admissions: command.admissions,
+      })
+      if (result.changed) {
+        // 新版本会丢弃/重排运行中 Eval：同步卡片与 Attention 投影，
+        // 让 UI 立刻看到领域 seq 与工单事实一致，而不是等下一次事件。
+        project.projector.sync()
+        project.attentionProjector.sync()
+      }
+      return {
+        repoRoot,
+        policy: cloneSuperAgentPolicy(result.policy),
+        changed: result.changed,
+        discardedEvalIds: [...result.discardedEvalIds],
+      }
     },
 
     executionPolicy(repoRoot) {

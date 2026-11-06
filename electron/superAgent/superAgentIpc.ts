@@ -45,6 +45,7 @@ import {
   superAgentNamespace,
   type SuperAgentAttentionAnswerCommand,
   type SuperAgentAttentionEvent,
+  type SuperAgentAuthorizationPolicySetCommand,
   type SuperAgentDispatchCommand,
   type SuperAgentCheckpointRollbackCommand,
   type SuperAgentEvalReevaluateCommand,
@@ -63,6 +64,7 @@ import {
 } from '@/shared/channels/superAgent'
 import { createSuperAgentService, type SuperAgentService } from './service'
 import type { SuperAgentEngineBridge } from './engineBridge'
+import { superAgentError } from './errors'
 
 const SUPER_AGENT_EVENTS = eventChannels(superAgentNamespace.events, SUPER_AGENT_PREFIX)
 
@@ -241,6 +243,70 @@ function requireEvalReevaluateCommand(input: unknown): SuperAgentEvalReevaluateC
     throw new Error('invalid eval reevaluate command: evalId is required')
   }
   return input as SuperAgentEvalReevaluateCommand
+}
+
+/**
+ * T25 #96：授权策略写入命令入口校验。
+ *
+ * 形状非法统一抛稳定错误码 invalidPolicy（领域层再做语义校验：重名规则/
+ * 空准入项）。acceptMode 三档、rules 每项 name/instruction 非空、
+ * admissions 每项 source 非空且 channels/allowlist/bots 都是字符串数组。
+ */
+function requireAuthorizationPolicySetCommand(
+  input: unknown,
+): SuperAgentAuthorizationPolicySetCommand {
+  const invalid = (field: string) => superAgentError('invalidPolicy', { field })
+  if (typeof input !== 'object' || input === null) throw invalid('command')
+
+  const command = input as Record<string, unknown>
+  if (
+    command.acceptMode !== undefined &&
+    command.acceptMode !== 'off' &&
+    command.acceptMode !== 'observe' &&
+    command.acceptMode !== 'auto'
+  ) {
+    throw invalid('acceptMode')
+  }
+
+  if (command.rules !== undefined) {
+    if (!Array.isArray(command.rules)) throw invalid('rules')
+    for (const rule of command.rules) {
+      const entry = rule as Record<string, unknown> | null
+      if (
+        typeof entry !== 'object' ||
+        entry === null ||
+        typeof entry.name !== 'string' ||
+        entry.name.trim() === '' ||
+        typeof entry.instruction !== 'string' ||
+        entry.instruction.trim() === ''
+      ) {
+        throw invalid('rules')
+      }
+    }
+  }
+
+  if (command.admissions !== undefined) {
+    if (!Array.isArray(command.admissions)) throw invalid('admissions')
+    for (const admission of command.admissions) {
+      const entry = admission as Record<string, unknown> | null
+      if (
+        typeof entry !== 'object' ||
+        entry === null ||
+        typeof entry.source !== 'string' ||
+        entry.source.trim() === ''
+      ) {
+        throw invalid('admissions')
+      }
+      for (const key of ['channels', 'allowlist', 'bots'] as const) {
+        const list = entry[key]
+        if (!Array.isArray(list) || list.some((id) => typeof id !== 'string')) {
+          throw invalid('admissions')
+        }
+      }
+    }
+  }
+
+  return input as SuperAgentAuthorizationPolicySetCommand
 }
 
 /**
@@ -504,6 +570,15 @@ export function registerSuperAgentIPCHandlers(
     resume: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.resume(root))
+    },
+    authorizationPolicy: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.authorizationPolicy(root))
+    },
+    authorizationPolicySet: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireAuthorizationPolicySetCommand(command)
+      return runNoted(service, root, () => service.authorizationPolicySet(root, req))
     },
     executionPolicy: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)

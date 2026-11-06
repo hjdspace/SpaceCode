@@ -125,6 +125,16 @@ const invokeApi = createRendererApi(
     resume: () => {
       throw new Error('resume is not available in the desktop-less runtime')
     },
+    authorizationPolicy: () => ({
+      // 非桌面环境没有领域运行时：返回保守默认（acceptMode=off，外部候选不建单）。
+      // 只读且无副作用，与领域初始策略保持一致。
+      repoRoot: '',
+      policy: { version: 1, acceptMode: 'off' as const, rules: [], admissions: [] },
+    }),
+    authorizationPolicySet: () => {
+      // 策略写入依赖主进程领域落库与 Eval 重排，非桌面环境明确拒绝
+      throw new Error('authorization policy set is not available in the desktop-less runtime')
+    },
     executionPolicy: () => ({
       // 非桌面环境没有调度运行时：返回默认串行策略（只读，无副作用）
       repoRoot: '',

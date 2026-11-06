@@ -44,6 +44,8 @@ const mocks = vi.hoisted(() => ({
   onTicketProgress: vi.fn(),
   workerBind: vi.fn(),
   workerUnbind: vi.fn(),
+  authorizationPolicy: vi.fn(),
+  authorizationPolicySet: vi.fn(),
   traceEvent: vi.fn(),
   stop: vi.fn().mockResolvedValue(undefined),
   getFullSession: vi.fn().mockResolvedValue(null),
@@ -67,6 +69,8 @@ vi.mock('@/services/electronAPI', () => ({
       onTicketProgress: mocks.onTicketProgress,
       workerBind: mocks.workerBind,
       workerUnbind: mocks.workerUnbind,
+      authorizationPolicy: mocks.authorizationPolicy,
+      authorizationPolicySet: mocks.authorizationPolicySet,
     },
     claudeCode: {
       stop: mocks.stop,
@@ -754,5 +758,67 @@ describe('superAgent store router conversation（T21 #91）', () => {
     expect(mocks.getFullSession).toHaveBeenCalledWith('D:/repo', 'superagent-worker-ticket-1', undefined)
     const contents = chat.sessions.find(s => s.id === 'superagent-worker-ticket-1')!.messages.map(m => m.content)
     expect(contents).toEqual(['工单任务正文', '已改完。'])
+  })
+})
+
+describe('superAgent store authorization policy（T25 #96）', () => {
+  function policyView(overrides: Record<string, unknown> = {}) {
+    return {
+      repoRoot: 'D:/repo',
+      policy: { version: 1, acceptMode: 'off', rules: [], admissions: [] },
+      ...overrides,
+    }
+  }
+
+  it('loads the policy mirror and delegates changes to authorizationPolicySet', async () => {
+    const { superAgent } = loadStores()
+    await bindProject(superAgent)
+
+    mocks.authorizationPolicy.mockResolvedValue(policyView())
+    mocks.authorizationPolicySet.mockResolvedValue({
+      ...policyView({
+        policy: {
+          version: 2,
+          acceptMode: 'observe',
+          rules: [{ name: 'Guard', instruction: 'Only src/' }],
+          admissions: [],
+        },
+      }),
+      changed: true,
+      discardedEvalIds: [],
+    })
+
+    const loaded = await superAgent.loadAuthorizationPolicy('D:/repo')
+    expect(mocks.authorizationPolicy).toHaveBeenCalledWith('D:/repo')
+    expect(loaded.policy.version).toBe(1)
+    expect(superAgent.authorizationPolicy?.policy.acceptMode).toBe('off')
+
+    const saved = await superAgent.setAuthorizationPolicy('D:/repo', {
+      acceptMode: 'observe',
+      rules: [{ name: 'Guard', instruction: 'Only src/' }],
+    })
+    expect(mocks.authorizationPolicySet).toHaveBeenCalledWith('D:/repo', {
+      acceptMode: 'observe',
+      rules: [{ name: 'Guard', instruction: 'Only src/' }],
+    })
+    expect(saved.changed).toBe(true)
+    expect(superAgent.authorizationPolicy?.policy.version).toBe(2)
+    expect(superAgent.authorizationPolicy?.policy.acceptMode).toBe('observe')
+  })
+
+  it('ignores policy responses from another project and clears the mirror on switch', async () => {
+    const { superAgent } = loadStores()
+    await bindProject(superAgent)
+
+    mocks.authorizationPolicy.mockResolvedValue(policyView({ repoRoot: 'D:/other' }))
+    await superAgent.loadAuthorizationPolicy('D:/repo')
+    expect(superAgent.authorizationPolicy).toBeNull()
+
+    mocks.authorizationPolicy.mockResolvedValue(policyView())
+    await superAgent.loadAuthorizationPolicy('D:/repo')
+    expect(superAgent.authorizationPolicy?.policy.version).toBe(1)
+
+    await superAgent.switchProject('')
+    expect(superAgent.authorizationPolicy).toBeNull()
   })
 })
