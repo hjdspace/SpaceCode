@@ -41,6 +41,13 @@ const invokeApi = createRendererApi(
       dispositions: [],
       updatedAt: new Date(0).toISOString(),
     }),
+    sources: () => ({
+      // 非桌面环境没有 Source 运行时：空视图，与未配置 Source 的项目一致
+      repoRoot: '',
+      sources: [],
+      candidates: [],
+      quarantine: [],
+    }),
     evalReevaluate: () => {
       // 处置依赖主进程领域运行时，非桌面环境明确拒绝而不是假装成功
       throw new Error('eval reevaluate is not available in the desktop-less runtime')

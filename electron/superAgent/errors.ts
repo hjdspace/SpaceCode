@@ -99,6 +99,10 @@ export type SuperAgentErrorCode =
   | 'subscriptionProtected'
   // missing：T17 #87 工单没有订阅该 Thread，无从退订
   | 'notSubscribed'
+  // T24 #93 Source 接入：配置非法 / 凭据缺失 / 轮询读取失败
+  | 'sourceConfigInvalid'
+  | 'sourceCredentialsMissing'
+  | 'sourceReadFailed'
 
 export type SuperAgentErrorParams = Record<string, string | number>
 
@@ -167,6 +171,9 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   notHandbackable: 'refused',
   subscriptionProtected: 'refused',
   notSubscribed: 'missing',
+  sourceConfigInvalid: 'refused',
+  sourceCredentialsMissing: 'missing',
+  sourceReadFailed: 'unavailable',
 }
 
 export const SUPER_AGENT_ERROR_CODES = Object.keys(ERROR_CATEGORIES) as SuperAgentErrorCode[]

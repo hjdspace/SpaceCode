@@ -519,6 +519,53 @@ export interface SuperAgentHealthReport {
   updatedAt: string
 }
 
+// ── Source 接入只读视图（T24 #93）────────────────────────────────────
+
+/** 单个 Source 的运行时状态（游标、连续失败、隔离计数）。 */
+export interface SuperAgentSourceStatus {
+  sourceId: string
+  running: boolean
+  cursor: string | null
+  consecutiveFailures: number
+  lastError: string | null
+  quarantined: number
+  lastPolledAt: string | null
+}
+
+/**
+ * 建单候选登记：经程序层 Gate 准入、且尚未被订阅消费的 Trigger。
+ * 只登记候选事实，不在此建单 —— 语义 Eval / Policy 接管后续流程。
+ */
+export interface SuperAgentSourceCandidate {
+  triggerId: string
+  key: string
+  /** 触发方式（addressed 类型）；名单/bot 的未 @ 候选为 null。 */
+  reason: 'mention' | 'direct' | null
+  strength: 'explicit' | 'inferred'
+  basis: 'addressed' | 'followup' | 'admission' | 'bot'
+  bot: boolean
+  threadIds: string[]
+  channel: string | null
+  text: string
+  at: string
+}
+
+/** 隔离的坏事件（结构性无法解析的原始负载），供只读排查。 */
+export interface SuperAgentSourceQuarantineEntry {
+  sourceId: string
+  reason: string
+  raw: string
+  at: string
+}
+
+/** Source 只读视图：状态 + 候选登记 + 隔离报告。 */
+export interface SuperAgentSourcesView {
+  repoRoot: string
+  sources: SuperAgentSourceStatus[]
+  candidates: SuperAgentSourceCandidate[]
+  quarantine: SuperAgentSourceQuarantineEntry[]
+}
+
 /**
  * 稳定错误码的一等 DTO（T13 #83）：Domain/IPC 共用。
  * 未知 code 时 known 为 false、i18nKey 回退通用文案，不得把英文异常直接显示给用户。
@@ -548,6 +595,11 @@ export const superAgentNamespace = defineNamespace({
     health: {
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentHealthReport,
+    },
+    // T24 #93：Source 只读视图（运行状态 / 候选登记 / 隔离报告）。
+    sources: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentSourcesView,
     },
     dispatch: {
       req: [] as unknown as [repoRoot: string, command: SuperAgentDispatchCommand],

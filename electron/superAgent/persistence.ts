@@ -11,6 +11,7 @@ import { createSuperAgentDomain, type SuperAgentDomain } from './domain'
 import { ProjectStoreError, openProjectStore, type ProjectStore, type ProjectStoreDeps } from './store'
 import { superAgentError } from './errors'
 import type { SuperAgentDomainState } from './model'
+import type { SuperAgentSourcesConfig } from './sources/config'
 
 export interface PersistedSuperAgentProject {
   /** 包装后的 Domain：命令变化自动 commit 到 WAL；对外与普通 Domain 同构。 */
@@ -104,6 +105,8 @@ export function openPersistedSuperAgentProject(input: {
   userDataDir: string
   repoRoot: string
   deps?: ProjectStoreDeps
+  /** T24 #93：显式传入的项目级 Source 配置；缺省原样保留 project.json 已有值。 */
+  sources?: SuperAgentSourcesConfig
 }): PersistedSuperAgentProject {
   let opened: ProjectStore<SuperAgentDomainState>
   try {
@@ -116,6 +119,7 @@ export function openPersistedSuperAgentProject(input: {
           ? (tx.events[0] as SuperAgentDomainState)
           : state,
       deps: input.deps,
+      sources: input.sources,
     })
   } catch (err) {
     if (err instanceof ProjectStoreError) {

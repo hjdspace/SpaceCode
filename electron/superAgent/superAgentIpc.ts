@@ -405,6 +405,10 @@ export function registerSuperAgentIPCHandlers(
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.health(root))
     },
+    sources: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.sources(root))
+    },
     evalReevaluate: (repoRoot: unknown, command: unknown) => {
       const root = requireRepoRoot(repoRoot)
       const req = requireEvalReevaluateCommand(command)

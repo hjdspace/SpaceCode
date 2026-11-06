@@ -35,7 +35,15 @@
  * busy 建新代次 → delivered 未读回队首）并续跑队列；显式 shutdown 停止接受
  * 命令 → 有界等待在途 launch → 关 Store 释放锁；暂停是持久领域事实，跨重启
  * 保持。未提供 userDataDir 时保持纯内存行为（测试/旧用例）。
+ *
+ * T24 #93 Source 接入：项目级配置落在 project.json 的 `sources` 字段；
+ * 项目落地即装配并启动 Source 轮询（未配置 = 不启动，行为与接入前一致）。
+ * 飞书凭据复用 electron/im 的适配器配置边界，不另造凭据存储。轮询失败计入
+ * health 的 `source:<id>` 类别，隔离报告与候选登记经只读 `sources` 视图暴露；
+ * 候选只登记、不在此建单（语义 Eval / Policy 接管后续流程）。
  */
+import { tmpdir } from 'os'
+import { join } from 'path'
 import type {
   SuperAgentAttentionAnswerCommand,
   SuperAgentAttentionAnswerResult,
@@ -61,6 +69,8 @@ import type {
   SuperAgentRouterMessageResult,
   SuperAgentRouterState,
   SuperAgentSnapshot,
+  SuperAgentSourceCandidate,
+  SuperAgentSourcesView,
   SuperAgentTakeoverChangedEvent,
   SuperAgentTakeoverState,
   SuperAgentTicketAcceptCommand,
@@ -108,7 +118,20 @@ import {
 } from './outbox'
 import { openPersistedSuperAgentProject } from './persistence'
 import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
-import type { ProjectStore, ProjectStoreDeps } from './store'
+import { projectDirOf, projectKeyOf, type ProjectStore, type ProjectStoreDeps } from './store'
+import { buildExternalSources } from './sources/assembly'
+import {
+  parseSuperAgentSourcesConfig,
+  type SuperAgentSourcesConfig,
+} from './sources/config'
+import { createSourceCursorStore } from './sources/cursorStore'
+import {
+  createSourceIngestor,
+  type SourceCandidate,
+  type SourceIngestor,
+} from './sources/ingestor'
+import { createSourceQuarantine } from './sources/quarantine'
+import type { ExternalSource } from './sources/types'
 import type { SuperAgentDomainState } from './model'
 import { latestAssignmentOf, waitsForPerson } from './stage'
 import {
@@ -143,6 +166,8 @@ const STALE_AFTER_MS = 5_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000
 /** T20 #90：unavailable Eval 的处置窗口（§10.4：24 小时内可重新评估或显式忽略）。 */
 const EVAL_DISPOSAL_WINDOW_MS = 24 * 60 * 60 * 1000
+/** T24 #93：候选登记上限（只读视图，防止长期运行无限增长）。 */
+const MAX_SOURCE_CANDIDATES = 50
 
 /** T18 #88：Outbox 各类投递对应的健康类别（effect:<kind>）。 */
 const OUTBOX_HEALTH_CATEGORY: Record<SuperAgentOutboxKind, SuperAgentHealthCategory> = {
@@ -189,6 +214,10 @@ interface ProjectState {
   executor: SuperAgentExecutor | null
   /** Router 运行时：会话归属主进程，建单由回复尾部的协议块驱动。 */
   routerRunner: SuperAgentRouterRunner | null
+  /** T24 #93：Source 轮询器；未配置或装配失败时为 null（不启动任何轮询）。 */
+  sourceIngestor: SourceIngestor | null
+  /** T24 #93：候选登记（有界）；只暴露事实，不在 service 内建单。 */
+  sourceCandidates: SuperAgentSourceCandidate[]
 }
 
 export interface SuperAgentServiceOptions {
@@ -254,6 +283,19 @@ export interface SuperAgentServiceOptions {
    * repoRoot 分键，跨项目共享单实例；缺省内建（真实 git）。
    */
   checkpoints?: SuperAgentCheckpointStore
+  /**
+   * T24 #93：项目级 Source 配置。提供 userDataDir 时以 project.json 的
+   * `sources` 字段为准；显式提供时覆盖并落盘（首次配置/测试注入）。
+   */
+  sources?: SuperAgentSourcesConfig
+  /**
+   * T24 #93：Source 装配接缝。缺省按配置装配飞书 IM HTTP client（凭据复用
+   * electron/im 的适配器配置边界）；测试注入可避免真实网络与凭据。
+   */
+  sourceFactory?: (
+    config: SuperAgentSourcesConfig,
+    context: { repoRoot: string },
+  ) => ExternalSource[]
 }
 
 /** T23 #94：只有显式并行 + per-ticket worktree 才放开 bypass；共享目录一律 acceptEdits。 */
@@ -321,6 +363,8 @@ export interface SuperAgentService {
   /** 中止 Router 当前轮次；不影响任何 Worker。 */
   routerAbort(repoRoot: string): Promise<true>
   health(repoRoot: string): SuperAgentHealthReport
+  /** T24 #93：Source 只读视图（运行状态 / 候选登记 / 隔离报告）。 */
+  sources(repoRoot: string): SuperAgentSourcesView
   /** T20 #90：重新评估 unavailable Eval —— Trigger 回队、计数清零、落审计。 */
   evalReevaluate(
     repoRoot: string,
@@ -486,6 +530,78 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     }
   }
 
+  /** T24 #93：Source 游标/隔离文件与项目状态同目录（无 userDataDir 时退到临时目录）。 */
+  function sourceDataDirOf(repoRoot: string): string {
+    const root = options.userDataDir ?? join(tmpdir(), 'spacecode-super-agent-sources')
+    return projectDirOf(root, projectKeyOf(repoRoot))
+  }
+
+  /** T24 #93：把 Ingestor 的候选裁剪成只读视图 DTO（不携带完整领域引用）。 */
+  function candidateViewOf(candidate: SourceCandidate): SuperAgentSourceCandidate {
+    return {
+      triggerId: candidate.trigger.triggerId,
+      key: candidate.trigger.key,
+      reason: candidate.reason,
+      strength: candidate.strength,
+      basis: candidate.basis,
+      bot: candidate.bot,
+      threadIds: [...candidate.trigger.threadIds],
+      channel: candidate.trigger.channel,
+      text: candidate.trigger.text,
+      at: candidate.trigger.at,
+    }
+  }
+
+  /**
+   * T24 #93：按项目级配置装配 Source。
+   * 未配置 → null（行为与接入前完全一致）；配置非法/凭据缺失 → 计入健康并
+   * 保持不轮询，绝不带空凭据启动；装配成功 → 返回待启动的 Ingestor。
+   */
+  function buildSourceIngestor(
+    repoRoot: string,
+    domain: SuperAgentDomain,
+    health: SuperAgentHealthTracker,
+    store: ProjectStore<SuperAgentDomainState> | null,
+    onCandidate: (candidate: SourceCandidate) => void,
+  ): SourceIngestor | null {
+    const parsed =
+      options.sources !== undefined
+        ? parseSuperAgentSourcesConfig(options.sources)
+        : parseSuperAgentSourcesConfig(store?.project.sources)
+    if (parsed.kind === 'absent') return null
+    if (parsed.kind === 'invalid') {
+      health.recordFailure('source', { code: 'sourceConfigInvalid' })
+      return null
+    }
+    try {
+      const factory = options.sourceFactory ?? ((config: SuperAgentSourcesConfig) => buildExternalSources({ config }))
+      const sources = factory(parsed.config, { repoRoot })
+      if (sources.length === 0) return null
+      const dir = sourceDataDirOf(repoRoot)
+      return createSourceIngestor({
+        domain,
+        sources,
+        cursorStore: createSourceCursorStore(dir),
+        quarantine: createSourceQuarantine(dir),
+        pollIntervalMs: parsed.config.feishuIm?.pollIntervalMs,
+        onCandidate,
+        onStatus: (status) => {
+          const category = `source:${status.sourceId}`
+          if (status.consecutiveFailures > 0) {
+            health.recordFailure(category, { code: 'sourceReadFailed' })
+          } else {
+            health.recordSuccess(category)
+          }
+        },
+      })
+    } catch (err) {
+      // 配置/凭据错误是可见的系统问题；保持不轮询，不静默吞掉。
+      const payload = serializeSuperAgentError(err)
+      health.recordFailure('source', { code: payload.code })
+      return null
+    }
+  }
+
   function projectOf(repoRoot: string): ProjectState {
     let project = projects.get(repoRoot)
     if (!project) {
@@ -503,6 +619,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           userDataDir: options.userDataDir,
           repoRoot,
           deps: options.storeDeps,
+          sources: options.sources,
         })
         store = persisted.store
         domain = persisted.domain
@@ -579,6 +696,15 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             },
           })
         : null
+      // T24 #93：Source 接入 —— 未配置则不装配；启用的 Source 在项目落地后启动。
+      // 候选只登记事实（有界、只读视图），不在此建单。
+      const sourceCandidates: SuperAgentSourceCandidate[] = []
+      const sourceIngestor = buildSourceIngestor(repoRoot, domain, health, store, (candidate) => {
+        sourceCandidates.push(candidateViewOf(candidate))
+        if (sourceCandidates.length > MAX_SOURCE_CANDIDATES) {
+          sourceCandidates.splice(0, sourceCandidates.length - MAX_SOURCE_CANDIDATES)
+        }
+      })
       project = {
         seq: 0,
         router: null,
@@ -597,9 +723,13 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         checkpoints,
         executor: null,
         routerRunner: null,
+        sourceIngestor,
+        sourceCandidates,
       }
       projects.set(repoRoot, project)
       wireRuntime(project, repoRoot)
+      // T24 #93：Source 轮询跨项目独立；未配置时 sourceIngestor 为 null，不启动。
+      sourceIngestor?.start()
       // 持久化 scheduled effect：项目一落地即开始周期扫描（含一次即时重建扫描）
       reviewReminder.start()
       // T18 #88：Outbox 落地即续做 —— pending 消息重启后立即恢复投递
@@ -1292,6 +1422,10 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     // 2. 停止周期扫描类 scheduled effect
     project.reviewReminder.stop()
     if (project.outbox) project.outbox.stop()
+    // T24 #93：Source 轮询同样是周期 effect —— 显式 shutdown 立即停止；
+    // 已保存的游标保证下次打开从断点续读，不重放已消费事件。
+    project.sourceIngestor?.stop()
+    project.sourceIngestor = null
     const bound = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
     // 3. 有界等待在途 launch 落定；超时直接结束（下次启动生成恢复代次）
     const schedulerSettled = await project.scheduler.settle(bound)
@@ -1373,6 +1507,21 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       // 的 eval 主体项与领域事实一致。
       syncEvalHealth(project)
       return project.health.report()
+    },
+
+    sources(repoRoot) {
+      const project = projectOf(repoRoot)
+      // T24 #93：只读视图 —— 运行状态 + 候选登记 + 隔离报告。
+      // 未配置/已 shutdown 时 ingestor 为 null，视图如实为空。
+      return {
+        repoRoot,
+        sources: project.sourceIngestor?.status() ?? [],
+        candidates: project.sourceCandidates.map((candidate) => ({
+          ...candidate,
+          threadIds: [...candidate.threadIds],
+        })),
+        quarantine: project.sourceIngestor?.quarantineReport() ?? [],
+      }
     },
 
     evalReevaluate(repoRoot, command) {

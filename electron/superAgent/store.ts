@@ -37,6 +37,7 @@ import {
   type SuperAgentProjectConfig,
   type SuperAgentStateFile,
 } from './migration'
+import type { SuperAgentSourcesConfig } from './sources/config'
 
 export const SUPER_AGENT_PROJECTS_DIR = 'super-agent/projects'
 export const PROJECT_STATE_LOCK = 'project.lock'
@@ -131,6 +132,8 @@ export interface OpenProjectStoreOptions<TState> {
   name?: string
   executionPolicy?: SuperAgentExecutionPolicy
   reviewReminderHours?: number
+  /** T24 #93：首次落盘/覆盖的项目级 Source 配置（已存在的未知字段原样保留）。 */
+  sources?: SuperAgentSourcesConfig
   deps?: ProjectStoreDeps
 }
 
@@ -363,6 +366,7 @@ function buildFreshProject(
   executionPolicy: SuperAgentExecutionPolicy | undefined,
   reviewReminderHours: number | undefined,
   openedAt: string,
+  sources: SuperAgentSourcesConfig | undefined,
 ): SuperAgentProjectConfig {
   return {
     schemaVersion: SUPER_AGENT_SCHEMA_VERSION,
@@ -372,6 +376,7 @@ function buildFreshProject(
     executionPolicy: executionPolicy ?? DEFAULT_EXECUTION_POLICY,
     reviewReminderHours: reviewReminderHours ?? DEFAULT_REVIEW_REMINDER_HOURS,
     lastOpenedAt: openedAt,
+    ...(sources ? { sources } : {}),
   }
 }
 
@@ -463,7 +468,13 @@ export function openProjectStore<TState>(options: OpenProjectStoreOptions<TState
     }
 
     const project: SuperAgentProjectConfig = projectMigration?.ok
-      ? { ...projectMigration.project, lastOpenedAt: openedAt }
+      ? {
+          ...projectMigration.project,
+          lastOpenedAt: openedAt,
+          // T24 #93：显式传入的 sources 覆盖持久化值（首次配置/测试注入）；
+          // 未传入时原样保留 project.json 里的字段。
+          ...(options.sources !== undefined ? { sources: options.sources } : {}),
+        }
       : buildFreshProject(
           projectKey,
           repoRoot,
@@ -471,6 +482,7 @@ export function openProjectStore<TState>(options: OpenProjectStoreOptions<TState
           options.executionPolicy,
           options.reviewReminderHours,
           openedAt,
+          options.sources,
         )
 
     const projectChanged = projectMigration?.ok ? projectMigration.changed : projectRaw === null
