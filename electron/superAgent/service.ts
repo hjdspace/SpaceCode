@@ -634,7 +634,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   function applyDispatch(
     repoRoot: string,
     project: ProjectState,
-    command: SuperAgentDispatchCommand,
+    command: SuperAgentDispatchCommand & { model?: string },
   ): SuperAgentDispatchResult {
     const outcome = project.scheduler.dispatch({
       requestId: command.requestId,
@@ -642,6 +642,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       repoRoot,
       text: command.text,
       note: command.note,
+      model: command.model,
       actor: command.actor ?? 'desktop-user',
       contextPaths: command.contextPaths ?? [],
       attachments: command.attachments ?? [],
@@ -822,6 +823,10 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         resolveGeneration: (assignmentId) =>
           project.domain.state.assignments[assignmentId]?.generation ?? 1,
         titleOf: (ticketId) => project.domain.state.tickets[ticketId]?.title ?? ticketId,
+        modelOf: (ticketId) => project.domain.state.tickets[ticketId]?.execution.model,
+        humanInputIds: (ticketId) =>
+          (project.domain.state.tickets[ticketId]?.inputIds ?? [])
+            .filter((id) => project.domain.state.inputs[id]?.human === true),
         hooks: {
           ingest: (text) => {
             const report = applyWorkerReport(project, { text })
@@ -852,6 +857,12 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             })
             project.projector.sync()
             project.attentionProjector.sync()
+            project.routerRunner?.relay(renderSuperAgentRouterEvent({
+              ticketId: context.ticketId,
+              title: project.domain.state.tickets[context.ticketId]?.title ?? context.ticketId,
+              kind: 'failed',
+              summary: '本轮结束没有有效的最终 Report（汇报协议失败），请打开 Worker 查看详情。',
+            }))
           },
           onInterrupted: (context) => {
             project.health.recordFailure('effect:launch', {
@@ -891,9 +902,9 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           applyDispatch(repoRoot, project, {
             requestId: input.requestId,
             title: input.title,
-            // 目标 = 本轮人的原话（routerRunner 带上），note 只是路由旁注。
             text: input.text,
             note: input.note ?? undefined,
+            model: input.model,
             actor: 'router',
           }),
         attach: (input) => applyRouterAttach(repoRoot, project, input),
@@ -905,6 +916,17 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           }),
         onStatusChanged: () => notifyRouterStatus(project, repoRoot),
         onFailure: (code) => project.health.recordFailure('effect:relay', { code }),
+        sourceRequests: (requestId) => {
+          const sources = Object.values(project.domain.state.triggers)
+            .filter((trigger) => trigger.source === 'desktop-router' && trigger.human)
+            .sort((a, b) => a.ordinal - b.ordinal)
+          const current = sources.findIndex((trigger) => trigger.meta.requestId === requestId)
+          if (current < 0) return []
+          return sources.slice(Math.max(0, current - 19), current + 1).map((trigger) => ({
+            requestId: String(trigger.meta.requestId),
+            text: trigger.text,
+          }))
+        },
         // 每轮把人正问的"有哪些活在跑"的答案送到模型面前（§8.1）。读路径先同步
         // 一次投影，卡片水位与领域事实不一致时自愈，而不是注入一份过期快照。
         statusContext: () => {
@@ -1169,7 +1191,18 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       }
       // 先落地投影再起轮：running 广播挂在投影上，投影不在就没人收 typing 状态
       const router = ensureRouterProjection(project, repoRoot)
+      project.domain.intakeTrigger({
+        key: `desktop-router:${command.requestId}`,
+        source: 'desktop-router',
+        threadIds: [],
+        actor: 'desktop-user',
+        human: true,
+        addressed: 'direct',
+        text: command.text,
+        meta: { requestId: command.requestId },
+      })
       await runner.message({
+        requestId: command.requestId,
         text: command.text,
         displayText: command.displayText,
         images: command.images,
