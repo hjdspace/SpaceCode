@@ -10,6 +10,7 @@
  */
 import { SUPER_AGENT_ROUTE_FENCE } from '@/shared/channels/superAgent'
 import { SUPER_AGENT_REPORT_FENCE } from './reportParser'
+import type { SuperAgentRouteKind } from './routerActions'
 import type { SuperAgentStatusSnapshot } from './sessionStatusQuery'
 import type { SuperAgentTicketCardState } from '@/shared/channels/superAgent'
 
@@ -35,16 +36,18 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 - \`note\` 最多 30 字，只放路由背景或人明确给出的约束。前文需求由 sourceRequestId 引用宿主保存的完整原话，不能自行编写 goal。
 - 标题面向卡片，短而具体；正文里不要重复罗列它的细节。
 
-每条 \`kind\` 四选一：
+每条 \`kind\` 五选一：
 - \`accept\` 新工单：\`title\` + 可选 \`note\`；\`sourceRequestId\` 指向宿主 \`[人消息索引]\` 中的需求原文，省略时宿主会携带近期人消息原文供 Worker 核对，不能据此恢复已撤回或无关的任务。引用前文任务必须填写该 ID，不能把“你好 / 继续”这类短句当成完整目标。
-- \`attach\` 把这轮人的原话挂到 \`[工单快照]\` 里一张还活着的工单：\`ticketId\` + 可选 \`note\`。
+- \`attach\` 把这轮人的原话挂到 \`[工单快照]\` 里一张还活着的工单：\`ticketId\` + 可选 \`note\`。它只投一条人消息，**不会重跑**任何东西。
+- \`retry\` 让快照里一张 \`执行失败\`/\`受阻\`/\`投递失败\` 的工单以新一代重跑：\`ticketId\`。宿主复用同一个 Worker 会话继续执行，不另建工单，也没有旁注字段。
 - \`stop\` 停一张工单：\`ticketId\`。
 - \`ignore\` 这条消息不需要动手：可选 \`reason\`。
 
 判断口径：
 - 只有人要你动手才 \`accept\`。普通讨论、闲聊、在说别的产品、方向还没定，一律 \`ignore\`，别把争论变成工单。“你好”不表示恢复以前的工作；明确续接或补发之前尚未落实的派工时，引用原请求的 sourceRequestId，并保留后续撤回、暂停或范围约束。
 - \`attach\` 只在消息显式指向那张工单时才用：它点了工单号、那张单的 PR/Issue/回答，或刚做完的改动且只有这一张对得上。**主题相似不是指向** —— 相似主题的新要求是 \`accept\`。
-- 同一件事不要建第二张：先查 \`[工单快照]\`。已结束或被停止的工单不能 \`attach\`，那种情况 \`accept\` 一张新的。
+- 人说“重新执行 / 重跑 / 再来一次 / 继续跑”时，要的是新一代执行：给快照里那张失败的工单 \`retry\`，**不是** \`attach\`。attach 只把这句话投给还在跑的执行，什么都不会重启。
+- 同一件事不要建第二张：先查 \`[工单快照]\`。已完成、已停止、已丢弃的工单既不能 \`attach\` 也不能 \`retry\`，那种情况 \`accept\` 一张新的。
 - \`stop\` 只在人明确要求停止时用；Worker 报的受阻不是停的理由。人说了"先别动 / 等确认"就要留住这个约束，不要绕过它去 \`accept\`。
 - 相互独立的工作拆成多条指令（一次最多 4 条）；有先后关系的合成一条。
 - “重启/新建会话”“派 Explore/子代理”“后台跑任务”都是动手请求：你不能直接执行，必须 \`accept\`；只有快照里活着且被人明确指向的工单才能 \`attach\`。已结束或根本不存在的旧会话不是可 \`attach\` 的工单。
@@ -56,7 +59,7 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 {"version":2,"routes":[{"kind":"accept","title":"不超过40字的工单标题","note":"不超过30字的路由背景"}]}
 \`\`\`
 
-多条指令并列在同一个 \`routes\` 数组里，例如 \`{"kind":"attach","ticketId":"…","note":"…"}\`、\`{"kind":"stop","ticketId":"…"}\`、\`{"kind":"ignore","reason":"…"}\`。
+多条指令并列在同一个 \`routes\` 数组里，例如 \`{"kind":"attach","ticketId":"…","note":"…"}\`、\`{"kind":"retry","ticketId":"…"}\`、\`{"kind":"stop","ticketId":"…"}\`、\`{"kind":"ignore","reason":"…"}\`。
 缺少这个块时宿主无法执行任何路由，会要求你补正。这个块是你与宿主之间的协议，不会展示给人。
 
 ## 回复方式
@@ -65,12 +68,14 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 - 做了路由决定就用一句话交代，工单卡片由宿主紧接着显示。
 
 ## 工单事件
-宿主会把工单的最终结果、Worker 提问与验收情况以 \`[工单事件]\` 追加到会话尾部。收到就用一句话向人汇报，不要转发原文，也不要逐条压缩复述。`
+宿主会把工单的最终结果、Worker 提问与验收情况以 \`[工单事件]\` 追加到会话尾部。收到就用一句话向人汇报，不要转发原文，也不要逐条压缩复述。
+宿主也会以 \`[路由未执行]\` 告诉你某条路由指令没有生效。此时不要重复承诺：如实说明没有执行与原因，再按上面的口径换一种 \`kind\`（或 \`ignore\`）向人交代。`
 
 export const SUPER_AGENT_ROUTE_REPAIR_PROMPT = `[宿主协议校正]
 上一条对人回复缺少 \`super-agent:route\` 围栏，因此没有创建或挂接任何工单。
 请只补一个符合系统说明的 route 围栏，不重复正文：
 - 重启/新建会话、派 Explore/子代理、后台执行任务：没有可 attach 的活跃工单时用 accept。
+- 重跑一张失败/受阻的工单：用 retry，不是 attach。
 - 普通问答或闲聊用 ignore。
 不要只口头承诺；只有宿主收到 accept 才会启动 Worker 并显示工单卡片。`
 
@@ -197,6 +202,38 @@ export function renderSuperAgentRouterEvent(event: SuperAgentRouterEventInput): 
     `ticket=${event.ticketId} 「${event.title}」 report=${event.kind}`,
     `Worker 结论：${event.summary}`,
     '请用不超过 100 字向人汇报这一条结果；不要转发原文，也不要重复卡片内容。',
+  ].join('\n')
+}
+
+export interface SuperAgentRouteRejectedInput {
+  kind: SuperAgentRouteKind
+  ticketId: string | null
+  code: string
+}
+
+const SUPER_AGENT_ROUTE_REJECT_LABEL: Record<string, string> = {
+  ticketEnded: '工单已经结束，不能再挂接或重跑',
+  assignmentEnded: '这张单已经没有活着的执行了，attach 投不出去',
+  notRetryable: '当前阶段不允许重试',
+  ticketNotFound: '找不到那张工单',
+  attachWithoutSource: '本轮没有人的原话可以带给工单',
+  conflict: '这条指令与已落库的事实重复',
+  invalidDispatch: '指令字段不合法',
+}
+
+/**
+ * 路由指令被领域拒绝后的中继说明。
+ *
+ * 只说"没执行 + 为什么"，不替模型决定下一步：静默累计健康计数时，人听到的
+ * 永远是 Router 按自己的承诺编出来的进展，而工单状态一点没动。
+ */
+export function renderSuperAgentRouteRejected(event: SuperAgentRouteRejectedInput): string {
+  return [
+    '[路由未执行]',
+    `kind=${event.kind}${event.ticketId ? ` ticket=${event.ticketId}` : ''}：` +
+      (SUPER_AGENT_ROUTE_REJECT_LABEL[event.code] ?? `宿主拒绝（${event.code}）`),
+    '没有任何东西被启动或改变。请用一句话向人如实说明没有执行与原因，不要声称已经执行；' +
+      '确实还需要动手就按系统说明换一种 kind。',
   ].join('\n')
 }
 
