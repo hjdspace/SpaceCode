@@ -8,6 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import type { SuperAgentSnapshot } from '@/shared/channels/superAgent'
 import { useSuperAgentStore } from '../index'
 
 const mocks = vi.hoisted(() => ({
@@ -46,7 +47,7 @@ vi.mock('@/services/electronAPI', () => ({
   },
 }))
 
-function snapshot(repoRoot = 'D:/repo') {
+function snapshot(repoRoot = 'D:/repo'): SuperAgentSnapshot {
   return {
     repoRoot,
     seq: 1,
@@ -54,6 +55,7 @@ function snapshot(repoRoot = 'D:/repo') {
     staleAfterMs: 5000,
     router: { sessionId: 'router-1', running: false },
     attention: { unanswered: 0 },
+    review: { reminded: 0 },
   }
 }
 
@@ -77,10 +79,16 @@ beforeEach(() => {
   mocks.workerRelease.mockResolvedValue(true as const)
 })
 
+/**
+ * 建立项目作用域。
+ *
+ * 生产里作用域只由 bind/switchProject 确立，镜像写入一律要求"数据属于当前绑定的
+ * 项目"（切换项目时在途的旧响应不得覆盖新镜像）。测试落同一份快照来进入该状态，
+ * 而不是靠 loadState 去发明作用域。
+ */
 async function boundStore(repoRoot = 'D:/repo') {
   const store = useSuperAgentStore()
-  mocks.state.mockResolvedValue(snapshot(repoRoot))
-  await store.loadState(repoRoot)
+  store.snapshot = snapshot(repoRoot)
   return store
 }
 
