@@ -8,6 +8,7 @@
  */
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { SUPER_AGENT_CONTEXT_BUDGETS } from './contextBudget'
 import { renderSuperAgentRoutingNote } from './prompts'
 import type {
   SuperAgentDecision,
@@ -18,20 +19,8 @@ import type {
 } from './model'
 import type { SuperAgentWorkspaceStatus } from './workspace'
 
-export const SUPER_AGENT_CONTEXT_BUDGETS = Object.freeze({
-  /** Trigger 卡片 preview。 */
-  triggerPreviewChars: 160,
-  /** Worker 首轮消息内联的目标描述上限。 */
-  workerTriggerChars: 600,
-  /** Assignment 摘要预算。 */
-  assignmentChars: 1500,
-  /** 文本页默认/最大 UTF-16 code units。 */
-  textPageChars: 4000,
-  textPageMaxChars: 8000,
-  /** 列表默认/最大条数。 */
-  listDefault: 20,
-  listMax: 50,
-})
+/** 预算单一真相源已移到 contextBudget.ts；这里保留同名导出供既有调用方使用。 */
+export { SUPER_AGENT_CONTEXT_BUDGETS }
 
 /** Spill 落盘接缝：(ticketId, 文件名, 内容) => 绝对路径。 */
 export type SpillWriter = (ticketId: string, name: string, content: string) => string

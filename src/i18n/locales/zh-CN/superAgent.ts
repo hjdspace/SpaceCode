@@ -75,6 +75,7 @@ export default {
     notHandbackable: '只有未认领的人消息才能交回路由',
     subscriptionProtected: '来源会话与工单跟随的会话不允许退订',
     notSubscribed: '该工单没有订阅此会话',
+    resourceInvalid: '资源引用格式不合法',
     sourceConfigInvalid: 'Source 配置不完整，已保持不轮询',
     sourceCredentialsMissing: '飞书应用凭据缺失，请在 IM 配置中填写 App ID 与 App Secret',
     sourceReadFailed: 'Source 读取失败，正在按退避策略重试',

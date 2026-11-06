@@ -77,6 +77,7 @@ export default {
     notHandbackable: 'Only unclaimed human messages can be handed back to routing',
     subscriptionProtected: 'The origin thread and followed threads cannot be unsubscribed',
     notSubscribed: 'The ticket is not subscribed to this thread',
+    resourceInvalid: 'Invalid resource reference',
     sourceConfigInvalid: 'Source configuration is incomplete; polling stays off',
     sourceCredentialsMissing:
       'Feishu app credentials are missing; fill in App ID and App Secret in IM settings',

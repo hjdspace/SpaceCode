@@ -111,6 +111,20 @@ describe('Eval 驱动：建批与裁决', () => {
     expect(h.turns[0]!.text).toMatch(/evalId: eval-\d+/)
   })
 
+  it('评估卡附带 Thread 窗口与 trigger 续读指针，不只看工单快照', () => {
+    const h = makeHarness()
+    h.intake('e1', '把登录页的报错弹窗修一下')
+    h.intake('e2', '补充：只在密码错误时弹')
+    h.driver.pump()
+
+    const card = h.turns[0]!.text
+    expect(card).toContain('## Thread 窗口')
+    expect(card).toContain('trigger/trigger-')
+    expect(card).toContain('total_chars=')
+    // 窗口附在卡片尾部，评估协议仍在，结论不会被窗口挤掉。
+    expect(card).toContain('super-agent:eval')
+  })
+
   it('observe：accept 只记录本会接受，不建工单并带 reason', () => {
     const h = makeHarness()
     h.configure('observe')

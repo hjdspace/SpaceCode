@@ -12,6 +12,7 @@
  * Domain 的 submitEvalDecision 实现，本文件不复制那套规则。
  */
 import { SUPER_AGENT_EVAL_FENCE } from '@/shared/channels/superAgent'
+import { createSuperAgentContextReader } from './contextReader'
 import type { SuperAgentDomain } from './domain'
 import { isSuperAgentDomainError, superAgentError } from './errors'
 import type { SuperAgentEval } from './model'
@@ -178,6 +179,8 @@ export function createSuperAgentEvalDriver(
   options: SuperAgentEvalDriverOptions,
 ): SuperAgentEvalDriver {
   const { domain, repoRoot, router, onChanged, onFailure, onDecided } = options
+  // #102：候选不只看工单快照 —— 评估卡附带经 contextReader 组装的有界 Thread 窗口。
+  const contextReader = createSuperAgentContextReader({ domain })
   const sweepIntervalMs = options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS
   const schedule = options.schedule ?? defaultSchedule
   let cancelSweep: (() => void) | null = null
@@ -199,7 +202,7 @@ export function createSuperAgentEvalDriver(
     const state = domain.state
     const thread = state.threads[evalRecord.threadId]
     const handedBack = handbackReasons()
-    return renderSuperAgentEvalCard({
+    const card = renderSuperAgentEvalCard({
       evalId: evalRecord.evalId,
       threadId: evalRecord.threadId,
       threadTitle: thread?.title ?? null,
@@ -229,6 +232,9 @@ export function createSuperAgentEvalDriver(
       tickets: relatedTickets(domain, evalRecord),
       rules: state.policy.rules,
     })
+    // 开头若干条 + 候选前后各若干条；截断处带续读指针（trigger/<id>）。
+    const window = contextReader.renderEvalThreadWindow(evalRecord.threadId, evalRecord.triggerIds)
+    return window === null ? card : `${card}\n\n${window.text}`
   }
 
   /** 真正开轮时记账：只有仍处于 queued 的批次才转 delivered（重试幂等）。 */

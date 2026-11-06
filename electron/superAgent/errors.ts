@@ -104,6 +104,8 @@ export type SuperAgentErrorCode =
   | 'subscriptionProtected'
   // missing：T17 #87 工单没有订阅该 Thread，无从退订
   | 'notSubscribed'
+  // refused：#102 资源引用非法（不认识的 superagent_read 资源形态）
+  | 'resourceInvalid'
   // T24 #93 Source 接入：配置非法 / 凭据缺失 / 轮询读取失败
   | 'sourceConfigInvalid'
   | 'sourceCredentialsMissing'
@@ -180,6 +182,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   notHandbackable: 'refused',
   subscriptionProtected: 'refused',
   notSubscribed: 'missing',
+  resourceInvalid: 'refused',
   sourceConfigInvalid: 'refused',
   sourceCredentialsMissing: 'missing',
   sourceReadFailed: 'unavailable',
