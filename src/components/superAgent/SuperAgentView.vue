@@ -5,24 +5,6 @@
          两个入口并存只会让人纠结"该在这儿填还是跟它说"。 -->
     <header class="health-entry">
       <div class="entry-group">
-        <!-- 待处理 Attention 计数（T08 #78）：按工单去重，与侧边栏徽章同源 -->
-        <span
-          v-if="superAgentStore.attentionCount > 0"
-          class="pending-chip"
-          data-testid="super-agent-attention-count"
-        >
-          <MessageCircleQuestion :size="14" />
-          <span>{{ t('superAgent.attention.pendingCount', { count: superAgentStore.attentionCount }) }}</span>
-        </span>
-        <!-- 待验收超时提醒计数（T10 #80）：按工单去重，与入口徽章同源 -->
-        <span
-          v-if="superAgentStore.reviewRemindedCount > 0"
-          class="pending-chip review-chip"
-          data-testid="super-agent-review-reminded-count"
-        >
-          <AlarmClockCheck :size="14" />
-          <span>{{ t('superAgent.review.remindedCount', { count: superAgentStore.reviewRemindedCount }) }}</span>
-        </span>
         <button
           class="health-chip"
           :class="{ open: superAgentStore.healthPanelOpen }"
@@ -86,42 +68,10 @@
       </p>
     </template>
 
-    <!-- Attention 非模态问答气泡（T08 #78）：工单卡片上方的薄层区块；
-         open 展示就地回答入口，answered 折叠保留审计，withdrawn 已被过滤。 -->
-    <div v-if="superAgentStore.attentionBubbles.length" class="attention-bubbles" data-testid="super-agent-attentions">
-      <AttentionBubble
-        v-for="bubble in superAgentStore.attentionBubbles"
-        :key="bubble.attentionId"
-        :attention="bubble"
-      />
-    </div>
-
-    <!-- 待验收超时提醒气泡（T10 #80）：非模态 IM 提醒，同一工单复用原气泡
-         （key=ticketId），点击打开 Worker 只读标签，不弹 modal。 -->
-    <div
-      v-if="superAgentStore.reviewReminders.length"
-      class="review-reminders"
-      data-testid="super-agent-review-reminders"
-    >
-      <div
-        v-for="reminder in superAgentStore.reviewReminders"
-        :key="reminder.ticketId"
-        class="review-reminder-bubble"
-        role="button"
-        tabindex="0"
-        :data-testid="`super-agent-review-reminder-${reminder.ticketId}`"
-        @click="appStore.openWorkerTab(reminder.ticketId, reminder.title)"
-        @keydown.enter.prevent="appStore.openWorkerTab(reminder.ticketId, reminder.title)"
-      >
-        <AlarmClockCheck class="reminder-icon" :size="14" />
-        <span>{{ t('superAgent.review.reminderHint', { title: reminder.title }) }}</span>
-        <span class="reminder-open">{{ t('superAgent.review.openTicket') }}</span>
-      </div>
-    </div>
-
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
          loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。
-         工单卡片走时间线末尾的 append 插槽：跟随 LLM 答复依次展示，不钉在顶部。 -->
+         工单单位（卡片 + 该单的 Worker 提问 + 待验收超时提醒）按创建时间锚定在
+         派工那条助手回复下方；缺少历史时整体落在末尾，不堆到页面顶部。 -->
     <template v-if="routerSessionId">
       <div class="super-agent-messages">
         <MessageList
@@ -132,21 +82,48 @@
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
         >
-          <template #append>
-            <!-- 工单卡片（T06 #76）：key=ticketId 保证 Report 只原位更新现有卡片，
-                 不重复发气泡。T10 #80：review 卡片的验收/继续追问/停止三出口与
-                 重试入口在此接线。 -->
-            <div v-if="ticketCards.length" class="ticket-cards" data-testid="super-agent-tickets">
-              <WorkerTaskCard
-                v-for="card in ticketCards"
+          <template #assistant-group="{ group }">
+            <div v-if="cardsForGroup(group.messages).length" class="ticket-cards" data-testid="super-agent-tickets">
+              <TicketTimelineEntry
+                v-for="card in cardsForGroup(group.messages)"
                 :key="card.ticketId"
                 :card="card"
                 :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+                :attentions="attentionsByTicket.get(card.ticketId) ?? []"
+                :review-reminder="reviewReminderByTicket.get(card.ticketId) ?? null"
                 @open="handleTicketOpen"
                 @accept="handleTicketAccept"
                 @stop="handleTicketStop"
                 @retry="handleTicketRetry"
                 @message="handleTicketMessage"
+              />
+            </div>
+          </template>
+          <template #append>
+            <!-- 历史缺失时只在末尾展示一次；动作失败提示也始终保留。 -->
+            <div
+              v-if="unanchoredCards.length || orphanAttentions.length"
+              class="ticket-cards"
+              data-testid="super-agent-tickets"
+            >
+              <TicketTimelineEntry
+                v-for="card in unanchoredCards"
+                :key="card.ticketId"
+                :card="card"
+                :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+                :attentions="attentionsByTicket.get(card.ticketId) ?? []"
+                :review-reminder="reviewReminderByTicket.get(card.ticketId) ?? null"
+                @open="handleTicketOpen"
+                @accept="handleTicketAccept"
+                @stop="handleTicketStop"
+                @retry="handleTicketRetry"
+                @message="handleTicketMessage"
+              />
+              <!-- 卡片已不在看板上（清理/断档）时，提问仍落在末尾，不能静默消失 -->
+              <AttentionBubble
+                v-for="bubble in orphanAttentions"
+                :key="bubble.attentionId"
+                :attention="bubble"
               />
             </div>
             <p v-if="ticketActionHint" class="ticket-action-hint" data-testid="super-agent-ticket-action-hint">
@@ -188,21 +165,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AlarmClockCheck, HeartPulse, MessageCircleQuestion, Sparkles } from 'lucide-vue-next'
+import { HeartPulse, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
 import { useSuperAgentStore } from '@/stores/superAgent'
 import { createUuid } from '@/utils/uuid'
-import type { SuperAgentQueueEntry, SuperAgentTicketCard } from '@/shared/channels/superAgent'
+import type {
+  SuperAgentAttentionView,
+  SuperAgentQueueEntry,
+  SuperAgentTicketCard,
+} from '@/shared/channels/superAgent'
+import type { SuperAgentReviewReminderItem } from '@/stores/superAgent'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
 import AttentionBubble from './AttentionBubble.vue'
-import WorkerTaskCard from './WorkerTaskCard.vue'
+import TicketTimelineEntry from './TicketTimelineEntry.vue'
 import { buildOutgoingMessage } from '@/lib/composer-outgoing'
 import {
   generateCostMessage,
@@ -211,6 +193,7 @@ import {
 } from '@/lib/slashCommandMessages'
 import { findCommand } from '@/lib/constants/commands'
 import type { EffortLevel } from '@/shared/effort'
+import type { Message } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -253,24 +236,30 @@ let stopWatchingTickets: (() => void) | null = null
 let stopWatchingAttentions: (() => void) | null = null
 // ── Router 轮次状态（T21）：会话归主进程，typing/停止按钮跟着 router-status 走 ──
 let stopWatchingRouterStatus: (() => void) | null = null
+let unmounted = false
 
 onMounted(async () => {
   const repoRoot = appStore.projectRoot
   if (!repoRoot) return
   await superAgentStore.bind(repoRoot)
-  await superAgentStore.loadState(repoRoot)
-  await superAgentStore.loadHealth(repoRoot)
-  await superAgentStore.loadQueue(repoRoot)
-  await superAgentStore.loadTickets(repoRoot)
-  await superAgentStore.loadAttentions(repoRoot)
+  if (unmounted) return
+  // bind 先确立 store 的项目过滤域；订阅不能等慢快照全部返回，否则期间事件会丢失。
   stopWatchingHealth = superAgentStore.watchHealth()
   stopWatchingQueue = superAgentStore.watchQueue()
   stopWatchingTickets = superAgentStore.watchTickets()
   stopWatchingAttentions = superAgentStore.watchAttentions()
   stopWatchingRouterStatus = superAgentStore.watchRouterStatus()
+  await Promise.all([
+    superAgentStore.loadState(repoRoot),
+    superAgentStore.loadHealth(repoRoot),
+    superAgentStore.loadQueue(repoRoot),
+    superAgentStore.loadTickets(repoRoot),
+    superAgentStore.loadAttentions(repoRoot),
+  ])
 })
 
 onUnmounted(() => {
+  unmounted = true
   stopWatchingHealth?.()
   stopWatchingHealth = null
   stopWatchingQueue?.()
@@ -287,6 +276,60 @@ onUnmounted(() => {
 const ticketCards = computed<SuperAgentTicketCard[]>(() =>
   superAgentStore.ticketBoard?.tickets ?? [],
 )
+
+// 按创建时间锚定回复，后续报告和闲聊不能把旧工单拖到末尾。
+const ticketAnchors = computed(() => {
+  const assistants = messages.value.filter(message => message.role === 'assistant' && Number.isFinite(message.timestamp))
+  // 使用消息引用而非 id：历史恢复可能带有重复 id，不能让一张卡出现在两组。
+  const anchors = new Map<string, Message>()
+  for (const card of ticketCards.value) {
+    const createdAt = Date.parse(card.createdAt)
+    let closest: Message | undefined
+    for (const message of assistants) {
+      if (message.timestamp <= createdAt && (!closest || message.timestamp >= closest.timestamp)) {
+        closest = message
+      }
+    }
+    if (closest) anchors.set(card.ticketId, toRaw(closest))
+  }
+  return anchors
+})
+
+function cardsForGroup(groupMessages: Message[]): SuperAgentTicketCard[] {
+  const members = new Set(groupMessages.map(message => toRaw(message)))
+  return ticketCards.value.filter(card => {
+    const anchor = ticketAnchors.value.get(card.ticketId)
+    return anchor !== undefined && members.has(anchor)
+  })
+}
+
+const unanchoredCards = computed(() =>
+  ticketCards.value.filter(card => !ticketAnchors.value.has(card.ticketId)),
+)
+
+// ── 工单提醒随卡片进时间线（T08 #78 / T10 #80）：都按 ticketId 归到所属工单位，
+//    顶部不再挂一份「提问 + 超时提醒」列表；计数仍由侧边栏入口徽章承担。 ──
+const attentionsByTicket = computed(() => {
+  const grouped = new Map<string, SuperAgentAttentionView[]>()
+  for (const view of superAgentStore.attentionBubbles) {
+    const list = grouped.get(view.ticketId)
+    if (list) list.push(view)
+    else grouped.set(view.ticketId, [view])
+  }
+  return grouped
+})
+
+const reviewReminderByTicket = computed(() => {
+  const grouped = new Map<string, SuperAgentReviewReminderItem>()
+  for (const item of superAgentStore.reviewReminders) grouped.set(item.ticketId, item)
+  return grouped
+})
+
+/** 看板里已经没有这张卡（清理/断档）时，提问兜底落在末尾，不能静默消失。 */
+const orphanAttentions = computed(() => {
+  const known = new Set(ticketCards.value.map(card => card.ticketId))
+  return superAgentStore.attentionBubbles.filter(view => !known.has(view.ticketId))
+})
 
 // ── T10 #80：review 出口（验收/停止/继续追问/重试）—— 委托 store 落库，
 //    失败给出非模态提示；错误经 IPC 序列化，展示原始信息便于定位。 ──
@@ -620,26 +663,6 @@ async function handleToolSkip(messageId: string, toolId: string) {
   gap: 6px;
 }
 
-// 待处理 Attention 计数（T08 #78）：非交互状态展示，与侧边栏徽章同源
-.pending-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border: 1px solid var(--accent-primary);
-  border-radius: 999px;
-  background: var(--bg-elevated);
-  color: var(--accent-primary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-// 待验收超时提醒计数（T10 #80）：警示色区分，仍按工单去重
-.review-chip {
-  border-color: var(--status-warning, #c99a2e);
-  color: var(--status-warning, #c99a2e);
-}
-
 .health-chip {
   display: inline-flex;
   align-items: center;
@@ -723,54 +746,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
   margin: 6px 12px 0;
 }
 
-// ── Attention 气泡（T08 #78）：工单卡片上方薄层区块，纵排 ──
-.attention-bubbles {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 6px 12px 0;
-}
-
-// ── 待验收超时提醒气泡（T10 #80）：非模态 IM 提醒，同一工单复用原气泡 ──
-.review-reminders {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 6px 12px 0;
-}
-
-.review-reminder-bubble {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--status-warning, #c99a2e);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-
-  .reminder-icon {
-    flex: none;
-    color: var(--status-warning, #c99a2e);
-  }
-
-  .reminder-open {
-    margin-left: auto;
-    flex: none;
-    color: var(--text-secondary);
-    white-space: nowrap;
-  }
-
-  &:hover,
-  &:focus-visible {
-    background: var(--surface-hover);
-  }
-}
-
-// ── 工单卡片（T06 #76）：挂在工作时间线末尾的 append 插槽里，随时间线滚动，
-//    单行卡片纵排，跟随 LLM 答复依次展示 ──
+// ── 工单单位（卡片 + 提问 + 超时提醒）：挂在所属助手回复下方，缺历史的在末尾兜底，随时间线滚动 ──
 .ticket-cards {
   display: flex;
   flex-direction: column;
