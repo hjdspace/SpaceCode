@@ -107,6 +107,7 @@ describe('createSuperAgentRouterRunner message', () => {
     expect(fake.pushed[0]).toMatchObject({
       sessionId: SESSION,
       content: '看下这个',
+      sessionType: 'superAgent',
       projectPath: REPO,
       permissionMode: 'default',
     })
