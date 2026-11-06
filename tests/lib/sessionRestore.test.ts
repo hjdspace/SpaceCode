@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { buildMessagesFromHistory, parseSubagentTranscript } from '@/utils/sessionRestore'
+import { wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
+import {
+  SUPER_AGENT_ROUTE_REPAIR_PROMPT,
+  SUPER_AGENT_ROUTER_ROLE_PROMPT,
+} from '@electron/superAgent/prompts'
 
 /**
  * 验证从 JSONL 历史重建消息时，技能/斜杠命令的用户消息气泡不被丢失。
@@ -1031,5 +1036,84 @@ describe('parseSubagentTranscript', () => {
     expect(messages).toHaveLength(2)
     expect(messages[0].content).toBe('task B')
     expect(messages[1].content).toBe('resp B2')
+  })
+})
+
+/**
+ * Super Agent Router 会话的历史重建。
+ *
+ * Router 的角色契约与工单快照由宿主追加到人消息尾部一起发给引擎（安装版 CLI 的
+ * --resume 复用历史 prompt 快照，system 通道对旧会话无效），引擎按 type:'user'
+ * 把整段写进转录。实时的气泡走 pushUserMessage(displayText) 只给人打的那句，
+ * 所以回放必须剥出同一句 —— 否则重开应用后第一条用户气泡里躺着整份提示词。
+ */
+describe('buildMessagesFromHistory — Super Agent Router transcript', () => {
+  const reply = (text: string) => ({
+    type: 'assistant',
+    uuid: 'a-1',
+    message: { content: [{ type: 'text', text }] },
+  })
+
+  it('restores only the human words when the host context carries the envelope', () => {
+    const rawMessages = [
+      {
+        type: 'user',
+        uuid: 'u-1',
+        message: {
+          content: [
+            '重新执行',
+            '',
+            wrapSuperAgentHostContext([SUPER_AGENT_ROUTER_ROLE_PROMPT, '[工单快照]\n槽位：0/1 执行中']),
+          ].join('\n'),
+        },
+      },
+      reply('已挂回原工单。'),
+    ]
+
+    const messages = buildMessagesFromHistory(rawMessages)
+
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatchObject({ role: 'user', content: '重新执行' })
+    expect(messages[1]).toMatchObject({ role: 'assistant' })
+  })
+
+  it('trims the envelope-less transcripts written before the envelope existed', () => {
+    const rawMessages = [
+      {
+        type: 'user',
+        uuid: 'u-2',
+        message: { content: `你好\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}` },
+      },
+    ]
+
+    const messages = buildMessagesFromHistory(rawMessages)
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].content).toBe('你好')
+    expect(messages[0].content).not.toContain('硬边界')
+  })
+
+  it('drops relayed ticket events and route repairs entirely', () => {
+    // 中继与补正轮次实时就不推气泡：它们不是人说的话
+    const rawMessages = [
+      {
+        type: 'user',
+        uuid: 'u-3',
+        message: {
+          content: wrapSuperAgentHostContext(['[工单事件]\nticket=ticket-1 report=ready\n请用不超过 100 字向人汇报。']),
+        },
+      },
+      reply('覆盖率工单已完成。'),
+      {
+        type: 'user',
+        uuid: 'u-4',
+        message: { content: SUPER_AGENT_ROUTE_REPAIR_PROMPT },
+      },
+    ]
+
+    const messages = buildMessagesFromHistory(rawMessages)
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0].role).toBe('assistant')
   })
 })
