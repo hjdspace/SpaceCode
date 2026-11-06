@@ -437,7 +437,7 @@ function handleOpenSkills() {
 
 // ── 发送 / 中止：交给主进程 RouterRunner（T21）──────────────────
 // 正文组装仍与主聊天共用同一份（marker 与附件格式逐字一致），但投递通路不同：
-// Router 会话归主进程且以 plan 模式起，走 turnStore 就等于把它降格成一条
+// Router 会话归主进程且工具面为空，走 turnStore 就等于把它降格成一条
 // 带全套写工具的普通聊天 —— 那正是"让它派活它自己干了"的根因。
 async function handleSend(content: string, attachments: AllAttachments, options?: SendOptions) {
   const repoRoot = appStore.projectRoot
@@ -561,7 +561,7 @@ async function executeRouterCommand(command: string, args: string, sid: string):
         if (!repoRoot) return ''
         const fullCommand = args ? `/${command} ${args}` : `/${command}`
         // 仍走 Router 通路：turnStore.sendMessage 会按普通聊天的配置去 init 引擎，
-        // 把这条常驻会话（plan 模式 + 角色说明）就地换掉。
+        // 把这条常驻会话（空工具面 + 角色说明）就地换掉。
         await superAgentStore.sendRouterMessage(repoRoot, {
           requestId: createUuid(),
           text: fullCommand,

@@ -301,7 +301,7 @@ export interface SuperAgentService {
   state(repoRoot: string): SuperAgentSnapshot
   routerBind(repoRoot: string): SuperAgentBindResult
   /**
-   * Router 对话（T21）：文本交给主进程 RouterRunner —— 会话以 plan 模式起，
+   * Router 对话（T21）：文本交给主进程 RouterRunner —— 会话工具面为空，
    * Router 只能回答与建单，不能自己动代码。Promise 只表示已受理，不表示回复完成。
    */
   routerMessage(

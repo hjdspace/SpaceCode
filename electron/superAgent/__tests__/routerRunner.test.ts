@@ -3,7 +3,7 @@
  * RouterRunner 的会话归属与路由协议（T21）。
  *
  * 覆盖的是「Router 不再自己干活」这一层：
- *  - 会话以 plan 模式起，角色说明走 appendSystemPrompt（稳定前缀，不逐轮重写）；
+ *  - 会话以空工具面启动，角色说明走 appendSystemPrompt（稳定前缀，不逐轮重写）；
  *  - 人的消息先推气泡再投递（引擎不回显宿主写进 stdin 的消息）；
  *  - 回复尾部的 super-agent:route 块解析成 accept/attach/stop，每条一个稳定
  *    requestId，同一轮重复落定不会重复建单；
@@ -63,7 +63,7 @@ async function flush(): Promise<void> {
 }
 
 describe('createSuperAgentRouterRunner message', () => {
-  it('starts the router in plan mode with the router role prompt', async () => {
+  it('starts the router without tools or the conflicting plan workflow', async () => {
     const { runner, fake } = makeRunner()
     await runner.message({ text: '帮我把登录页修好' })
 
@@ -71,12 +71,12 @@ describe('createSuperAgentRouterRunner message', () => {
     expect(fake.started[0]).toMatchObject({ sessionId: SESSION })
     expect(fake.started[0]?.config).toMatchObject({
       cwd: REPO,
-      permissionMode: 'plan',
+      permissionMode: 'default',
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
-      // 全部工具从引擎工具池移除：Router 只说话不出手（plan 模式挡写，但挡不住只读探索）
+      // 全部工具从引擎工具池移除：Router 只说话不出手，不借 plan 引入冲突的工作流
       allowedTools: [],
     })
-    expect(fake.sent[0]?.content).toBe('帮我把登录页修好')
+    expect(fake.sent[0]?.content).toBe(`帮我把登录页修好\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}`)
   })
 
   it('pushes the human bubble before sending, with the display text', async () => {
@@ -88,7 +88,7 @@ describe('createSuperAgentRouterRunner message', () => {
       sessionId: SESSION,
       content: '看下这个',
       projectPath: REPO,
-      permissionMode: 'plan',
+      permissionMode: 'default',
     })
   })
 
@@ -415,11 +415,14 @@ describe('createSuperAgentRouterRunner queueing', () => {
     // 消息不丢：再泵一次时先把没投出去的那条投出去，队列一次只走一轮
     runner.relay('补一次')
     await flush()
-    expect(fake.sent.map((call) => call.content)).toEqual(['建单'])
+    expect(fake.sent.map((call) => call.content)).toEqual([`建单\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}`])
 
     fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     await flush()
-    expect(fake.sent.map((call) => call.content)).toEqual(['建单', '补一次'])
+    expect(fake.sent.map((call) => call.content)).toEqual([
+      `建单\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}`,
+      '补一次',
+    ])
   })
 })
 
@@ -428,7 +431,9 @@ describe('createSuperAgentRouterRunner status context', () => {
     const { runner, fake } = makeRunner(() => '[工单快照]\n槽位：1/1 执行中 · 0 排队')
     await runner.message({ text: '现在有哪些活', displayText: '现在有哪些活' })
 
-    expect(fake.sent[0]?.content).toBe('现在有哪些活\n\n[工单快照]\n槽位：1/1 执行中 · 0 排队')
+    expect(fake.sent[0]?.content).toBe(
+      `现在有哪些活\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}\n\n[工单快照]\n槽位：1/1 执行中 · 0 排队`,
+    )
     // 气泡只给人自己打的那句话，快照是宿主与模型之间的东西
     expect(fake.pushed[0]?.content).toBe('现在有哪些活')
   })
@@ -441,8 +446,8 @@ describe('createSuperAgentRouterRunner status context', () => {
     fake.emit(SESSION, 'result', { result: routeFence([{ kind: 'ignore', reason: '无需执行' }]) })
     await runner.message({ text: '第二问' })
 
-    expect(fake.sent[0]?.content).toBe('第一问\n\nA')
-    expect(fake.sent[1]?.content).toBe('第二问\n\nB')
+    expect(fake.sent[0]?.content).toBe(`第一问\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}\n\nA`)
+    expect(fake.sent[1]?.content).toBe(`第二问\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}\n\nB`)
   })
 
   it('does not stack the snapshot onto relayed ticket events', async () => {
@@ -453,11 +458,11 @@ describe('createSuperAgentRouterRunner status context', () => {
     expect(fake.sent[0]?.content).toBe('[工单事件] ticket-1 ready')
   })
 
-  it('sends the raw text when the host has nothing to report', async () => {
+  it('keeps the role contract when the host has no ticket status to report', async () => {
     const { runner, fake } = makeRunner(() => '')
     await runner.message({ text: '你好' })
 
-    expect(fake.sent[0]?.content).toBe('你好')
+    expect(fake.sent[0]?.content).toBe(`你好\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}`)
   })
 })
 
@@ -490,7 +495,10 @@ describe('createSuperAgentRouterRunner model', () => {
     expect(fake.started).toHaveLength(2)
     expect(fake.started[1]?.config?.model).toBe('b')
     // 两句话都投出去了，没有丢
-    expect(fake.sent.map((call) => call.content)).toEqual(['第一句', '第二句'])
+    expect(fake.sent.map((call) => call.content)).toEqual([
+      `第一句\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}`,
+      `第二句\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}`,
+    ])
   })
 
   it('does not restart for the same choice', async () => {
@@ -527,7 +535,10 @@ describe('createSuperAgentRouterRunner abort', () => {
     // 中止即收敛为空闲；随后队列里那条立刻起新轮，状态又回到 running
     expect(statuses).toEqual([true, false, true])
     await flush()
-    expect(fake.sent.map((call) => call.content)).toEqual(['慢一点', '排队的一条'])
+    expect(fake.sent.map((call) => call.content)).toEqual([
+      `慢一点\n\n${SUPER_AGENT_ROUTER_ROLE_PROMPT}`,
+      '排队的一条',
+    ])
   })
 
   it('does nothing when no turn is in flight', async () => {
