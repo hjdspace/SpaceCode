@@ -4,10 +4,10 @@
  * 之前 Router 就是渲染端的一条普通聊天：走 turnStore、带全套写文件工具，
  * 于是"让它做事它自己就做了"。这里把它挪回主进程，并钉住两件事：
  *
- * 1. **不能自己干活** —— 会话以 `permissionMode='plan'` 启动，写与执行在引擎层
- *    就被拒；再以 `allowedTools: []` 把全部工具从引擎工具池移除（设计 §3.2 第 2
- *    条）：Router 只需要说话与路由围栏，看文件/跑命令是 Worker 的活。角色说明
- *    里再补一条"不要请求进入执行模式"，避免它把 plan 当成"先出计划再批准"的通道。
+ * 1. **不能自己干活** —— `allowedTools: []` 把全部工具从引擎工具池移除（设计 §3.2
+ *    第 2 条）：Router 只需要说话与路由围栏，看文件/跑命令是 Worker 的活。不能用
+ *    plan 模式兼任这道闸门：plan 注入的"禁止后台动作、必须 ExitPlanMode"与文本路由
+ *    协议冲突，模型会把宿主建单也误判成自己执行后台任务。
  * 2. **动手只能靠路由指令** —— 回复尾部的 ```super-agent:route 块由宿主解析：
  *    accept 逐条走 service.dispatch 落 Decision/Mandate，attach 落一张工单的
  *    人消息输入，stop 走停止命令；授权仍由领域生成，模型拿不到（设计 §8.4）。
@@ -137,7 +137,7 @@ export function createSuperAgentRouterRunner(
     return {
       ...base,
       cwd: repoRoot,
-      permissionMode: 'plan' as const,
+      permissionMode: 'default' as const,
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
       // 全部工具移除：Router 只说话不出手（见文件头第 1 条）。引擎收到 --tools ""。
       allowedTools: [],
@@ -266,16 +266,16 @@ export function createSuperAgentRouterRunner(
   })
 
   /**
-   * 交给引擎的正文：原文 + 本轮的活跃工单索引。
+   * 交给引擎的正文：原文 + Router 契约 + 本轮的活跃工单索引。
    *
-   * 快照只进引擎输入，不进气泡 —— 给人看的仍是他自己打的那句话。工单事件中继
-   * 不带它：那条输入本身就是工单事实，再叠一份索引只是重复花 token。
+   * 安装版 CLI 的 --resume 会复用历史 prompt snapshot，argv/initialize 的新 append
+   * 都进不了 API 请求（本地假上游实测）。契约必须随人的轮次追加到会话尾部，旧
+   * 普通聊天恢复成 Router 后才能看到。它们只进引擎输入，不进气泡。
    */
   function engineText(input: SuperAgentRouterInput, human: boolean): string {
     if (!human) return input.text
     const context = hooks.statusContext?.() ?? ''
-    if (context === '') return input.text
-    return `${input.text}\n\n${context}`
+    return [input.text, SUPER_AGENT_ROUTER_ROLE_PROMPT, context].filter(Boolean).join('\n\n')
   }
 
   async function pump(): Promise<void> {
@@ -308,7 +308,7 @@ export function createSuperAgentRouterRunner(
         content: input.displayText ?? input.text,
         title: hooks.titleOf?.() ?? 'Super Agent',
         projectPath: repoRoot,
-        permissionMode: 'plan',
+        permissionMode: 'default',
       })
       if (input.model !== undefined && input.model !== '' && input.model !== selectedModel) {
         selectedModel = input.model
