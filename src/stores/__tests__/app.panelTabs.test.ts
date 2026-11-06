@@ -48,6 +48,8 @@ vi.mock('@/i18n', () => ({
 
 const superAgentProbe = vi.hoisted(() => ({
   unbindWorker: vi.fn(),
+  /** 本页绑定的项目根：openWorkerTab 打的是它，不是实时项目指针 */
+  boundRepoRoot: null as string | null,
 }))
 
 vi.mock('../superAgent', () => ({
@@ -95,6 +97,7 @@ afterEach(() => {
 describe('Worker 只读镜像标签（T07 #77）', () => {
   beforeEach(() => {
     superAgentProbe.unbindWorker.mockClear()
+    superAgentProbe.boundRepoRoot = 'D:/repo'
   })
 
   it('openWorkerTab：id 为 worker:<ticketId>，同 ticket 复用标签，多标签并存', () => {
@@ -137,13 +140,37 @@ describe('Worker 只读镜像标签（T07 #77）', () => {
 
   it('切换项目后关闭 worker 标签：仍按打开标签时的项目根寻址 unbind', () => {
     const store = useAppStore()
-    store.setProjectRoot('D:/repo-a')
+    superAgentProbe.boundRepoRoot = 'D:/repo-a'
     store.openWorkerTab('ticket-1', '修复登录')
-    store.setProjectRoot('D:/repo-b')
+    // 本页已经重绑到新项目
+    superAgentProbe.boundRepoRoot = 'D:/repo-b'
 
     store.closeInfoTab('worker:ticket-1')
 
     expect(superAgentProbe.unbindWorker).toHaveBeenCalledWith('D:/repo-a', 'ticket-1')
+  })
+
+  it('openWorkerTab 只认绑定根：全局指针漂走而未重绑时不会把工单绑到别的项目', () => {
+    const store = useAppStore()
+    superAgentProbe.boundRepoRoot = 'D:/repo-a'
+    store.setProjectRoot('D:/repo-a')
+    store.openWorkerTab('ticket-1', '修复登录')
+
+    // 实时项目指针已经切走，但本页还没重绑
+    store.setProjectRoot('D:/repo-b')
+    store.openWorkerTab('ticket-2', '修复注册')
+
+    expect(store.infoPanelTabs.find(t => t.id === 'worker:ticket-2')?.data)
+      .toEqual({ ticketId: 'ticket-2', repoRoot: 'D:/repo-a' })
+  })
+
+  it('未绑定项目时不开 worker 标签，不留下寻不到址的标签', () => {
+    const store = useAppStore()
+    superAgentProbe.boundRepoRoot = null
+
+    store.openWorkerTab('ticket-1', '修复登录')
+
+    expect(store.infoPanelTabs).toHaveLength(0)
   })
 
   it('closeAllInfoTabs：批量关闭时逐个停掉全部 worker 镜像', () => {
