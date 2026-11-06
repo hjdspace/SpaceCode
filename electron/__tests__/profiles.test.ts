@@ -9,6 +9,7 @@ vi.mock('electron', () => ({
     getPath: vi.fn((name: string) => os.tmpdir()),
     isPackaged: false,
     setAppUserModelId: vi.fn(),
+    requestSingleInstanceLock: vi.fn(() => true),
     // Linux 上 main.ts → setupLinuxPlatform 会读 switch 并可能关硬件加速
     commandLine: { appendSwitch: vi.fn(), hasSwitch: vi.fn(() => false) },
     disableHardwareAcceleration: vi.fn(),
