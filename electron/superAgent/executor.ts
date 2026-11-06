@@ -18,6 +18,7 @@ import {
   SUPER_AGENT_WORKER_ROLE_PROMPT,
   renderSuperAgentAssignmentIdentity,
 } from './prompts'
+import { wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
 import type { SuperAgentEngineBridge } from './engineBridge'
 import { superAgentWorkerEngineSessionId } from './sessionId'
 import type { WorkerLaunchRequest } from './scheduler'
@@ -268,7 +269,12 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
           // 重启后或工单空闲期：会话不在，按稳定 id 重新拉起（引擎自己 --resume 历史）。
           await bridge.startSession(sessionId, workerConfig(repoRoot, options.modelOf?.(request.ticketId)))
         }
-        await bridge.sendMessage(sessionId, `${request.text}\n\n[人消息身份] inputId: ${request.inputId}；需要提问时 askedBy 引用此值。`)
+        // 身份说明是宿主与 Worker 之间的东西，包进信封让回放侧能摘掉：
+        // 否则重启后这条人消息的气泡里挂着 inputId 与 askedBy 规则。
+        const hostContext = wrapSuperAgentHostContext([
+          `[人消息身份] inputId: ${request.inputId}；需要提问时 askedBy 引用此值。`,
+        ])
+        await bridge.sendMessage(sessionId, [request.text, hostContext].filter(Boolean).join('\n\n'))
         return 'accepted'
       } catch {
         // 无法证明引擎是否收下：交回 unknown，由 service 转 uncertain + Attention，
