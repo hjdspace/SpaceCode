@@ -142,6 +142,7 @@ export interface DispatchInput {
    * 仍是同一张工单，旁注不足以构成"不同事实"。
    */
   note?: string
+  model?: string
   actor: string
   /** 派工时携带的 @ 上下文（相对路径），注入 Worker 首轮消息。 */
   contextPaths?: string[]
@@ -1000,6 +1001,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     const key = idempotencyKey('request', input.requestId)
     const fingerprint = canonical({
       kind: 'dispatch',
+      ...(input.model ? { model: input.model } : {}),
       title: input.title,
       repoRoot: input.repoRoot,
       text: input.text,
@@ -1059,6 +1061,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       at,
     }
     state.decisions[created.ticket.ticketId] = decision
+    if (input.model) created.ticket.execution.model = input.model
 
     const assignment = newAssignmentForTicket(created.ticket, at, 'pending')
 
