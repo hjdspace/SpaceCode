@@ -112,6 +112,7 @@ describe('createSuperAgentExecutor launch', () => {
     expect(fake.pushed[0]).toMatchObject({
       content: expect.stringContaining('assignment-1'),
       title: '修登录',
+      sessionType: 'superAgentWorker',
       projectPath: REPO,
       permissionMode: 'bypassPermissions',
     })
