@@ -128,6 +128,11 @@ import {
   parseSuperAgentSourcesConfig,
   type SuperAgentSourcesConfig,
 } from './sources/config'
+import {
+  extractPrReferences,
+  GITHUB_PR_SOURCE_ID,
+  githubPrThreadId,
+} from './sources/githubPr'
 import { createSourceCursorStore } from './sources/cursorStore'
 import {
   createSourceIngestor,
@@ -600,7 +605,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         sources,
         cursorStore: createSourceCursorStore(dir),
         quarantine: createSourceQuarantine(dir),
-        pollIntervalMs: parsed.config.feishuIm?.pollIntervalMs,
+        pollIntervalMs:
+          parsed.config.feishuIm?.pollIntervalMs ?? parsed.config.githubPr?.pollIntervalMs,
         onCandidate,
         onStatus: (status) => {
           const category = `source:${status.sourceId}`
@@ -785,6 +791,24 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   }
 
   /**
+   * T25 #97：派工/工单消息里的显式 PR 引用（`owner/repo#42`）立即建立
+   * follows 订阅 —— 映射 threadId 即闭环，自动绑定留后续。
+   */
+  function bindExplicitPrFollows(
+    project: ProjectState,
+    ticketId: string,
+    text: string,
+  ): void {
+    for (const pr of extractPrReferences(text)) {
+      project.domain.followThread({
+        ticketId,
+        threadId: githubPrThreadId(pr),
+        source: GITHUB_PR_SOURCE_ID,
+      })
+    }
+  }
+
+  /**
    * 派工落领域 + 投影同步。公开的 `dispatch` 与 Router 建单协议共用同一条路径，
    * Decision/Mandate 与幂等键都由领域生成 —— 模型拿不到授权（设计 §8.4）。
    */
@@ -804,6 +828,14 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       contextPaths: command.contextPaths ?? [],
       attachments: command.attachments ?? [],
     })
+    // T25 #97：显式 PR 引用建立 follows，后续 PR 评审/评论唤醒这张单。
+    if (outcome.ticket.state !== 'ended') {
+      bindExplicitPrFollows(
+        project,
+        outcome.ticket.ticketId,
+        [command.title, command.text, command.note ?? ''].join('\n'),
+      )
+    }
     // T06 #76：新建工单是领域事实，派生卡片即时投影
     project.projector.sync()
     project.attentionProjector.sync()
@@ -1773,6 +1805,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         requestId: command.requestId,
         text: command.text,
       })
+      // T25 #97：继续追问里显式引用的 PR 同样建立 follows 订阅。
+      bindExplicitPrFollows(project, command.ticketId, command.text)
       // 再投递：与 workerMessage 共用 requestId 对账（settleWorkerInputDelivery）
       return settleWorkerInputDelivery(repoRoot, project, command, added)
     },

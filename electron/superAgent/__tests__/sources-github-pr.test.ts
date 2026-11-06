@@ -19,6 +19,7 @@ import {
   GITHUB_PR_SOURCE_ID,
   GithubPrSource,
   createGithubPrHttpClient,
+  extractPrReferences,
   githubPrItemToEvent,
   githubPrThreadId,
   type GithubPrClient,
@@ -178,6 +179,19 @@ describe('githubPrItemToEvent：事件映射', () => {
       const result = githubPrItemToEvent(bad as GithubPrItem)
       expect(result.kind).toBe('bad')
     }
+  })
+})
+
+describe('extractPrReferences：显式 PR 引用', () => {
+  it('extracts unique PR references in encounter order', () => {
+    expect(
+      extractPrReferences('看看 acme/app#42 与 acme/app#42，还有 acme/app#7 的评审'),
+    ).toEqual(['acme/app#42', 'acme/app#7'])
+  })
+
+  it('ignores text without a full owner/repo#number reference', () => {
+    expect(extractPrReferences('没有 PR 引用')).toEqual([])
+    expect(extractPrReferences('只有 #42 或 acme/app')).toEqual([])
   })
 })
 

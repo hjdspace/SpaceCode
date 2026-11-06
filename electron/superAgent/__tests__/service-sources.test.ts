@@ -18,6 +18,7 @@ import {
   FEISHU_IM_SOURCE_ID,
   type SuperAgentSourcesConfig,
 } from '../sources/config'
+import { GITHUB_PR_SOURCE_ID } from '../sources/githubPr'
 import type { ExternalSource, SourcePollPage } from '../sources/types'
 
 const REPO = mkdtempSync(join(tmpdir(), 'spacecode-sources-repo-'))
@@ -28,6 +29,16 @@ const CONFIG: SuperAgentSourcesConfig = {
   feishuIm: {
     botOpenId: 'ou_bot',
     chats: ['oc_chat'],
+    pollIntervalMs: 10,
+  },
+}
+
+const GITHUB_CONFIG: SuperAgentSourcesConfig = {
+  enabled: [GITHUB_PR_SOURCE_ID],
+  githubPr: {
+    repo: 'acme/app',
+    prs: ['acme/app#42'],
+    automationAccounts: ['copilot-pull-request-reviewer[bot]'],
     pollIntervalMs: 10,
   },
 }
@@ -57,13 +68,19 @@ function pageOf(events: unknown[], nextCursor: string | null = null): SourcePoll
 
 /** 脚本化 Source：按页返回事件，记录每次读取的游标，可注入失败。 */
 class ScriptedSource implements ExternalSource {
-  readonly id = FEISHU_IM_SOURCE_ID
   readonly polls: Array<string | null> = []
   error: Error | null = null
   private pages: SourcePollPage[]
 
-  constructor(pages: SourcePollPage[] = []) {
+  constructor(
+    pages: SourcePollPage[] = [],
+    readonly id = FEISHU_IM_SOURCE_ID,
+  ) {
     this.pages = pages
+  }
+
+  pushPage(page: SourcePollPage): void {
+    this.pages.push(page)
   }
 
   async poll(cursor: string | null): Promise<SourcePollPage> {
@@ -184,6 +201,24 @@ describe('Source service wiring', () => {
     expect(item).toMatchObject({ status: 'degraded', code: 'sourceReadFailed', consecutiveFailures: 1 })
   })
 
+  it('records github-pr read failures (e.g. expired credentials) under its own health category', async () => {
+    const source = new ScriptedSource([], GITHUB_PR_SOURCE_ID)
+    source.error = new Error('github api 401')
+    const service = makeService({
+      userDataDir: makeUserDataDir(),
+      sources: GITHUB_CONFIG,
+      sourceFactory: () => [source],
+    })
+    service.state(REPO)
+    await until(() =>
+      service.health(REPO).items.some((item) => item.category === `source:${GITHUB_PR_SOURCE_ID}`),
+    )
+    const item = service.health(REPO).items.find(
+      (entry) => entry.category === `source:${GITHUB_PR_SOURCE_ID}`,
+    )
+    expect(item).toMatchObject({ status: 'degraded', code: 'sourceReadFailed' })
+  })
+
   it('records a source assembly failure as a configuration health item', () => {
     const service = makeService({
       userDataDir: makeUserDataDir(),
@@ -227,5 +262,45 @@ describe('Source service wiring', () => {
     await until(() => secondSource.polls.length >= 1)
     expect(secondSource.polls[0]).toBe('cursor-2')
     await second.shutdown(REPO)
+  })
+
+  it('binds an explicit PR reference at dispatch and ends the ticket on PR merge', async () => {
+    const source = new ScriptedSource([], GITHUB_PR_SOURCE_ID)
+    const service = makeService({
+      userDataDir: makeUserDataDir(),
+      sources: GITHUB_CONFIG,
+      sourceFactory: () => [source],
+    })
+    service.state(REPO)
+    const dispatched = service.dispatch(REPO, {
+      requestId: 'dispatch-pr-1',
+      title: '跟进 PR 评审',
+      text: '请按 acme/app#42 的评审意见修复',
+    })
+    source.pushPage({
+      events: [],
+      nextCursor: 'pr-1',
+      hasMore: false,
+      gap: false,
+      threadDone: [
+        {
+          threadId: 'github:pr:acme/app:42',
+          outcome: 'merged',
+          at: AT,
+          reason: 'pr-merged:octocat',
+        },
+      ],
+    })
+    await until(() => {
+      const card = service
+        .tickets(REPO)
+        .tickets.find((candidate) => candidate.ticketId === dispatched.ticketId)
+      return card?.ended?.outcome === 'merged'
+    })
+    const card = service
+      .tickets(REPO)
+      .tickets.find((candidate) => candidate.ticketId === dispatched.ticketId)
+    expect(card?.ended?.outcome).toBe('merged')
+    expect(card?.ended?.reason).toBe('pr-merged:octocat')
   })
 })

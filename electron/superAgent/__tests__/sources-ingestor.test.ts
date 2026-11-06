@@ -433,6 +433,93 @@ describe('T17 订阅 fast path 与寿命', () => {
   })
 })
 
+describe('GitHub PR 订阅（#97）', () => {
+  const PR_THREAD = 'github:pr:acme/app:42'
+
+  function ticketFollowingPr(domain: SuperAgentDomain, key: string) {
+    const ticket = domain.createTicket({
+      requestId: `req-${key}`,
+      title: `T ${key}`,
+      repoRoot: '/repo',
+      trigger: {
+        key,
+        source: 'desktop',
+        threadIds: ['desktop:thread:1'],
+        actor: 'desktop:user:local',
+        human: true,
+        text: '跟踪 PR',
+      },
+    }).ticket
+    domain.followThread({ ticketId: ticket.ticketId, threadId: PR_THREAD, source: 'github-pr' })
+    return ticket
+  }
+
+  it('wakes the following ticket on a human review and keeps resolved comments as context', async () => {
+    const h = harness([], 'github-pr')
+    const ticket = ticketFollowingPr(h.domain, 'd1')
+
+    h.source.appendPages([
+      page({
+        events: [
+          event({
+            key: 'github-pr:review:acme/app#42:r1',
+            source: 'github-pr',
+            threadIds: [PR_THREAD],
+            actor: 'github:user:bob',
+            text: '请修 X',
+          }),
+        ],
+        nextCursor: 'c1',
+      }),
+    ])
+    await h.ingestor.pollOnce('github-pr')
+    const first = h.domain.state.inputs[ticket.inputIds[0]]
+    expect(first.human).toBe(true)
+    expect(first.context).toBe(false)
+
+    h.source.appendPages([
+      page({
+        events: [
+          event({
+            key: 'github-pr:comment:acme/app#42:c1',
+            source: 'github-pr',
+            threadIds: [PR_THREAD],
+            human: false,
+            text: '线程已解决',
+          }),
+        ],
+        nextCursor: 'c2',
+      }),
+    ])
+    await h.ingestor.pollOnce('github-pr')
+    const second = h.domain.state.inputs[ticket.inputIds[1]]
+    expect(second.human).toBe(false)
+    expect(second.context).toBe(true)
+  })
+
+  it('ends the following ticket once across replayed merged terminations', async () => {
+    const done = {
+      threadId: PR_THREAD,
+      outcome: 'merged' as const,
+      at: '2026-01-01T00:00:03.000Z',
+      reason: 'pr-merged:octocat',
+    }
+    const h = harness([page({ threadDone: [done], nextCursor: 'c1' })], 'github-pr')
+    const ticket = ticketFollowingPr(h.domain, 'd1')
+
+    await h.ingestor.pollOnce('github-pr')
+    expect(ticket.state).toBe('ended')
+    expect(ticket.ended?.outcome).toBe('merged')
+    expect(ticket.follows).toEqual([PR_THREAD])
+
+    // 断档重放：同一终止信号不重复结束、不抛错。
+    h.source.appendPages([page({ threadDone: [done], nextCursor: 'c2' })])
+    await h.ingestor.pollOnce('github-pr')
+    expect(ticket.state).toBe('ended')
+    expect(ticket.ended?.outcome).toBe('merged')
+  })
+})
+
 describe('坏事件隔离', () => {
   it('quarantines invalid events, still intakes valid ones and advances the cursor', async () => {
     const h = harness([

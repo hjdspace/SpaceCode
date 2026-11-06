@@ -544,6 +544,24 @@ export interface AttachTicketResult {
 }
 
 /**
+ * T25 #97：显式 PR 引用 —— 让工单跟随一个外部 Thread（follows）并订阅它，
+ * 后续评审/评论会经 Ingestor fan-out 唤醒该工单；幂等，重复引用不重复绑定。
+ */
+export interface FollowThreadInput {
+  ticketId: string
+  /** 外部 Thread（如 `github:pr:owner/repo:42`）。 */
+  threadId: string
+  /** Thread 所属 Source id（如 github-pr）；首次建立 Thread 时使用。 */
+  source: string
+  at?: string
+}
+
+export interface FollowThreadResult {
+  ticket: SuperAgentTicket
+  thread: SuperAgentThread
+}
+
+/**
  * T18 #88：Outbox 入列。受控 reply 的授权链在此校验（§6.4）：
  * acknowledgement 指向本工单人消息且未结束；answer 指向 Worker 认领过的
  * 人问题；result 只在 ready/completed/merged/dropped 允许且 progress 不得
@@ -709,6 +727,11 @@ export interface SuperAgentDomain {
    * 输入；人消息归存活 owner 期间被代码拒绝（只能 stop）。
    */
   attachTicket(input: AttachTicketInput): AttachTicketResult
+  /**
+   * T25 #97：显式 PR 引用 —— 工单跟随外部 Thread（follows）并加入可裁决订阅，
+   * 后续 PR 评审/评论可唤醒；重复引用幂等。
+   */
+  followThread(input: FollowThreadInput): FollowThreadResult
   /**
    * T17 #87：清理过期订阅 —— stopped 立即失效，已结束工单最多保留
    * subscriptionTtlMs（缺省两周）；之后 Source 不再为该 Thread 轮询。
@@ -2480,6 +2503,37 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     return pruned
   }
 
+  // ── T25 #97：显式 PR 引用建立 follows 订阅 ────────────────────────────
+
+  /**
+   * 工单跟随外部 Thread：记录 follows（终止信号按它结束工单）并加入可裁决
+   * 订阅（后续评审/评论经 Ingestor fan-out 唤醒）。幂等：重复引用只补缺，
+   * 不重复追加、不重复递增序号。
+   */
+  function followThread(input: FollowThreadInput): FollowThreadResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') {
+      throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    }
+    const at = atNow(input.at)
+    const thread = ensureThread(input.threadId, input.source)
+    let changed = false
+    if (!ticket.follows.includes(input.threadId)) {
+      ticket.follows.push(input.threadId)
+      changed = true
+    }
+    if (!thread.subscriptions.some((subscription) => subscription.ticketId === ticket.ticketId)) {
+      thread.subscriptions.push({
+        ticketId: ticket.ticketId,
+        attachedAt: at,
+        contextOnly: false,
+      })
+      changed = true
+    }
+    if (changed) nextOrdinal()
+    return { ticket, thread }
+  }
+
   // ── T19 #89：PR 合并/关闭按 Thread 结束（followsDone） ────────────────
 
   /**
@@ -2930,6 +2984,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     markUnrelated,
     attachTicket,
     pruneExpiredSubscriptions,
+    followThread,
     followsDone,
     enqueueOutboxMessage,
     settleOutboxMessage,

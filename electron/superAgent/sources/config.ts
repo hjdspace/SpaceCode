@@ -8,7 +8,12 @@
  * 飞书凭据不在这里：app_id/app_secret 复用 electron/im 的适配器配置边界
  * （`electron/im/adapters/common/config.ts`），本配置只保存业务侧参数
  * （bot open_id、chat 允许列表等）。
+ *
+ * GitHub 凭据同样不在这里：复用本仓既有 gh CLI 通路（`gh auth token`），
+ * 这里只保存仓库/prs 范围与自动评审参数。
  */
+import { GITHUB_PR_SOURCE_ID, PR_PATTERN, type GithubPrEventOptions } from './githubPr'
+
 export const FEISHU_IM_SOURCE_ID = 'feishu-im'
 
 export interface SuperAgentFeishuImSourceConfig {
@@ -22,10 +27,20 @@ export interface SuperAgentFeishuImSourceConfig {
   gapErrorCodes?: number[]
 }
 
+export interface SuperAgentGithubPrSourceConfig extends GithubPrEventOptions {
+  /** 监听 PR 所属仓库（`owner/repo`）；显式引用必须落在该范围。 */
+  repo: string
+  /** 轮询的 PR 列表（`owner/repo#number`）。 */
+  prs: string[]
+  /** 轮询间隔（毫秒）；缺省沿用 Ingestor 默认值。 */
+  pollIntervalMs?: number
+}
+
 export interface SuperAgentSourcesConfig {
-  /** 启用的 Source id（当前仅 feishu-im）。 */
+  /** 启用的 Source id（当前支持 feishu-im / github-pr）。 */
   enabled: string[]
   feishuIm?: SuperAgentFeishuImSourceConfig
+  githubPr?: SuperAgentGithubPrSourceConfig
 }
 
 export type SourcesConfigParseResult =
@@ -69,6 +84,49 @@ function parseFeishuIm(raw: unknown): SuperAgentFeishuImSourceConfig | string {
   return config
 }
 
+const REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/
+
+function parseGithubPr(raw: unknown): SuperAgentGithubPrSourceConfig | string {
+  if (!isRecord(raw)) return 'invalid-github-pr'
+  if (!isNonEmptyString(raw.repo) || !REPO_PATTERN.test(raw.repo.trim())) {
+    return 'invalid-github-repo'
+  }
+  if (!Array.isArray(raw.prs) || raw.prs.length === 0) return 'missing-github-prs'
+  const repo = raw.repo
+  if (
+    !raw.prs.every(
+      (pr) => isNonEmptyString(pr) && PR_PATTERN.test(pr) && pr.startsWith(`${repo}#`),
+    )
+  ) {
+    return 'invalid-github-prs'
+  }
+  if (
+    raw.automationAccounts !== undefined &&
+    (!Array.isArray(raw.automationAccounts) ||
+      !raw.automationAccounts.every((account) => isNonEmptyString(account)))
+  ) {
+    return 'invalid-automation-accounts'
+  }
+  if (raw.maxAutomationRounds !== undefined && !isPositiveInteger(raw.maxAutomationRounds)) {
+    return 'invalid-max-automation-rounds'
+  }
+  if (raw.pollIntervalMs !== undefined && !isPositiveInteger(raw.pollIntervalMs)) {
+    return 'invalid-poll-interval'
+  }
+  const config: SuperAgentGithubPrSourceConfig = {
+    repo,
+    prs: raw.prs as string[],
+  }
+  if (raw.automationAccounts !== undefined) {
+    config.automationAccounts = raw.automationAccounts as string[]
+  }
+  if (raw.maxAutomationRounds !== undefined) {
+    config.maxAutomationRounds = raw.maxAutomationRounds
+  }
+  if (raw.pollIntervalMs !== undefined) config.pollIntervalMs = raw.pollIntervalMs
+  return config
+}
+
 /** 解析 project.json 的 `sources` 字段；非法配置不抛错，交由调用方决定是否上报健康。 */
 export function parseSuperAgentSourcesConfig(raw: unknown): SourcesConfigParseResult {
   if (raw === undefined || raw === null) return { kind: 'absent' }
@@ -88,6 +146,15 @@ export function parseSuperAgentSourcesConfig(raw: unknown): SourcesConfigParseRe
   // 启用飞书但没给出业务参数时无法安全轮询（bot open_id/chat 范围都缺）。
   if (config.enabled.includes(FEISHU_IM_SOURCE_ID) && config.feishuIm === undefined) {
     return { kind: 'invalid', reason: 'missing-feishu-im' }
+  }
+  if (raw.githubPr !== undefined) {
+    const github = parseGithubPr(raw.githubPr)
+    if (typeof github === 'string') return { kind: 'invalid', reason: github }
+    config.githubPr = github
+  }
+  // 启用 GitHub PR 但没给出 repo/prs 时无法安全轮询。
+  if (config.enabled.includes(GITHUB_PR_SOURCE_ID) && config.githubPr === undefined) {
+    return { kind: 'invalid', reason: 'missing-github-pr' }
   }
   return { kind: 'configured', config }
 }
