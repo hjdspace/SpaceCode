@@ -1,1112 +1,855 @@
-/**
- * SuperAgentView Router 对话接线契约（T04 #74）：
- *  - 复用主聊天 Composer/MessageList：session-id 绑定 Router 会话（草稿域随之隔离）、
- *    场景化 placeholder、宿主裁剪（隐藏 work 画廊入口与 UI 绑定命令）；
- *  - 发送走共享 buildOutgoingMessage：@"引用 marker 与主聊天逐字一致；
- *  - 中止/typing 只按 routerSessionId 寻址，不触碰其它会话（Worker）；
- *  - 斜杠命令的本地子集在 Router 会话内落消息，全局命令与主聊天同源；
- *  - 无项目根时保持 T01 的空态且不做 IPC；
- *  - 健康上报（T13 #83）：bind 后拉取并订阅健康报告，顶部入口只显示汇总计数，
- *    点击只开关只读面板（无任何处置按钮）；
- *  - 显式派工（T05 #75）：「新建工单」独立动作（普通发送不建单）、
- *    表单校验与幂等 requestId、派工结果提示、队列现状（执行中/排队/脏区）可见；
- *  - Worker 只读标签（T07 #77）：点击队列条目打开 worker:<ticketId> 只读标签。
- *  - review 出口与超时提醒（T10 #80）：提醒气泡复用原气泡（key=ticketId）、
- *    点击打开只读标签；卡片三出口/重试经 store 委托主进程，失败给出非模态提示。
- */
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick, reactive } from 'vue'
-import type { Message } from '@/types'
+<template>
+  <div class="super-agent-view">
+    <!-- 顶部操作区（T13 #83）：系统问题汇总入口（只读面板，MVP 不可操作）。
+         派工不再有独立入口 —— Router 已能按对话建单（super-agent:route），
+         两个入口并存只会让人纠结"该在这儿填还是跟它说"。 -->
+    <header class="health-entry">
+      <div class="entry-group">
+        <button
+          class="health-chip"
+          :class="{ open: superAgentStore.healthPanelOpen }"
+          type="button"
+          data-testid="super-agent-health-entry"
+          @click="superAgentStore.toggleHealthPanel()"
+        >
+          <HeartPulse :size="14" />
+          <span>{{ t('superAgent.health.entry') }}</span>
+          <span v-if="superAgentStore.healthProblemCount > 0" class="count">
+            {{ superAgentStore.healthProblemCount }}
+          </span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Router 工卡：夹在消息区上沿，折叠态只报「这些话落在哪个目录」 -->
+    <RouterWorkBadge v-if="routerSessionId" />
+
+    <!-- 执行队列（T05）：串行调度现状，running + 排队位置 + 脏区提示，广播驱动。 -->
+    <div
+      v-if="queueVisible"
+      class="dispatch-queue"
+      data-testid="super-agent-queue"
+    >
+      <div class="queue-heading">{{ t('superAgent.queue.title') }}</div>
+      <!-- 点击条目在右侧打开 Worker 只读标签（T07 #77）：多标签并存、只读不接管 -->
+      <div
+        v-for="entry in queueEntries"
+        :key="entry.ticketId"
+        class="queue-entry"
+        :data-state="entry.state"
+        :data-testid="`super-agent-queue-entry-${entry.ticketId}`"
+        role="button"
+        tabindex="0"
+        @click="appStore.openWorkerTab(entry.ticketId, entry.title)"
+        @keydown.enter.prevent="appStore.openWorkerTab(entry.ticketId, entry.title)"
+      >
+        <span class="queue-title">{{ entry.title }}</span>
+        <span class="queue-state">
+          {{ entry.state === 'running'
+            ? t('superAgent.queue.running')
+            : `${t('superAgent.queue.queued')} · ${t('superAgent.queue.position', { position: entry.position })}` }}
+        </span>
+        <span v-if="entry.dirty" class="queue-dirty">{{ t('superAgent.queue.dirtyHint') }}</span>
+      </div>
+    </div>
+
+    <!-- 健康面板（T13 #83，T20 #90 升级为可操作）：重试/忽略/重新评估。 -->
+    <template v-if="superAgentStore.healthPanelOpen">
+      <SuperAgentHealth
+        :problems="superAgentStore.healthProblems"
+        @retry="handleHealthRetry"
+        @dismiss="handleHealthDismiss"
+        @reevaluate="handleHealthReevaluate"
+      />
+      <p
+        v-if="healthActionHint"
+        class="health-action-hint"
+        :class="{ failed: healthActionFailed }"
+        data-testid="super-agent-health-action-hint"
+      >
+        {{ healthActionHint }}
+      </p>
+    </template>
+
+    <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
+         loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。
+         工单单位（卡片 + 该单的 Worker 提问 + 待验收超时提醒）按创建时间锚定在
+         派工那条助手回复下方；早于整段对话的旧单钳到最早那条回复，只有助手回复
+         全部缺失时才整体落在末尾。 -->
+    <template v-if="routerSessionId">
+      <div class="super-agent-messages">
+        <MessageList
+          :messages="messages"
+          :loading="isLoading"
+          :session-id="routerSessionId"
+          presentation="im"
+          @tool-submit="handleToolSubmit"
+          @tool-skip="handleToolSkip"
+        >
+          <template #assistant-group="{ group }">
+            <div v-if="cardsForGroup(group.messages).length" class="ticket-cards" data-testid="super-agent-tickets">
+              <TicketTimelineEntry
+                v-for="card in cardsForGroup(group.messages)"
+                :key="card.ticketId"
+                :card="card"
+                :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+                :attentions="attentionsByTicket.get(card.ticketId) ?? []"
+                :review-reminder="reviewReminderByTicket.get(card.ticketId) ?? null"
+                @open="handleTicketOpen"
+                @accept="handleTicketAccept"
+                @stop="handleTicketStop"
+                @retry="handleTicketRetry"
+                @message="handleTicketMessage"
+              />
+            </div>
+          </template>
+          <template #append>
+            <!-- 历史缺失时只在末尾展示一次；动作失败提示也始终保留。 -->
+            <div
+              v-if="unanchoredCards.length || orphanAttentions.length"
+              class="ticket-cards"
+              data-testid="super-agent-tickets"
+            >
+              <TicketTimelineEntry
+                v-for="card in unanchoredCards"
+                :key="card.ticketId"
+                :card="card"
+                :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
+                :attentions="attentionsByTicket.get(card.ticketId) ?? []"
+                :review-reminder="reviewReminderByTicket.get(card.ticketId) ?? null"
+                @open="handleTicketOpen"
+                @accept="handleTicketAccept"
+                @stop="handleTicketStop"
+                @retry="handleTicketRetry"
+                @message="handleTicketMessage"
+              />
+              <!-- 卡片已不在看板上（清理/断档）时，提问仍落在末尾，不能静默消失 -->
+              <AttentionBubble
+                v-for="bubble in orphanAttentions"
+                :key="bubble.attentionId"
+                :attention="bubble"
+              />
+            </div>
+            <p v-if="ticketActionHint" class="ticket-action-hint" data-testid="super-agent-ticket-action-hint">
+              {{ ticketActionHint }}
+            </p>
+          </template>
+        </MessageList>
+      </div>
+
+      <ChatInput
+        class="super-agent-composer"
+        @send="handleSend"
+        @slash-command="handleSlashCommand"
+        @update:model="handleModelChange"
+        @update:effort="handleEffortChange"
+        @update:agent="handleAgentChange"
+        @open-skills="handleOpenSkills"
+        @stop="handleStop"
+        :disabled="isLoading"
+        :is-sending="isLoading"
+        :model-value="currentModel"
+        :working-directory="workingDirectory"
+        :placeholder="t('superAgent.composerPlaceholder')"
+        :session-id="routerSessionId"
+        :show-work-gallery-action="false"
+        :excluded-commands="routerExcludedCommands"
+      />
+    </template>
+
+    <!-- 未绑定（无项目根 / bind 未完成）：保留 T01 的空态 -->
+    <div v-else class="super-agent-empty">
+      <div class="empty-icon">
+        <Sparkles :size="30" />
+      </div>
+      <h2>{{ t('superAgent.emptyTitle') }}</h2>
+      <p>{{ t('superAgent.emptyHint') }}</p>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { HeartPulse, Sparkles } from 'lucide-vue-next'
+import { useAppStore } from '@/stores/app'
+import { useSettingsStore } from '@/stores/settings'
+import { useChatSessionStore } from '@/stores/chatSession'
+import { useTurnStore } from '@/stores/turn'
+import { useSuperAgentStore } from '@/stores/superAgent'
+import { createUuid } from '@/utils/uuid'
 import type {
   SuperAgentAttentionView,
-  SuperAgentDispatchResult,
-  SuperAgentHealthItem,
-  SuperAgentQueueSnapshot,
-  SuperAgentTicketBoard,
+  SuperAgentQueueEntry,
+  SuperAgentTicketCard,
 } from '@/shared/channels/superAgent'
+import type { SuperAgentReviewReminderItem } from '@/stores/superAgent'
+import MessageList from '../chat/MessageList.vue'
+import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
+import SuperAgentHealth from './SuperAgentHealth.vue'
+import AttentionBubble from './AttentionBubble.vue'
+import TicketTimelineEntry from './TicketTimelineEntry.vue'
+import RouterWorkBadge from './RouterWorkBadge.vue'
+import { buildOutgoingMessage } from '@/lib/composer-outgoing'
+import {
+  generateCostMessage,
+  generateHelpMessage,
+  generateKeybindingsMessage,
+} from '@/lib/slashCommandMessages'
+import { findCommand } from '@/lib/constants/commands'
+import type { EffortLevel } from '@/shared/effort'
+import type { Message } from '@/types'
 
-const probe = vi.hoisted(() => ({
-  bind: vi.fn().mockResolvedValue(undefined),
-  switchProject: vi.fn().mockResolvedValue(undefined),
-  loadState: vi.fn().mockResolvedValue(undefined),
-  /** 响应式的项目根（由 @/stores/app 的 mock 建），测试经它驱动 watch 切换 */
-  appState: null as { projectRoot: string } | null,
-  /** 本页绑定的项目根：动作寻址看它，不看实时 projectRoot */
-  boundRepoRoot: 'D:/repo' as string | null,
-  routerSessionId: 'router-1' as string | null,
-  sendMessage: vi.fn().mockResolvedValue(undefined),
-  abort: vi.fn().mockResolvedValue(undefined),
-  // ── Router 对话改走主进程 RouterRunner（T21）──
-  sendRouterMessage: vi.fn().mockResolvedValue({ sessionId: 'router-1', running: true }),
-  abortRouter: vi.fn().mockResolvedValue(undefined),
-  watchRouterStatus: vi.fn().mockReturnValue(() => {}),
-  routerRunning: false,
-  getIsLoading: vi.fn(() => false),
-  addMessage: vi.fn().mockResolvedValue(undefined),
-  getDisplayMessages: vi.fn<() => Message[]>(() => []),
-  getSessionMessages: vi.fn(() => []),
-  getSession: vi.fn(() => null),
-  switchAgent: vi.fn().mockResolvedValue(undefined),
-  openTerminalTab: vi.fn(),
-  openWorkerTab: vi.fn(),
-  updateAppearance: vi.fn(),
-  // ── 健康上报（T13）──
-  loadHealth: vi.fn().mockResolvedValue(undefined),
-  watchHealth: vi.fn().mockReturnValue(() => {}),
-  toggleHealthPanel: vi.fn(),
-  healthPanelOpen: false,
-  healthProblemCount: 0,
-  healthProblems: [] as SuperAgentHealthItem[],
-  // ── 健康处置（T20 #90）──
-  reevaluateEval: vi.fn().mockResolvedValue({ evalId: 'eval-1', requeuedTriggerIds: [] }),
-  dismissProblem: vi.fn().mockResolvedValue(undefined),
-  retryHealthProblem: vi.fn().mockResolvedValue(undefined),
-  // ── 显式派工与队列（T05）──
-  dispatch: vi.fn().mockResolvedValue({
-    ticketId: 'ticket-1',
-    assignmentId: 'assignment-1',
-    decisionId: 'decision-1',
-    mandateId: 'mandate-1',
-    queuePosition: 1,
-    duplicate: false,
-  } as SuperAgentDispatchResult),
-  loadQueue: vi.fn().mockResolvedValue(undefined),
-  watchQueue: vi.fn().mockReturnValue(() => {}),
-  queue: null as SuperAgentQueueSnapshot | null,
-  // ── 执行策略与检查点（T12 #82，并发会话维护）：仅补桩保证挂载流程可跑 ──
-  loadPolicy: vi.fn().mockResolvedValue(undefined),
-  setPolicy: vi.fn().mockResolvedValue(undefined),
-  loadCheckpoint: vi.fn().mockResolvedValue(undefined),
-  rollbackCheckpointFiles: vi.fn().mockResolvedValue({ rolled: [], skipped: [] }),
-  executionPolicy: null as { repoRoot: string; policy: { mode: 'serial' | 'parallel'; maxWorkers: number; worktree: 'none' | 'per-ticket' } } | null,
-  checkpointInfo: null as { repoRoot: string; checkpoint: { savedAt: string; head: string | null; entries: string[] } | null; changedFiles: string[] } | null,
-  // ── Attention 气泡（T08 #78，并发会话维护）：仅补桩保证挂载流程可跑 ──
-  loadAttentions: vi.fn().mockResolvedValue(undefined),
-  watchAttentions: vi.fn().mockReturnValue(() => {}),
-  attentionBubbles: [] as SuperAgentAttentionView[],
-  attentionCount: 0,
-  // ── 工单看板（T06 #76，并发会话维护）：仅补桩保证挂载流程可跑 ──
-  loadTickets: vi.fn().mockResolvedValue(undefined),
-  watchTickets: vi.fn().mockReturnValue(() => {}),
-  ticketBoard: null as SuperAgentTicketBoard | null,
-  ticketProgress: {} as Record<string, never>,
-  // ── review 出口与超时提醒（T10 #80）──
-  acceptTicket: vi.fn().mockResolvedValue({
-    repoRoot: 'D:/repo',
-    ticketId: 'ticket-1',
-    outcome: 'completed',
-    endedAt: '2026-01-02T00:00:00.000Z',
-  }),
-  stopTicket: vi.fn().mockResolvedValue({
-    repoRoot: 'D:/repo',
-    ticketId: 'ticket-1',
-    outcome: 'stopped',
-    endedAt: '2026-01-02T00:00:00.000Z',
-  }),
-  messageTicket: vi.fn().mockResolvedValue({
-    inputId: 'input-1',
-    ticketId: 'ticket-1',
-    status: 'delivered',
-    delivered: true,
-    gated: false,
-    duplicate: false,
-  }),
-  retryTicket: vi.fn().mockResolvedValue({
-    ticketId: 'ticket-1',
-    assignmentId: 'assignment-2',
-    generation: 2,
-    queuePosition: 1,
-  }),
-  reviewReminders: [] as Array<{ ticketId: string; title: string; remindedAt: string }>,
-  reviewRemindedCount: 0,
-}))
-
-vi.mock('vue-i18n', () => ({
-  createI18n: vi.fn(),
-  useI18n: () => ({ t: (key: string) => key }),
-}))
-
-vi.mock('@/stores/app', async () => {
-  // 项目根得真是响应式：视图靠 watch(appStore.projectRoot) 跟随切换项目，
-  // 普通对象上的 getter 永远不会触发 watch，测试就会假绿。
-  const { reactive } = await import('vue')
-  const appState = reactive({ projectRoot: 'D:/repo' })
-  probe.appState = appState
-  return {
-    useAppStore: () => ({
-      get projectRoot() { return appState.projectRoot },
-      openTerminalTab: probe.openTerminalTab,
-      openWorkerTab: probe.openWorkerTab,
-    }),
-  }
-})
-
-vi.mock('@/stores/settings', () => ({
-  useSettingsStore: () => ({
-    lastSelectedModel: 'sonnet',
-    config: { model: 'sonnet' },
-    appearance: { theme: 'light' },
-    updateAppearance: probe.updateAppearance,
-    saveSettings: vi.fn(),
-  }),
-}))
-
-vi.mock('@/stores/chatSession', () => ({
-  useChatSessionStore: () => ({
-    currentSessionId: null,
-    turnChangeCards: [],
-    getDisplayMessages: probe.getDisplayMessages,
-    getSessionMessages: probe.getSessionMessages,
-    getSession: probe.getSession,
-    getWorkingDirectory: () => 'D:/repo',
-    addMessage: probe.addMessage,
-    switchAgent: probe.switchAgent,
-  }),
-}))
-
-vi.mock('@/stores/turn', () => ({
-  useTurnStore: () => ({
-    sendMessage: probe.sendMessage,
-    abort: probe.abort,
-    getIsLoading: probe.getIsLoading,
-    isEngineStarting: () => false,
-    getMcpFailures: () => [],
-    hasPendingPermissionForToolUse: () => false,
-    allowPermission: vi.fn(),
-    denyPermission: vi.fn(),
-    submitToolAnswer: vi.fn(),
-    skipToolAnswer: vi.fn(),
-  }),
-}))
-
-vi.mock('@/stores/superAgent', () => ({
-  useSuperAgentStore: () => ({
-    bind: probe.bind,
-    switchProject: probe.switchProject,
-    loadState: probe.loadState,
-    get boundSessionId() { return probe.routerSessionId },
-    get boundRepoRoot() { return probe.boundRepoRoot },
-    sendRouterMessage: probe.sendRouterMessage,
-    abortRouter: probe.abortRouter,
-    watchRouterStatus: probe.watchRouterStatus,
-    get routerRunning() { return probe.routerRunning },
-    loadHealth: probe.loadHealth,
-    watchHealth: probe.watchHealth,
-    toggleHealthPanel: probe.toggleHealthPanel,
-    get healthPanelOpen() { return probe.healthPanelOpen },
-    get healthProblemCount() { return probe.healthProblemCount },
-    get healthProblems() { return probe.healthProblems },
-    reevaluateEval: probe.reevaluateEval,
-    dismissProblem: probe.dismissProblem,
-    retryHealthProblem: probe.retryHealthProblem,
-    dispatch: probe.dispatch,
-    loadQueue: probe.loadQueue,
-    watchQueue: probe.watchQueue,
-    get queue() { return probe.queue },
-    // ── 执行策略与检查点（T12 #82，并发会话维护）：仅补桩保证挂载流程可跑 ──
-    loadPolicy: probe.loadPolicy,
-    setPolicy: probe.setPolicy,
-    loadCheckpoint: probe.loadCheckpoint,
-    rollbackCheckpointFiles: probe.rollbackCheckpointFiles,
-    get executionPolicy() { return probe.executionPolicy },
-    get checkpointInfo() { return probe.checkpointInfo },
-    loadTickets: probe.loadTickets,
-    watchTickets: probe.watchTickets,
-    get ticketBoard() { return probe.ticketBoard },
-    get ticketProgress() { return probe.ticketProgress },
-    acceptTicket: probe.acceptTicket,
-    stopTicket: probe.stopTicket,
-    messageTicket: probe.messageTicket,
-    retryTicket: probe.retryTicket,
-    get reviewReminders() { return probe.reviewReminders },
-    get reviewRemindedCount() { return probe.reviewRemindedCount },
-    loadAttentions: probe.loadAttentions,
-    watchAttentions: probe.watchAttentions,
-    get attentionBubbles() { return probe.attentionBubbles },
-    get attentionCount() { return probe.attentionCount },
-  }),
-}))
-
-import SuperAgentView from '../SuperAgentView.vue'
-import ChatInput from '../../chat/ChatInput.vue'
-import MessageList from '../../chat/MessageList.vue'
-import WorkerTaskCard from '../WorkerTaskCard.vue'
+const { t } = useI18n()
+const appStore = useAppStore()
+const settingsStore = useSettingsStore()
+const sessionStore = useChatSessionStore()
+const turnStore = useTurnStore()
+const superAgentStore = useSuperAgentStore()
 
 /**
- * 切换全局项目指针。必须写响应式 store 而不是 probe 上的普通字段，
- * 否则视图里 watch(appStore.projectRoot) 根本不触发，测试会假绿。
+ * Router 宿主裁剪的命令：context/diff/rewind(checkpoint) 依赖主聊天本地 UI
+ * （上下文弹窗 / Diff 面板 / 回退选择器），在 Super Agent 中只隐藏不实现。
  */
-function setProjectRoot(path: string): void {
-  probe.appState!.projectRoot = path
-}
+const routerExcludedCommands = ['context', 'diff', 'rewind', 'checkpoint']
 
-function mountView() {
-  return mount(SuperAgentView, {
-    global: {
-      // 真实 MessageList 与 WorkerTaskCard：不能由测试桩发明宿主不存在的 slot。
-      stubs: {
-        ChatInput: true,
-        MessageItem: true,
-        AgentTimeline: {
-          props: ['messages'],
-          template: '<div class="assistant-reply">{{ messages.map(m => m.content).join(" ") }}</div>',
-        },
-        DesignBlocks: true,
-        GenuiCardGroup: true,
-        CurrentTurnChangeCard: true,
-        ArtifactSummaryCard: true,
-        ConversationMinimap: true,
-        LoadingState: true,
-        ExtensionDialogCard: true,
-      },
-    },
-  })
-}
+// ── Router 会话接线 ───────────────────────────────────────────────
+const routerSessionId = computed(() => superAgentStore.boundSessionId)
 
-beforeEach(() => {
-  HTMLElement.prototype.scrollTo = vi.fn()
-  probe.getDisplayMessages.mockReturnValue([])
-  probe.bind.mockClear()
-  probe.switchProject.mockClear().mockResolvedValue(undefined)
-  probe.boundRepoRoot = 'D:/repo'
-  probe.loadState.mockClear()
-  probe.openWorkerTab.mockClear()
-  probe.sendMessage.mockClear()
-  probe.abort.mockClear()
-  probe.sendRouterMessage.mockClear()
-  probe.abortRouter.mockClear()
-  probe.watchRouterStatus.mockClear()
-  probe.routerRunning = false
-  probe.addMessage.mockClear()
-  probe.getIsLoading.mockReturnValue(false)
-  setProjectRoot('D:/repo')
-  probe.routerSessionId = 'router-1'
-  probe.loadHealth.mockClear()
-  probe.watchHealth.mockClear()
-  probe.toggleHealthPanel.mockClear()
-  probe.healthPanelOpen = false
-  probe.healthProblemCount = 0
-  probe.healthProblems = []
-  probe.reevaluateEval.mockClear()
-  probe.reevaluateEval.mockResolvedValue({ evalId: 'eval-1', requeuedTriggerIds: [] })
-  probe.dismissProblem.mockClear()
-  probe.dismissProblem.mockResolvedValue(undefined)
-  probe.retryHealthProblem.mockClear()
-  probe.retryHealthProblem.mockResolvedValue(undefined)
-  probe.dispatch.mockClear()
-  probe.dispatch.mockResolvedValue({
-    ticketId: 'ticket-1',
-    assignmentId: 'assignment-1',
-    decisionId: 'decision-1',
-    mandateId: 'mandate-1',
-    queuePosition: 1,
-    duplicate: false,
-  } as SuperAgentDispatchResult)
-  probe.loadQueue.mockClear()
-  probe.watchQueue.mockClear()
-  probe.queue = null
-  probe.loadAttentions.mockClear()
-  probe.watchAttentions.mockClear()
-  probe.loadTickets.mockClear()
-  probe.watchTickets.mockClear()
-  probe.ticketBoard = null
-  probe.acceptTicket.mockClear()
-  probe.acceptTicket.mockResolvedValue({
-    repoRoot: 'D:/repo',
-    ticketId: 'ticket-1',
-    outcome: 'completed',
-    endedAt: '2026-01-02T00:00:00.000Z',
-  })
-  probe.stopTicket.mockClear()
-  probe.stopTicket.mockResolvedValue({
-    repoRoot: 'D:/repo',
-    ticketId: 'ticket-1',
-    outcome: 'stopped',
-    endedAt: '2026-01-02T00:00:00.000Z',
-  })
-  probe.messageTicket.mockClear()
-  probe.messageTicket.mockResolvedValue({
-    inputId: 'input-1',
-    ticketId: 'ticket-1',
-    status: 'delivered',
-    delivered: true,
-    gated: false,
-    duplicate: false,
-  })
-  probe.retryTicket.mockClear()
-  probe.retryTicket.mockResolvedValue({
-    ticketId: 'ticket-1',
-    assignmentId: 'assignment-2',
-    generation: 2,
-    queuePosition: 1,
-  })
-  probe.reviewReminders = []
-  probe.reviewRemindedCount = 0
-  probe.attentionBubbles = []
-  probe.attentionCount = 0
-})
-
-function reviewBoard(): SuperAgentTicketBoard {
-  return {
-    repoRoot: 'D:/repo',
-    seq: 3,
-    tickets: [
-      {
-        ticketId: 'ticket-1',
-        title: '修复登录',
-        state: 'review',
-        assignmentId: 'assignment-1',
-        generation: 1,
-        scopePaths: [],
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-        ended: null,
-        reviewRemindedAt: '2026-01-02T00:00:00.000Z',
-        canRetry: false,
-        canStop: true,
-      },
-      {
-        ticketId: 'ticket-2',
-        title: '修复注册',
-        state: 'failed',
-        assignmentId: 'assignment-2',
-        generation: 1,
-        scopePaths: [],
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-        ended: null,
-        reviewRemindedAt: null,
-        canRetry: true,
-        canStop: true,
-      },
-    ],
-  }
-}
-
-/** 卡片创建时间要晚于锚点助手回复，才会落进那条回复的时间线单位里。 */
-function anchoredBoard(board: SuperAgentTicketBoard): SuperAgentTicketBoard {
-  return { ...board, tickets: board.tickets.map((t) => ({ ...t, createdAt: '2026-01-01T00:00:02Z' })) }
-}
-
-describe('SuperAgentView empty state', () => {
-  it('无项目根时保持空态：只退出作用域，不拉任何镜像', async () => {
-    setProjectRoot('')
-    probe.routerSessionId = null
-    const wrapper = mountView()
-
-    expect(wrapper.text()).toContain('superAgent.emptyTitle')
-    await flushPromises()
-    // 空根的意义是"清掉旧项目的镜像"，不是去主进程问一个新项目
-    expect(probe.switchProject).toHaveBeenCalledWith('')
-    expect(probe.loadState).not.toHaveBeenCalled()
-    wrapper.unmount()
-  })
-})
-
-describe('SuperAgentView router conversation wiring', () => {
-  it('Composer 与时间线都绑定 Router 会话，草稿域与普通会话天然隔离', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    const composer = wrapper.findComponent(ChatInput)
-    const timeline = wrapper.findComponent(MessageList)
-
-    expect(composer.props('sessionId')).toBe('router-1')
-    expect(timeline.props('sessionId')).toBe('router-1')
-    // 场景化 placeholder 走 i18n
-    expect(composer.props('placeholder')).toBe('superAgent.composerPlaceholder')
-    wrapper.unmount()
-  })
-
-  it('宿主裁剪：隐藏 work 画廊入口与依赖主聊天 UI 的斜杠命令', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    const composer = wrapper.findComponent(ChatInput)
-    expect(composer.props('showWorkGalleryAction')).toBe(false)
-    expect(composer.props('excludedCommands')).toEqual(['context', 'diff', 'rewind', 'checkpoint'])
-    wrapper.unmount()
-  })
-
-  it('发送走 Router 通路：正文组装与主聊天逐字一致，不碰 turnStore（T21）', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    await wrapper.findComponent(ChatInput).vm.$emit('send', '看下这个', {
-      files: [{ path: 'D:/repo/a.png', name: 'a.png', isFolder: false, source: 'upload' }],
-      images: [],
-    })
-
-    // 走 turnStore 就等于让 Router 变成一条带全套写工具的普通聊天 —— 那正是
-    // 「让它派活它自己干了」的根因，这里把它钉住。
-    expect(probe.sendMessage).not.toHaveBeenCalled()
-    expect(probe.sendRouterMessage).toHaveBeenCalledTimes(1)
-    const [repoRoot, command] = probe.sendRouterMessage.mock.calls[0]
-    expect(repoRoot).toBe('D:/repo')
-    expect(command.text.startsWith('@"D:/repo/a.png"')).toBe(true)
-    expect(command.text).toContain('看下这个')
-    expect(command.requestId).toBeTruthy()
-    wrapper.unmount()
-  })
-
-  it('图片附件随 Router 消息一起投递，不被静默丢弃', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-    const images = [{ id: 'i1', name: 'shot.png', type: 'image', mimeType: 'image/png', previewUrl: '', data: 'x' }]
-
-    await wrapper.findComponent(ChatInput).vm.$emit('send', '这个界面不对', { files: [], images })
-
-    const [, command] = probe.sendRouterMessage.mock.calls[0]
-    expect(command.images).toEqual(images)
-    wrapper.unmount()
-  })
-
-  it('输入框选的模型随消息下发 —— 不带它 Router 只会用设置页的槽位模型', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    await wrapper.findComponent(ChatInput).vm.$emit('send', '第一句', { files: [], images: [] })
-    expect(probe.sendRouterMessage.mock.calls[0][1].model).toBe('sonnet')
-
-    wrapper.findComponent(ChatInput).vm.$emit('update:model', 'glm-5-3-flash')
-    await flushPromises()
-    await wrapper.findComponent(ChatInput).vm.$emit('send', '第二句', { files: [], images: [] })
-    expect(probe.sendRouterMessage.mock.calls[1][1].model).toBe('glm-5-3-flash')
-    wrapper.unmount()
-  })
-
-  it('中止只作用于 Router 这一轮，不触碰 Worker 会话', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    await wrapper.findComponent(ChatInput).vm.$emit('stop')
-
-    expect(probe.abortRouter).toHaveBeenCalledTimes(1)
-    expect(probe.abortRouter).toHaveBeenCalledWith('D:/repo')
-    expect(probe.abort).not.toHaveBeenCalled()
-    wrapper.unmount()
-  })
-
-  it('Router turn 进行中：typing 与 Composer 停止按钮读主进程状态，不读本地 turn', async () => {
-    probe.routerRunning = true
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.findComponent(MessageList).props('loading')).toBe(true)
-    const composer = wrapper.findComponent(ChatInput)
-    expect(composer.props('isSending')).toBe(true)
-    expect(composer.props('disabled')).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('Router 气泡流走 IM 展示模式（同一渲染器，只减展示面）', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.findComponent(MessageList).props('presentation')).toBe('im')
-    wrapper.unmount()
-  })
-
-  it('斜杠命令在 Router 会话内落消息：clear 走 Router 中止，UI 绑定命令给出宿主提示', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-    probe.addMessage.mockClear()
-
-    await wrapper.findComponent(ChatInput).vm.$emit('slash-command', 'clear', '', { files: [], images: [] })
-    await flushPromises()
-
-    // 用户命令气泡与 assistant 回复都写进 Router 会话
-    expect(probe.addMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'user', content: '/clear' }),
-      'router-1',
-    )
-    expect(probe.abortRouter).toHaveBeenCalledWith('D:/repo')
-    expect(probe.addMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'assistant', content: 'chatPanel.commandCleared' }),
-      'router-1',
-    )
-
-    // rewind 依赖主聊天本地 UI：给出宿主提示而不是静默
-    probe.addMessage.mockClear()
-    await wrapper.findComponent(ChatInput).vm.$emit('slash-command', 'rewind', '', { files: [], images: [] })
-    await flushPromises()
-    expect(probe.addMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'assistant', content: 'superAgent.commandNotAvailableHere' }),
-      'router-1',
-    )
-    wrapper.unmount()
-  })
-
-  it('sdk 命令仍走 Router 通路（能力不裁剪，但不换掉这条会话的配置）', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-    probe.sendRouterMessage.mockClear()
-
-    await wrapper.findComponent(ChatInput).vm.$emit('slash-command', 'compact', '', { files: [], images: [] })
-    await flushPromises()
-
-    expect(probe.sendMessage).not.toHaveBeenCalled()
-    expect(probe.sendRouterMessage).toHaveBeenCalledWith('D:/repo', expect.objectContaining({
-      text: '/compact',
-      displayText: '/compact',
-    }))
-    wrapper.unmount()
-  })
-})
-
-describe('SuperAgentView snapshot/subscription lifecycle', () => {
-  it('慢快照加载期间的状态事件不会丢失，且所有订阅在快照之前就绪', async () => {
-    const board = reactive<SuperAgentTicketBoard>({
-      repoRoot: 'D:/repo', seq: 1,
-      tickets: [{
-        ticketId: 'ticket-live', title: '实时工单', state: 'queued', assignmentId: 'assignment-live',
-        generation: 1, scopePaths: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
-        ended: null, reviewRemindedAt: null, canRetry: false, canStop: true,
-      }],
-    })
-    probe.ticketBoard = board
-    let publish: (() => void) | undefined
-    const offTickets = vi.fn(() => { publish = undefined })
-    probe.watchTickets.mockImplementationOnce(() => {
-      publish = () => { board.tickets[0].state = 'working' }
-      return offTickets
-    })
-    // Attention 快照比 Ticket 快照慢；这段期间主进程开始执行 Worker。
-    probe.loadAttentions.mockImplementationOnce(async () => { publish?.() })
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.get('[data-testid="worker-task-card-state"]').text()).toBe('superAgent.ticket.states.working')
-    for (const watch of [probe.watchHealth, probe.watchQueue, probe.watchTickets, probe.watchAttentions, probe.watchRouterStatus]) {
-      expect(watch).toHaveBeenCalledBefore(probe.loadState)
-    }
-    wrapper.unmount()
-    expect(offTickets).toHaveBeenCalledTimes(1)
-  })
-
-  it('快照仍在加载时卸载会清理全部订阅，返回后不会重新订阅', async () => {
-    const watchers = [probe.watchHealth, probe.watchQueue, probe.watchTickets, probe.watchAttentions, probe.watchRouterStatus]
-    const unsubscribes = watchers.map(watch => {
-      const unsubscribe = vi.fn()
-      watch.mockReturnValueOnce(unsubscribe)
-      return unsubscribe
-    })
-    let resolveSnapshot!: () => void
-    probe.loadAttentions.mockImplementationOnce(() => new Promise<void>(resolve => { resolveSnapshot = resolve }))
-    const wrapper = mountView()
-    await flushPromises()
-    wrapper.unmount()
-    for (const unsubscribe of unsubscribes) expect(unsubscribe).toHaveBeenCalledTimes(1)
-    resolveSnapshot()
-    await flushPromises()
-    for (const watch of watchers) expect(watch).toHaveBeenCalledTimes(1)
-  })
-
-  it('绑定未完成就卸载，不继续加载也不创建泄漏的订阅', async () => {
-    let resolveBind!: () => void
-    probe.switchProject.mockImplementationOnce(() => new Promise<void>(resolve => { resolveBind = resolve }))
-    const wrapper = mountView()
-    wrapper.unmount()
-    resolveBind()
-    await flushPromises()
-
-    expect(probe.loadState).not.toHaveBeenCalled()
-    for (const watch of [probe.watchHealth, probe.watchQueue, probe.watchTickets, probe.watchAttentions, probe.watchRouterStatus]) {
-      expect(watch).not.toHaveBeenCalled()
-    }
-  })
-})
-
-describe('SuperAgentView health entry（T13 #83）', () => {
-  it('bind 后拉取健康报告并订阅 health.changed，卸载时退订', async () => {
-    const unsubscribe = vi.fn()
-    probe.watchHealth.mockReturnValue(unsubscribe)
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(probe.loadHealth).toHaveBeenCalledWith('D:/repo')
-    expect(probe.watchHealth).toHaveBeenCalledTimes(1)
-    wrapper.unmount()
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-  })
-
-  it('无项目根时不做健康 IPC', async () => {
-    setProjectRoot('')
-    probe.routerSessionId = null
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(probe.loadHealth).not.toHaveBeenCalled()
-    expect(probe.watchHealth).not.toHaveBeenCalled()
-    wrapper.unmount()
-  })
-
-  it('系统健康时：入口无徽章、面板默认收起', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="super-agent-health-entry"]').exists()).toBe(true)
-    expect(wrapper.find('.count').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="super-agent-health"]').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it('顶部入口只显示汇总计数徽章', async () => {
-    probe.healthProblemCount = 2
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.find('.count').text()).toBe('2')
-    wrapper.unmount()
-  })
-
-  it('点击入口开关面板：面板可操作（重试/忽略/重新评估上抛到 store）', async () => {
-    probe.healthPanelOpen = true
-    probe.healthProblemCount = 1
-    probe.healthProblems = [
-      {
-        category: 'engine',
-        status: 'error',
-        consecutiveFailures: 3,
-        code: 'slotUnavailable',
-        codeI18nKey: 'superAgent.errors.slotUnavailable',
-        lastFailedAt: '2026-01-01T00:00:00Z',
-        ticketId: null,
-        reflectedOnTicket: false,
-        subjectId: null,
-      },
-    ]
-    const wrapper = mountView()
-    await flushPromises()
-
-    const panel = wrapper.find('[data-testid="super-agent-health"]')
-    expect(panel.exists()).toBe(true)
-    expect(panel.text()).toContain('superAgent.health.categories.engine')
-
-    // T20：面板从只读升级为可操作 —— 重试直接委托 store
-    await panel.find('[data-testid="super-agent-health-retry-engine"]').trigger('click')
-    await flushPromises()
-    expect(probe.retryHealthProblem).toHaveBeenCalledWith('D:/repo', 'engine', null)
-    // 处置回显（成功提示）
-    expect(wrapper.find('[data-testid="super-agent-health-action-hint"]').exists()).toBe(true)
-
-    // 忽略走两步确认后委托 store
-    await panel.find('[data-testid="super-agent-health-dismiss-engine"]').trigger('click')
-    await panel.find('[data-testid="super-agent-health-dismiss-confirm-engine"]').trigger('click')
-    await flushPromises()
-    expect(probe.dismissProblem).toHaveBeenCalledWith('D:/repo', 'engine', null)
-
-    await wrapper.find('[data-testid="super-agent-health-entry"]').trigger('click')
-    expect(probe.toggleHealthPanel).toHaveBeenCalledTimes(1)
-    wrapper.unmount()
-  })
-
-  it('unavailable Eval 主体项的重新评估委托 store 并回显', async () => {
-    probe.healthPanelOpen = true
-    probe.healthProblemCount = 1
-    probe.healthProblems = [
-      {
-        category: 'eval',
-        status: 'error',
-        consecutiveFailures: 1,
-        code: 'evalUnavailable',
-        codeI18nKey: 'superAgent.errors.evalUnavailable',
-        lastFailedAt: '2026-01-01T00:00:00Z',
-        ticketId: null,
-        reflectedOnTicket: false,
-        subjectId: 'eval-1',
-      },
-    ]
-    const wrapper = mountView()
-    await flushPromises()
-
-    const panel = wrapper.find('[data-testid="super-agent-health"]')
-    await panel.find('[data-testid="super-agent-health-reevaluate-eval-eval-1"]').trigger('click')
-    await flushPromises()
-
-    expect(probe.reevaluateEval).toHaveBeenCalledWith('D:/repo', 'eval-1')
-    expect(wrapper.find('[data-testid="super-agent-health-action-hint"]').exists()).toBe(true)
-    wrapper.unmount()
-  })
-})
-
-describe('SuperAgentView dispatch & queue（T05 #75）', () => {
-  it('bind 后拉取队列并订阅 queue-changed，卸载时退订', async () => {
-    const unsubscribe = vi.fn()
-    probe.watchQueue.mockReturnValue(unsubscribe)
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(probe.loadQueue).toHaveBeenCalledWith('D:/repo')
-    expect(probe.watchQueue).toHaveBeenCalledTimes(1)
-    wrapper.unmount()
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-  })
-
-  it('派工入口已下线：不再有「新建工单」chip 与表单', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="super-agent-dispatch-open"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="super-agent-dispatch-form"]').exists()).toBe(false)
-    expect(probe.dispatch).not.toHaveBeenCalled()
-    wrapper.unmount()
-  })
-
-  it('队列非空时展示执行中/排队条目与脏区提示', async () => {
-    probe.queue = {
-      repoRoot: 'D:/repo',
-      maxWorkers: 1,
-      running: [
-        { ticketId: 'ticket-1', title: '工单一', position: 0, state: 'running', dirty: true },
-      ],
-      queued: [
-        { ticketId: 'ticket-2', title: '工单二', position: 1, state: 'queued', dirty: null },
-      ],
-    }
-    const wrapper = mountView()
-    await flushPromises()
-
-    const queuePanel = wrapper.find('[data-testid="super-agent-queue"]')
-    expect(queuePanel.exists()).toBe(true)
-    expect(queuePanel.text()).toContain('工单一')
-    expect(queuePanel.text()).toContain('superAgent.queue.running')
-    expect(queuePanel.text()).toContain('工单二')
-    expect(queuePanel.text()).toContain('superAgent.queue.position')
-    expect(queuePanel.text()).toContain('superAgent.queue.dirtyHint')
-    wrapper.unmount()
-  })
-
-  it('点击队列条目在右侧打开 Worker 只读标签（T07 #77）：多标签并存、只读不接管', async () => {
-    probe.queue = {
-      repoRoot: 'D:/repo',
-      maxWorkers: 1,
-      running: [
-        { ticketId: 'ticket-1', title: '工单一', position: 0, state: 'running', dirty: true },
-      ],
-      queued: [
-        { ticketId: 'ticket-2', title: '工单二', position: 1, state: 'queued', dirty: null },
-      ],
-    }
-    probe.openWorkerTab.mockClear()
-    const wrapper = mountView()
-    await flushPromises()
-
-    await wrapper.find('[data-testid="super-agent-queue-entry-ticket-1"]').trigger('click')
-    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-1', '工单一')
-
-    // 回车同样可打开（键盘可达）
-    await wrapper.find('[data-testid="super-agent-queue-entry-ticket-2"]').trigger('keydown.enter')
-    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-2', '工单二')
-    wrapper.unmount()
-  })
-
-  it('队列为空时不渲染队列面板', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="super-agent-queue"]').exists()).toBe(false)
-    wrapper.unmount()
-  })
-})
-
-describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
-  it('真实 MessageList 中的 Worker 卡片可见且点击打开右侧执行过程', async () => {
-    probe.ticketBoard = reviewBoard()
-    probe.getDisplayMessages.mockReturnValue([
-      { id: 'a1', role: 'assistant', content: '已派 Worker 执行', timestamp: Date.parse('2025-12-31T23:59:59Z') },
-    ])
-    const wrapper = mountView()
-    await flushPromises()
-
-    const list = wrapper.getComponent(MessageList)
-    expect(list.get('.assistant-reply').text()).toBe('已派 Worker 执行')
-    const cards = list.findAll('[data-testid="worker-task-card"]')
-    expect(cards).toHaveLength(2)
-    await cards[1].trigger('click')
-    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-2', '修复注册')
-    wrapper.unmount()
-  })
-
-  it('卡片归属最近的之前 assistant group，更新及新闲聊不移位、不重复；早于对话的旧单钳到最早回复，历史全缺时才 append', async () => {
-    const history = reactive<Message[]>([
-      { id: 'u1', role: 'user', content: '修复登录', timestamp: Date.parse('2026-01-01T00:00:00Z') },
-      { id: 'a1', role: 'assistant', content: '正在派工', timestamp: Date.parse('2026-01-01T00:00:01Z') },
-      { id: 'a1-more', role: 'assistant', content: '已派 Worker', timestamp: Date.parse('2026-01-01T00:00:03Z') },
-      { id: 'u2', role: 'user', content: '修复注册', timestamp: Date.parse('2026-01-01T00:00:10Z') },
-      { id: 'a2', role: 'assistant', content: '已派另一 Worker', timestamp: Date.parse('2026-01-01T00:00:11Z') },
-    ])
-    const board = reactive(reviewBoard())
-    board.tickets[0].createdAt = '2026-01-01T00:00:02Z'
-    // 时间相同也算之前/当前回复；第一张卡在组内后续 assistant 消息之前创建。
-    board.tickets[1].createdAt = '2026-01-01T00:00:11Z'
-    board.tickets.push({ ...board.tickets[0], ticketId: 'historic', title: '历史工单', createdAt: '2025-12-31T00:00:00Z' })
-    probe.ticketBoard = board
-    probe.getDisplayMessages.mockReturnValue(history)
-    const wrapper = mountView()
-    await flushPromises()
-
-    const firstReply = wrapper.get('[data-minimap-id="a1"]')
-    const firstCard = firstReply.get('[data-testid="worker-task-card"]')
-    expect(firstCard.text()).toContain('修复登录')
-    // 两条：属于这一轮的「修复登录」，加上钳到最早回复的那张历史工单
-    expect(firstReply.findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
-    expect(wrapper.get('[data-minimap-id="a2"]').get('[data-testid="worker-task-card"]').text()).toContain('修复注册')
-    expect(firstReply.element.lastElementChild?.textContent).toContain('修复登录')
-
-    board.tickets[0] = { ...board.tickets[0], state: 'completed', canStop: false, updatedAt: '2026-01-01T00:00:30Z' }
-    history.push(
-      { id: 'u3', role: 'user', content: '你好', timestamp: Date.parse('2026-01-01T00:01:00Z') },
-      { id: 'a3', role: 'assistant', content: '你好！', timestamp: Date.parse('2026-01-01T00:01:01Z') },
-    )
-    await nextTick()
-
-    expect(firstReply.get('[data-testid="worker-task-card"]').element).toBe(firstCard.element)
-    expect(firstCard.attributes('data-state')).toBe('completed')
-    expect(wrapper.get('[data-minimap-id="a3"]').find('[data-testid="worker-task-card"]').exists()).toBe(false)
-    const cards = wrapper.findAll('[data-testid="worker-task-card"]')
-    expect(cards).toHaveLength(3)
-    // 早于整段对话的旧单不再钉在末尾：那等于宣称最新这条回复刚产出了一张旧单。
-    // 它跟着 createdAt 落到最早的助手回复里，卡片顺序与时间顺序一致。
-    const historic = cards.find(card => card.text().includes('历史工单'))
-    expect(historic?.element.closest('.minimap-anchor')?.getAttribute('data-minimap-id')).toBe('a1')
-
-    // 清空/缺失全部会话历史，工单仍可通过 fallback 打开。
-    history.splice(0)
-    await nextTick()
-    expect(wrapper.findAll('[data-testid="worker-task-card"]')).toHaveLength(3)
-    await wrapper.findAll('[data-testid="worker-task-card"]')[2].trigger('click')
-    expect(probe.openWorkerTab).toHaveBeenCalledWith('historic', '历史工单')
-    wrapper.unmount()
-  })
-
-  it('历史消息 id 重复时，同一张卡也只能属于一个 assistant group', async () => {
-    probe.ticketBoard = reviewBoard()
-    probe.getDisplayMessages.mockReturnValue([
-      { id: 'reused', role: 'assistant', content: '派工回复', timestamp: Date.parse('2025-12-31T23:59:59Z') },
-      { id: 'u2', role: 'user', content: '闲聊', timestamp: Date.parse('2026-01-01T00:01:00Z') },
-      { id: 'reused', role: 'assistant', content: '闲聊回复', timestamp: Date.parse('2026-01-01T00:01:01Z') },
-    ])
-    const wrapper = mountView()
-    await flushPromises()
-    const replies = wrapper.findAll('[data-minimap-id="reused"]')
-    expect(replies[0].findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
-    expect(replies[1].findAll('[data-testid="worker-task-card"]')).toHaveLength(0)
-    expect(wrapper.findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
-    wrapper.unmount()
-  })
-
-  it('待验收超时提醒跟着所属工单出现在时间线里，点击打开只读标签', async () => {
-    probe.ticketBoard = anchoredBoard(reviewBoard())
-    probe.getDisplayMessages.mockReturnValue([
-      { id: 'u1', role: 'user', content: '修复登录', timestamp: Date.parse('2026-01-01T00:00:00Z') },
-      { id: 'a1', role: 'assistant', content: '已派 Worker 修复登录', timestamp: Date.parse('2026-01-01T00:00:01Z') },
-    ])
-    probe.reviewReminders = [{ ticketId: 'ticket-1', title: '修复登录', remindedAt: '2026-01-02T00:00:00.000Z' }]
-    probe.reviewRemindedCount = 1
-    probe.openWorkerTab.mockClear()
-    const wrapper = mountView()
-    await flushPromises()
-
-    // 同一工单复用原气泡（key=ticketId），不弹 modal，也不再挂顶部独立区块
-    const bubbles = wrapper.findAll('[data-testid="super-agent-review-reminder-ticket-1"]')
-    expect(bubbles).toHaveLength(1)
-    expect(wrapper.find('[data-testid="super-agent-review-reminders"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="super-agent-review-reminded-count"]').exists()).toBe(false)
-
-    // 气泡在 ticket-1 的工单位内，而该单位在消息时间线里
-    const entry = wrapper.get('[data-testid="super-agent-ticket-entry-ticket-1"]')
-    expect(entry.find('[data-testid="super-agent-review-reminder-ticket-1"]').exists()).toBe(true)
-    expect(entry.element.closest('.minimap-anchor')).not.toBeNull()
-    expect(entry.find('[data-testid="worker-task-card"]').text()).toContain('修复登录')
-
-    await bubbles[0].trigger('click')
-    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-1', '修复登录')
-    wrapper.unmount()
-  })
-
-  it('Worker 提问气泡同样随工单卡片进时间线；卡片不在看板时兜底落末尾', async () => {
-    probe.ticketBoard = anchoredBoard(reviewBoard())
-    probe.getDisplayMessages.mockReturnValue([
-      { id: 'u1', role: 'user', content: '修复注册', timestamp: Date.parse('2026-01-01T00:00:00Z') },
-      { id: 'a1', role: 'assistant', content: '已派 Worker 修复注册', timestamp: Date.parse('2026-01-01T00:00:01Z') },
-    ])
-    probe.attentionBubbles = [
-      {
-        attentionId: 'ask-2',
-        ticketId: 'ticket-2',
-        ticketTitle: '修复注册',
-        assignmentId: 'assignment-2',
-        kind: 'question',
-        question: '注册页要一起改吗？',
-        askedAt: '2026-01-02T00:00:00.000Z',
-        status: 'open',
-        answers: [],
-        answeredAt: null,
-      },
-      {
-        attentionId: 'ask-9',
-        ticketId: 'ticket-9',
-        ticketTitle: '已清理的工单',
-        assignmentId: 'assignment-9',
-        kind: 'question',
-        question: '这条问题不能丢',
-        askedAt: '2026-01-02T00:00:00.000Z',
-        status: 'open',
-        answers: [],
-        answeredAt: null,
-      },
-    ]
-    probe.attentionCount = 2
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="super-agent-attentions"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="super-agent-attention-count"]').exists()).toBe(false)
-
-    const entry = wrapper.get('[data-testid="super-agent-ticket-entry-ticket-2"]')
-    expect(entry.get('[data-testid="attention-bubble-question"]').text()).toBe('注册页要一起改吗？')
-    expect(entry.element.closest('.minimap-anchor')).not.toBeNull()
-
-    // ticket-9 已无卡片：问题仍在末尾出现，不静默消失
-    const orphans = wrapper.findAll('[data-testid="attention-bubble-question"]')
-    expect(orphans).toHaveLength(2)
-    expect(orphans[1].text()).toBe('这条问题不能丢')
-    expect(orphans[1].element.closest('.minimap-anchor')).toBeNull()
-    wrapper.unmount()
-  })
-
-  it('delegates card outlets to the store: accept/stop/retry with repoRoot and ticketId', async () => {
-    probe.ticketBoard = reviewBoard()
-    const wrapper = mountView()
-    await flushPromises()
-
-    const card = wrapper.getComponent(WorkerTaskCard)
-    card.vm.$emit('accept', 'ticket-1')
-    await flushPromises()
-    expect(probe.acceptTicket).toHaveBeenCalledWith('D:/repo', 'ticket-1')
-
-    card.vm.$emit('stop', 'ticket-1')
-    await flushPromises()
-    expect(probe.stopTicket).toHaveBeenCalledWith('D:/repo', 'ticket-1')
-
-    card.vm.$emit('retry', 'ticket-2')
-    await flushPromises()
-    expect(probe.retryTicket).toHaveBeenCalledWith('D:/repo', 'ticket-2')
-    wrapper.unmount()
-  })
-
-  it('点击卡片打开该工单的右侧面板 —— 队列里已经没有的失败工单也要有入口', async () => {
-    probe.ticketBoard = reviewBoard()
-    probe.openWorkerTab.mockClear()
-    const wrapper = mountView()
-    await flushPromises()
-
-    const cards = wrapper.findAllComponents(WorkerTaskCard)
-    cards[1].vm.$emit('open', 'ticket-2')
-    await flushPromises()
-
-    // ticket-2 是 failed：scheduler.queue() 早就不含它，卡片是唯一在场的入口
-    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-2', '修复注册')
-    wrapper.unmount()
-  })
-
-  it('delegates the follow-up message with a fresh requestId idempotency key', async () => {
-    probe.ticketBoard = reviewBoard()
-    const wrapper = mountView()
-    await flushPromises()
-
-    wrapper.getComponent(WorkerTaskCard).vm.$emit('message', { ticketId: 'ticket-1', text: '再改一版' })
-    await flushPromises()
-
-    expect(probe.messageTicket).toHaveBeenCalledTimes(1)
-    const [repoRoot, command] = probe.messageTicket.mock.calls[0]
-    expect(repoRoot).toBe('D:/repo')
-    expect(command.ticketId).toBe('ticket-1')
-    expect(command.text).toBe('再改一版')
-    expect(command.requestId).not.toBe('')
-    wrapper.unmount()
-  })
-
-  it('shows a non-modal hint when an outlet action fails', async () => {
-    probe.ticketBoard = reviewBoard()
-    probe.acceptTicket.mockRejectedValue(new Error('notReady'))
-    const wrapper = mountView()
-    await flushPromises()
-
-    wrapper.getComponent(WorkerTaskCard).vm.$emit('accept', 'ticket-1')
-    await flushPromises()
-
-    const hint = wrapper.find('[data-testid="super-agent-ticket-action-hint"]')
-    expect(hint.exists()).toBe(true)
-    expect(hint.text()).toContain('superAgent.ticket.actionFailedHint')
-    wrapper.unmount()
-  })
-
-  it('没有超时工单时工单位里只有卡片，不出现提醒气泡', async () => {
-    probe.ticketBoard = anchoredBoard(reviewBoard())
-    probe.getDisplayMessages.mockReturnValue([
-      { id: 'a1', role: 'assistant', content: '已派工', timestamp: Date.parse('2026-01-01T00:00:01Z') },
-    ])
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.findAll('[data-testid="super-agent-ticket-entry-ticket-1"]')).toHaveLength(1)
-    expect(wrapper.findAll('[data-testid^="super-agent-review-reminder-"]')).toHaveLength(0)
-    wrapper.unmount()
-  })
-})
+const messages = computed(() =>
+  routerSessionId.value ? sessionStore.getDisplayMessages(routerSessionId.value) : []
+)
 
 /**
- * 项目作用域（跟随全局项目指针）。
+ * Router turn 进行中：真源是主进程 RouterRunner 的 router-status（会话归它），
+ * 不是本地 turn —— 渲染端只是观察者，关掉窗口也不影响 Router 收尾。
+ */
+const isLoading = computed(() => superAgentStore.routerRunning)
+
+/**
+ * 输入框 @ 上下文读的工作目录 = 本页绑定的项目根（主进程那份快照才是引擎真正的 cwd）。
+ * 不读实时项目指针：切项目的瞬间若这里先动，@ 文件列表会指向还没绑定的目录。
+ */
+const workingDirectory = computed(() => superAgentStore.boundRepoRoot ?? undefined)
+
+// ── 健康上报（T13 #83）：拉取 + 订阅 health.changed，渲染端只读 ──
+let stopWatchingHealth: (() => void) | null = null
+let stopWatchingQueue: (() => void) | null = null
+// ── 工单卡片（T06 #76）：全量拉取 + ticket-updated/progress 订阅 ──
+let stopWatchingTickets: (() => void) | null = null
+// ── Attention 气泡（T08 #78）：全量拉取 + asked/answered/withdrawn 订阅 ──
+let stopWatchingAttentions: (() => void) | null = null
+// ── Router 轮次状态（T21）：会话归主进程，typing/停止按钮跟着 router-status 走 ──
+let stopWatchingRouterStatus: (() => void) | null = null
+let unmounted = false
+let subscriptionsStarted = false
+
+/**
+ * 跟随全局项目指针换作用域。
  *
- * 本组件是"粘住的 v-if + v-show"挂载的，切项目不会重挂 —— 早先因此永远停在
- * 第一次打开时的项目，而且动作发的是实时指针，出现"看 A 的卡片、命令打到 B"。
+ * 本组件是"粘住的 v-if + v-show"挂载的（ChatPanel 里 superAgentMounted 一旦为真
+ * 就不再回 false），切项目不会重挂，所以项目变化只能靠 watch 显式重绑。
+ *
+ * 次序有讲究：switchProject 先确立 store 的项目过滤域，订阅随即建好，再拉五面镜像 ——
+ * 订阅若等慢快照全部返回，期间到达的工单/队列事件就丢了。订阅只建一次：
+ * 各 watch* 都按 snapshot.repoRoot 丢弃不属于当前项目的事件，换根后自动只认新项目。
  */
-describe('SuperAgentView 项目切换', () => {
-  it('全局项目指针变了就重绑，并按新根重拉镜像与重寻址订阅', async () => {
-    const wrapper = mountView()
-    await flushPromises()
+async function followProjectRoot(repoRoot: string): Promise<void> {
+  await superAgentStore.switchProject(repoRoot)
+  if (!repoRoot) return
+  if (unmounted) return
+  if (!subscriptionsStarted) {
+    subscriptionsStarted = true
+    stopWatchingHealth = superAgentStore.watchHealth()
+    stopWatchingQueue = superAgentStore.watchQueue()
+    stopWatchingTickets = superAgentStore.watchTickets()
+    stopWatchingAttentions = superAgentStore.watchAttentions()
+    stopWatchingRouterStatus = superAgentStore.watchRouterStatus()
+  }
+  await Promise.all([
+    superAgentStore.loadState(repoRoot),
+    superAgentStore.loadHealth(repoRoot),
+    superAgentStore.loadQueue(repoRoot),
+    superAgentStore.loadTickets(repoRoot),
+    superAgentStore.loadAttentions(repoRoot),
+  ])
+}
 
-    setProjectRoot('D:/other')
-    await nextTick()
-    await flushPromises()
+onMounted(() => followProjectRoot(appStore.projectRoot))
 
-    expect(probe.switchProject).toHaveBeenLastCalledWith('D:/other')
-    expect(probe.loadState).toHaveBeenLastCalledWith('D:/other')
-    expect(probe.loadTickets).toHaveBeenLastCalledWith('D:/other')
-    // 订阅只建一次：换根靠 store 侧按 repoRoot 过滤，不重复订阅
-    expect(probe.watchTickets).toHaveBeenCalledTimes(1)
-    wrapper.unmount()
-  })
+watch(() => appStore.projectRoot, root => { void followProjectRoot(root) })
 
-  it('动作只发绑定根，实时项目指针先漂走也打不到另一个项目', async () => {
-    probe.ticketBoard = reviewBoard()
-    const wrapper = mountView()
-    await flushPromises()
-
-    // 屏幕上仍是 D:/repo 的卡片（还没重绑完），全局指针已经切走
-    setProjectRoot('D:/other')
-    const card = wrapper.getComponent(WorkerTaskCard)
-    card.vm.$emit('accept', 'ticket-1')
-    await flushPromises()
-
-    expect(probe.acceptTicket).toHaveBeenCalledWith('D:/repo', 'ticket-1')
-    wrapper.unmount()
-  })
-
-  it('未绑定项目时动作直接停手，不拿空根去敲主进程', async () => {
-    probe.ticketBoard = reviewBoard()
-    probe.boundRepoRoot = null
-    const wrapper = mountView()
-    await flushPromises()
-
-    const card = wrapper.getComponent(WorkerTaskCard)
-    card.vm.$emit('accept', 'ticket-1')
-    await flushPromises()
-
-    expect(probe.acceptTicket).not.toHaveBeenCalled()
-    wrapper.unmount()
-  })
+onUnmounted(() => {
+  unmounted = true
+  stopWatchingHealth?.()
+  stopWatchingHealth = null
+  stopWatchingQueue?.()
+  stopWatchingQueue = null
+  stopWatchingTickets?.()
+  stopWatchingTickets = null
+  stopWatchingAttentions?.()
+  stopWatchingAttentions = null
+  stopWatchingRouterStatus?.()
+  stopWatchingRouterStatus = null
 })
+
+/** 看板卡片（T06）：排序沿用主进程投影（createdAt 升序）。 */
+const ticketCards = computed<SuperAgentTicketCard[]>(() =>
+  superAgentStore.ticketBoard?.tickets ?? [],
+)
+
+// 按创建时间锚定回复，后续报告和闲聊不能把旧工单拖到末尾。
+const ticketAnchors = computed(() => {
+  const assistants = messages.value.filter(message => message.role === 'assistant' && Number.isFinite(message.timestamp))
+  // 使用消息引用而非 id：历史恢复可能带有重复 id，不能让一张卡出现在两组。
+  const anchors = new Map<string, Message>()
+  for (const card of ticketCards.value) {
+    const createdAt = Date.parse(card.createdAt)
+    let closest: Message | undefined
+    for (const message of assistants) {
+      if (message.timestamp <= createdAt && (!closest || message.timestamp >= closest.timestamp)) {
+        closest = message
+      }
+    }
+    // 早于整段对话的工单（由主聊天/IM 派发，Router 转录里没有它那一轮）钳到最早的
+    // 助手回复：卡片顺序跟着 createdAt 走才读得通。挂到末尾等于宣称最新这条回复
+    // 刚产出了一张旧单 —— 上一轮那张「已停止」的卡片就是这样把人骗到的。
+    const anchor = closest ?? assistants[0]
+    if (anchor) anchors.set(card.ticketId, toRaw(anchor))
+  }
+  return anchors
+})
+
+function cardsForGroup(groupMessages: Message[]): SuperAgentTicketCard[] {
+  const members = new Set(groupMessages.map(message => toRaw(message)))
+  return ticketCards.value.filter(card => {
+    const anchor = ticketAnchors.value.get(card.ticketId)
+    return anchor !== undefined && members.has(anchor)
+  })
+}
+
+const unanchoredCards = computed(() =>
+  ticketCards.value.filter(card => !ticketAnchors.value.has(card.ticketId)),
+)
+
+// ── 工单提醒随卡片进时间线（T08 #78 / T10 #80）：都按 ticketId 归到所属工单位，
+//    顶部不再挂一份「提问 + 超时提醒」列表；计数仍由侧边栏入口徽章承担。 ──
+const attentionsByTicket = computed(() => {
+  const grouped = new Map<string, SuperAgentAttentionView[]>()
+  for (const view of superAgentStore.attentionBubbles) {
+    const list = grouped.get(view.ticketId)
+    if (list) list.push(view)
+    else grouped.set(view.ticketId, [view])
+  }
+  return grouped
+})
+
+const reviewReminderByTicket = computed(() => {
+  const grouped = new Map<string, SuperAgentReviewReminderItem>()
+  for (const item of superAgentStore.reviewReminders) grouped.set(item.ticketId, item)
+  return grouped
+})
+
+/** 看板里已经没有这张卡（清理/断档）时，提问兜底落在末尾，不能静默消失。 */
+const orphanAttentions = computed(() => {
+  const known = new Set(ticketCards.value.map(card => card.ticketId))
+  return superAgentStore.attentionBubbles.filter(view => !known.has(view.ticketId))
+})
+
+// ── T10 #80：review 出口（验收/停止/继续追问/重试）—— 委托 store 落库，
+//    失败给出非模态提示；错误经 IPC 序列化，展示原始信息便于定位。 ──
+const ticketActionHint = ref('')
+
+async function runTicketAction(action: () => Promise<unknown>): Promise<void> {
+  ticketActionHint.value = ''
+  try {
+    await action()
+  } catch (error) {
+    console.error('[SuperAgentView] ticket action failed:', error)
+    ticketActionHint.value = t('superAgent.ticket.actionFailedHint', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function handleTicketAccept(ticketId: string): void {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  void runTicketAction(() => superAgentStore.acceptTicket(repoRoot, ticketId))
+}
+
+/**
+ * 点击卡片 → 打开 worker:<ticketId> 右侧标签（§10.3）。
+ * 执行队列只覆盖 running/queued，失败与已完成的工单同样要能查执行历史 ——
+ * 卡片是唯一始终在场的入口，不能只在排队时可点。
+ */
+function handleTicketOpen(ticketId: string): void {
+  const card = ticketCards.value.find((item) => item.ticketId === ticketId)
+  if (!card) return
+  appStore.openWorkerTab(card.ticketId, card.title)
+}
+
+function handleTicketStop(ticketId: string): void {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  void runTicketAction(() => superAgentStore.stopTicket(repoRoot, ticketId))
+}
+
+function handleTicketRetry(ticketId: string): void {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  void runTicketAction(() => superAgentStore.retryTicket(repoRoot, ticketId))
+}
+
+function handleTicketMessage(payload: { ticketId: string; text: string }): void {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  void runTicketAction(() =>
+    superAgentStore.messageTicket(repoRoot, {
+      requestId: createUuid(),
+      ticketId: payload.ticketId,
+      text: payload.text,
+    }),
+  )
+}
+
+// ── T20 #90：健康处置出口（重试/忽略/重新评估）—— 委托 store 落库与
+//    领域处置，成功/失败都以非模态提示回显（状态回显）。 ──
+const healthActionHint = ref('')
+const healthActionFailed = ref(false)
+
+async function runHealthAction(action: () => Promise<unknown>, successKey: string): Promise<void> {
+  healthActionHint.value = ''
+  healthActionFailed.value = false
+  try {
+    await action()
+    healthActionHint.value = t(successKey)
+  } catch (error) {
+    console.error('[SuperAgentView] health action failed:', error)
+    healthActionFailed.value = true
+    healthActionHint.value = t('superAgent.health.actionFailedHint', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function handleHealthRetry(category: string, subjectId: string | null): void {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  void runHealthAction(
+    () => superAgentStore.retryHealthProblem(repoRoot, category, subjectId),
+    'superAgent.health.retryDone',
+  )
+}
+
+function handleHealthDismiss(category: string, subjectId: string | null): void {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  void runHealthAction(
+    () => superAgentStore.dismissProblem(repoRoot, category, subjectId),
+    'superAgent.health.dismissDone',
+  )
+}
+
+function handleHealthReevaluate(evalId: string): void {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  void runHealthAction(
+    () => superAgentStore.reevaluateEval(repoRoot, evalId),
+    'superAgent.health.reevaluateDone',
+  )
+}
+
+// ── 执行队列（T05）：running + 排队位，广播驱动；派工本身只由对话驱动 ──
+const queueEntries = computed<SuperAgentQueueEntry[]>(() => [
+  ...(superAgentStore.queue?.running ?? []),
+  ...(superAgentStore.queue?.queued ?? []),
+])
+const queueVisible = computed(() => queueEntries.value.length > 0)
+
+// ── 模型展示与切换（与主聊天同一口径）───────────────────────────
+// Router 会话归主进程，渲染端够不到 sessionStore.switchModel —— 选择只能随
+// 每条消息下发，由 RouterRunner 落到引擎上；不下发就等于下拉框是装饰品。
+const currentModel = ref('')
+
+onMounted(() => {
+  currentModel.value = settingsStore.lastSelectedModel || settingsStore.config.model || ''
+})
+
+watch(() => settingsStore.config.model, (newModel) => {
+  if (newModel && newModel !== currentModel.value) {
+    currentModel.value = newModel
+  }
+})
+
+function handleModelChange(model: string) {
+  currentModel.value = model
+  settingsStore.lastSelectedModel = model
+  settingsStore.saveSettings()
+}
+
+async function handleEffortChange(level: EffortLevel) {
+  settingsStore.effortLevel = level
+  settingsStore.saveSettings()
+}
+
+async function handleAgentChange(agent: string) {
+  if (routerSessionId.value) {
+    await sessionStore.switchAgent(agent, routerSessionId.value)
+  }
+}
+
+function handleOpenSkills() {
+  window.dispatchEvent(new CustomEvent('open-skills-manager'))
+}
+
+// ── 发送 / 中止：交给主进程 RouterRunner（T21）──────────────────
+// 正文组装仍与主聊天共用同一份（marker 与附件格式逐字一致），但投递通路不同：
+// Router 会话归主进程且工具面为空，走 turnStore 就等于把它降格成一条
+// 带全套写工具的普通聊天 —— 那正是"让它派活它自己干了"的根因。
+async function handleSend(content: string, attachments: AllAttachments, options?: SendOptions) {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  const hasContent = content.trim().length > 0 || attachments.files.length > 0 || attachments.images.length > 0
+  if (!hasContent) return
+
+  const { messageContent, userContent } = buildOutgoingMessage(content, attachments, options)
+  try {
+    await superAgentStore.sendRouterMessage(repoRoot, {
+      requestId: createUuid(),
+      text: messageContent,
+      displayText: userContent,
+      ...(currentModel.value ? { model: currentModel.value } : {}),
+      ...(attachments.images.length > 0 ? { images: attachments.images } : {}),
+    })
+  } catch (error) {
+    console.error('[SuperAgentView] routerMessage failed:', error)
+  }
+}
+
+async function handleStop() {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  try {
+    // 只中止 Router 这一轮；Worker 会话由各自的 Assignment 管理，不受影响
+    await superAgentStore.abortRouter(repoRoot)
+  } catch (error) {
+    console.error('[SuperAgentView] stop failed:', error)
+  }
+}
+
+// ── 斜杠命令：全局命令与主聊天同源执行，UI 绑定命令给出宿主提示 ──
+async function handleSlashCommand(
+  command: string,
+  args: string,
+  _attachments: AllAttachments,
+  displayLabel?: string,
+) {
+  const sid = routerSessionId.value
+  if (!sid) return
+
+  const commandText = displayLabel || `/${command}${args ? ' ' + args : ''}`
+  await sessionStore.addMessage({
+    role: 'user',
+    content: commandText,
+  }, sid)
+
+  const result = await executeRouterCommand(command, args, sid)
+  if (result) {
+    await sessionStore.addMessage({
+      role: 'assistant',
+      content: result,
+    }, sid)
+  }
+}
+
+async function executeRouterCommand(command: string, args: string, sid: string): Promise<string> {
+  switch (command.toLowerCase()) {
+    case 'help':
+      return generateHelpMessage(t)
+
+    case 'clear':
+    case 'reset':
+    case 'new': {
+      const repoRoot = superAgentStore.boundRepoRoot
+      if (!repoRoot) return ''
+      // 中止也走 Router 通路：turnStore.abort 按普通聊天会话寻址，会漏掉主进程那一轮
+      await superAgentStore.abortRouter(repoRoot)
+      const session = sessionStore.getSession(sid)
+      if (session) session.messages = []
+      return t('chatPanel.commandCleared')
+    }
+
+    case 'cost':
+      return generateCostMessage(sessionStore.getSessionMessages(sid), t)
+
+    case 'terminal':
+      appStore.openTerminalTab(args || undefined)
+      return t('chatPanel.commandTerminalOpened')
+
+    case 'settings':
+      window.dispatchEvent(new CustomEvent('open-settings'))
+      return t('chatPanel.commandSettingsOpened')
+
+    case 'skills':
+      window.dispatchEvent(new CustomEvent('open-skills-manager'))
+      return t('chatPanel.commandSkillsOpened')
+
+    case 'mcp':
+      window.dispatchEvent(new CustomEvent('open-mcp-manager'))
+      return t('chatPanel.commandMcpOpened')
+
+    case 'browser-use':
+      window.dispatchEvent(new CustomEvent('open-settings', { detail: { tab: 'browser-use' } }))
+      return t('chatPanel.commandBrowserUseOpened')
+
+    case 'rewind':
+    case 'checkpoint':
+    case 'context':
+    case 'diff':
+      return t('superAgent.commandNotAvailableHere')
+
+    case 'theme': {
+      const currentTheme = settingsStore.appearance.theme
+      const isDark = currentTheme === 'dark' || currentTheme === 'anthropic-dark'
+      settingsStore.updateAppearance({ theme: isDark ? 'light' : 'dark' })
+      return isDark ? t('chatPanel.commandThemeLight') : t('chatPanel.commandThemeDark')
+    }
+
+    case 'vim':
+      return t('chatPanel.commandVimWip')
+
+    case 'keybindings':
+      return generateKeybindingsMessage(t)
+
+    default: {
+      const cmdDef = findCommand(command)
+      if (cmdDef && (cmdDef.kind === 'sdk_command' || cmdDef.kind === 'codepilot_command')) {
+        const repoRoot = superAgentStore.boundRepoRoot
+        if (!repoRoot) return ''
+        const fullCommand = args ? `/${command} ${args}` : `/${command}`
+        // 仍走 Router 通路：turnStore.sendMessage 会按普通聊天的配置去 init 引擎，
+        // 把这条常驻会话（空工具面 + 角色说明）就地换掉。
+        await superAgentStore.sendRouterMessage(repoRoot, {
+          requestId: createUuid(),
+          text: fullCommand,
+          displayText: fullCommand,
+        })
+        return ''
+      }
+      return t('chatPanel.commandUnknown', { command })
+    }
+  }
+}
+
+// ── 工具问答 / 授权：与主聊天同源，按 routerSessionId 寻址 ──
+async function handleToolSubmit(messageId: string, toolId: string, updatedInput: Record<string, unknown>) {
+  const sid = routerSessionId.value
+  if (!sid) return
+  if (turnStore.hasPendingPermissionForToolUse(toolId)) {
+    await turnStore.allowPermission(messageId, toolId, updatedInput)
+    return
+  }
+  const answers = (updatedInput?.answers as Record<string, string> | undefined) ?? {}
+  await turnStore.submitToolAnswer(sid, messageId, toolId, answers)
+}
+
+async function handleToolSkip(messageId: string, toolId: string) {
+  const sid = routerSessionId.value
+  if (!sid) return
+  if (turnStore.hasPendingPermissionForToolUse(toolId)) {
+    await turnStore.denyPermission(messageId, toolId, 'User skipped')
+    return
+  }
+  await turnStore.skipToolAnswer(sid, messageId, toolId)
+}
+</script>
+
+<style scoped lang="scss">
+.super-agent-view {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+// ── 顶部操作区（T13 健康入口 + T05 新建工单入口 + T08 待处理计数）──
+.health-entry {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 12px 0;
+}
+
+.entry-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.health-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  &.open {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+}
+
+.health-chip .count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: var(--bg-elevated);
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+// ── 执行队列（T05）：串行调度现状（执行中/排队位置/脏区提示）──
+.dispatch-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-elevated);
+  font-size: 12px;
+}
+
+.queue-heading {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.queue-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  /* 点击打开 Worker 只读标签（T07 #77）：可点击态 */
+  cursor: pointer;
+  border-radius: 6px;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--surface-hover);
+  }
+}
+
+.queue-state {
+  color: var(--text-secondary);
+}
+
+.queue-entry[data-state='running'] .queue-state {
+  color: var(--accent-primary);
+}
+
+.queue-dirty {
+  color: var(--text-secondary);
+}
+
+.super-agent-health {
+  margin: 6px 12px 0;
+}
+
+// ── 工单单位（卡片 + 提问 + 超时提醒）：挂在所属助手回复下方，缺历史的在末尾兜底，随时间线滚动 ──
+.ticket-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+}
+
+// T10 #80：出口动作失败的非模态提示（同在时间线末尾）
+.ticket-action-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--status-error, #d4564d);
+}
+
+// ── T20 #90：健康处置回显 —— 成功为中性提示，失败为错误色 ──
+.health-action-hint {
+  margin: 4px 12px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+
+  &.failed {
+    color: var(--status-error, #d4564d);
+  }
+}
+
+.super-agent-empty {
+  margin: auto;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 32px 24px;
+}
+
+.empty-icon {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  color: var(--accent-primary);
+  background: var(--surface-glass);
+  border: 1px solid var(--border-subtle);
+}
+
+h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.super-agent-messages {
+  // MessageList 内部靠 flex:1 + min-height:0 建立滚动高度链，父级必须是 flex 容器
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.super-agent-composer {
+  flex-shrink: 0;
+
+  // 宿主裁剪：项目/分支切换工具条属于主聊天（Super Agent 绑定固定的 repoRoot）
+  :deep(.context-toolbar-row) {
+    display: none;
+  }
+}
+</style>
