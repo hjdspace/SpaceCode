@@ -59,18 +59,6 @@
         @mouseleave="onModelSubmenuLeave"
         v-click-outside="closeModelSubmenu"
       >
-        <div class="dropdown-header">
-          <span>{{ t('auth.model') }}</span>
-          <button
-            v-if="canRefreshModels"
-            class="refresh-btn"
-            @click="refreshModels"
-            :disabled="isLoadingModels"
-            :title="t('chatInput.refreshModels')"
-          >
-            <RefreshCw :size="12" :class="{ spin: isLoadingModels }" />
-          </button>
-        </div>
         <div class="dropdown-list" ref="modelListRef">
           <div v-if="!hasConfiguredModels && availableModels.length === 0" class="dropdown-empty dropdown-config-prompt">
             <Settings :size="16" />
@@ -118,7 +106,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted } from 'vue'
 import {
-  AlertCircle, Check, ChevronDown, ChevronRight, Loader2, RefreshCw,
+  AlertCircle, Check, ChevronDown, ChevronRight, Loader2,
   Settings,
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -280,41 +268,6 @@ onUnmounted(() => document.removeEventListener('keydown', handleModelKeydown))
 .dropdown-item-trigger {
   &.submenu-open {
     background: var(--surface-hover);
-  }
-}
-
-.dropdown-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px 8px;
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--surface-border);
-}
-
-.refresh-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  background: transparent;
-  transition: all var(--transition-fast);
-
-  &:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 }
 
