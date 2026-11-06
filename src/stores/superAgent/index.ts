@@ -154,32 +154,101 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   )
 
   function ensureRouterSession(sessionId: string, repoRoot: string): void {
-    const chat = useChatSessionStore()
-    const existing = chat.sessions.find(item => item.id === sessionId)
-    if (existing) return
-    chat.createSession(i18n.global.t('superAgent.title'), repoRoot, sessionId, {
-      sessionType: 'superAgent',
+    // ensureSession 两条路都管：没有行就按归属建，有行（修复前它以普通聊天建过）
+    // 就补认归属。早退会让那条行永远留在侧边栏里。
+    useChatSessionStore().ensureSession(sessionId, {
+      title: i18n.global.t('superAgent.title'),
+      projectPath: repoRoot,
       activate: false,
+      sessionType: 'superAgent',
     })
   }
 
-  /** Worker 稳定会话登记：不激活、不进侧边栏；已存在则跳过。 */
+  /** Worker 稳定会话登记：不激活、不进侧边栏；已有行则补认归属。 */
   function ensureWorkerSession(mirror: SuperAgentWorkerMirror): void {
-    const chat = useChatSessionStore()
-    const existing = chat.sessions.find(item => item.id === mirror.sessionId)
-    if (existing) return
-    chat.createSession(mirror.title, mirror.repoRoot, mirror.sessionId, {
-      sessionType: 'superAgentWorker',
+    useChatSessionStore().ensureSession(mirror.sessionId, {
+      title: mirror.title,
+      projectPath: mirror.repoRoot,
       activate: false,
+      sessionType: 'superAgentWorker',
     })
   }
+
+  /**
+   * 当前绑定的项目根 —— 中置页那份镜像的唯一作用域。
+   *
+   * 页面动作只读它，绝不读实时项目指针：切换项目后若动作仍发实时指针，屏幕上
+   * 是 A 的工单、命令却打到 B，等于拿一个不存在的 ticketId 去敲另一个项目。
+   */
+  const boundRepoRoot = computed<string | null>(() => snapshot.value?.repoRoot ?? null)
+
+  /**
+   * 中置页的单项目镜像清空。
+   *
+   * workerMirrors 与 takeover 不在内 —— 那两个属于右侧 Worker 标签，标签自己
+   * 带着打开时的项目根，跨项目切换要继续可用。
+   */
+  function resetProjectScope(): void {
+    snapshot.value = null
+    boundSessionId.value = null
+    routerRunning.value = false
+    healthReport.value = null
+    queue.value = null
+    executionPolicy.value = null
+    checkpointInfo.value = null
+    ticketBoard.value = null
+    ticketProgress.value = {}
+    attentionBoard.value = null
+  }
+
+  /**
+   * 镜像写入闸门：只接受属于当前绑定项目的数据。
+   *
+   * 事件订阅一直按这条规则丢弃不一致事件；切换项目后在途的旧请求必须走同一道闸，
+   * 否则 A→B 连切时 A 的慢响应会整版盖掉 B 的镜像。
+   */
+  function isBoundProject(repoRoot: string): boolean {
+    return snapshot.value?.repoRoot === repoRoot
+  }
+
+  /**
+   * 切换 Super Agent 的项目作用域（跟随全局项目指针）：清空中置页镜像并绑定新项目。
+   *
+   * 先清空再绑：清空后 boundRepoRoot 为 null，动作与卡片自然停摆，不会留下
+   * 「半新半旧」的一帧。五面镜像的重拉仍由调用方在订阅建立之后再发 ——
+   * 订阅不能等慢快照全部返回，否则期间到达的事件会丢（见 SuperAgentView 的挂载次序）。
+   *
+   * 主进程按 repoRoot 分项目：旧项目的 Router/Worker 继续推进，切回来靠稳定会话 id
+   * 接上历史，这里不杀任何进程。
+   */
+  async function switchProject(repoRoot: string): Promise<void> {
+    // 空根 = 关闭文件夹：必须退出作用域，否则页面留着旧项目的卡片，
+    // 而动作仍按旧根发出去 —— 人已经"没有项目"了，命令却还在打它。
+    if (!repoRoot) {
+      resetProjectScope()
+      return
+    }
+    if (isBoundProject(repoRoot) && boundSessionId.value) return
+    resetProjectScope()
+    await bind(repoRoot)
+  }
+
+  /**
+   * 每次 bind 领一个递增序号；响应回来时若已有更新的 bind 开始，这份结果就不该再落镜像。
+   * 与 isBoundProject 分工：这里护住作用域本身，那里护住各面镜像。
+   */
+  let bindSeq = 0
 
   async function bind(repoRoot: string): Promise<SuperAgentBindResult> {
+    const token = ++bindSeq
     const result = await api.superAgent.routerBind(repoRoot)
+    // 会话登记与"当前看哪个项目"无关：属于 Super Agent 就该带归属，
+    // 即便它已经不是当前项目，也不该以普通聊天身份留在侧边栏。
+    ensureRouterSession(result.sessionId, repoRoot)
+    if (token !== bindSeq) return result
     boundSessionId.value = result.sessionId
     snapshot.value = result.snapshot
     routerRunning.value = result.running
-    ensureRouterSession(result.sessionId, repoRoot)
     // Router 会话由主进程持有且 id 稳定：重启后 transcript 里已有之前的对话，
     // 不重读就只剩一个空聊天区（人会以为 IM 历史没了）。
     await useChatSessionStore().refreshSessionHistory(result.sessionId)
@@ -230,13 +299,13 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
 
   async function loadState(repoRoot: string): Promise<SuperAgentSnapshot> {
     const next = await api.superAgent.state(repoRoot)
-    snapshot.value = next
+    if (isBoundProject(next.repoRoot)) snapshot.value = next
     return next
   }
 
   async function loadHealth(repoRoot: string): Promise<SuperAgentHealthReport> {
     const next = await api.superAgent.health(repoRoot)
-    healthReport.value = next
+    if (isBoundProject(next.repoRoot)) healthReport.value = next
     return next
   }
 
@@ -252,14 +321,14 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
 
   async function loadQueue(repoRoot: string): Promise<SuperAgentQueueSnapshot> {
     const next = await api.superAgent.queue(repoRoot)
-    queue.value = next
+    if (isBoundProject(next.repoRoot)) queue.value = next
     return next
   }
 
   /** T12 #82：拉取执行策略镜像（串/并行、上限、worktree 形态）。 */
   async function loadPolicy(repoRoot: string): Promise<SuperAgentExecutionPolicyView> {
     const next = await api.superAgent.policy(repoRoot)
-    executionPolicy.value = next
+    if (isBoundProject(next.repoRoot)) executionPolicy.value = next
     return next
   }
 
@@ -272,7 +341,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     command: SuperAgentPolicySetCommand,
   ): Promise<SuperAgentExecutionPolicyView> {
     const next = await api.superAgent.policySet(repoRoot, command)
-    executionPolicy.value = next
+    if (isBoundProject(next.repoRoot)) executionPolicy.value = next
     await loadQueue(repoRoot)
     return next
   }
@@ -280,7 +349,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   /** T12 #82：拉取检查点信息（最新检查点 + 回退候选文件清单）。 */
   async function loadCheckpoint(repoRoot: string): Promise<SuperAgentCheckpointInfo> {
     const next = await api.superAgent.checkpoint(repoRoot)
-    checkpointInfo.value = next
+    if (isBoundProject(next.repoRoot)) checkpointInfo.value = next
     return next
   }
 
@@ -297,8 +366,10 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   /** 全量拉取工单卡片看板（T06 #76）：初始加载与领域断档重拉共用。 */
   async function loadTickets(repoRoot: string): Promise<SuperAgentTicketBoard> {
     const next = await api.superAgent.tickets(repoRoot)
-    ticketBoard.value = next
-    syncStaleWorkerMirrors(repoRoot, next.tickets)
+    if (isBoundProject(next.repoRoot)) {
+      ticketBoard.value = next
+      syncStaleWorkerMirrors(repoRoot, next.tickets)
+    }
     return next
   }
 
@@ -361,7 +432,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   /** 全量拉取 Attention 气泡看板（T08 #78）：初始加载共用。 */
   async function loadAttentions(repoRoot: string): Promise<SuperAgentAttentionBoard> {
     const next = await api.superAgent.attentions(repoRoot)
-    attentionBoard.value = next
+    if (isBoundProject(next.repoRoot)) attentionBoard.value = next
     return next
   }
 
@@ -582,6 +653,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   return {
     snapshot,
     boundSessionId,
+    boundRepoRoot,
     routerRunning,
     attentionCount,
     healthReport,
@@ -602,6 +674,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     reviewReminders,
     reviewRemindedCount,
     bind,
+    switchProject,
     sendRouterMessage,
     abortRouter,
     watchRouterStatus,
