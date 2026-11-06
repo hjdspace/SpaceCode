@@ -28,6 +28,7 @@ import {
   MessageCircleQuestion,
   OctagonAlert,
   PauseCircle,
+  RotateCcw,
   Send,
   Trash2,
   XCircle,
@@ -43,6 +44,8 @@ const props = defineProps<{
   card: SuperAgentTicketCard
   /** 该工单最新轻量进度（节流后增量）；无进度时为 null。 */
   progress?: SuperAgentTicketProgress | null
+  /** 主聊天小卡：省略 ID/代次/范围，操作保留为带可访问名称的图标。 */
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -123,18 +126,20 @@ function closeFollowup(): void {
 <template>
   <div
     class="worker-task-card"
+    :class="{ compact }"
     :data-state="card.state"
     data-testid="worker-task-card"
     role="button"
     tabindex="0"
     :aria-label="card.title"
     @click="emit('open', card.ticketId)"
-    @keydown.enter.prevent="emit('open', card.ticketId)"
+    @keydown.enter.self.prevent="emit('open', card.ticketId)"
+    @keydown.space.self.prevent="emit('open', card.ticketId)"
   >
     <div class="row">
       <component :is="icon" class="state-icon" :size="14" />
-      <span class="title" data-testid="worker-task-card-title">{{ card.title }}</span>
-      <span class="meta" data-testid="worker-task-card-meta">
+      <span class="title" :title="card.title" data-testid="worker-task-card-title">{{ card.title }}</span>
+      <span v-if="!compact" class="meta" data-testid="worker-task-card-meta">
         {{ ticketLabel }} · {{ generationLabel }} · {{ scopeLabel }}
       </span>
       <span v-if="progressLabel" class="progress" data-testid="worker-task-card-progress">
@@ -143,10 +148,12 @@ function closeFollowup(): void {
       <span
         v-if="card.reviewRemindedAt"
         class="reminded-badge"
+        :title="t('superAgent.ticket.remindedMark')"
+        :aria-label="t('superAgent.ticket.remindedMark')"
         data-testid="worker-task-card-reminded"
       >
         <AlarmClockCheck :size="12" />
-        {{ t('superAgent.ticket.remindedMark') }}
+        <span v-if="!compact">{{ t('superAgent.ticket.remindedMark') }}</span>
       </span>
       <span class="state" data-testid="worker-task-card-state">
         <span class="dot" />
@@ -156,23 +163,32 @@ function closeFollowup(): void {
         <button
           class="action accept"
           data-testid="worker-task-card-accept"
+          :aria-label="t('superAgent.ticket.accept')"
+          :title="t('superAgent.ticket.accept')"
           @click.stop="emit('accept', card.ticketId)"
         >
-          {{ t('superAgent.ticket.accept') }}
+          <CheckCircle2 v-if="compact" :size="14" />
+          <template v-else>{{ t('superAgent.ticket.accept') }}</template>
         </button>
         <button
           class="action follow"
           data-testid="worker-task-card-continue"
+          :aria-label="t('superAgent.ticket.continue')"
+          :title="t('superAgent.ticket.continue')"
           @click.stop="followupOpen = !followupOpen"
         >
-          {{ t('superAgent.ticket.continue') }}
+          <MessageCircleQuestion v-if="compact" :size="14" />
+          <template v-else>{{ t('superAgent.ticket.continue') }}</template>
         </button>
         <button
           class="action stop"
           data-testid="worker-task-card-stop"
+          :aria-label="t('superAgent.ticket.stop')"
+          :title="t('superAgent.ticket.stop')"
           @click.stop="emit('stop', card.ticketId)"
         >
-          {{ t('superAgent.ticket.stop') }}
+          <Ban v-if="compact" :size="14" />
+          <template v-else>{{ t('superAgent.ticket.stop') }}</template>
         </button>
       </span>
       <!-- 排队/在跑的工单也要有终止出口：ticketStop 对任何 open 工单都成立
@@ -181,17 +197,23 @@ function closeFollowup(): void {
         v-else-if="card.canStop"
         class="action stop"
         data-testid="worker-task-card-stop"
+        :aria-label="t('superAgent.ticket.stop')"
+        :title="t('superAgent.ticket.stop')"
         @click.stop="emit('stop', card.ticketId)"
       >
-        {{ t('superAgent.ticket.stop') }}
+        <Ban v-if="compact" :size="14" />
+        <template v-else>{{ t('superAgent.ticket.stop') }}</template>
       </button>
       <button
         v-if="card.canRetry"
         class="action retry"
         data-testid="worker-task-card-retry"
+        :aria-label="t('superAgent.ticket.retry')"
+        :title="t('superAgent.ticket.retry')"
         @click.stop="emit('retry', card.ticketId)"
       >
-        {{ t('superAgent.ticket.retry') }}
+        <RotateCcw v-if="compact" :size="14" />
+        <template v-else>{{ t('superAgent.ticket.retry') }}</template>
       </button>
     </div>
     <div
@@ -241,6 +263,33 @@ function closeFollowup(): void {
     outline: 2px solid var(--accent-primary);
     outline-offset: 1px;
   }
+}
+
+// 状态与操作不收缩；窄聊天栏优先压缩标题/工具名，不把状态挤出可视区域。
+.compact {
+  .row { gap: 6px; }
+  .title {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+  .progress {
+    flex: 0 1 20%;
+    min-width: 0;
+  }
+  .actions { gap: 4px; }
+  .action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+  }
+  .reminded-badge { padding: 2px; }
+  .followup {
+    flex-wrap: wrap;
+    padding-left: 0;
+  }
+  .followup-input { flex-basis: 100%; }
 }
 
 .row {
