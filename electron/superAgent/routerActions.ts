@@ -5,8 +5,13 @@
  *   {"version":2,"routes":[
  *     {"kind":"accept","title":"…","note":"路由说明"},
  *     {"kind":"attach","ticketId":"…","note":"路由说明"},
+ *     {"kind":"retry","ticketId":"…"},
  *     {"kind":"stop","ticketId":"…"},
  *     {"kind":"ignore","reason":"…"}]}
+ *
+ * attach 与 retry 分得很开：attach 把这条人消息投给一次**还活着**的执行，复用代次；
+ * retry 让一张 open 但已经没有活执行的工单起新一代。把「重跑」写成 attach 只会得到
+ * 一条投不出去的人消息，所以两个动词必须分开。
  *
  * 工单目标不在这个协议里：宿主按 sourceRequestId 取原话并保留后续约束（见 routerRunner），
  * `note` 只放路由背景或人明确给出的约束 —— 转述与扩写进不了 Worker 的视野。
@@ -42,15 +47,19 @@ const ROOT_FIELDS = new Set(['version', 'routes'])
 const ROUTE_FIELDS: Record<SuperAgentRouteKind, ReadonlySet<string>> = {
   accept: new Set(['kind', 'title', 'note', 'sourceRequestId']),
   attach: new Set(['kind', 'ticketId', 'note']),
+  // retry 不带 note：新一代的目标仍是人的原话，路由旁注在这里没有可落的位置，
+  // 留个字段只会被当成"写了就会传给 Worker"。
+  retry: new Set(['kind', 'ticketId']),
   stop: new Set(['kind', 'ticketId', 'note']),
   ignore: new Set(['kind', 'reason']),
 }
 
-export type SuperAgentRouteKind = 'accept' | 'attach' | 'stop' | 'ignore'
+export type SuperAgentRouteKind = 'accept' | 'attach' | 'retry' | 'stop' | 'ignore'
 
 export type SuperAgentRouteAction =
   | { kind: 'accept'; title: string; note: string | null; sourceRequestId?: string }
   | { kind: 'attach'; ticketId: string; note: string | null }
+  | { kind: 'retry'; ticketId: string }
   | { kind: 'stop'; ticketId: string; note: string | null }
   | { kind: 'ignore'; reason: string | null }
 
@@ -98,7 +107,7 @@ function toRouteAction(value: unknown, index: number): SuperAgentRouteAction {
   const route = value as Record<string, unknown>
   // kind 是判别式，不是内容：多余的空白来自 JSON 排版，trim 它不算猜意图。
   const kind = typeof route.kind === 'string' ? route.kind.trim() : route.kind
-  if (kind !== 'accept' && kind !== 'attach' && kind !== 'stop' && kind !== 'ignore') {
+  if (kind !== 'accept' && kind !== 'attach' && kind !== 'retry' && kind !== 'stop' && kind !== 'ignore') {
     throw superAgentError('routeInvalid', { field: `routes[${index}].kind` })
   }
   for (const field of Object.keys(route)) {
@@ -119,6 +128,9 @@ function toRouteAction(value: unknown, index: number): SuperAgentRouteAction {
   }
   if (kind === 'ignore') {
     return { kind, reason: optionalReason(route.reason, `routes[${index}].reason`) }
+  }
+  if (kind === 'retry') {
+    return { kind, ticketId: requireNonEmptyString(route.ticketId, `routes[${index}].ticketId`) }
   }
   return {
     kind,
