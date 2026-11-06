@@ -50,6 +50,7 @@ export interface WorkerLaunchRequest {
   /** Worker 实际执行的根目录：串行 = repoRoot，并行 = per-ticket worktree。 */
   repoRoot: string
   firstMessage: string
+  model?: string
   workspace: SuperAgentWorkspaceStatus
   /** T12 #82：per-ticket worktree 信息；串行为 null。 */
   worktree: WorkerWorktreeInfo | null
@@ -304,6 +305,17 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
         spillWriter,
       })
       domain.launchAssignment({ assignmentId })
+      const origin = state.triggers[ticket.origin.triggerId]
+      if (origin.human && !ticket.inputIds.some((id) => state.inputs[id]?.triggerId === origin.triggerId)) {
+        domain.addInput({
+          ticketId,
+          requestId: `worker-origin:${ticketId}`,
+          kind: 'trigger',
+          human: true,
+          triggerId: origin.triggerId,
+          text: origin.text,
+        })
+      }
       if (slot) slot.dirty = workerWorkspace.dirty
       // 已回报 assignmentStarted：preparing 子态结束，卡片回到领域阶段
       onPreparingChanged?.(ticketId, false)
@@ -313,6 +325,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
         assignmentId,
         repoRoot: workerRoot,
         firstMessage: firstMessage.text,
+        model: ticket.execution.model,
         workspace: workerWorkspace,
         worktree,
       })
