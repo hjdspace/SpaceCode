@@ -189,9 +189,14 @@ export function createSuperAgentEvalDriver(
   /** 交回 Eval 的人消息原文：卡片要让 Router 看到 Worker 为什么把这条交回来。 */
   function handbackReasons(): Map<string, string> {
     const reasons = new Map<string, string>()
+    // #100：Worker 用 handback 围栏给出的原因优先（同族快照旧记录没有这条）。
+    for (const action of domain.state.workerActions ?? []) {
+      if (action.kind !== 'handback' || !action.triggerId || !action.reason) continue
+      reasons.set(action.triggerId, action.reason)
+    }
     for (const inputId of domain.state.handbacks) {
       const input = domain.state.inputs[inputId]
-      if (!input?.triggerId) continue
+      if (!input?.triggerId || reasons.has(input.triggerId)) continue
       const reason = (input.text ?? input.note ?? '').trim()
       if (reason !== '') reasons.set(input.triggerId, reason)
     }

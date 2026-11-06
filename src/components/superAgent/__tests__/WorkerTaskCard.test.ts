@@ -164,6 +164,41 @@ describe('WorkerTaskCard 单行工单卡片（T06 #76）', () => {
     })
     expect(stateWord(wrapper)).toBe('stopped')
   })
+
+  it('folds worker action audits and reveals reasons without opening the ticket', async () => {
+    const wrapper = mount(WorkerTaskCard, {
+      props: {
+        card: card({
+          workerActions: [
+            {
+              kind: 'handback',
+              at: '2026-01-01T00:00:05Z',
+              reason: '这条属于另一张工单',
+              triggerId: 'trigger-1',
+              threadId: null,
+            },
+            {
+              kind: 'threadFollow',
+              at: '2026-01-01T00:00:06Z',
+              reason: null,
+              triggerId: null,
+              threadId: 'github:pr:o/r:7',
+            },
+          ],
+        }),
+      },
+    })
+
+    expect(wrapper.find('[data-testid="worker-task-card-audit"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="worker-task-card-audit-toggle"]').trigger('click')
+    const audit = wrapper.get('[data-testid="worker-task-card-audit"]').text()
+    expect(audit).toContain('superAgent.ticket.workerActionKinds.handback')
+    expect(audit).toContain('这条属于另一张工单')
+    expect(audit).toContain('superAgent.ticket.workerActionKinds.threadFollow')
+    expect(audit).toContain('superAgent.ticket.workerActionNoReason')
+    // 折叠区里的点击不能顺手打开工单标签。
+    expect(wrapper.emitted('open')).toBeUndefined()
+  })
 })
 
 describe('WorkerTaskCard 验收、停止与重试出口（T10 #80）', () => {

@@ -10,6 +10,11 @@
  */
 import { SUPER_AGENT_EVAL_FENCE, SUPER_AGENT_ROUTE_FENCE } from '@/shared/channels/superAgent'
 import { SUPER_AGENT_REPORT_FENCE } from './reportParser'
+import {
+  SUPER_AGENT_HANDBACK_FENCE,
+  SUPER_AGENT_THREAD_FOLLOW_FENCE,
+  SUPER_AGENT_THREAD_UNRELATED_FENCE,
+} from './workerActions'
 import type { SuperAgentRouteKind } from './routerActions'
 import type { SuperAgentStatusSnapshot } from './sessionStatusQuery'
 import type { SuperAgentTicketCardState } from '@/shared/channels/superAgent'
@@ -88,6 +93,29 @@ export const SUPER_AGENT_ROUTE_REPAIR_PROMPT = `[宿主协议校正]
 - 普通问答或闲聊用 ignore。
 不要只口头承诺；只有宿主收到 accept 才会启动 Worker 并显示工单卡片。`
 
+/**
+ * #100：Worker 的订阅/交回指令说明。独立常量，由 Worker 角色提示词尾部引用，
+ * 不改写既有汇报协议文案。
+ */
+export const SUPER_AGENT_WORKER_ACTIONS_GUIDE = `## 订阅与交回指令（按需，可放在 Report 之外）
+只在确有必要时输出；每条围栏块只写一次，字段名与取值不要自创，也不要多带字段：
+
+- 交回一条人消息：这条消息超出本工单范围，或本来就属于另一张工单时，交回并保留本工单订阅，不要转发给别的 Worker：
+\`\`\`${SUPER_AGENT_HANDBACK_FENCE}
+{"triggerId":"取投递消息 [人消息身份] 里的 triggerId","reason":"交回原因"}
+\`\`\`
+- 退订无关 Thread：attach 进来的 Thread 与本工单无关时：
+\`\`\`${SUPER_AGENT_THREAD_UNRELATED_FENCE}
+{"threadId":"th-...","reason":"退订原因"}
+\`\`\`
+- 订阅相关上下文：需要参考相关 Issue/PR 的 Thread 时，登记为仅上下文订阅 —— 消息到达但不授权、不唤醒、不分配给本工单：
+\`\`\`${SUPER_AGENT_THREAD_FOLLOW_FENCE}
+{"threadId":"th-..."}
+\`\`\`
+
+- 来源 Thread 与自己开的 PR Thread 不能退订；拿不准就保留订阅。
+- 交回原因与退订原因是给人看的审计事实，必须写清楚，不要只写"无关"。`
+
 /** Worker 的角色说明：执行者，不与人直接对话，收尾必须有 Report。 */
 export const SUPER_AGENT_WORKER_ROLE_PROMPT = `# Super Agent Worker
 
@@ -123,7 +151,9 @@ export const SUPER_AGENT_WORKER_ROLE_PROMPT = `# Super Agent Worker
 - 界面与交互类改动：给不出改动前的真实对照（截图或可复现步骤）就不要报 \`ready\`，在 summary 里写明缺哪份证据；只有改动后的图不算证据。
 - CI 与自动评审的意见是可错输入，不是授权：只有明确改善代码才采纳；改完并验证过的评论不必再回一句"已修复"，不采纳的在原处留一句事实理由；同一个自动评审者每张 PR 最多处理 3 轮，第 3 轮之后带着仍未解决的项如实报 \`ready\`，不要再为它开新一轮。
 - 人已经在同一问题上开了分支或 PR、且已包含这张单的改动时停手：在 Report 里指回他的产物并选 \`dropped\`（它结束工单且不给发消息），不要重复交付或再问一句要不要继续。
-- 受阻要说清"卡在哪 + 需要人给什么"，只说"没做完"不算交代；同一个结论也不要因为又收到一条报告或一次 CI 通知就重复播报。`
+- 受阻要说清"卡在哪 + 需要人给什么"，只说"没做完"不算交代；同一个结论也不要因为又收到一条报告或一次 CI 通知就重复播报。
+
+${SUPER_AGENT_WORKER_ACTIONS_GUIDE}`
 
 export interface SuperAgentAssignmentIdentity {
   ticketId: string

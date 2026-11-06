@@ -88,6 +88,7 @@ function persistingDomain(
     fastPathConsumed: (triggerId) => domain.fastPathConsumed(triggerId),
     handbackInput: (input) => tracked(() => domain.handbackInput(input)),
     markUnrelated: (input) => tracked(() => domain.markUnrelated(input)),
+    followForContext: (input) => tracked(() => domain.followForContext(input)),
     attachTicket: (input) => tracked(() => domain.attachTicket(input)),
     wakeTicket: (input) => tracked(() => domain.wakeTicket(input)),
     pruneExpiredSubscriptions: (input) => tracked(() => domain.pruneExpiredSubscriptions(input)),

@@ -99,7 +99,17 @@ import {
   type SuperAgentDomain,
 } from './domain'
 import type { SuperAgentAttention, SuperAgentExecutionPolicy, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
-import { SuperAgentDomainError, superAgentError, serializeSuperAgentError } from './errors'
+import {
+  SuperAgentDomainError,
+  isSuperAgentDomainError,
+  superAgentError,
+  serializeSuperAgentError,
+} from './errors'
+import {
+  parseSuperAgentWorkerActions,
+  resolveSuperAgentHandbackInputId,
+  type ParsedSuperAgentWorkerActions,
+} from './workerActions'
 import { createCheckpointStore, parsePorcelainEntry, type SuperAgentCheckpointStore } from './checkpoint'
 import { cloneSuperAgentPolicy } from './policy'
 import {
@@ -328,6 +338,11 @@ export interface SuperAgentWorkerDeliveryRequest {
   ticketId: string
   /** 已落库 Domain Input 的 inputId：先落库再投递。 */
   inputId: string
+  /**
+   * #100：消息所属 Trigger。宿主上下文里带给 Worker，handback 围栏据此引用；
+   * 桌面接管输入没有 Trigger，为 null。
+   */
+  triggerId?: string | null
   /** 幂等/对账键。 */
   requestId: string
   /** 项目根：Executor 需要它按同一档配置重新拉起空闲的 Worker 会话。 */
@@ -988,6 +1003,44 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   }
 
   /**
+   * #100：把 Worker 指令逐条落到领域。解析已在进函数前完成（坏指令 = 协议失败）；
+   * 这里拒绝的是「指令本身越权/对象不存在」，不推翻同一轮已经有效的 Report。
+   */
+  function applyWorkerActions(
+    project: ProjectState,
+    ticketId: string,
+    parsed: ParsedSuperAgentWorkerActions,
+  ): void {
+    if (parsed.actions.length === 0) return
+    const state = project.domain.state
+    let handbackApplied = false
+    let applied = 0
+    for (const action of parsed.actions) {
+      try {
+        if (action.kind === 'handback') {
+          const inputId = resolveSuperAgentHandbackInputId(project.domain.state, ticketId, action.triggerId)
+          project.domain.handbackInput({ ticketId, inputId, reason: action.reason })
+          handbackApplied = true
+        } else if (action.kind === 'threadUnrelated') {
+          project.domain.markUnrelated({ ticketId, threadId: action.threadId, reason: action.reason })
+        } else {
+          project.domain.followForContext({ ticketId, threadId: action.threadId })
+        }
+        applied += 1
+      } catch (error) {
+        if (!isSuperAgentDomainError(error)) throw error
+        project.health.recordFailure('workerAction', { code: error.code, ticketId })
+      }
+    }
+    if (applied > 0) {
+      project.projector.sync()
+      project.attentionProjector.sync()
+    }
+    // 交回的人消息回到候选池，由 Eval 重新裁决（off 模式没有 Eval，保持待评估）。
+    if (handbackApplied && state.policy.acceptMode !== 'off') project.evalDriver?.pump()
+  }
+
+  /**
    * Worker 消息 → Report 事实。Executor 的事件回灌与内部接缝共用；
    * 协议失败抛稳定错误码，由调用方（Executor）按失败收尾并上报健康。
    */
@@ -996,6 +1049,9 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     input: { text: string },
   ): SuperAgentWorkerReportResult {
     const parsed = parseSuperAgentReportText(input.text)
+    // #100：先把整条消息的指令块解析完再落任何事实 —— 坏指令是协议失败，
+    // 不能留下「Report 已生效、动作解析到一半」的半截状态。
+    const actions = parseSuperAgentWorkerActions(input.text)
     const assignment = project.domain.state.assignments[parsed.assignmentId]
     if (!assignment) {
       // 伪造/错位：assignmentId 不属于本项目的任何执行，稳定拒绝
@@ -1020,6 +1076,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     project.projector.sync()
     // question/answers 变化驱动 Attention 气泡（T08 #78）
     project.attentionProjector.sync()
+    // #100：再逐条执行 Worker 指令（Report 优先；越权动作拒绝但不毁掉 Report）
+    applyWorkerActions(project, assignment.ticketId, actions)
     return {
       ticketId: assignment.ticketId,
       reportId: result.report.reportId,
@@ -1117,7 +1175,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
               // 执行已结束等非法迁移：只留健康，不伪造事实
             }
             project.health.recordFailure('effect:launch', {
-              code: 'reportInvalid',
+              // #100：Worker 指令块解析失败时按稳定错误码上报，不统一写成 reportInvalid。
+              code: context.code ?? 'reportInvalid',
               ticketId: context.ticketId,
             })
             project.projector.sync()
@@ -1392,6 +1451,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         const outcome = await deliverer({
           ticketId: command.ticketId,
           inputId: added.input.inputId,
+          triggerId: added.input.triggerId,
           requestId: command.requestId,
           repoRoot,
           sessionId: superAgentWorkerEngineSessionId(command.ticketId),
@@ -1503,6 +1563,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         const outcome = await deliverer({
           ticketId: ticket.ticketId,
           inputId,
+          triggerId: input.triggerId,
           requestId: input.requestId,
           repoRoot,
           sessionId: superAgentWorkerEngineSessionId(ticket.ticketId),

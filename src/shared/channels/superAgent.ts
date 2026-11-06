@@ -156,6 +156,15 @@ export const SUPER_AGENT_TICKET_CARD_STATES = [
   'dropped',
 ] as const
 
+/** #100：Worker 交回/退订/仅上下文订阅的折叠审计项（原因由 Worker 给出）。 */
+export interface SuperAgentTicketPostAction {
+  kind: 'handback' | 'threadUnrelated' | 'threadFollow'
+  at: string
+  reason: string | null
+  triggerId: string | null
+  threadId: string | null
+}
+
 /** 单行工单卡片投影；Report 只更新同 ticketId 的卡片，不重复发气泡。 */
 export interface SuperAgentTicketCard {
   ticketId: string
@@ -172,6 +181,8 @@ export interface SuperAgentTicketCard {
   ended: { outcome: string; by: string; reason: string; at: string } | null
   /** T10 #80：review 超时提醒水位；null 表示尚未提醒。 */
   reviewRemindedAt: string | null
+  /** #100：最近 20 条 Worker 指令审计，工单详情折叠展示（旧快照缺省）。 */
+  workerActions?: SuperAgentTicketPostAction[]
   /** T10 #80：是否允许人工重试（仅 open 的 delivery/blocked/failed）。 */
   canRetry: boolean
   /**
@@ -477,6 +488,7 @@ export const SUPER_AGENT_HEALTH_CATEGORIES = [
   'effect:reviewReminder',
   'source',
   'eval',
+  'workerAction',
   'engine',
   'projectLock',
   'migration',

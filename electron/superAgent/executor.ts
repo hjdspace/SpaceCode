@@ -115,6 +115,8 @@ export interface SuperAgentExecutorTurnContext {
   ticketId: string
   assignmentId: string
   text: string
+  /** #100：解析失败时的稳定错误码，供健康上报使用（缺省按 reportInvalid）。 */
+  code?: string | null
 }
 
 function resultText(data: unknown): string {
@@ -202,12 +204,12 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
           '保留原来的问题和结论，只补正 askedBy 并输出一个完整 super-agent:report 围栏；不要重跑任务。',
         ].join('\n')).catch(() => {
           if (!run.active) return
-          hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text })
+          hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text, code })
           finish(run)
         })
         return
       }
-      hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text })
+      hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text, code })
       finish(run)
       return
     }
@@ -223,7 +225,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
       return
     }
     // 只有 progress（或没有 Report）：这一轮已经结束，槽位不能白占。
-    hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text })
+    hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text, code: 'reportMissing' })
     finish(run)
   }
 
@@ -341,9 +343,11 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         }
         // 身份说明是宿主与 Worker 之间的东西，包进信封让回放侧能摘掉：
         // 否则重启后这条人消息的气泡里挂着 inputId 与 askedBy 规则。
-        const hostContext = wrapSuperAgentHostContext([
-          `[人消息身份] inputId: ${request.inputId}；需要提问时 askedBy 引用此值。`,
-        ])
+        // #100：带 Trigger 的消息额外给出 triggerId，交回围栏只能引用这个值。
+        const identity = request.triggerId
+          ? `[人消息身份] inputId: ${request.inputId}；triggerId: ${request.triggerId}；需要提问时 askedBy 引用 inputId，交回时 handback 引用 triggerId。`
+          : `[人消息身份] inputId: ${request.inputId}；需要提问时 askedBy 引用此值。`
+        const hostContext = wrapSuperAgentHostContext([identity])
         await bridge.sendMessage(sessionId, [request.text, hostContext].filter(Boolean).join('\n\n'))
         return 'accepted'
       } catch {

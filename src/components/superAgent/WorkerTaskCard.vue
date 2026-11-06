@@ -99,6 +99,14 @@ const progressLabel = computed(() => {
 const followupOpen = ref(false)
 const followupText = ref('')
 
+/** Worker 指令审计默认折叠，点开才展示原因，避免小卡常年占高度。 */
+const auditOpen = ref(false)
+
+function formatActionTime(at: string): string {
+  const date = new Date(at)
+  return Number.isNaN(date.valueOf()) ? at : date.toLocaleString()
+}
+
 watch(
   () => props.card.state,
   (state) => {
@@ -215,6 +223,27 @@ function closeFollowup(): void {
         <RotateCcw v-if="compact" :size="14" />
         <template v-else>{{ t('superAgent.ticket.retry') }}</template>
       </button>
+    </div>
+    <div v-if="card.workerActions?.length" class="audit" @click.stop>
+      <button
+        class="audit-toggle"
+        data-testid="worker-task-card-audit-toggle"
+        :aria-expanded="auditOpen"
+        @click.stop="auditOpen = !auditOpen"
+      >
+        {{ t('superAgent.ticket.workerActions', { count: card.workerActions?.length ?? 0 }) }}
+      </button>
+      <div v-if="auditOpen" class="audit-list" data-testid="worker-task-card-audit">
+        <div
+          v-for="(action, index) in card.workerActions"
+          :key="`${action.kind}-${action.at}-${index}`"
+          class="audit-item"
+        >
+          <span class="audit-kind">{{ t(`superAgent.ticket.workerActionKinds.${action.kind}`) }}</span>
+          <span class="audit-time">{{ formatActionTime(action.at) }}</span>
+          <span class="audit-reason">{{ action.reason ?? t('superAgent.ticket.workerActionNoReason') }}</span>
+        </div>
+      </div>
     </div>
     <div
       v-if="followupOpen"
@@ -409,6 +438,50 @@ function closeFollowup(): void {
   &.ghost {
     border-color: transparent;
   }
+}
+
+.audit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 22px;
+}
+
+.audit-toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { color: var(--text-secondary); }
+}
+
+.audit-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.audit-kind {
+  flex: none;
+  color: var(--text-primary);
+}
+
+.audit-time {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.audit-reason {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .followup {

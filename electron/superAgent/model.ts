@@ -466,6 +466,22 @@ export interface SuperAgentEval {
   disposal: SuperAgentEvalDisposal | null
 }
 
+/**
+ * #100：Worker 指令的审计事实。
+ *
+ * handback 记 trigger/input 与原因；threadUnrelated/threadFollow 记 threadId。
+ * 只追加不改写，供工单详情折叠展示与 Eval 回灌引用。
+ */
+export interface SuperAgentWorkerActionAudit {
+  kind: 'handback' | 'threadUnrelated' | 'threadFollow'
+  ticketId: string
+  at: string
+  triggerId: string | null
+  inputId: string | null
+  threadId: string | null
+  reason: string | null
+}
+
 /** 单写者持有的全部领域事实。 */
 export interface SuperAgentDomainState {
   /** 事实序号水位，每次新增领域事实递增。 */
@@ -507,4 +523,6 @@ export interface SuperAgentDomainState {
    * pending 续做、sent 不重复投递；messageId 为永久去重幂等键。
    */
   outbox: Record<string, SuperAgentOutboxMessage>
+  /** #100：Worker 交回/退订/上下文订阅的审计事实（只追加）。 */
+  workerActions: SuperAgentWorkerActionAudit[]
 }

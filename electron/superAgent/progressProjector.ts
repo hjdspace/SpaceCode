@@ -16,6 +16,7 @@
 import type {
   SuperAgentTicketCard,
   SuperAgentTicketCardState,
+  SuperAgentTicketPostAction,
   SuperAgentTicketProgress,
   SuperAgentTicketUpdateEvent,
 } from '@/shared/channels/superAgent'
@@ -119,6 +120,17 @@ export function createSuperAgentProgressProjector(
       if (assignment.endedAt) updatedAtCandidates.push(assignment.endedAt)
     }
     if (report) updatedAtCandidates.push(report.at)
+    // #100：Worker 指令只追加，卡片只带最近 20 条供详情折叠展示。
+    const workerActions: SuperAgentTicketPostAction[] = (domain.state.workerActions ?? [])
+      .filter((action) => action.ticketId === ticketId)
+      .map((action) => ({
+        kind: action.kind,
+        at: action.at,
+        reason: action.reason,
+        triggerId: action.triggerId,
+        threadId: action.threadId,
+      }))
+    for (const action of workerActions) updatedAtCandidates.push(action.at)
     const updatedAt = updatedAtCandidates.reduce((max, at) => (at > max ? at : max))
 
     // T10 #80：重试闸门与 review 提醒水位随卡片下发（与阶段派生同一事实源）。
@@ -149,6 +161,7 @@ export function createSuperAgentProgressProjector(
           }
         : null,
       reviewRemindedAt: ticket.reviewRemindedAt,
+      workerActions: workerActions.slice(-20),
       canRetry: canRetryTicket(facts),
       // 停止对任何未结束工单都成立：领域侧撤回 Mandate、收尾在跑 Assignment（§10.3）
       canStop: ticket.state === 'open',
