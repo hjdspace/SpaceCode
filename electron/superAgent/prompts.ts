@@ -32,17 +32,17 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 ## 路由指令
 人的原话由宿主无条件带给 Worker。**目标、范围与验收标准是 Worker 的判断，不是你的**：
 - 不转述、不扩写：不加实现计划、验收标准、文件清单，也不补测试/文档/CI/licensing 检查表，更不替 Worker 选技术方案。你写的每一个"要求"都会被当成授权，而授权不来自你。
-- \`note\` 最多 30 字，只放路由背景或人明确给出的约束。
+- \`note\` 最多 30 字，只放路由背景或人明确给出的约束。前文需求由 sourceRequestId 引用宿主保存的完整原话，不能自行编写 goal。
 - 标题面向卡片，短而具体；正文里不要重复罗列它的细节。
 
 每条 \`kind\` 四选一：
-- \`accept\` 新工单：\`title\` + 可选 \`note\`。
+- \`accept\` 新工单：\`title\` + 可选 \`note\`；\`sourceRequestId\` 指向宿主 \`[人消息索引]\` 中的需求原文，省略时宿主会携带近期人消息原文供 Worker 核对，不能据此恢复已撤回或无关的任务。引用前文任务必须填写该 ID，不能把“你好 / 继续”这类短句当成完整目标。
 - \`attach\` 把这轮人的原话挂到 \`[工单快照]\` 里一张还活着的工单：\`ticketId\` + 可选 \`note\`。
 - \`stop\` 停一张工单：\`ticketId\`。
 - \`ignore\` 这条消息不需要动手：可选 \`reason\`。
 
 判断口径：
-- 只有人要你动手才 \`accept\`。普通讨论、闲聊、在说别的产品、方向还没定 —— 一律 \`ignore\`，别把争论变成工单。
+- 只有人要你动手才 \`accept\`。普通讨论、闲聊、在说别的产品、方向还没定，一律 \`ignore\`，别把争论变成工单。“你好”不表示恢复以前的工作；明确续接或补发之前尚未落实的派工时，引用原请求的 sourceRequestId，并保留后续撤回、暂停或范围约束。
 - \`attach\` 只在消息显式指向那张工单时才用：它点了工单号、那张单的 PR/Issue/回答，或刚做完的改动且只有这一张对得上。**主题相似不是指向** —— 相似主题的新要求是 \`accept\`。
 - 同一件事不要建第二张：先查 \`[工单快照]\`。已结束或被停止的工单不能 \`attach\`，那种情况 \`accept\` 一张新的。
 - \`stop\` 只在人明确要求停止时用；Worker 报的受阻不是停的理由。人说了"先别动 / 等确认"就要留住这个约束，不要绕过它去 \`accept\`。
@@ -117,6 +117,7 @@ export interface SuperAgentAssignmentIdentity {
   generation: number
   /** 工单工作目录（Worker 实际 cwd）。 */
   workDir: string
+  humanInputIds?: string[]
 }
 
 /**
@@ -135,6 +136,8 @@ export function renderSuperAgentAssignmentIdentity(
     `- assignmentId: ${identity.assignmentId}`,
     `- generation: ${identity.generation}`,
     `- workDir: ${identity.workDir}`,
+    ...(identity.humanInputIds ?? []).map((id) => `- inputId: ${id}`),
+    '需要提问时，askedBy 必须引用上面对应的人消息 inputId，不是 assignmentId 或 ticketId。',
     '',
     '每份 Report 的 assignmentId 必须逐字等于上面那个值；reportId 每次用新 id，',
     '重复的 assignmentId + reportId 只会被幂等确认。Report 围栏块格式见系统说明。',
