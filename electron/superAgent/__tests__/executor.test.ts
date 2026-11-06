@@ -17,6 +17,7 @@ import { SUPER_AGENT_WORKER_ROLE_PROMPT } from '../prompts'
 import type { WorkerLaunchRequest } from '../scheduler'
 import type { SuperAgentReportKind } from '../model'
 import { createFakeBridge, reportFence } from './fakeBridge'
+import { parseEngineUserPrompt, wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
 
 const REPO = '/repo/a'
 
@@ -224,7 +225,12 @@ describe('createSuperAgentExecutor deliver', () => {
       text: '旧接口还要保留吗？',
     })
     expect(outcome).toBe('accepted')
-    expect(fake.sent[1]?.content).toBe('旧接口还要保留吗？\n\n[人消息身份] inputId: input-1；需要提问时 askedBy 引用此值。')
+    expect(fake.sent[1]?.content).toBe([
+      '旧接口还要保留吗？',
+      wrapSuperAgentHostContext(['[人消息身份] inputId: input-1；需要提问时 askedBy 引用此值。']),
+    ].join('\n\n'))
+    // 身份说明带信封：引擎转录按 user 记下整段，回放只该留人问的那一句
+    expect(parseEngineUserPrompt(fake.sent[1]?.content ?? '').text).toBe('旧接口还要保留吗？')
     await fake.emit(sessionId, 'result', {
       result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),
     })

@@ -110,7 +110,7 @@ import { openPersistedSuperAgentProject } from './persistence'
 import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
 import type { ProjectStore, ProjectStoreDeps } from './store'
 import type { SuperAgentDomainState } from './model'
-import { waitsForPerson } from './stage'
+import { latestAssignmentOf, waitsForPerson } from './stage'
 import {
   createExecFileGitRunner,
   defaultWorkspaceProbe,
@@ -129,6 +129,7 @@ import {
 import {
   renderSuperAgentRouterEvent,
   renderSuperAgentRouterStatusContext,
+  renderSuperAgentRouteRejected,
 } from './prompts'
 import { createSuperAgentSessionStatusQuery } from './sessionStatusQuery'
 import {
@@ -704,8 +705,23 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     command: { ticketId: string; requestId: string; text: string },
   ): void {
     assertCommandsAllowed(project, repoRoot)
-    if (!project.domain.state.tickets[command.ticketId]) {
+    const ticket = project.domain.state.tickets[command.ticketId]
+    if (!ticket) {
       throw superAgentError('ticketNotFound', { ticketId: command.ticketId })
+    }
+    // attach 的前提是那张单有活着的执行能收这条消息。代次已经 ended/interrupted 时
+    // addInput 只会把它落成一条永久 pending 的死信：Worker 收不到，阶段还被这条
+    // 没送出去的消息刷成"执行中"，连重试入口一起没了。重跑是 retry 的活，不是这里。
+    const latest = latestAssignmentOf(
+      ticket.assignmentIds
+        .map((id) => project.domain.state.assignments[id])
+        .filter((assignment) => assignment !== undefined),
+    )
+    if (!latest || (latest.state !== 'pending' && latest.state !== 'running')) {
+      throw superAgentError('assignmentEnded', {
+        ticketId: command.ticketId,
+        assignmentId: latest?.assignmentId ?? '',
+      })
     }
     const added = project.domain.ticketMessage({
       ticketId: command.ticketId,
@@ -723,6 +739,26 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         subjectId: added.input.inputId,
       })
     })
+  }
+
+  /**
+   * Router 的 retry：让一张 open 但已失败的工单以新一代重跑，复用同一个 Worker 会话。
+   *
+   * 走 scheduler.retry —— 与 UI 上那个「重试」按钮同一条出口（domain.retryTicket 校验
+   * 闸门、generation+1、pump 起新执行；sessionId 按 ticketId 派生，跨代次稳定，引擎自己
+   * --resume 原转录）。这个出口原本只长在人手上，Router 拿不到就只能用 attach 假装重跑。
+   * 没有 note 字段：新一代的目标仍是人的原话，路由旁注在这里没有可落的位置。
+   */
+  function applyRouterRetry(
+    repoRoot: string,
+    project: ProjectState,
+    command: { ticketId: string },
+  ): void {
+    assertCommandsAllowed(project, repoRoot)
+    if (!project.domain.state.tickets[command.ticketId]) {
+      throw superAgentError('ticketNotFound', { ticketId: command.ticketId })
+    }
+    project.scheduler.retry({ ticketId: command.ticketId })
   }
 
   /**
@@ -908,6 +944,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             actor: 'router',
           }),
         attach: (input) => applyRouterAttach(repoRoot, project, input),
+        retry: (input) => applyRouterRetry(repoRoot, project, { ticketId: input.ticketId }),
         stop: (input) =>
           // reason 用旁注：人在快照上看到的是卡片，被停的原因留在工单事实里。
           applyTicketStop(repoRoot, project, {
@@ -916,6 +953,14 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           }),
         onStatusChanged: () => notifyRouterStatus(project, repoRoot),
         onFailure: (code) => project.health.recordFailure('effect:relay', { code }),
+        // 路由指令被拒时只累计健康计数的话，人听到的仍是 Router 按承诺编好的那句话。
+        // 把"这条没执行、为什么"作为事实送回会话尾部，让它有机会如实交代；
+        // 计数已经由 onFailure 做过，这里不再重复计入，避免同一失败敲两下阶梯。
+        // 中继轮（本轮没有人的原话）不回灌，否则一条被拒的中继会引出下一条中继。
+        onRouteRejected: (rejection) => {
+          if (!rejection.humanTurn) return
+          project.routerRunner?.relay(renderSuperAgentRouteRejected(rejection))
+        },
         sourceRequests: (requestId) => {
           const sources = Object.values(project.domain.state.triggers)
             .filter((trigger) => trigger.source === 'desktop-router' && trigger.human)

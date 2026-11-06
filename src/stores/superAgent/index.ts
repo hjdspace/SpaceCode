@@ -63,6 +63,7 @@ import type {
   SuperAgentTakeoverState,
   SuperAgentTicketActionResult,
   SuperAgentTicketBoard,
+  SuperAgentTicketCard,
   SuperAgentTicketMessageCommand,
   SuperAgentTicketMessageResult,
   SuperAgentTicketProgress,
@@ -297,6 +298,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   async function loadTickets(repoRoot: string): Promise<SuperAgentTicketBoard> {
     const next = await api.superAgent.tickets(repoRoot)
     ticketBoard.value = next
+    syncStaleWorkerMirrors(repoRoot, next.tickets)
     return next
   }
 
@@ -483,6 +485,25 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   }
 
   /**
+   * 代次一变就重拉已绑定的 Worker 镜像。
+   *
+   * 镜像没有推送通道：`running` 与代次分段只在 bindWorker 时取一次快照。人工重试、
+   * Router 的 retry、重启恢复都会把 generation+1，不重拉的话右侧面板继续停在上一代
+   * 结束后的"空闲" —— 人以为重跑根本没发生。
+   */
+  function syncStaleWorkerMirrors(
+    repoRoot: string,
+    tickets: readonly SuperAgentTicketCard[],
+  ): void {
+    for (const [ticketId, mirror] of Object.entries(workerMirrors.value)) {
+      const card = tickets.find((item) => item.ticketId === ticketId)
+      if (!card) continue
+      const mirrored = mirror.segments.reduce((max, segment) => Math.max(max, segment.generation), 0)
+      if (card.generation !== mirrored) void bindWorker(repoRoot, ticketId)
+    }
+  }
+
+  /**
    * 订阅 ticket-updated / ticket-progress（T06 #76），返回退订函数。
    *
    * 领域断档重拉：ticket-updated 携带 fromSeq/toSeq，fromSeq 与本地水位不一致
@@ -499,6 +520,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
         return
       }
       ticketBoard.value = { repoRoot, seq: event.toSeq, tickets: event.tickets }
+      syncStaleWorkerMirrors(repoRoot, event.tickets)
     })
     const offProgress = api.superAgent.onTicketProgress((repoRoot, progress) => {
       if (snapshot.value?.repoRoot !== repoRoot) return

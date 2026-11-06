@@ -10,13 +10,16 @@
  *    协议冲突，模型会把宿主建单也误判成自己执行后台任务。
  * 2. **动手只能靠路由指令** —— 回复尾部的 ```super-agent:route 块由宿主解析：
  *    accept 逐条走 service.dispatch 落 Decision/Mandate，attach 落一张工单的
- *    人消息输入，stop 走停止命令；授权仍由领域生成，模型拿不到（设计 §8.4）。
+ *    人消息输入，retry 走 scheduler.retry 起新一代，stop 走停止命令；授权仍由
+ *    领域生成，模型拿不到（设计 §8.4）。attach 与 retry 分家是有意的：前者只投
+ *    消息、复用代次，后者才换代次，混成一个动词就会给人一个兑现不了的重跑。
  * 3. **人的原话不经过 Router 的手** —— 宿主保存需求原文和后续约束，直接带给 Worker；
  *    Router 的 \`note\` 只是路由旁注（≤30 字），没有转述的通道。
  *
  * 每项目同一时刻最多一轮：新到的中继说明排队到下一批，不并发写同一 stdin；
  * Router 不阻塞等 Worker —— 工单结果由 Executor 作为新输入投进会话尾部。
  */
+import { randomUUID } from 'crypto'
 import {
   SUPER_AGENT_ROUTE_REPAIR_PROMPT,
   SUPER_AGENT_ROUTER_ROLE_PROMPT,
@@ -28,6 +31,7 @@ import {
   type SuperAgentRouteAction,
 } from './routerActions'
 import { superAgentError } from './errors'
+import { wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
 import type { SuperAgentEngineBridge } from './engineBridge'
 
 export interface SuperAgentRouterDispatchInput {
@@ -58,9 +62,32 @@ export interface SuperAgentRouterStopInput {
   note: string | null
 }
 
+export interface SuperAgentRouterRetryInput {
+  requestId: string
+  ticketId: string
+}
+
+/** 路由指令被领域拒绝：kind/ticketId/code 够人看清"哪条没执行、为什么"。 */
+export interface SuperAgentRouterRouteRejection {
+  kind: SuperAgentRouteAction['kind']
+  ticketId: string | null
+  code: string
+  /** 本轮有没有人的原话可带；中继轮的拒绝不再回灌，避免自我循环。 */
+  humanTurn: boolean
+}
+
 export interface SuperAgentRouterRunnerOptions {
   repoRoot: string
   sessionId: string
+  /**
+   * route 幂等键的实例判别量，缺省取一个随机 id。
+   *
+   * sessionId 跨重启稳定、turnSeq 每个实例从 1 重新数，两者拼出来的键在重启后
+   * 会与重启前那一轮撞上：领域侧把重复解析当幂等回放，`assertSameFact` 载荷不同
+   * 就直接抛 conflict，于是每次重启后的第一轮路由动作凭空消失。加一层实例号后，
+   * 键只在同一实例内重复（那才是它要防的"同一回复解析两次"）。
+   */
+  runnerEpoch?: string
   /** 引擎接缝（生产注入真实通路；测试注入 fake）。 */
   bridge: SuperAgentEngineBridge
   hooks: {
@@ -68,12 +95,19 @@ export interface SuperAgentRouterRunnerOptions {
     dispatch(input: SuperAgentRouterDispatchInput): { ticketId: string }
     /** 把这轮人的原话挂到已有工单：与「继续追问」同一条投递路径。 */
     attach(input: SuperAgentRouterAttachInput): void
+    /** 让一张 open 但已失败的工单以新一代重跑：复用同一个 Worker 会话，代次 +1。 */
+    retry(input: SuperAgentRouterRetryInput): void
     /** 停一张工单：只有人明确要求停止时 Router 才会给出这条指令。 */
     stop(input: SuperAgentRouterStopInput): void
     /** 运行状态变化：service 据此更新快照 router.running 并广播。 */
     onStatusChanged(running: boolean): void
     /** 路由协议失败/引擎失败：计入健康，不打断人正在看的回复。 */
     onFailure(code: string): void
+    /**
+     * 路由指令被领域拒绝：除计入健康外，把"这条没执行"作为事实回灌给 Router，
+     * 让它向人如实交代。宿主没动手却没人知道，人听到的就是一句兑现不了的承诺。
+     */
+    onRouteRejected?(info: SuperAgentRouterRouteRejection): void
     /** 会话标题（渲染端会话名）。 */
     titleOf?(): string
     /**
@@ -118,6 +152,7 @@ export function createSuperAgentRouterRunner(
 ): SuperAgentRouterRunner {
   const bridge = options.bridge
   const { repoRoot, sessionId, hooks } = options
+  const epoch = options.runnerEpoch ?? randomUUID()
 
   /**
    * 待投递输入（人的消息与工单事件按到达顺序串行投递）。
@@ -199,7 +234,7 @@ export function createSuperAgentRouterRunner(
     const seq = turnSeq
     const sourceText = turnSourceText
     routes.forEach((route, index) => {
-      const requestId = `route:${sessionId}:${seq}:${index}`
+      const requestId = `route:${sessionId}:${epoch}:${seq}:${index}`
       try {
         if (route.kind === 'accept') {
           if (sourceText === null) throw superAgentError('routeInvalid', { field: 'sourceRequestId' })
@@ -234,12 +269,23 @@ export function createSuperAgentRouterRunner(
             ticketId: route.ticketId,
             text: renderSuperAgentAttachedMessage({ note: route.note, sourceText }),
           })
+        } else if (route.kind === 'retry') {
+          hooks.retry({ requestId, ticketId: route.ticketId })
         } else if (route.kind === 'stop') {
           hooks.stop({ requestId, ticketId: route.ticketId, note: route.note })
         }
         // ignore 是"什么都不做"的显式记录：领域侧没有对应动作，也不该有。
       } catch (err) {
-        hooks.onFailure(errorCode(err, 'invalidDispatch'))
+        const code = errorCode(err, 'invalidDispatch')
+        hooks.onFailure(code)
+        // 指令被领域拒绝时除累计健康外，还要把"这条没执行"作为事实送回会话尾部：
+        // 否则人听到的永远是 Router 按自己承诺编出来的进展。
+        hooks.onRouteRejected?.({
+          kind: route.kind,
+          ticketId: 'ticketId' in route ? route.ticketId : null,
+          code,
+          humanTurn: sourceText !== null,
+        })
       }
     })
   }
@@ -247,7 +293,7 @@ export function createSuperAgentRouterRunner(
   async function repairRoute(): Promise<void> {
     const repairTurn = turnSeq
     try {
-      await bridge.sendMessage(sessionId, SUPER_AGENT_ROUTE_REPAIR_PROMPT)
+      await bridge.sendMessage(sessionId, wrapSuperAgentHostContext([SUPER_AGENT_ROUTE_REPAIR_PROMPT]))
     } catch (err) {
       // 中止后可能已经开始下一轮，迟到的补正失败不能收敛掉新轮次。
       if (repairTurn !== turnSeq || !turnInFlight) return
@@ -289,22 +335,29 @@ export function createSuperAgentRouterRunner(
   })
 
   /**
-   * 交给引擎的正文：原文 + Router 契约 + 本轮的活跃工单索引。
+   * 交给引擎的正文：原文 + 宿主注入段（Router 契约 + 本轮的活跃工单索引）。
    *
    * 安装版 CLI 的 --resume 会复用历史 prompt snapshot，argv/initialize 的新 append
    * 都进不了 API 请求（本地假上游实测）。契约必须随人的轮次追加到会话尾部，旧
    * 普通聊天恢复成 Router 后才能看到。它们只进引擎输入，不进气泡。
+   *
+   * 注入段一律包在成对标记里：引擎转录按 type:'user' 记下整段正文，回放时
+   * parseEngineUserPrompt 靠这对标记把它摘掉，人重启后看到的还是自己打的那句。
    */
   function engineText(input: SuperAgentRouterInput, human: boolean): string {
-    if (!human) return input.text
-    const context = hooks.statusContext?.() ?? ''
+    if (!human) return wrapSuperAgentHostContext([input.text])
     const sources = turnSources.length
       ? `[人消息索引]\n${JSON.stringify(turnSources.map((source) => ({
           requestId: source.requestId,
           preview: source.text.slice(0, 160),
         })))}\n引用前文任务时填写 sourceRequestId；宿主会取完整原话并保留后续约束，不要用标题或旁注改写目标。`
       : ''
-    return [input.text, SUPER_AGENT_ROUTER_ROLE_PROMPT, context, sources].filter(Boolean).join('\n\n')
+    const hostContext = wrapSuperAgentHostContext([
+      SUPER_AGENT_ROUTER_ROLE_PROMPT,
+      hooks.statusContext?.() ?? '',
+      sources,
+    ])
+    return [input.text, hostContext].filter(Boolean).join('\n\n')
   }
 
   async function pump(): Promise<void> {

@@ -269,6 +269,64 @@ describe('super agent runtime wiring', () => {
     expect(delivered.some((call) => (call.content ?? '').includes('同一处文案'))).toBe(true)
   })
 
+  it('retries a failed ticket as a new generation in the same worker session', async () => {
+    const { service, fake } = makeService()
+    service.routerBind(REPO)
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, { requestId: 'req-1', text: '分析覆盖率并补充测试' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '分析覆盖率' }]) })
+    await flush()
+
+    const first = service.tickets(REPO).tickets[0]!
+    const workerSession = superAgentWorkerEngineSessionId(first.ticketId)
+    fake.emit(workerSession, 'result', {
+      result: reportFence({ assignmentId: first.assignmentId, reportId: 'r-1', kind: 'failed', summary: '收尾没有有效 Report' }),
+    })
+    await flush()
+    expect(service.tickets(REPO).tickets[0]?.state).toBe('failed')
+
+    // 人说"重新执行"：Router 现在有 retry 这个动词，不再只能用 attach 假装重跑
+    await service.routerMessage(REPO, { requestId: 'req-2', text: '重新执行' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'retry', ticketId: first.ticketId }]) })
+    await flush()
+
+    const board = service.tickets(REPO).tickets[0]!
+    // 同一张工单、同一个 Worker 会话（id 由 ticketId 稳定派生），代次 +1 重新起执行
+    expect(board.ticketId).toBe(first.ticketId)
+    expect(board.generation).toBe(2)
+    expect(fake.started.filter((call) => call.sessionId === workerSession)).toHaveLength(2)
+    expect(fake.sent.filter((call) => call.sessionId === workerSession)).toHaveLength(2)
+  })
+
+  it('refuses an attach with no live execution to receive it and tells the router why', async () => {
+    const { service, fake } = makeService()
+    service.routerBind(REPO)
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, { requestId: 'req-1', text: '修登录页' })
+    // Router 会话先起，这一次 start 不能被失败注入吃掉 —— 注入要留给 Worker 的启动
+    fake.failNextStart = new Error('worker spawn failed')
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '修复登录页' }]) })
+    await flush()
+
+    const ticket = service.tickets(REPO).tickets[0]!
+    const workerSession = superAgentWorkerEngineSessionId(ticket.ticketId)
+    expect(fake.sent.filter((call) => call.sessionId === workerSession)).toHaveLength(0)
+
+    // 启动失败后代次已经 ended：attach 投不出去，落库只会留下一条永久 pending 的
+    // 死信，并把阶段刷成没有进程在跑的"执行中"（重试入口随之消失）。
+    await service.routerMessage(REPO, { requestId: 'req-2', text: '顺便把错误提示也改清楚' })
+    fake.emit(routerSession, 'result', {
+      result: routeFence([{ kind: 'attach', ticketId: ticket.ticketId, note: '同一处文案' }]),
+    })
+    await flush()
+
+    expect(fake.sent.filter((call) => call.sessionId === workerSession)).toHaveLength(0)
+    const routerTexts = fake.sent
+      .filter((call) => call.sessionId === routerSession)
+      .map((call) => call.content ?? '')
+    expect(routerTexts.some((text) => text.includes('[路由未执行]'))).toBe(true)
+  })
+
   it('stops the ticket the router was told to stop, without touching others', async () => {
     const { service, fake } = makeService()
     service.routerBind(REPO)

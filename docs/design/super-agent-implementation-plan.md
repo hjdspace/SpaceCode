@@ -449,7 +449,7 @@ Trigger #42 inline
 
 | 角色 | 应有能力 | 明确禁止 |
 | --- | --- | --- |
-| Router | `superagent_read`、会话/队列状态查询；Phase 2 的 `route`（批量 accept/attach/stop/ignore）、`reply`、`note`、`request_status` | Bash、直接改代码、任意 MCP、未经确认的建单/停止/改 Policy |
+| Router | `superagent_read`、会话/队列状态查询；Phase 2 的 `route`（批量 accept/attach/retry/stop/ignore）、`reply`、`note`、`request_status` | Bash、直接改代码、任意 MCP、未经确认的建单/停止/改 Policy |
 | Worker | 文件、搜索、shell、web、skill、todo、引擎 subagent、读取自身上下文、`report`、`handback`、`mark_unrelated`、`follow_for_context` | 直接向人提问/发言、启动或消息其他 Super Agent Session、改全局配置、绕槽调度 |
 | Source/Channel adapter | 平台读写、事件规范化、receipts | 把外部文本当授权、自行修改 Mandate、绕过 Outbox |
 

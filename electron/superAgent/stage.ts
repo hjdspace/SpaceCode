@@ -34,17 +34,36 @@ export function latestAssignmentOf(assignments: SuperAgentAssignment[]): SuperAg
   return latest
 }
 
+/**
+ * 「之后有没有新 Input」在代次已经没有活进程时只算**真的送到了执行方**的那些。
+ *
+ * 最新代次 ended/interrupted 时状态还是 pending/failed 的人消息是一条死信：Worker
+ * 没读到它，也没有任何东西会再把它投出去。把它算成"人已经说过了"会同时骗到两处 ——
+ * blocked/failed 闸门被它解除（阶段刷成 working、重试入口消失），idle 判定被它唤醒。
+ *
+ * 代次还活着时不这么判：崩溃恢复会把"已投递未读"的 Input 回队重投（recovery 第 3 步），
+ * 那一刻它同样是 pending，但它确实到了 Worker 手上过 —— 所以恢复把 busy 判定排在
+ * 回队之前，判定时它的状态还是 delivered。
+ */
+function isReachingWorker(input: SuperAgentInput, latest: SuperAgentAssignment | null): boolean {
+  const noLiveExecution = latest !== null && (latest.state === 'ended' || latest.state === 'interrupted')
+  if (!noLiveExecution) return true
+  return input.status === 'delivered' || input.status === 'read' || input.status === 'uncertain'
+}
+
 function hasInputAfter(
   facts: TicketStageFacts,
   ordinal: number,
   options: { humanOnly: boolean },
 ): boolean {
+  const latest = latestAssignmentOf(facts.assignments)
   return facts.inputs.some(
     (input) =>
       input.ticketId === facts.ticket.ticketId &&
       input.ordinal > ordinal &&
       // 仅上下文输入不投递、不唤醒执行，不能改变阶段。
       !input.context &&
+      isReachingWorker(input, latest) &&
       (options.humanOnly ? input.human : true),
   )
 }
