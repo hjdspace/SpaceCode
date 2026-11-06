@@ -98,7 +98,7 @@ import {
   type EnqueueOutboxInput,
   type SuperAgentDomain,
 } from './domain'
-import type { SuperAgentAttention, SuperAgentExecutionPolicy, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
+import type { SuperAgentAttention, SuperAgentExecutionPolicy, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxReplyPayload, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
 import {
   SuperAgentDomainError,
   isSuperAgentDomainError,
@@ -131,6 +131,10 @@ import {
   type SuperAgentOutboxChannel,
   type SuperAgentOutboxLimits,
 } from './outbox'
+import {
+  DESKTOP_OUTBOX_CHANNEL,
+  createSuperAgentDesktopOutboxChannel,
+} from './desktopChannel'
 import { openPersistedSuperAgentProject } from './persistence'
 import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
 import { projectDirOf, projectKeyOf, type ProjectStore, type ProjectStoreDeps } from './store'
@@ -286,6 +290,11 @@ export interface SuperAgentServiceOptions {
    */
   outbox?: {
     channel?: SuperAgentOutboxChannel | null
+    /**
+     * #101：启用 desktop 通道 —— 受控 reply 作为 IM 气泡推回 Router 会话。
+     * 生产入口 `createBroadcastingSuperAgentService` 打开；未启用时不产生 reply。
+     */
+    desktop?: boolean
     limits?: Partial<SuperAgentOutboxLimits>
     now?: () => Date
     sweepIntervalMs?: number
@@ -694,6 +703,22 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           projector.sync()
           attentionProjector.sync()
         },
+        // #101：accept 建单时的 origin 人消息此刻才落成 Input（授权链要求），
+        // 受控 acknowledgement 必须指向它。
+        onOriginHumanInput: (ticketId, inputId) => {
+          enqueueSuperAgentReply(repoRoot, ticketId, `reply:ack:${inputId}`, (project) => {
+            const input = project.domain.state.inputs[inputId]
+            if (!input) return null
+            return {
+              kind: 'reply',
+              replyType: 'acknowledgement',
+              text: `收到：${superAgentExcerpt(input.text)}。已交给 Worker 处理。`,
+              inReplyTo: inputId,
+              attentionId: null,
+              reportId: null,
+            }
+          })
+        },
         onLaunchError: (ticketId, err) => {
           // launch 失败计入健康（effect:launch），错误信息带 ticketId 便于追溯
           health.recordFailure('effect:launch', {
@@ -715,7 +740,29 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       })
       // T18 #88：Outbox runner —— sent 记健康恢复；waiting/dropped 计入对应
       // effect:<kind> 健康项（失败信息带 ticketId 便于追溯）。
-      const outboxChannel = options.outbox?.channel ?? null
+      // #101：desktop 通道——reply 作为 IM 气泡推回 Router 会话。用稳定
+      // messageId + startTurn:false，重复投递由渲染端按 id 去重，且不额外触发
+      // 一轮 Router 对话。
+      const desktopChannel =
+        options.outbox?.desktop && options.bridge
+          ? createSuperAgentDesktopOutboxChannel({
+              push: (message) => {
+                const target =
+                  projects.get(repoRoot)?.router?.sessionId ??
+                  superAgentRouterEngineSessionId(repoRoot)
+                options.bridge!.pushUserMessage({
+                  sessionId: target,
+                  content: message.payload.kind === 'reply' ? message.payload.text : '',
+                  title: 'Super Agent',
+                  projectPath: repoRoot,
+                  sessionType: 'superAgent',
+                  messageId: message.messageId,
+                  startTurn: false,
+                })
+              },
+            })
+          : null
+      const outboxChannel = options.outbox?.channel ?? desktopChannel
       const outbox = outboxChannel
         ? createSuperAgentOutbox({
             domain,
@@ -1045,6 +1092,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
    * 协议失败抛稳定错误码，由调用方（Executor）按失败收尾并上报健康。
    */
   function applyWorkerReport(
+    repoRoot: string,
     project: ProjectState,
     input: { text: string },
   ): SuperAgentWorkerReportResult {
@@ -1076,6 +1124,63 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     project.projector.sync()
     // question/answers 变化驱动 Attention 气泡（T08 #78）
     project.attentionProjector.sync()
+    // #101：受控 reply 的 Router 侧产生点 —— result / attention / answer 都经
+    // Outbox 外发（desktop 通道），不再依赖 Router 自己说话。重复 Report 不重复产生。
+    if (!result.duplicate) {
+      const ticket = project.domain.state.tickets[assignment.ticketId]
+      if (ticket) {
+        const kind = result.report.kind
+        if (kind === 'ready' || kind === 'dropped') {
+          enqueueSuperAgentReply(
+            repoRoot,
+            assignment.ticketId,
+            `reply:result:${result.report.reportId}`,
+            () => ({
+              kind: 'reply',
+              replyType: 'result',
+              text: `「${ticket.title}」${kind === 'ready' ? '已完成' : '已放弃'}：${result.report.summary}`,
+              inReplyTo: null,
+              attentionId: null,
+              reportId: result.report.reportId,
+            }),
+          )
+        }
+        if (result.attentionId) {
+          const attention = project.domain.state.attentions[result.attentionId]
+          if (attention?.status === 'open') {
+            enqueueSuperAgentReply(
+              repoRoot,
+              assignment.ticketId,
+              `reply:attention:${attention.attentionId}`,
+              () => ({
+                kind: 'reply',
+                replyType: 'attention',
+                text: attention.question,
+                inReplyTo: attention.askedBy,
+                attentionId: attention.attentionId,
+                reportId: result.report.reportId,
+              }),
+            )
+          }
+        }
+        // answer 只在 Worker 通过 answers 认领人消息之后才外发
+        for (const inputId of parsed.answers) {
+          enqueueSuperAgentReply(
+            repoRoot,
+            assignment.ticketId,
+            `reply:answer:${inputId}`,
+            () => ({
+              kind: 'reply',
+              replyType: 'answer',
+              text: `已按你的回答处理：${result.report.summary}`,
+              inReplyTo: inputId,
+              attentionId: null,
+              reportId: result.report.reportId,
+            }),
+          )
+        }
+      }
+    }
     // #100：再逐条执行 Worker 指令（Report 优先；越权动作拒绝但不毁掉 Report）
     applyWorkerActions(project, assignment.ticketId, actions)
     return {
@@ -1152,7 +1257,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         permissionModeOf: () => workerPermissionMode(project.domain.state.executionPolicy),
         hooks: {
           ingest: (text) => {
-            const report = applyWorkerReport(project, { text })
+            const report = applyWorkerReport(repoRoot, project, { text })
             return {
               final: isSuperAgentHandoffReport(report.kind),
               kind: report.kind,
@@ -1615,6 +1720,42 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     return { repoRoot, settledWithinBound }
   }
 
+  /**
+   * #101：受控 reply 的入列点。只在 desktop 通道启用时产生 reply；授权链 /
+   * 竞态拒绝不阻断主流程（记 effect:reply 健康项，便于看板发现异常）。
+   */
+  function enqueueSuperAgentReply(
+    repoRoot: string,
+    ticketId: string,
+    messageId: string,
+    build: (project: ProjectState) => SuperAgentOutboxReplyPayload | null,
+  ): void {
+    if (!options.outbox?.desktop) return
+    const project = projects.get(repoRoot)
+    if (!project?.outbox) return
+    if (project.domain.state.outbox[messageId]) return
+    const payload = build(project)
+    if (!payload) return
+    try {
+      project.domain.enqueueOutboxMessage({
+        messageId,
+        ticketId,
+        channel: DESKTOP_OUTBOX_CHANNEL,
+        payload,
+      })
+      project.outbox.pump()
+    } catch (err) {
+      if (!(err instanceof SuperAgentDomainError)) throw err
+      project.health.recordFailure('effect:reply', { code: err.code, ticketId })
+    }
+  }
+
+  function superAgentExcerpt(text: string | null | undefined, limit = 80): string {
+    const normalized = (text ?? '').replace(/\s+/g, ' ').trim()
+    if (normalized === '') return '（无内容）'
+    return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized
+  }
+
   return {
     state(repoRoot) {
       return snapshotOf(repoRoot, projectOf(repoRoot))
@@ -1772,7 +1913,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       if (project.phase === 'closed') {
         throw superAgentError('shuttingDown', { repoRoot })
       }
-      return applyWorkerReport(project, input)
+      return applyWorkerReport(repoRoot, project, input)
     },
 
     workerBind(repoRoot, ticketId) {

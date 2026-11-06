@@ -430,6 +430,8 @@ export function createBroadcastingSuperAgentService(
     onTicketProgress: broadcastTicketProgress,
     onTakeoverChanged: broadcastTakeoverChanged,
     onAttentionEvent: broadcastAttentionEvent,
+    // #101：受控 reply 的 desktop 通道 —— 作为 IM 气泡推回 Router 会话
+    outbox: { desktop: true },
   })
 }
 

@@ -42,6 +42,16 @@ export interface SuperAgentUserPush {
    */
   permissionMode?: PermissionMode
   model?: string
+  /**
+   * 稳定气泡 id（Outbox 受控 reply 的幂等回执落点）。缺省 null 时渲染端按
+   * 「最近 10 秒内相同内容的用户消息」去重。
+   */
+  messageId?: string
+  /**
+   * false = 只落气泡，不启渲染端轮次。宿主代发的 outbound reply 用它：
+   * 这条消息不是人在说话，也不该等主进程回一帧事件来收尾。
+   */
+  startTurn?: boolean
 }
 
 export type SuperAgentRouteListener = (
@@ -88,7 +98,7 @@ export interface SuperAgentEngineBridge {
 function pushUserMessageToRenderer(push: SuperAgentUserPush): void {
   const payload: H5RemoteUserMessagePayload = {
     __h5RemoteUserMessage: true,
-    messageId: null,
+    messageId: push.messageId ?? null,
     content: push.content,
     projectPath: push.projectPath,
     title: push.title,
@@ -97,6 +107,7 @@ function pushUserMessageToRenderer(push: SuperAgentUserPush): void {
     // Super Agent 的 Router/Worker 会话不由这条通路抢视图：中置聊天区与右侧
     // 面板都按 sessionId 直接寻址，切换由 app store 负责。
     activate: false,
+    ...(push.startTurn === false ? { startTurn: false } : {}),
     ...(push.permissionMode ? { permissionMode: push.permissionMode } : {}),
     ...(push.model ? { model: push.model } : {}),
   }

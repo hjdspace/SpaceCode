@@ -78,6 +78,11 @@ export interface SuperAgentSchedulerOptions {
   onPreparingChanged?: (ticketId: string, preparing: boolean) => void
   /** T06 #76：launch 生命周期改变领域事实/派生状态后通知投影同步。 */
   onDomainChanged?: () => void
+  /**
+   * #101：发生在 origin 人消息落成 Input 之后（每次只落一次，guard 去重）。
+   * 受控 reply 的 acknowledgement 需要一个可授权的真人消息 Input，就在这里产生。
+   */
+  onOriginHumanInput?: (ticketId: string, inputId: string) => void
   now?: () => Date
 }
 
@@ -117,6 +122,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     onLaunchError,
     onPreparingChanged,
     onDomainChanged,
+    onOriginHumanInput,
   } = options
 
   /** 策略是持久领域事实：每次调度读取当前值，变更即时生效。 */
@@ -379,7 +385,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       domain.launchAssignment({ assignmentId })
       const origin = state.triggers[ticket.origin.triggerId]
       if (origin.human && !ticket.inputIds.some((id) => state.inputs[id]?.triggerId === origin.triggerId)) {
-        domain.addInput({
+        const added = domain.addInput({
           ticketId,
           requestId: `worker-origin:${ticketId}`,
           kind: 'trigger',
@@ -387,6 +393,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
           triggerId: origin.triggerId,
           text: origin.text,
         })
+        onOriginHumanInput?.(ticketId, added.input.inputId)
       }
       if (slot) slot.dirty = workerWorkspace.dirty
       // 已回报 assignmentStarted：preparing 子态结束，卡片回到领域阶段
