@@ -89,7 +89,7 @@ import { useI18n } from 'vue-i18n'
 import { HardHat } from 'lucide-vue-next'
 import AgentTimeline from '@/components/chat/AgentTimeline.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
-import { useAppStore, workerTicketId } from '@/stores/app'
+import { useAppStore, workerTabData } from '@/stores/app'
 import { useSuperAgentStore } from '@/stores/superAgent'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { createUuid } from '@/utils/uuid'
@@ -100,9 +100,15 @@ const superAgentStore = useSuperAgentStore()
 const chatStore = useChatSessionStore()
 
 /** 当前激活的 worker 标签对应的 ticketId；非 worker 标签为 null。 */
-const ticketId = computed<string | null>(() => workerTicketId(appStore.activeInfoTab))
+const tabData = computed(() => workerTabData(appStore.activeInfoTab))
+const ticketId = computed<string | null>(() => tabData.value?.ticketId ?? null)
 
-const repoRoot = computed(() => appStore.projectRoot)
+/**
+ * 标签自带的项目根，而不是实时项目指针：这张工单在哪个项目里打开就一直在那里寻址。
+ * 中置页切到别的项目后，旧项目的 Worker 标签若跟着新根去 bind，等于拿不存在的
+ * ticketId 敲另一个项目的门。
+ */
+const repoRoot = computed<string | null>(() => tabData.value?.repoRoot ?? null)
 
 const mirror = computed(() => {
   const id = ticketId.value
