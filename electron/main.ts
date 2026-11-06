@@ -149,6 +149,44 @@ earlyLog('Process started')
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged
 
 // ============================================================
+// Single Instance Guard
+// ============================================================
+
+/**
+ * 会话索引与项目根存在渲染层 localStorage 里，而它落在 userData 分区的同一份
+ * LevelDB 上 —— 同一 userData 只允许一个进程写。第二个实例里的持久化会整批写不
+ * 出去（也不报错），用户看到的症状就是「上次打开的项目和会话，重启后不见了」。
+ * 第二次启动的意图几乎总是「回到那个窗口」，所以聚焦已有实例并退出。
+ *
+ * 只认主进程：`ELECTRON_RUN_AS_NODE` 拉起的子进程（代理、内部引擎、pi CLI）不加载
+ * 本模块，不会来抢这把锁。
+ */
+const acquiredSingleInstance = app.requestSingleInstanceLock()
+if (!acquiredSingleInstance) {
+  earlyLog('Another instance owns this userData | exiting in favour of it')
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const existing = getMainWindow()
+    if (existing) {
+      if (existing.isMinimized()) existing.restore()
+      if (!existing.isVisible()) existing.show()
+      existing.focus()
+      info('App', `Second launch focused existing window | pid=${process.pid}`)
+      return
+    }
+    // 首个实例还在启动中 —— 它自己马上会建窗口，这里再建就是两个窗口。
+    if (!app.isReady()) return
+    // 首个实例还活着但窗口已经关了。这时第二次启动必须把窗口拉回来，否则用户看到的
+    // 是「点了没反应」，只能去任务管理器杀进程。
+    info('App', 'Second launch with no main window | recreating')
+    import('./windows/menu').then(({ createMenu }) => {
+      createWindow(terminalManager, createMenu)
+    })
+  })
+}
+
+// ============================================================
 // Environment
 // ============================================================
 let envPath: string
@@ -196,6 +234,9 @@ let superAgentService: SuperAgentService | null = null
 // App Lifecycle
 // ============================================================
 app.whenReady().then(async () => {
+  // 没拿到锁的进程此刻已经在退出路上。这里再建窗口和服务，等于把同一份 userData 的
+  // 第二条 localStorage 写入通路重新打开 —— 那正是本次要堵掉的丢数据源头。
+  if (!acquiredSingleInstance) return
   initLogger()
   info('Startup', `App ready | elapsed=${Date.now() - startTime}ms | isDev=${isDev} | isPackaged=${app.isPackaged} | debugMode=${isDebugMode()}`)
 
