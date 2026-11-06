@@ -805,7 +805,7 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     wrapper.unmount()
   })
 
-  it('卡片归属最近的之前 assistant group，更新及新闲聊不移位、不重复，缺历史时 append', async () => {
+  it('卡片归属最近的之前 assistant group，更新及新闲聊不移位、不重复；早于对话的旧单钳到最早回复，历史全缺时才 append', async () => {
     const history = reactive<Message[]>([
       { id: 'u1', role: 'user', content: '修复登录', timestamp: Date.parse('2026-01-01T00:00:00Z') },
       { id: 'a1', role: 'assistant', content: '正在派工', timestamp: Date.parse('2026-01-01T00:00:01Z') },
@@ -826,7 +826,8 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     const firstReply = wrapper.get('[data-minimap-id="a1"]')
     const firstCard = firstReply.get('[data-testid="worker-task-card"]')
     expect(firstCard.text()).toContain('修复登录')
-    expect(firstReply.findAll('[data-testid="worker-task-card"]')).toHaveLength(1)
+    // 两条：属于这一轮的「修复登录」，加上钳到最早回复的那张历史工单
+    expect(firstReply.findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
     expect(wrapper.get('[data-minimap-id="a2"]').get('[data-testid="worker-task-card"]').text()).toContain('修复注册')
     expect(firstReply.element.lastElementChild?.textContent).toContain('修复登录')
 
@@ -842,8 +843,10 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     expect(wrapper.get('[data-minimap-id="a3"]').find('[data-testid="worker-task-card"]').exists()).toBe(false)
     const cards = wrapper.findAll('[data-testid="worker-task-card"]')
     expect(cards).toHaveLength(3)
-    expect(cards[2].text()).toContain('历史工单')
-    expect(cards[2].element.closest('.minimap-anchor')).toBeNull()
+    // 早于整段对话的旧单不再钉在末尾：那等于宣称最新这条回复刚产出了一张旧单。
+    // 它跟着 createdAt 落到最早的助手回复里，卡片顺序与时间顺序一致。
+    const historic = cards.find(card => card.text().includes('历史工单'))
+    expect(historic?.element.closest('.minimap-anchor')?.getAttribute('data-minimap-id')).toBe('a1')
 
     // 清空/缺失全部会话历史，工单仍可通过 fallback 打开。
     history.splice(0)
