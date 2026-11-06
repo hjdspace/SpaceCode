@@ -34,7 +34,7 @@
 10. 作为用户，Worker 提问（Attention）时我想以非模态气泡看到问题并就地回答；相同问题只提醒一次，回答后折叠并保留审计；被替换的问题撤回旧气泡。
 11. 作为用户，工单进入待验收（ready）时，我想在卡片上直接操作「接受验收 / 继续追问 / 停止」；超时只有提醒（气泡 + 徽章 + 状态条），不弹窗、不自动完成，状态保持待验收。
 12. 作为用户，blocked/failed 后我的人工消息要复用原执行（不换代次、不换分段），自动输入（bot/CI/Router note）在此期间只落库不投递。
-13. 作为用户，只有 open 且处于投递失败/受阻/失败三个阶段时才出现「重试」；重试与崩溃恢复才产生新一代执行。
+13. 作为用户，只有 open 且处于投递失败/受阻/失败三个阶段时才出现「重试」；重试与崩溃恢复才产生新一代执行。Router 侧同样有 `retry` 这个路由动词，我说"重新执行"时它走的是这条出口，与卡片上的「重试」同一条路径；`attach` 只投人消息、不换代次，不能拿来假装重跑。
 14. 作为用户，我想显式停止工单：Mandate 被撤回、后续事件不得自动重开；结束瞬间到达的人消息不被吞掉。
 15. 作为用户，我想在顶部状态条看到运行中/排队/待处理计数、执行策略与新建工单入口，计数与后端状态查询一致。
 
@@ -78,7 +78,7 @@
 
 1. 核心对象与关键字段按方案 §5.1/§5.1.1：Trigger（threads/human/context/channel/disposition）、Thread（subscriptions/context/pending/expired）、Ticket（ended{at,by,outcome,reason}/attention/answers/follows/delivery/undelivered/reviewRemindedAt/execution）、Assignment（assignmentId/generation/state/report{id}/deliveredAt/idleAt）、Input（kind/readAt(null=已到未取)/deliveredTo）、Mandate（strength/policyVersion/basis）、Report（state/summary/askedBy/answers）。
 2. Ticket 阶段是派生值（优先级表，方案 §5.2）：最新 Assignment ended 且无新 Input → idle；`ready+question`、`answers` 未认领、Attention 替换等校验按 §5.4 稳定错误码拒绝。
-3. blocked/failed 是输入闸门（waitsForPerson）：期间自动输入只落库；人工消息、重试或新 Report 才解除。解除时**复用原 Assignment**（不新建、generation 不递增、不新开分段）。
+3. blocked/failed 是输入闸门（waitsForPerson）：期间自动输入只落库；人工消息、重试或新 Report 才解除。解除时**复用原 Assignment**（不新建、generation 不递增、不新开分段）。**没送到执行方的人消息（status 仍为 pending/failed）不算解除** —— 代次已 interrupted/ended 时它只是一条死信，把它算成"人已经说过了"会刷出一个没有进程在跑的 working，并把重试入口一起抹掉。
 4. 结束迁移清理 Attention/delivery 并释放未裁决人消息（回流 Eval）；`dropped` 可自动结束，其余只有 ticketAccept→completed、ticketStop→stopped；Phase 2 增加 merged/closed（按 Thread 关闭结束，不改优先级表）。
 5. 幂等：Source 事件键、UI requestId、Report 的 assignmentId+reportId、Outbox messageId；重复事实返回原结果。
 6. review 超时提醒：scheduled effect，`reviewReminderHours` 项目级配置（默认提案 24h，待确认）、首次到点一次、之后每日一次、`reviewRemindedAt` 落盘、重启不补发、不改变阶段不自动 accept。
