@@ -418,3 +418,60 @@ describe('createSuperAgentExecutor stop and settle', () => {
     await launched
   })
 })
+
+describe('createSuperAgentExecutor background work (#104)', () => {
+  it('keeps the launch promise (slot) until the background hold is released', async () => {
+    const handoffs: string[] = []
+    const { executor, fake } = makeExecutor({
+      hasBackgroundWork: () => true,
+      onBackgroundHandoff: (ticketId) => handoffs.push(ticketId),
+    })
+    const launched = executor.launch(launchRequest())
+    await flush()
+    const sessionId = fake.started[0]!.sessionId
+
+    fake.emit(sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
+    })
+    await flush()
+    // turn 已结束，但后台作业还占槽：run 仍 active，launch 未落定。
+    expect(executor.isRunning('ticket-1')).toBe(true)
+    expect(handoffs).toEqual([])
+
+    expect(executor.releaseBackgroundHold('ticket-1')).toBe(true)
+    expect(handoffs).toEqual(['ticket-1'])
+    await launched
+    expect(executor.isRunning('ticket-1')).toBe(false)
+    // 幂等：再释放不会重复 handoff。
+    expect(executor.releaseBackgroundHold('ticket-1')).toBe(false)
+  })
+
+  it('forwards background job events from the engine before turn-end handling', async () => {
+    const jobs: Parameters<NonNullable<SuperAgentExecutorHooks['onBackgroundJob']>>[0][] = []
+    const { executor, fake } = makeExecutor({ onBackgroundJob: (context) => jobs.push(context) })
+    const launched = executor.launch(launchRequest())
+    await flush()
+    const sessionId = fake.started[0]!.sessionId
+
+    fake.emit(sessionId, 'tool_use', { id: 'toolu_1', name: 'Bash', input: { run_in_background: true } })
+    fake.emit(sessionId, 'tool_result', {
+      tool_use_id: 'toolu_1',
+      content: 'Command running in background with ID: bash_1',
+    })
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]).toMatchObject({
+      ticketId: 'ticket-1',
+      assignmentId: 'assignment-1',
+      sessionId,
+      event: { action: 'register', jobId: 'bash_1', kind: 'shell' },
+    })
+
+    fake.emit(sessionId, 'system', { subtype: 'task_notification', task_id: 'bash_1', output: 'done' })
+    expect(jobs[1]).toMatchObject({ event: { action: 'complete', jobId: 'bash_1', kind: 'shell' } })
+
+    fake.emit(sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
+    })
+    await launched
+  })
+})

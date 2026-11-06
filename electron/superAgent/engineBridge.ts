@@ -84,6 +84,8 @@ export interface SuperAgentEngineBridge {
    * 不传 updatedInput：保持模型原始工具入参，避免空对象覆盖原请求。
    */
   allowPermission(sessionId: string, requestId: string): Promise<void>
+  /** #104：中止一个后台作业（shell 超时 / Assignment 结束清理）。 */
+  stopEngineTask(sessionId: string, taskId: string): Promise<void>
   /**
    * 把输入框选的模型名解析成该引擎认的值。
    *
@@ -132,6 +134,7 @@ export const defaultSuperAgentEngineBridge: SuperAgentEngineBridge = {
     engineGateway.denyPermission(sessionId, requestId, message, options),
   allowPermission: (sessionId, requestId) =>
     engineGateway.allowPermission(sessionId, requestId),
+  stopEngineTask: (sessionId, taskId) => engineGateway.stopEngineTask(sessionId, taskId),
   resolveModelAlias: (modelValue, engineType) => resolveEngineModelAlias(modelValue, engineType),
   onRouteEvent: (listener) => EngineFactory.onRouteEvent(listener),
   pushUserMessage: pushUserMessageToRenderer,

@@ -32,6 +32,12 @@ export interface FakePermissionAllowance {
   requestId: string
 }
 
+/** 被宿主中止的后台作业（#104）。 */
+export interface FakeEngineTaskStop {
+  sessionId: string
+  taskId: string
+}
+
 export interface FakeBridge {
   bridge: SuperAgentEngineBridge
   started: FakeBridgeCall[]
@@ -40,6 +46,8 @@ export interface FakeBridge {
   stopped: string[]
   allowed: FakePermissionAllowance[]
   denied: FakePermissionDenial[]
+  /** #104：stopEngineTask 调用记录。 */
+  stoppedTasks: FakeEngineTaskStop[]
   pushed: SuperAgentUserPush[]
   /** startSession 的失败注入：一次性的，用完即清。 */
   failNextStart: Error | null
@@ -81,6 +89,9 @@ export function createFakeBridge(): FakeBridge {
       allowPermission: async (sessionId, requestId) => {
         fake.allowed.push({ sessionId, requestId })
       },
+      stopEngineTask: async (sessionId, taskId) => {
+        fake.stoppedTasks.push({ sessionId, taskId })
+      },
       resolveModelAlias: (modelValue) => modelValue,
       onRouteEvent: (listener) => {
         listeners.push(listener)
@@ -99,6 +110,7 @@ export function createFakeBridge(): FakeBridge {
     stopped: [],
     allowed: [],
     denied: [],
+    stoppedTasks: [],
     pushed: [],
     failNextStart: null,
     failNextSend: null,

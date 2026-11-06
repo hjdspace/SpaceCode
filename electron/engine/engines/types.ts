@@ -150,6 +150,24 @@ export type PermissionDecision =
       decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
     }
 
+/** #104：引擎侧会话级作业快照（能力接缝）。 */
+export interface EngineSessionJobInfo {
+  jobId: string
+  kind: 'shell' | 'subagent'
+  state: 'running' | 'completed' | 'unknown'
+  outputPath?: string | null
+  startedAt?: string | null
+}
+
+export interface EngineSessionJobsSnapshot {
+  /**
+   * false = 该引擎没有作业枚举能力，`jobs` 为空表示「未知」而不是「0 个」。
+   * 宿主侧只能如实转述，不得把未知写成 0（#104）。
+   */
+  available: boolean
+  jobs: EngineSessionJobInfo[]
+}
+
 export interface IEngine {
   readonly type: EngineType
   startSession(sessionId: string, config: EngineSessionConfig): Promise<void>
@@ -187,6 +205,8 @@ export interface IEngine {
   getContextUsage?(sessionId: string): Promise<Record<string, unknown> | undefined>
   getSettings?(sessionId: string): Promise<Record<string, unknown> | undefined>
   stopEngineTask?(sessionId: string, taskId: string): Promise<void>
+  /** 引擎若真能枚举会话级后台作业就实现它；没有能力时由 Gateway 如实答 unknown。 */
+  getSessionJobs?(sessionId: string): EngineSessionJobsSnapshot
   getPendingPermissionRequestIds?(sessionId: string): string[]
   /**
    * 应答一条在飞的扩展对话框（pi 的 `extension_ui_request`）。它不带 toolUseId，

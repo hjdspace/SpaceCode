@@ -23,6 +23,11 @@ import type { SuperAgentEngineBridge } from './engineBridge'
 import { superAgentWorkerEngineSessionId } from './sessionId'
 import type { WorkerLaunchRequest } from './scheduler'
 import type { SuperAgentReportKind } from './model'
+import {
+  classifySuperAgentBackgroundEvent,
+  type SuperAgentBackgroundJobEvent,
+  type SuperAgentBackgroundJobKind,
+} from './backgroundJobs'
 import type {
   SuperAgentWorkerDeliveryOutcome,
   SuperAgentWorkerDeliveryRequest,
@@ -67,6 +72,20 @@ export interface SuperAgentExecutorHooks {
   onPermissionRequest?(context: SuperAgentPermissionRequestContext): void
   /** 引擎撤回权限请求（中止/进程退出等）：对应 Attention 撤回，不留下永久气泡。 */
   onPermissionCancelled?(context: SuperAgentPermissionCancelledContext): void
+  /** #104：引擎事件里识别出的后台作业登记/完成，交给 BackgroundJobs 注册表。 */
+  onBackgroundJob?(context: {
+    ticketId: string
+    assignmentId: string
+    sessionId: string
+    event: SuperAgentBackgroundJobEvent
+  }): void
+  /**
+   * #104：turn 结束时是否仍有占槽后台工作。为 true 时这一轮的 launch promise
+   * 不落定（槽位不释放），等注册表通知 `releaseBackgroundHold` 再收尾。
+   */
+  hasBackgroundWork?(ticketId: string): boolean
+  /** #104：即将交还槽位前的通知（service 借此调 scheduler.handoff）。 */
+  onBackgroundHandoff?(ticketId: string): void
 }
 
 export interface SuperAgentExecutorOptions {
@@ -92,6 +111,10 @@ export interface SuperAgentWorkerRun {
   active: boolean
   /** 首条消息已被接受（失败时用于区分 launch 失败与执行失败）。 */
   started: boolean
+  /** #104：turn 已结束但仍有占槽后台工作，保留活动状态等它收尾。 */
+  awaitingBackground: boolean
+  /** #104：按会话记 toolUseId → 作业类型，用于识别完成帧。 */
+  jobKinds: Map<string, SuperAgentBackgroundJobKind>
   resolve: () => void
   promise: Promise<void>
 }
@@ -150,6 +173,11 @@ export interface SuperAgentExecutor {
   deliver(request: SuperAgentWorkerDeliveryRequest): Promise<SuperAgentWorkerDeliveryOutcome>
   /** 工单停止：先 abort 在跑的一轮，再停会话（transcript 保留）。 */
   stopTicket(ticketId: string): Promise<void>
+  /**
+   * #104：占槽后台工作已收尾，允许这一轮真正落定并交还槽位。
+   * 没有待释放的 hold 时返回 false（幂等，供注册表重复通知）。
+   */
+  releaseBackgroundHold(ticketId: string): boolean
   /** 该工单当前是否有活动中的引擎会话（workerMirror.running 的真源）。 */
   isRunning(ticketId: string): boolean
   /** 有界等待在跑 Worker 收尾（shutdown 语义）。 */
@@ -221,17 +249,38 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
           summary: ingestResult.summary,
         })
       }
+      // #104：最终 Report 落地了，但后台作业还在跑时不释放槽位（launch promise 不落定）。
+      // 注册表收尾后会调 releaseBackgroundHold，把这一轮真正结束掉。
+      run.awaitingBackground = false
+      if (hooks.hasBackgroundWork?.(run.ticketId) === true) {
+        run.awaitingBackground = true
+        return
+      }
+      hooks.onBackgroundHandoff?.(run.ticketId)
       finish(run)
       return
     }
     // 只有 progress（或没有 Report）：这一轮已经结束，槽位不能白占。
+    run.awaitingBackground = false
     hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text, code: 'reportMissing' })
     finish(run)
   }
 
   const unsubscribe = bridge.onRouteEvent((sessionId, eventType, data) => {
     const run = runs.get(sessionId)
-    if (!run || !run.active) return
+    if (!run) return
+    // #104：后台作业事件要先于 active 判定处理 —— turn 已收尾但被 hold 住的会话
+    // 仍要能收到完成帧（shell 完成即唤醒、subagent 完成即释放 hold）。
+    const jobEvents = classifySuperAgentBackgroundEvent(eventType, data, run.jobKinds)
+    for (const event of jobEvents) {
+      hooks.onBackgroundJob?.({
+        ticketId: run.ticketId,
+        assignmentId: run.assignmentId,
+        sessionId: run.sessionId,
+        event,
+      })
+    }
+    if (!run.active) return
     if (eventType === 'result') {
       handleTurnEnd(run, resultText(data))
     } else if (eventType === 'permission_request') {
@@ -294,6 +343,8 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         repoRoot: request.repoRoot,
         active: true,
         started: false,
+        awaitingBackground: false,
+        jobKinds: new Map(),
         resolve: resolveLaunch,
         promise,
       }
@@ -371,6 +422,15 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         // 停不掉只留日志痕迹：领域已经 stopped，进程随池回收
       }
       finish(run)
+    },
+
+    releaseBackgroundHold(ticketId: string): boolean {
+      const run = byTicket.get(ticketId)
+      if (!run || !run.active || !run.awaitingBackground) return false
+      run.awaitingBackground = false
+      hooks.onBackgroundHandoff?.(ticketId)
+      finish(run)
+      return true
     },
 
     isRunning(ticketId: string): boolean {

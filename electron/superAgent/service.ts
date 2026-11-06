@@ -178,6 +178,13 @@ import {
   type SuperAgentExecutorIngestResult,
 } from './executor'
 import {
+  createSuperAgentBackgroundJobs,
+  readBackgroundOutputTail,
+  type SuperAgentBackgroundJob,
+  type SuperAgentBackgroundJobs,
+  type SuperAgentBackgroundTimeout,
+} from './backgroundJobs'
+import {
   createSuperAgentRouterRunner,
   type SuperAgentRouterRunner,
 } from './routerRunner'
@@ -227,6 +234,13 @@ interface ProjectState {
   takeover: { ticketId: string; at: string } | null
   /** T10 #80：review 超时提醒引擎（持久水位 + 周期扫描）。 */
   reviewReminder: SuperAgentReviewReminder
+  /**
+   * #104：Worker 后台作业注册表（turn 结束后的槽位保留、30 分钟上限、完成唤醒）。
+   * 真源是引擎事件（引擎无枚举能力时如实 unknown，见 backgroundJobs.ts 的能力边界）。
+   */
+  backgroundJobs: SuperAgentBackgroundJobs
+  /** #104：刚投递完成后台完成 Input、等新 turn 收尾的工单（防提前释放 hold）。 */
+  pendingBackgroundWake: Set<string>
   /**
    * T18 #88：Outbox durable Effect runner。channel 接缝未配置时为 null
    * （消息仍可入列持久化，Channel 适配器接入后续做）。
@@ -291,6 +305,11 @@ export interface SuperAgentServiceOptions {
    * now/sweepIntervalMs 是测试注入接缝。
    */
   reviewReminder?: { hours?: number; now?: () => Date; sweepIntervalMs?: number }
+  /**
+   * #104：后台作业上限/清扫配置。默认 30 分钟常量（设计 §7.2）；now/maxAgeMs/
+   * sweepIntervalMs 是测试注入接缝，不暴露 UI 开关 —— 取值理由见 backgroundJobs.ts。
+   */
+  backgroundJobs?: { now?: () => number; maxAgeMs?: number; sweepIntervalMs?: number }
   /**
    * T18 #88：Outbox durable Effect 配置。channel 为投递通道接缝（Desktop/
    * IM/GitHub），未提供时不建 runner（消息仍可入列持久化，接入后续做）；
@@ -837,6 +856,41 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         // #99：候选到达即尝试建批；没有 Router（未接引擎）时由 evalDriver 为 null 忽略。
         projects.get(repoRoot)?.evalDriver?.pump()
       })
+      // #104：后台作业注册表 —— 作业事件由 Executor 识别、这里落生命周期。
+      // 引擎没有枚举能力（Gateway 答 unknown），所以注册表只认引擎事件证明过的作业。
+      const backgroundJobs = createSuperAgentBackgroundJobs({
+        now: options.backgroundJobs?.now,
+        maxAgeMs: options.backgroundJobs?.maxAgeMs,
+        sweepIntervalMs: options.backgroundJobs?.sweepIntervalMs,
+        onKill: (job) => {
+          const current = project
+          if (!options.bridge || !current) return
+          void options.bridge.stopEngineTask(job.sessionId, job.jobId).catch(() => {
+            current.health.recordFailure('effect:launch', {
+              code: 'backgroundJobKillFailed',
+              ticketId: job.ticketId,
+            })
+          })
+        },
+        onCompleted: (job) => {
+          const current = project
+          if (!current) return
+          // shell 完成 → 新 Input 唤醒；函数体在首个 await 前同步登记 pending 标记，
+          // 让紧接着的 onDrained 不提前释放 Executor 的 hold。
+          void wakeWorkerForBackgroundCompletion(repoRoot, current, job)
+        },
+        onTimeout: (event) => {
+          const current = project
+          if (!current) return
+          reportBackgroundTimeout(current, event)
+        },
+        onDrained: (ticketId) => {
+          const current = project
+          if (!current) return
+          if (current.pendingBackgroundWake.has(ticketId)) return
+          current.executor?.releaseBackgroundHold(ticketId)
+        },
+      })
       project = {
         seq: 0,
         router: null,
@@ -848,6 +902,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         observedWorkers: new Set(),
         takeover: null,
         reviewReminder,
+        backgroundJobs,
+        pendingBackgroundWake: new Set(),
         outbox,
         store,
         phase: 'open',
@@ -865,6 +921,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       sourceIngestor?.start()
       // 持久化 scheduled effect：项目一落地即开始周期扫描（含一次即时重建扫描）
       reviewReminder.start()
+      // #104：后台作业周期扫描（30 分钟上限）随项目启动。
+      backgroundJobs.start()
       // T18 #88：Outbox 落地即续做 —— pending 消息重启后立即恢复投递
       outbox?.start()
       // T11 #81：恢复续跑 —— 持久化项目启动即补跑队列（busy 恢复代次与
@@ -977,6 +1035,17 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     })
     project.projector.sync()
     project.attentionProjector.sync()
+    // #104：Assignment 结束 —— 不再接受新作业冠名，shell 中止、subagent 释放。
+    const latest = latestAssignmentOf(
+      (project.domain.state.tickets[command.ticketId]?.assignmentIds ?? [])
+        .map((assignmentId) => project.domain.state.assignments[assignmentId])
+        .filter((assignment) => assignment !== undefined),
+    )
+    project.backgroundJobs.endAssignment({
+      ticketId: command.ticketId,
+      assignmentId: latest?.assignmentId ?? null,
+    })
+    project.pendingBackgroundWake.delete(command.ticketId)
     void project.executor?.stopTicket(command.ticketId).catch(() => {
       project.health.recordFailure('effect:launch', {
         code: 'engineLaunchFailed',
@@ -1084,6 +1153,17 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     if (!project.domain.state.tickets[command.ticketId]) {
       throw superAgentError('ticketNotFound', { ticketId: command.ticketId })
     }
+    // #104：旧 Assignment 结束（释放旧代次后台作业），再开新一代。
+    const latest = latestAssignmentOf(
+      (project.domain.state.tickets[command.ticketId]?.assignmentIds ?? [])
+        .map((assignmentId) => project.domain.state.assignments[assignmentId])
+        .filter((assignment) => assignment !== undefined),
+    )
+    project.backgroundJobs.endAssignment({
+      ticketId: command.ticketId,
+      assignmentId: latest?.assignmentId ?? null,
+    })
+    project.pendingBackgroundWake.delete(command.ticketId)
     project.scheduler.retry({ ticketId: command.ticketId })
   }
 
@@ -1157,6 +1237,14 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     })
     if (parsed.progress) {
       project.projector.recordProgress(assignment.ticketId, parsed.progress)
+    }
+    // #104：一次 turn 已产出 Report → 唤醒轮收尾，不再阻止 hold 释放；
+    // 最终（handoff）Report 同时是后台作业 30 分钟上限的起算点。
+    if (!result.duplicate) {
+      project.pendingBackgroundWake.delete(assignment.ticketId)
+      if (isSuperAgentHandoffReport(result.report.kind)) {
+        project.backgroundJobs.markTurnEnded(assignment.ticketId, result.report.kind)
+      }
     }
     // Report 是领域事实：卡片即时投影（现有卡片原位更新，不重复发气泡）
     project.projector.sync()
@@ -1375,6 +1463,15 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             void project.scheduler.acquireForPermissionAnswer(context.ticketId)
             project.attentionProjector.sync()
           },
+          // #104：引擎事件 → 后台作业注册表（注册/完成；未知工单由注册表忽略）。
+          onBackgroundJob: (context) => {
+            project.backgroundJobs.apply(context)
+          },
+          // #104：turn 结束仍占槽的后台作业 → Executor 保留活动状态；收尾时再 handoff。
+          hasBackgroundWork: (ticketId) => project.backgroundJobs.hasBackgroundWork(ticketId),
+          onBackgroundHandoff: (ticketId) => {
+            project.scheduler.handoff(ticketId, { turnEnded: true, backgroundWork: false })
+          },
         },
       })
     }
@@ -1564,6 +1661,144 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   }
 
   /**
+   * #104：后台 shell 作业完成 → 转成该工单的新 Input，经既有投递/闸门路径唤醒。
+   *
+   * 只在外层 `working`/`idle` 阶段唤醒：review/answer 归人，后台结果只留审计；
+   * 迟到完成（Assignment 已结束）在注册表层已被忽略，不会走到这里。
+   */
+  async function wakeWorkerForBackgroundCompletion(
+    repoRoot: string,
+    project: ProjectState,
+    job: SuperAgentBackgroundJob,
+  ): Promise<void> {
+    const ticket = project.domain.state.tickets[job.ticketId]
+    if (!ticket || ticket.state !== 'open') return
+    const latest = latestAssignmentOf(
+      ticket.assignmentIds
+        .map((assignmentId) => project.domain.state.assignments[assignmentId])
+        .filter((assignment) => assignment !== undefined),
+    )
+    if (!latest || latest.state !== 'running') return
+    const stage = project.domain.stageOf(job.ticketId)
+    if (stage !== 'working' && stage !== 'idle') return
+
+    const requestId = `background:${job.jobId}`
+    const outputTail = job.outputTail ?? readBackgroundOutputTail(job.outputPath)
+    const text = [
+      '[后台作业完成]',
+      `作业 ${job.jobId}（${job.kind === 'shell' ? '后台 shell' : 'subagent'}）已结束。`,
+      outputTail
+        ? `最后输出摘录：${outputTail}`
+        : '没有可用的输出摘录；如需细节请用引擎的作业输出工具查看。',
+      '请据此继续本工单；需要汇报时仍按 super-agent:report 围栏输出。',
+    ].join('\n')
+    let added: AddInputResult
+    try {
+      added = project.domain.addInput({
+        ticketId: job.ticketId,
+        requestId,
+        kind: 'note',
+        human: false,
+        text,
+      })
+    } catch {
+      // 工单已结束/闸门锁死：不唤醒，也不猜投递成功。
+      return
+    }
+    project.projector.sync()
+    project.attentionProjector.sync()
+    if (!added.delivered && !added.duplicate) return
+
+    // 首个 await 之前同步登记：紧接着的 onDrained 不能提前释放 Executor 的 hold。
+    project.pendingBackgroundWake.add(job.ticketId)
+    const result = await settleWorkerInputDelivery(
+      repoRoot,
+      project,
+      { ticketId: job.ticketId, requestId, text },
+      added,
+    )
+    if (!result.delivered) {
+      // 没投出去就没有新 turn 会来收尾，立刻释放 hold 并把槽位还回去。
+      project.pendingBackgroundWake.delete(job.ticketId)
+      project.executor?.releaseBackgroundHold(job.ticketId)
+    }
+  }
+
+  /**
+   * #104：30 分钟上限的落账 —— 中止 shell 作业、释放 subagent，并让工单报 waiting。
+   * 只有「等后台工作」的 waiting 报告会被改写成超时说明；review/blocked 归人，不动。
+   */
+  function reportBackgroundTimeout(project: ProjectState, event: SuperAgentBackgroundTimeout): void {
+    project.health.recordFailure('effect:launch', {
+      code: 'backgroundJobTimeout',
+      ticketId: event.ticketId,
+    })
+    const ticket = project.domain.state.tickets[event.ticketId]
+    if (!ticket || ticket.state !== 'open') {
+      project.pendingBackgroundWake.delete(event.ticketId)
+      return
+    }
+    const latest = latestAssignmentOf(
+      ticket.assignmentIds
+        .map((assignmentId) => project.domain.state.assignments[assignmentId])
+        .filter((assignment) => assignment !== undefined),
+    )
+    if (!latest || latest.state !== 'running') {
+      project.pendingBackgroundWake.delete(event.ticketId)
+      project.executor?.releaseBackgroundHold(event.ticketId)
+      return
+    }
+    if (!latest.report || latest.report.kind !== 'waiting') {
+      // 报告不是 waiting（review/blocked 等）时超时只做审计，不把人手上的工单拉走。
+      project.pendingBackgroundWake.delete(event.ticketId)
+      project.executor?.releaseBackgroundHold(event.ticketId)
+      return
+    }
+    const summary = renderBackgroundTimeoutSummary(event)
+    try {
+      project.domain.report({
+        ticketId: event.ticketId,
+        assignmentId: latest.assignmentId,
+        reportId: `background-timeout:${latest.assignmentId}:${event.at}`,
+        kind: 'waiting',
+        summary,
+      })
+    } catch {
+      // 报告竞争失败（例如同一刻被别的出口改过）：审计已留，不硬覆盖。
+    }
+    project.pendingBackgroundWake.delete(event.ticketId)
+    project.projector.sync()
+    project.attentionProjector.sync()
+    project.routerRunner?.relay(
+      renderSuperAgentRouterEvent({
+        ticketId: event.ticketId,
+        title: ticket.title,
+        kind: 'waiting',
+        summary,
+      }),
+    )
+    project.executor?.releaseBackgroundHold(event.ticketId)
+  }
+
+  function renderBackgroundTimeoutSummary(event: SuperAgentBackgroundTimeout): string {
+    const lines = ['后台作业超过 30 分钟上限。']
+    if (event.killed.length > 0) {
+      lines.push(`已中止 shell 作业 ${event.killed.length} 个：`)
+      for (const job of event.killed) {
+        const tail = job.outputTail ?? readBackgroundOutputTail(job.outputPath)
+        lines.push(`- ${job.jobId}${tail ? `：最后输出 ${tail}` : '：未获得输出摘录'}`)
+      }
+    }
+    if (event.released.length > 0) {
+      lines.push(
+        `已释放归属、允许自行收尾的 subagent：${event.released.map((job) => job.jobId).join(', ')}。`,
+      )
+    }
+    lines.push('请检查上述作业结果后继续或结束本工单。')
+    return lines.join('\n')
+  }
+
+  /**
    * 投递接缝：注入的 fake 优先（测试），否则用本项目的 Executor。
    * 两者都没有（Executor 尚未接线）才返回 null —— 输入只落库不假投。
    */
@@ -1603,6 +1838,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         if (outcome === 'accepted') {
           // 接受事实落盘后才标 delivered（重投成功时从 pending 转回 delivered）
           project.domain.deliverInput({ inputId: added.input.inputId })
+          // #104：新 turn 由这条消息开始，后台作业的 30 分钟计时从下一次 turn 结束再起算。
+          project.backgroundJobs.markTurnStarted(command.ticketId)
         } else if (outcome === 'notAccepted') {
           // 可证明未接受：已投出的（delivered）退回 pending；重投路径本来就是
           // pending 的保持不动（requeueInput 只接受 delivered → pending）
@@ -1734,6 +1971,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     project.phase = 'draining'
     // 2. 停止周期扫描类 scheduled effect
     project.reviewReminder.stop()
+    project.backgroundJobs.stop()
     project.evalDriver?.stop()
     if (project.outbox) project.outbox.stop()
     // T24 #93：Source 轮询同样是周期 effect —— 显式 shutdown 立即停止；
