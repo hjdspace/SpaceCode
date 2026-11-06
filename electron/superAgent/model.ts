@@ -190,6 +190,7 @@ export interface SuperAgentTicket {
     name: string
     directory: string
     assignmentId: string | null
+    model?: string
   }
   /** 跟随的 Thread（如 PR），只补上下文。 */
   follows: string[]
