@@ -30,6 +30,15 @@ export const SUPER_AGENT_PREFIX = 'super-agent:'
  */
 export const SUPER_AGENT_ROUTE_FENCE = 'super-agent:route'
 
+/**
+ * Super Agent 自己拥有的会话种类。
+ *
+ * 这两类会话由主进程派生 id 并驱动，不是人发起的普通聊天，因此不得出现在侧边栏
+ * 会话列表（见 docs/design/super-agent-implementation-plan.md 的 Router 可见性）。
+ * 谁创建会话谁贴标签：推送通路与 JSONL 恢复通路都带这个字段，渲染层据此登记类型。
+ */
+export type SuperAgentSessionKind = 'superAgent' | 'superAgentWorker'
+
 /** Router 会话的只读投影。T01 只有身份与运行状态，转录等内容留给后续阶段。 */
 export interface SuperAgentRouterState {
   sessionId: string
