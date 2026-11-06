@@ -620,13 +620,18 @@ function escapeHtml(text: string): string {
 }
 
 // ── 行滚动与闪烁 ──────────────────────────────────────────────────
+// scrollToLine 后延迟同步视口的定时器; 必须在卸载时清理, 否则会在组件
+// (及测试环境)销毁后触发 onScroll, 产生跨生命周期的悬挂回调。
+let scrollSyncTimer: ReturnType<typeof setTimeout> | null = null
+
 function scrollToLine(lineNumber: number) {
   nextTick(() => {
     const container = codeContainer.value
     if (!container) return
     const targetTop = (lineNumber - 1) * LINE_HEIGHT - container.clientHeight / 3
     container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
-    setTimeout(() => onScroll(), 100)
+    if (scrollSyncTimer) clearTimeout(scrollSyncTimer)
+    scrollSyncTimer = setTimeout(() => onScroll(), 100)
   })
 }
 
@@ -927,6 +932,7 @@ onBeforeUnmount(() => {
   unregisterSelectionHost?.()
   if (searchDebounce) clearTimeout(searchDebounce)
   if (flashTimer) clearTimeout(flashTimer)
+  if (scrollSyncTimer) clearTimeout(scrollSyncTimer)
   if (scrollRaf) cancelAnimationFrame(scrollRaf)
   if (searchOnScrollDebounce) clearTimeout(searchOnScrollDebounce)
   resizeObserver?.disconnect()
