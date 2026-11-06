@@ -45,7 +45,7 @@ function defaultFeishuCredentials(): FeishuImCredentials {
 }
 
 /** 复用既有 gh CLI 登录态；未安装/未登录时返回 null，由装配层报凭据缺失。 */
-function defaultGithubToken(): string | null {
+export function loadGithubCliToken(): string | null {
   try {
     const stdout = execFileSync(process.platform === 'win32' ? 'gh.exe' : 'gh', ['auth', 'token'], {
       encoding: 'utf8',
@@ -85,7 +85,7 @@ function buildGithubPr(options: BuildExternalSourcesOptions): ExternalSource {
   if (!github) {
     throw superAgentError('sourceConfigInvalid', { source: GITHUB_PR_SOURCE_ID })
   }
-  const token = (options.loadGithubToken ?? defaultGithubToken)()
+  const token = (options.loadGithubToken ?? loadGithubCliToken)()
   if (token === null || token.trim() === '') {
     throw superAgentError('sourceCredentialsMissing', { source: GITHUB_PR_SOURCE_ID })
   }

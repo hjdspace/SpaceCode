@@ -61,6 +61,14 @@ export interface FeishuSendResult {
   message_id: string
 }
 
+/** 飞书 API 返回非 0 code 时的错误，保留 code 供调用方区分永久失败与瞬时失败。 */
+export class FeishuApiError extends Error {
+  constructor(message: string, readonly code: number) {
+    super(message)
+    this.name = 'FeishuApiError'
+  }
+}
+
 export interface CardElement {
   tag: string
   [key: string]: unknown
@@ -138,6 +146,29 @@ export class FeishuBot {
       msg_type: 'text',
       receive_id: receiveId,
     })
+    return { message_id: result.message_id }
+  }
+
+  /**
+   * 回复指定消息；`replyInThread` 时以话题形式回复。
+   * `idempotencyKey` 映射到飞书的 `uuid`：相同 key 的重复请求只会产生一条回复。
+   */
+  async replyTextMessage(
+    messageId: string,
+    text: string,
+    opts?: { replyInThread?: boolean; idempotencyKey?: string },
+  ): Promise<FeishuSendResult> {
+    const params: Record<string, unknown> = {
+      content: JSON.stringify({ text }),
+      msg_type: 'text',
+      reply_in_thread: opts?.replyInThread ?? false,
+    }
+    if (opts?.idempotencyKey) params.uuid = opts.idempotencyKey
+    const result = await this.request(
+      'POST',
+      `/im/v1/messages/${encodeURIComponent(messageId)}/reply`,
+      params,
+    )
     return { message_id: result.message_id }
   }
 
@@ -320,7 +351,10 @@ export class FeishuBot {
       const data = await res.json()
 
       if (data.code !== 0) {
-        throw new Error(`Feishu API error: ${data.msg ?? 'unknown'} (code: ${data.code})`)
+        throw new FeishuApiError(
+          `Feishu API error: ${data.msg ?? 'unknown'} (code: ${data.code})`,
+          Number(data.code),
+        )
       }
 
       return data.data ?? data

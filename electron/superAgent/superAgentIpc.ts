@@ -431,7 +431,8 @@ export function createBroadcastingSuperAgentService(
     onTakeoverChanged: broadcastTakeoverChanged,
     onAttentionEvent: broadcastAttentionEvent,
     // #101：受控 reply 的 desktop 通道 —— 作为 IM 气泡推回 Router 会话
-    outbox: { desktop: true },
+    // #103：外部来源工单的 reply 走飞书 / GitHub，凭据复用既有边界
+    outbox: { desktop: true, external: true },
   })
 }
 

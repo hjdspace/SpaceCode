@@ -135,6 +135,14 @@ import {
   DESKTOP_OUTBOX_CHANNEL,
   createSuperAgentDesktopOutboxChannel,
 } from './desktopChannel'
+import {
+  createDefaultExternalOutboxChannels,
+  createSuperAgentOutboxChannelRouter,
+  type SuperAgentOutboxChannelRegistration,
+} from './outboxChannelRouter'
+import { FEISHU_OUTBOX_CHANNEL_PREFIX } from './feishuChannel'
+import { GITHUB_OUTBOX_CHANNEL_PREFIX } from './githubChannel'
+import { resolveSuperAgentReplyChannel } from './replyTarget'
 import { openPersistedSuperAgentProject } from './persistence'
 import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
 import { projectDirOf, projectKeyOf, type ProjectStore, type ProjectStoreDeps } from './store'
@@ -295,6 +303,14 @@ export interface SuperAgentServiceOptions {
      * 生产入口 `createBroadcastingSuperAgentService` 打开；未启用时不产生 reply。
      */
     desktop?: boolean
+    /**
+     * #103：飞书 / GitHub 外部通道发送器。缺省时由 `external` 决定是否按既有
+     * 凭据边界（electron/im adapters.json、gh CLI）装配；显式 null 表示禁用。
+     */
+    feishu?: SuperAgentOutboxChannel | null
+    github?: SuperAgentOutboxChannel | null
+    /** #103：启用飞书 / GitHub 外部通道（生产入口打开）。 */
+    external?: boolean
     limits?: Partial<SuperAgentOutboxLimits>
     now?: () => Date
     sweepIntervalMs?: number
@@ -762,7 +778,29 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
               },
             })
           : null
-      const outboxChannel = options.outbox?.channel ?? desktopChannel
+      const defaultExternal = options.outbox?.external
+        ? createDefaultExternalOutboxChannels()
+        : null
+      const feishuChannel = options.outbox?.feishu === undefined
+        ? (defaultExternal?.feishu ?? null)
+        : options.outbox.feishu
+      const githubChannel = options.outbox?.github === undefined
+        ? (defaultExternal?.github ?? null)
+        : options.outbox.github
+      const registrations: SuperAgentOutboxChannelRegistration[] = []
+      if (desktopChannel) {
+        registrations.push({ exact: DESKTOP_OUTBOX_CHANNEL, channel: desktopChannel })
+      }
+      if (feishuChannel) {
+        registrations.push({ prefix: FEISHU_OUTBOX_CHANNEL_PREFIX, channel: feishuChannel })
+      }
+      if (githubChannel) {
+        registrations.push({ prefix: GITHUB_OUTBOX_CHANNEL_PREFIX, channel: githubChannel })
+      }
+      const routedChannel = registrations.length > 0
+        ? createSuperAgentOutboxChannelRouter(registrations)
+        : null
+      const outboxChannel = options.outbox?.channel ?? routedChannel
       const outbox = outboxChannel
         ? createSuperAgentOutbox({
             domain,
@@ -1721,8 +1759,11 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   }
 
   /**
-   * #101：受控 reply 的入列点。只在 desktop 通道启用时产生 reply；授权链 /
-   * 竞态拒绝不阻断主流程（记 effect:reply 健康项，便于看板发现异常）。
+   * #101：受控 reply 的入列点。授权链 / 竞态拒绝不阻断主流程（记
+   * effect:reply 健康项，便于看板发现异常）。
+   *
+   * #103：channel 按 reply 目标解析（设计 §6.4）—— ack/answer/attention 回到
+   * 人消息所在会话，result 回到工单发起会话；未启用的通道直接跳过，不误发。
    */
   function enqueueSuperAgentReply(
     repoRoot: string,
@@ -1730,17 +1771,24 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     messageId: string,
     build: (project: ProjectState) => SuperAgentOutboxReplyPayload | null,
   ): void {
-    if (!options.outbox?.desktop) return
     const project = projects.get(repoRoot)
     if (!project?.outbox) return
     if (project.domain.state.outbox[messageId]) return
     const payload = build(project)
     if (!payload) return
+    const ticket = project.domain.state.tickets[ticketId]
+    if (!ticket) return
+    const channel = resolveSuperAgentReplyChannel({
+      ticket,
+      payload,
+      state: project.domain.state,
+    })
+    if (!replyChannelEnabled(channel)) return
     try {
       project.domain.enqueueOutboxMessage({
         messageId,
         ticketId,
-        channel: DESKTOP_OUTBOX_CHANNEL,
+        channel,
         payload,
       })
       project.outbox.pump()
@@ -1748,6 +1796,22 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       if (!(err instanceof SuperAgentDomainError)) throw err
       project.health.recordFailure('effect:reply', { code: err.code, ticketId })
     }
+  }
+
+  function replyChannelEnabled(channel: string): boolean {
+    if (options.outbox?.channel) return true
+    if (channel === DESKTOP_OUTBOX_CHANNEL) return options.outbox?.desktop === true
+    if (channel.startsWith(FEISHU_OUTBOX_CHANNEL_PREFIX)) {
+      return options.outbox?.feishu === undefined
+        ? options.outbox?.external === true
+        : options.outbox.feishu !== null
+    }
+    if (channel.startsWith(GITHUB_OUTBOX_CHANNEL_PREFIX)) {
+      return options.outbox?.github === undefined
+        ? options.outbox?.external === true
+        : options.outbox.github !== null
+    }
+    return false
   }
 
   function superAgentExcerpt(text: string | null | undefined, limit = 80): string {
