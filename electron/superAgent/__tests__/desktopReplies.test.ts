@@ -20,11 +20,11 @@ async function flush(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-function makeService() {
+function makeService(replyLimit = 0) {
   const fake = createFakeBridge()
   const service = createSuperAgentService({
     bridge: fake.bridge,
-    outbox: { desktop: true, limits: { reply: 0 }, sweepIntervalMs: 60_000 },
+    outbox: { desktop: true, limits: { reply: replyLimit }, sweepIntervalMs: 60_000 },
   })
   return { service, fake }
 }
@@ -181,5 +181,35 @@ describe('super agent controlled replies over the desktop outbox', () => {
     const ack = replyOf(service, 'acknowledgement')
     const result = replyOf(service, 'result')
     expect(ack!.ordinal).toBeLessThan(result!.ordinal)
+  })
+
+  it('withdraws an undelivered attention reply instead of delivering a stale question', async () => {
+    const { service, fake } = makeService(60_000)
+    const ticket = await acceptTicket(service, fake, 'req-withdraw', '修登录页', '修复登录页')
+    const ack = replyOf(service, 'acknowledgement')
+
+    service.workerReport(REPO, {
+      text: reportFence({
+        assignmentId: ticket.assignmentId,
+        reportId: 'report-question-3',
+        kind: 'blocked',
+        summary: '等待确认',
+        question: '旧登录入口还要保留吗？',
+        askedBy: ack!.payload.kind === 'reply' ? ack!.payload.inReplyTo : null,
+      }),
+    })
+    await flush()
+
+    // reply 限流把第二条 reply 挡在 pending，构造「未发出的 attention 消息」
+    const attention = replyOf(service, 'attention')
+    expect(attention?.status).toBe('pending')
+
+    service.ticketStop(REPO, { ticketId: ticket.ticketId })
+    await flush()
+
+    const withdrawn = replyOf(service, 'attention')
+    expect(withdrawn?.status).toBe('withdrawn')
+    expect(withdrawn?.withdrawnAt).toBeTruthy()
+    expect(fake.pushed.some((push) => push.messageId === withdrawn!.messageId)).toBe(false)
   })
 })
