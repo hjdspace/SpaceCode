@@ -634,6 +634,38 @@ describe('waitsForPerson', () => {
     expect(waitsForPerson(view)).toBe(false)
   })
 
+  it('stays true when the following human input never reached the worker', () => {
+    // 代次已 interrupted 时 addInput 把消息落成永久 pending。把它算成"人已经说过了"
+    // 会同时骗到两处：闸门被一条没送出去的消息解除，阶段刷成执行中、重试入口消失，
+    // 而现场根本没有进程在跑。
+    const view = facts({
+      assignments: [
+        makeAssignment({
+          state: 'interrupted',
+          endedOrdinal: 25,
+          report: {
+            reportId: 'report-1',
+            assignmentId: 'assignment-1',
+            ticketId: TICKET_ID,
+            ordinal: 30,
+            kind: 'failed',
+            summary: 'broken',
+            at: '2026-01-02T00:00:00.000Z',
+            question: null,
+            askedBy: null,
+            answers: [],
+            details: null,
+            artifacts: [],
+          },
+        }),
+      ],
+      inputs: [makeInput({ ordinal: 31, status: 'pending', deliveredAt: null, deliveredTo: null })],
+    })
+
+    expect(waitsForPerson(view)).toBe(true)
+    expect(deriveTicketStage(view)).toBe('person/failed')
+  })
+
   it('is false for a waiting report and for an ended ticket', () => {
     const waiting = facts({
       assignments: [
