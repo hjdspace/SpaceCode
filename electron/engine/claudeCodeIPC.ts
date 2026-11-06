@@ -6,6 +6,7 @@ import { EngineFactory } from './engines/EngineFactory'
 import type { EngineSessionConfig, EngineType, AgentInfo } from './engines/types'
 import { info, warn, error, debug } from '../infra/logger'
 import { SessionHistoryManager, SessionLite } from '../session/sessionHistoryManager'
+import { listSuperAgentSessionTypes } from '../superAgent/ownedSessions'
 import {
   detectInstalledCli,
   checkEnvironment,
@@ -196,11 +197,18 @@ export function registerClaudeCodeIPC() {
     info('ClaudeCodeIPC', '→ listAllSessions')
     try {
       const sessions = await SessionHistoryManager.listAllSessions()
-      return sessions.map(s => ({
-        ...s,
-        title: SessionHistoryManager.getSessionTitle(s),
-        displayTime: SessionHistoryManager.formatTimestamp(s.lastMessageTimestamp),
-      }))
+      // Super Agent 的 Router/Worker 转录与普通聊天住在同一个 JSONL 目录里，
+      // 侧边栏恢复扫的是这份历史 —— 不在源头认出它们，它们就会被当成普通会话建行。
+      const owned = listSuperAgentSessionTypes(app.getPath('userData'))
+      return sessions.map(s => {
+        const ownedType = owned.get(s.sessionId)
+        return {
+          ...s,
+          title: SessionHistoryManager.getSessionTitle(s),
+          displayTime: SessionHistoryManager.formatTimestamp(s.lastMessageTimestamp),
+          ...(ownedType ? { sessionType: ownedType } : {}),
+        }
+      })
     } catch (err) {
       error('ClaudeCodeIPC', `✗ listAllSessions`, { error: String(err) })
       throw err
