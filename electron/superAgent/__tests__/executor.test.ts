@@ -91,6 +91,8 @@ describe('createSuperAgentExecutor launch', () => {
       cwd: REPO,
       permissionMode: 'bypassPermissions',
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
+      // Worker 的提问走 round 内 ask/attempt 协议，不继承主聊天 AskUserQuestion 指引。
+      askUserQuestionGuidance: false,
     })
     // 首条消息 = 调度器组装的指派 + 本次执行身份（assignmentId 要逐字回填）
     const sent = fake.sent[0]?.content ?? ''

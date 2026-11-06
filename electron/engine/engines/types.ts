@@ -23,9 +23,23 @@ export interface EngineSessionConfig {
    * 从工具池移除，会话只能对话；非空 = 只保留列出的工具。
    * 与 --allowedTools（权限预批清单，SessionConfig.allowedTools）是两个概念：
    * 这里的裁剪发生在引擎工具池层面，被移除的工具连调用都不会发生（设计 §3.2 第 2 条）。
-   * 只有 claude-code 引擎实现；pi 忽略。
+   * claude-code 映射为 `--tools`；pi 映射为 `--tools`（非空）或 `--no-tools`（空），
+   * 见 PiSessionProcess 的能力边界注释。
    */
   allowedTools?: string[]
+  /**
+   * 关闭本会话的 MCP 注入（#95 per-session 投影）。
+   *
+   * true = 这条会话不继承统一 MCP 投影：claude-code 不注入 --mcp-config 并额外传
+   * --strict-mcp-config（只信任启动参数，等于零服务器）；pi 跳过 projectMcpConfig
+   * 并传 --no-mcp。undefined/false = 维持全局投影。
+   */
+  disableMcp?: boolean
+  /**
+   * 是否追加 AskUserQuestion 指引（sessionProcess 的固定 append 段）。
+   * undefined/true = 追加（主聊天）；false = 不追加（Router/Worker 不走向人提问）。
+   */
+  askUserQuestionGuidance?: boolean
   agent?: string
   engineType?: EngineType
   resumeSessionId?: string

@@ -31,6 +31,7 @@ import {
   type SuperAgentRouteAction,
 } from './routerActions'
 import { superAgentError } from './errors'
+import { inspectRouterToolCall } from './routerGuard'
 import { wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
 import type { SuperAgentEngineBridge } from './engineBridge'
 
@@ -183,8 +184,14 @@ export function createSuperAgentRouterRunner(
       cwd: repoRoot,
       permissionMode: 'default' as const,
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
-      // 全部工具移除：Router 只说话不出手（见文件头第 1 条）。引擎收到 --tools ""。
+      // 全部工具移除：Router 只说话不出手（见文件头第 1 条）。claude-code 收
+      // `--tools ""`，pi 收 `--no-tools`（见 PiSessionProcess 的映射）。
       allowedTools: [],
+      // 不继承全局启用的 MCP：Router 看不到浏览器/电脑等外部工具（#95）。
+      disableMcp: true,
+      // 主聊天追加的 AskUserQuestion 指引在这里不适用：Router 不向人提问，
+      // 需要澄清时由 Worker/人消息走既有通路。
+      askUserQuestionGuidance: false,
       // 输入框的选择优先于设置页槽位；按引擎解析（claude-code 要槽位别名，pi 要真名），
       // 否则指定的模型会被代理静默丢弃 —— 见 src/utils/engineModel。
       ...(selectedModel
@@ -331,6 +338,21 @@ export function createSuperAgentRouterRunner(
       appliedModel = null
       hooks.onStatusChanged(false)
       void pump()
+    } else if (eventType === 'permission_request') {
+      // 第二道防线（#95）：`allowedTools: []` 已经清空工具池，但引擎能力边界不同
+      // （见 PiSessionProcess 的映射说明），万一仍漏出工具请求，就在这里代码拒绝。
+      // noWait 单独计一个健康码：睡着等结果会拖住所有新候选，必须能被看见。
+      const record = data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+      const requestId = typeof record.requestId === 'string' ? record.requestId : ''
+      const toolName = typeof record.toolName === 'string' ? record.toolName : ''
+      const violation = inspectRouterToolCall(toolName, record.input)
+      hooks.onFailure(violation ? 'routerNoWait' : 'routerToolNotAllowed')
+      if (requestId) {
+        const message = violation
+          ? `Router 不等待：${violation.detail}。请把等待改成路由说明，结果会作为新输入自动到达。`
+          : `Router 会话不执行工具（工具池已清空），${toolName || '该工具'} 请求已拒绝；请改用路由指令交 Worker 执行。`
+        void bridge.denyPermission(sessionId, requestId, message, { interrupt: false })
+      }
     }
   })
 

@@ -57,6 +57,18 @@ export interface SuperAgentEngineBridge {
   abort(sessionId: string): Promise<void>
   stop(sessionId: string): Promise<void>
   /**
+   * 拒绝一次权限请求（Router 工具面守卫，#95）。
+   *
+   * 与 `allowedTools: []` 互补：即使引擎没按启动参数裁剪工具池，Router 轮次里的
+   * 写/执行请求也会在这里被代码拒绝，理由随 message 回给模型。
+   */
+  denyPermission(
+    sessionId: string,
+    requestId: string,
+    message: string,
+    options?: { interrupt?: boolean },
+  ): Promise<void>
+  /**
    * 把输入框选的模型名解析成该引擎认的值。
    *
    * 与主聊天同一套规则（src/utils/engineModel）：claude-code 要 haiku/sonnet/opus
@@ -99,6 +111,8 @@ export const defaultSuperAgentEngineBridge: SuperAgentEngineBridge = {
     engineGateway.sendMessage(sessionId, content, images as never),
   abort: (sessionId) => engineGateway.abort(sessionId),
   stop: (sessionId) => engineGateway.stop(sessionId),
+  denyPermission: (sessionId, requestId, message, options) =>
+    engineGateway.denyPermission(sessionId, requestId, message, options),
   resolveModelAlias: (modelValue, engineType) => resolveEngineModelAlias(modelValue, engineType),
   onRouteEvent: (listener) => EngineFactory.onRouteEvent(listener),
   pushUserMessage: pushUserMessageToRenderer,

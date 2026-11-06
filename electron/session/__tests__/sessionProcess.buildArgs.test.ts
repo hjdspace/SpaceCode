@@ -234,6 +234,48 @@ describe('buildArgs — base protocol flags', () => {
   })
 })
 
+/**
+ * #95 per-session MCP 投影：Router 这类会话不能因为别的会话开过浏览器/电脑工具
+ * 就静默获得 MCP。做法是连 --mcp-config 都不注入，并用 --strict-mcp-config 让
+ * CLI 只信任启动参数里的服务器（不传即零服务器）。
+ */
+describe('buildArgs — per-session MCP projection', () => {
+  it('forces --strict-mcp-config and injects nothing when the session disabled MCP', () => {
+    mcp.config = {
+      mcpServers: {
+        'browser-use': { command: 'python' },
+        'sc-computer-use': { command: 'cua-driver' },
+      },
+    }
+    const args = buildArgs({ disableMcp: true })
+    expect(args).toContain('--strict-mcp-config')
+    expect(args).not.toContain('--mcp-config')
+    const append = flag(args, '--append-system-prompt')!
+    expect(append).not.toContain('mcp__browser-use__')
+    expect(append).not.toContain('mcp__sc-computer-use__')
+  })
+
+  it('keeps the global projection when disableMcp is not set', () => {
+    mcp.config = { mcpServers: { 'browser-use': { command: 'python' } } }
+    const args = buildArgs()
+    expect(args).toContain('--mcp-config')
+    expect(args).not.toContain('--strict-mcp-config')
+    expect(flag(args, '--append-system-prompt')).toContain('mcp__browser-use__')
+  })
+})
+
+describe('buildArgs — AskUserQuestion guidance switch', () => {
+  it('appends the guidance by default', () => {
+    const append = flag(buildArgs(), '--append-system-prompt')!
+    expect(append).toContain('AskUserQuestion')
+  })
+
+  it('omits the guidance when the caller opted out (Router/Worker)', () => {
+    const append = flag(buildArgs({ askUserQuestionGuidance: false }), '--append-system-prompt')!
+    expect(append).not.toContain('AskUserQuestion')
+  })
+})
+
 describe('buildArgs — --settings file selection', () => {
   it('writes an env-clearing anthropic settings file when a non-Anthropic provider can use the proxy', () => {
     net.proxyUrl = 'http://127.0.0.1:9'

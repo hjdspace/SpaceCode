@@ -72,6 +72,10 @@ export class ClaudeCodeEngine implements IEngine {
       // 无工具的会话（如 Super Agent Router）靠它说话而不动手 —— 与
       // --allowedTools（权限预批清单）是两个概念。
       baseTools: config.allowedTools,
+      // #95 per-session 投影：Router 不继承全局 MCP（零服务器，见 buildArgs 的
+      // --strict-mcp-config）；主聊天/Worker 维持全局投影。
+      disableMcp: config.disableMcp,
+      askUserQuestionGuidance: config.askUserQuestionGuidance,
       agent: config.agent,
       thinkingEnabled: config.thinkingEnabled,
       resumeSessionId: config.resumeSessionId,

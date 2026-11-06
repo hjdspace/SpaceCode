@@ -101,9 +101,9 @@ Super Agent 不是新的 `EngineType`，也不是渲染层的多会话 DAG。它
 ### 3.2 必须先补的接缝
 
 1. **主进程不能订阅渲染层 `turn.onTurnOutcome` 来推进领域状态。** Executor 必须直接消费 `EngineFactory.onRouteEvent` 的 `result/error/exit`；turn store 只用于 UI 镜像。
-2. `EngineSessionConfig` 当前没有 `allowedTools` / `disallowedTools`；底层 `SessionConfig` 也只有 `allowedTools` 和对应 CLI 参数。需增加可选字段并透传。`--allowedTools` 是免审批清单，不是工具白名单。
-3. `sessionProcess` 会无条件追加 AskUserQuestion 指引。Worker 的工具面若禁止向人提问，就必须能关闭这段角色冲突的提示，而不是只隐藏工具。
-4. `buildEnabledMcpConfig()` 当前把所有全局启用的 MCP 注入会话，不是 Super Agent 的按角色工具边界。需要 per-session MCP 投影；不得为了 Super Agent 改写用户的全局 MCP 配置。
+2. `EngineSessionConfig.allowedTools` 已补齐并映射为 `baseTools` 工具面：claude-code 传 `--tools`（空数组 → `--tools ""`），pi 传 `--tools a,b` 或 `--no-tools`。它与 `--allowedTools`（权限预批清单）仍是两个概念；`disallowedTools` 仍未实现。Router 取比"只读工具集"更严的零工具面（`allowedTools: []`），另在 `permission_request` 处代码拒绝任何漏出的工具请求（noWait 违反单独计健康码 `routerNoWait`）。
+3. `askUserQuestionGuidance?: boolean` 已补：默认追加（主聊天），Router/Worker 传 `false` 关闭这段角色冲突的提示。
+4. `disableMcp?: boolean` 已实现 per-session 投影：claude-code 不注入 `--mcp-config` 并传 `--strict-mcp-config`（零服务器）；pi 跳过 `projectMcpConfig` 并传 `--no-mcp`。能力边界：SpaceCode 只能关闭"自己统一投影"的 MCP；用户手写在引擎原生配置里的服务器由上述启动参数兜底（claude-code `--strict-mcp-config`、pi `--no-mcp`），不得靠改写用户全局 MCP 配置实现裁剪。Worker 仍继承全局 MCP（按 Mandate 授予 MCP 尚未实现）。
 5. Factory 的 `AgentPort.run()` 等待 turn 结局，不足以表达 Started、deliver、report、background completion 等异步事件。Super Agent 需要事件式 Port 和每会话输入队列。
 6. 引擎 `result` 不代表后台 shell job / subagent 已结束；当前没有统一的会话级作业枚举。MVP 不得宣称已实现原型的完整后台占槽语义。
 7. 当前没有编排级 `SessionStatusQuery`、Ticket 资源读取和结构化 `report` 宿主工具。
@@ -455,9 +455,9 @@ Trigger #42 inline
 
 实现约束：
 
-1. 增加 `allowedTools/disallowedTools` 的 per-session 透传；需要的硬禁用能力无法生效时，Router 必须 fail closed。MVP Router 可固定 Claude Code，不能静默换引擎。
-2. 增加角色化 prompt 组装，Worker/Router 不继承无条件的 AskUserQuestion 指引。
-3. 增加 per-session MCP 投影。Router 默认只有 Super Agent 只读工具，Worker 只获得 Mandate 允许的 MCP；不得继承全部全局 MCP。
+1. 工具面通过 `EngineSessionConfig.allowedTools` 透传为引擎的基础工具面（claude-code `--tools`、pi `--tools`/`--no-tools`）；`disallowedTools` 尚未实现。需要的硬禁用能力无法生效时，Router 必须 fail closed —— 现由 `permission_request` 处的代码拒绝兜底（noWait 单独计 `routerNoWait`）。Router 的零工具面在两种引擎上都已映射，不存在"静默换引擎拿回工具"。
+2. 角色化 prompt 组装：`askUserQuestionGuidance: false` 关闭无条件的 AskUserQuestion 指引（Router/Worker 均不继承）。
+3. per-session MCP 投影：Router 传 `disableMcp: true`（claude-code `--strict-mcp-config`、pi `--no-mcp`），Worker 暂仍继承全局 MCP；按 Mandate 授予 MCP 的细粒度白名单尚未实现，不得宣称已具备。
 4. `TOOL_REGISTRY` 只是展示元数据，不能作为权限真源。
 5. Phase 0 决定本地 MCP/宿主工具桥接方式；Phase 1 若工具通道尚未就绪，至少交付内部 `ContextReader + StatusQuery + 自动摘要`，不得伪造“模型已经能调用工具”。
 6. **复审新增：工具补充与输出上限。** Phase 2 的 Router 必须有 `attach`（仅显式引用时允许）与 `request_status`（只对 `waiting` 的 Worker 生效）；`note` 是不授予权限的 100 字旁注。Worker 的 `handback` 每条消息只允许一次，`mark_unrelated` 只能退掉自己订阅、来源 Thread 与自己 follow 的 Thread 除外。Router 的路由说明 ≤30 字、聊天气泡硬上限 100 字；Worker 的提问只走结构化 `question` 字段，不靠自由文本。（证据：原型 `src/app/tools/main.ts`、`src/app/tools/executor.ts`；`docs/004-prompts.md` 第 77–84 行）

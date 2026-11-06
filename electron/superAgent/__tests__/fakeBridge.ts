@@ -18,12 +18,21 @@ export interface FakeBridgeCall {
   images?: unknown[]
 }
 
+/** 被宿主拒绝的权限请求（Router 工具面守卫的断言面）。 */
+export interface FakePermissionDenial {
+  sessionId: string
+  requestId: string
+  message: string
+  options?: { interrupt?: boolean }
+}
+
 export interface FakeBridge {
   bridge: SuperAgentEngineBridge
   started: FakeBridgeCall[]
   sent: FakeBridgeCall[]
   aborted: string[]
   stopped: string[]
+  denied: FakePermissionDenial[]
   pushed: SuperAgentUserPush[]
   /** startSession 的失败注入：一次性的，用完即清。 */
   failNextStart: Error | null
@@ -59,6 +68,9 @@ export function createFakeBridge(): FakeBridge {
       stop: async (sessionId) => {
         fake.stopped.push(sessionId)
       },
+      denyPermission: async (sessionId, requestId, message, options) => {
+        fake.denied.push({ sessionId, requestId, message, options })
+      },
       resolveModelAlias: (modelValue) => modelValue,
       onRouteEvent: (listener) => {
         listeners.push(listener)
@@ -75,6 +87,7 @@ export function createFakeBridge(): FakeBridge {
     sent: [],
     aborted: [],
     stopped: [],
+    denied: [],
     pushed: [],
     failNextStart: null,
     failNextSend: null,

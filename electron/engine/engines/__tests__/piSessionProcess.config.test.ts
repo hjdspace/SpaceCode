@@ -376,6 +376,36 @@ describe('buildArgs — provider and model selection', () => {
   })
 })
 
+/**
+ * #95：pi 没有 claude-code 那套 --allowedTools/--mcp-config，但 `--tools` /
+ * `--no-tools` / `--no-mcp` 提供了等价的会话级语义（见 pi docs/cli.md）。
+ * 映射错了就等于 Router 静默拿回工具，所以逐条钉住。
+ */
+describe('per-session tool face and MCP (#95)', () => {
+  it('maps an empty allowedTools to --no-tools', () => {
+    const args = privates(newProc({ allowedTools: [] })).buildArgs()
+    expect(args).toContain('--no-tools')
+    expect(args).not.toContain('--tools')
+  })
+
+  it('maps a non-empty allowedTools to a comma-separated --tools value', () => {
+    const args = privates(newProc({ allowedTools: ['read', 'grep'] })).buildArgs()
+    const index = args.indexOf('--tools')
+    expect(args.slice(index, index + 2)).toEqual(['--tools', 'read,grep'])
+  })
+
+  it('leaves the tool face untouched when allowedTools is undefined', () => {
+    const args = privates(newProc()).buildArgs()
+    expect(args).not.toContain('--tools')
+    expect(args).not.toContain('--no-tools')
+  })
+
+  it('adds --no-mcp only when the session disabled MCP', () => {
+    expect(privates(newProc({ disableMcp: true })).buildArgs()).toContain('--no-mcp')
+    expect(privates(newProc()).buildArgs()).not.toContain('--no-mcp')
+  })
+})
+
 describe('provider inference from baseUrl', () => {
   const cases: Array<[string, string]> = [
     ['https://openrouter.ai/api/v1', 'openrouter'],

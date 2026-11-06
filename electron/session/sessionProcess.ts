@@ -162,6 +162,16 @@ export interface SessionConfig {
    * 层面，被移除的工具连调用都不会发生 —— 无工具会话（Super Agent Router）用。
    */
   baseTools?: string[]
+  /**
+   * 关闭本会话的 MCP 注入（#95）：true 时不注入 --mcp-config，并额外传
+   * --strict-mcp-config，令引擎只信任启动参数里的服务器（等于零 MCP）。
+   */
+  disableMcp?: boolean
+  /**
+   * 是否追加 AskUserQuestion 指引：undefined/true = 追加（主聊天），false = 不追加。
+   * Router/Worker 的会话不该走向人提问（设计 §3.2 第 3 条）。
+   */
+  askUserQuestionGuidance?: boolean
   /** 是否启用 thinking 模式 (extended thinking) */
   thinkingEnabled?: boolean
   /** 要恢复的会话 ID，使用 --resume 参数启动 */
@@ -1555,11 +1565,15 @@ export class SessionProcess extends EventEmitter {
 
     // 提前加载 MCP 配置：既用于下方 computer-use 可用性提示，也用于后续
     // --mcp-config 注入，避免重复读取磁盘。
+    // #95：disableMcp 的会话（Super Agent Router）不投影任何 MCP —— 连读取都跳过，
+    // 提示词里自然也不会出现 computer-use / browser-use 的可用性。
     let enabledMcpConfig: ReturnType<typeof buildEnabledMcpConfig> = null
-    try {
-      enabledMcpConfig = buildEnabledMcpConfig()
-    } catch (err) {
-      warn('SessionProcess', `Failed to load MCP config: ${err}`)
+    if (!config.disableMcp) {
+      try {
+        enabledMcpConfig = buildEnabledMcpConfig()
+      } catch (err) {
+        warn('SessionProcess', `Failed to load MCP config: ${err}`)
+      }
     }
 
     // 当内置 sc-computer-use MCP 启用时，向 system prompt 追加可用性提示。
@@ -1584,7 +1598,7 @@ export class SessionProcess extends EventEmitter {
       config.appendSystemPrompt,
       computerUseHint,
       browserUseHint,
-      askUserGuidance,
+      config.askUserQuestionGuidance === false ? '' : askUserGuidance,
     ].filter(Boolean)
     args.push('--append-system-prompt', appendParts.join('\n\n'))
     if (config.maxTurns) args.push('--max-turns', String(config.maxTurns))
@@ -1619,26 +1633,35 @@ export class SessionProcess extends EventEmitter {
     // 避免多会话/多窗口并发写同一份。
     //
     // 复用上方已加载的 enabledMcpConfig，不再重复读取磁盘。
-    try {
-      this.spawnedMcpServerCount = 0
-      this.spawnedMcpUsesLauncher = false
-      if (enabledMcpConfig && Object.keys(enabledMcpConfig.mcpServers).length > 0) {
-        this.spawnedMcpServerCount = Object.keys(enabledMcpConfig.mcpServers).length
-        this.spawnedMcpUsesLauncher = enabledMcpConfig.usesPackageManagerLauncher
-        // 只写 mcpServers 这一层：返回值里的握手预算是宿主侧的记账字段，
-        // 混进 CLI payload 会被 schema 拒掉。
-        const payload = { mcpServers: enabledMcpConfig.mcpServers }
-        const mcpPath = writeSessionTempFile(this.sessionId, 'mcp', JSON.stringify(payload, null, 2))
-        this.tempArtifacts.push(mcpPath)
-        args.push('--mcp-config', mcpPath)
-        debug(
-          'SessionProcess',
-          `[${this.sessionId.slice(0, 8)}] Injected MCP config | path=${mcpPath} | servers=${Object.keys(enabledMcpConfig.mcpServers).join(',')} | launcher=${this.spawnedMcpUsesLauncher ? 'yes' : 'no'}`,
-        )
+    //
+    // #95：disableMcp 时不写 --mcp-config，并用 --strict-mcp-config 让 CLI 只信任
+    // 启动参数里的服务器 —— 不传 --mcp-config = 零 MCP。这样 Router 不会因为别的
+    // 会话开过浏览器/电脑工具就静默多出一批工具。
+    this.spawnedMcpServerCount = 0
+    this.spawnedMcpUsesLauncher = false
+    if (config.disableMcp) {
+      args.push('--strict-mcp-config')
+      debug('SessionProcess', `[${this.sessionId.slice(0, 8)}] MCP disabled for this session (--strict-mcp-config, no servers injected)`)
+    } else {
+      try {
+        if (enabledMcpConfig && Object.keys(enabledMcpConfig.mcpServers).length > 0) {
+          this.spawnedMcpServerCount = Object.keys(enabledMcpConfig.mcpServers).length
+          this.spawnedMcpUsesLauncher = enabledMcpConfig.usesPackageManagerLauncher
+          // 只写 mcpServers 这一层：返回值里的握手预算是宿主侧的记账字段，
+          // 混进 CLI payload 会被 schema 拒掉。
+          const payload = { mcpServers: enabledMcpConfig.mcpServers }
+          const mcpPath = writeSessionTempFile(this.sessionId, 'mcp', JSON.stringify(payload, null, 2))
+          this.tempArtifacts.push(mcpPath)
+          args.push('--mcp-config', mcpPath)
+          debug(
+            'SessionProcess',
+            `[${this.sessionId.slice(0, 8)}] Injected MCP config | path=${mcpPath} | servers=${Object.keys(enabledMcpConfig.mcpServers).join(',')} | launcher=${this.spawnedMcpUsesLauncher ? 'yes' : 'no'}`,
+          )
+        }
+      } catch (err) {
+        // MCP 配置注入失败不应阻塞会话启动，CLI 仍可从 ~/.claude.json 加载
+        warn('SessionProcess', `Failed to inject MCP config: ${err}`)
       }
-    } catch (err) {
-      // MCP 配置注入失败不应阻塞会话启动，CLI 仍可从 ~/.claude.json 加载
-      warn('SessionProcess', `Failed to inject MCP config: ${err}`)
     }
 
     args.push('--thinking', config.thinkingEnabled ? 'enabled' : 'disabled')

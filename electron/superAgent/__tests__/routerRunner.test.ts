@@ -95,6 +95,10 @@ describe('createSuperAgentRouterRunner message', () => {
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
       // 全部工具从引擎工具池移除：Router 只说话不出手，不借 plan 引入冲突的工作流
       allowedTools: [],
+      // 不继承全局启用的 MCP（#95：per-session 投影）
+      disableMcp: true,
+      // Worker/Router 不继承无条件的 AskUserQuestion 指引（设计 §3.2 第 3 条）
+      askUserQuestionGuidance: false,
     })
     expect(fake.sent[0]?.content).toBe(engineHuman('帮我把登录页修好', SUPER_AGENT_ROUTER_ROLE_PROMPT))
   })
@@ -554,6 +558,68 @@ describe('createSuperAgentRouterRunner status context', () => {
     await runner.message({ text: '你好' })
 
     expect(fake.sent[0]?.content).toBe(engineHuman('你好', SUPER_AGENT_ROUTER_ROLE_PROMPT))
+  })
+})
+
+describe('createSuperAgentRouterRunner tool guard', () => {
+  it('denies a shell sleep — the router must not wait out its own candidates', async () => {
+    const { runner, fake, failures } = makeRunner()
+    await runner.message({ text: '等构建完成再汇报' })
+    fake.emit(SESSION, 'permission_request', {
+      requestId: 'req-sleep',
+      toolName: 'Bash',
+      input: { command: 'npm run build && sleep 30' },
+    })
+
+    expect(fake.denied).toHaveLength(1)
+    expect(fake.denied[0]).toMatchObject({ sessionId: SESSION, requestId: 'req-sleep' })
+    expect(fake.denied[0]?.message).toContain('sleep 30')
+    // noWait 是独立的健康类别，不能与普通工具越权混成一个码。
+    expect(failures).toEqual(['routerNoWait'])
+  })
+
+  it('denies a job-output block longer than five seconds', async () => {
+    const { runner, fake, failures } = makeRunner()
+    await runner.message({ text: '盯着构建输出' })
+    fake.emit(SESSION, 'permission_request', {
+      requestId: 'req-job',
+      toolName: 'TaskOutput',
+      input: { task_id: 't1', timeout: 60_000 },
+    })
+
+    expect(fake.denied[0]?.message).toContain('60000ms')
+    expect(failures).toEqual(['routerNoWait'])
+  })
+
+  it('denies every other tool request too, so writes and execution stay code-blocked', async () => {
+    const { runner, fake, failures } = makeRunner()
+    await runner.message({ text: '把按钮改成保存' })
+    fake.emit(SESSION, 'permission_request', {
+      requestId: 'req-write',
+      toolName: 'Write',
+      input: { file_path: '/repo/a.ts', content: '' },
+    })
+    fake.emit(SESSION, 'permission_request', {
+      requestId: 'req-bash',
+      toolName: 'Bash',
+      input: { command: 'npm run build' },
+    })
+
+    expect(fake.denied.map((denial) => denial.requestId)).toEqual(['req-write', 'req-bash'])
+    expect(failures).toEqual(['routerToolNotAllowed', 'routerToolNotAllowed'])
+  })
+
+  it('ignores permission requests that belong to another session', async () => {
+    const { runner, fake, failures } = makeRunner()
+    await runner.message({ text: '你好' })
+    fake.emit('worker-session', 'permission_request', {
+      requestId: 'req-worker',
+      toolName: 'Bash',
+      input: { command: 'sleep 30' },
+    })
+
+    expect(fake.denied).toHaveLength(0)
+    expect(failures).toHaveLength(0)
   })
 })
 

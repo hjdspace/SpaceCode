@@ -128,6 +128,9 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
       cwd: repoRoot,
       permissionMode: 'bypassPermissions' as const,
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
+      // Worker 用 round 内的 ask/attempt 协议向 Router 汇报，不该再走主聊天的
+      // AskUserQuestion 指引（那会把提问推给人而不是回给 Router，设计 §3.2 第 3 条）。
+      askUserQuestionGuidance: false,
       ...(model ? { model: bridge.resolveModelAlias(model, base.engineType) } : {}),
     }
   }
