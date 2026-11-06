@@ -53,11 +53,11 @@ describe('super agent runtime wiring', () => {
     expect(fake.pushed[0]).toMatchObject({
       sessionId: bound.sessionId,
       content: '帮我把登录页修好',
-      permissionMode: 'plan',
+      permissionMode: 'default',
     })
     expect(fake.started[0]?.config).toMatchObject({
       cwd: REPO,
-      permissionMode: 'plan',
+      permissionMode: 'default',
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
     })
     expect(service.state(REPO).router?.running).toBe(true)
