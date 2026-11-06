@@ -94,6 +94,7 @@ import {
   createSuperAgentDomain,
   resolveExecutionPolicy,
   type AddInputResult,
+  type AttachTicketResult,
   type EnqueueOutboxInput,
   type SuperAgentDomain,
 } from './domain'
@@ -881,6 +882,18 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     }
   }
 
+  /** attachTicket 的既有输入 → settleWorkerInputDelivery 的对账形状。 */
+  function toAttachInputResult(attached: AttachTicketResult): AddInputResult | null {
+    const input = attached.input
+    if (!input) return null
+    return {
+      input,
+      gated: false,
+      delivered: input.status === 'delivered' || input.status === 'read',
+      duplicate: attached.duplicate,
+    }
+  }
+
   /**
    * Router 的 attach（T21）：把这轮人的原话作为人消息投给一张活着的工单。
    *
@@ -890,7 +903,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   function applyRouterAttach(
     repoRoot: string,
     project: ProjectState,
-    command: { ticketId: string; requestId: string; text: string },
+    command: { ticketId: string; requestId: string; text: string; triggerId?: string },
   ): void {
     assertCommandsAllowed(project, repoRoot)
     const ticket = project.domain.state.tickets[command.ticketId]
@@ -911,16 +924,32 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         assignmentId: latest?.assignmentId ?? '',
       })
     }
-    const added = project.domain.ticketMessage({
-      ticketId: command.ticketId,
-      requestId: command.requestId,
-      text: command.text,
-    })
+    // 外部 Source Trigger（评估候选/评论）带 triggerId：走 attachTicket 绑定
+    // Trigger + 订阅整条 Thread；桌面消息没有 triggerId，保持 ticketMessage 路径。
+    const added: AddInputResult | null = command.triggerId
+      ? toAttachInputResult(
+          project.domain.attachTicket({
+            ticketId: command.ticketId,
+            triggerId: command.triggerId,
+          }),
+        )
+      : project.domain.ticketMessage({
+          ticketId: command.ticketId,
+          requestId: command.requestId,
+          text: command.text,
+        })
     project.projector.sync()
     project.attentionProjector.sync()
+    // 已消费的 Trigger（含建单来源）没有新 Input，补齐订阅即可，不再投递。
+    if (!added) return
     // 投递是有界的异步收尾：失败按 Input 状态落定（delivered/pending/uncertain），
     // 不回灌 Router —— 它不能替引擎确认消息到了没有。
-    void settleWorkerInputDelivery(repoRoot, project, command, added).catch(() => {
+    void settleWorkerInputDelivery(
+      repoRoot,
+      project,
+      { ...command, text: added.input.text ?? command.text },
+      added,
+    ).catch(() => {
       project.health.recordFailure('effect:delivery', {
         code: 'deliveryUnknown',
         ticketId: command.ticketId,

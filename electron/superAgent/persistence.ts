@@ -89,6 +89,7 @@ function persistingDomain(
     handbackInput: (input) => tracked(() => domain.handbackInput(input)),
     markUnrelated: (input) => tracked(() => domain.markUnrelated(input)),
     attachTicket: (input) => tracked(() => domain.attachTicket(input)),
+    wakeTicket: (input) => tracked(() => domain.wakeTicket(input)),
     pruneExpiredSubscriptions: (input) => tracked(() => domain.pruneExpiredSubscriptions(input)),
     followThread: (input) => tracked(() => domain.followThread(input)),
     followsDone: (input) => tracked(() => domain.followsDone(input)),

@@ -50,7 +50,11 @@ function makeDomain(subscriptionTtlMs?: number): Harness {
     }
     return domain.intakeTrigger(draft).trigger
   }
-  const ticket = (key: string, threadId = 'th1'): SuperAgentTicket => {
+  const ticket = (
+    key: string,
+    threadId = 'th1',
+    addressed: TriggerDraft['addressed'] = 'mention',
+  ): SuperAgentTicket => {
     return domain.createTicket({
       requestId: `req-${key}`,
       title: `工单 ${key}`,
@@ -61,6 +65,7 @@ function makeDomain(subscriptionTtlMs?: number): Harness {
         threadIds: [threadId],
         actor: 'feishu:user:u1',
         human: true,
+        addressed,
         text: `建单 ${key}`,
       },
     }).ticket
@@ -411,6 +416,151 @@ describe('attach', () => {
     expect(() =>
       h.domain.attachTicket({ ticketId: ticket.ticketId, triggerId: trigger.triggerId }),
     ).toThrowError(expect.objectContaining({ code: 'ticketEnded' }))
+  })
+
+  it('refuses a message this ticket already handed back', () => {
+    const h = makeDomain()
+    const ticket = h.ticket('a')
+    const trigger = h.intake('m2', { threadIds: ['th2'], addressed: null })
+    const first = h.domain.attachTicket({
+      ticketId: ticket.ticketId,
+      triggerId: trigger.triggerId,
+    })
+    h.domain.handbackInput({ ticketId: ticket.ticketId, inputId: first.input!.inputId })
+
+    expect(() =>
+      h.domain.attachTicket({ ticketId: ticket.ticketId, triggerId: trigger.triggerId }),
+    ).toThrowError(expect.objectContaining({ code: 'handedBack' }))
+    // 不重复消费已交回的消息。
+    expect(ticket.inputIds).toHaveLength(1)
+  })
+})
+
+describe('wake：人消息按原 Mandate 恢复已结束工单（T25 #98）', () => {
+  it('reopens a completed ticket with a resumed input and no new assignment or eval', () => {
+    const h = makeDomain()
+    const ticket = h.ticket('a')
+    h.domain.endTicket({
+      ticketId: ticket.ticketId,
+      outcome: 'completed',
+      by: 'user',
+      reason: 'done',
+    })
+    const trigger = h.intake('m1')
+
+    const result = h.domain.wakeTicket({
+      ticketId: ticket.ticketId,
+      triggerId: trigger.triggerId,
+      requestId: 'wake-1',
+    })
+
+    expect(result.woken).toBe(true)
+    expect(result.reason).toBeNull()
+    expect(ticket.state).toBe('open')
+    expect(ticket.ended).toBeNull()
+    expect(result.input?.kind).toBe('resumed')
+    expect(result.input?.human).toBe(true)
+    expect(result.input?.context).toBe(false)
+    expect(result.input?.triggerId).toBe(trigger.triggerId)
+    expect(ticket.assignmentIds).toHaveLength(0)
+    expect(Object.keys(h.domain.state.evals)).toHaveLength(0)
+    expect(trigger.disposition.ticketIds).toContain(ticket.ticketId)
+  })
+
+  it('refuses stopped tickets and leaves them ended', () => {
+    const h = makeDomain()
+    const ticket = h.ticket('a')
+    h.domain.endTicket({
+      ticketId: ticket.ticketId,
+      outcome: 'stopped',
+      by: 'user',
+      reason: 'done',
+    })
+    const trigger = h.intake('m1')
+
+    const result = h.domain.wakeTicket({
+      ticketId: ticket.ticketId,
+      triggerId: trigger.triggerId,
+      requestId: 'wake-1',
+    })
+
+    expect(result.woken).toBe(false)
+    expect(result.reason).toBe('stopped')
+    expect(ticket.state).toBe('ended')
+    expect(ticket.inputIds).toHaveLength(0)
+  })
+
+  it('refuses bot messages even when their ticket was merely completed', () => {
+    const h = makeDomain()
+    const ticket = h.ticket('a')
+    h.domain.endTicket({
+      ticketId: ticket.ticketId,
+      outcome: 'completed',
+      by: 'user',
+      reason: 'done',
+    })
+    const trigger = h.intake('m1', { human: false, actor: 'feishu:bot:ci', addressed: 'direct' })
+
+    const result = h.domain.wakeTicket({
+      ticketId: ticket.ticketId,
+      triggerId: trigger.triggerId,
+      requestId: 'wake-1',
+    })
+
+    expect(result.woken).toBe(false)
+    expect(result.reason).toBe('not-human')
+    expect(ticket.state).toBe('ended')
+  })
+
+  it('refuses when the policy no longer admits the original mandate', () => {
+    const h = makeDomain()
+    const ticket = h.ticket('a')
+    h.domain.endTicket({
+      ticketId: ticket.ticketId,
+      outcome: 'completed',
+      by: 'user',
+      reason: 'done',
+    })
+    h.domain.setPolicy({
+      admissions: [{ source: 'feishu-im', channels: ['oc-other'], allowlist: [], bots: [] }],
+    })
+    const trigger = h.intake('m1')
+
+    const result = h.domain.wakeTicket({
+      ticketId: ticket.ticketId,
+      triggerId: trigger.triggerId,
+      requestId: 'wake-1',
+    })
+
+    expect(result.woken).toBe(false)
+    expect(result.reason).toBe('out-of-scope')
+    expect(ticket.state).toBe('ended')
+    expect(ticket.inputIds).toHaveLength(0)
+  })
+
+  it('does not re-consume a message the ticket previously released on end', () => {
+    const h = makeDomain()
+    const ticket = h.ticket('a')
+    const trigger = h.intake('m1')
+    h.deliver(trigger, ticket.ticketId)
+    h.domain.endTicket({
+      ticketId: ticket.ticketId,
+      outcome: 'completed',
+      by: 'user',
+      reason: 'done',
+    })
+    expect(h.domain.state.inputs[ticket.inputIds[0]].releasedAt).not.toBeNull()
+
+    const result = h.domain.wakeTicket({
+      ticketId: ticket.ticketId,
+      triggerId: trigger.triggerId,
+      requestId: 'wake-replay',
+    })
+
+    expect(result.woken).toBe(false)
+    expect(result.reason).toBe('handedBack')
+    expect(ticket.state).toBe('ended')
+    expect(ticket.inputIds).toHaveLength(1)
   })
 })
 

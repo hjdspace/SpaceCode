@@ -172,7 +172,25 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
       if (!thread) continue
       for (const subscription of thread.subscriptions) {
         const ticket = domain.state.tickets[subscription.ticketId]
-        if (!ticket || ticket.state !== 'open') continue
+        if (!ticket) continue
+        if (ticket.state !== 'open') {
+          // T25 #98：已结束但未停止的工单被人消息按原 Mandate 恢复。
+          // bot/CI 与 contextOnly 订阅永不恢复；revalidate 不通过时消息
+          // 继续落到 Gate / Eval 候选路径，不被静默吞掉。
+          if (!trigger.human || subscription.contextOnly) continue
+          if (
+            trigger.disposition.ticketIds.includes(ticket.ticketId) ||
+            trigger.disposition.contextTicketIds.includes(ticket.ticketId)
+          ) {
+            continue
+          }
+          domain.wakeTicket({
+            ticketId: ticket.ticketId,
+            triggerId: trigger.triggerId,
+            requestId: `source:${trigger.key}:${ticket.ticketId}:resumed`,
+          })
+          continue
+        }
         // 已被建单消费的 Trigger 不再投递，避免来源事件与 fan-out 双写。
         if (
           trigger.disposition.ticketIds.includes(ticket.ticketId) ||

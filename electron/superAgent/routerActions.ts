@@ -4,7 +4,7 @@
  * Router 的回复里最多一个 ```super-agent:route 围栏块，块内是一份 JSON：
  *   {"version":2,"routes":[
  *     {"kind":"accept","title":"…","note":"路由说明"},
- *     {"kind":"attach","ticketId":"…","note":"路由说明"},
+ *     {"kind":"attach","ticketId":"…","note":"路由说明","triggerId":"外部 Source Trigger"},
  *     {"kind":"retry","ticketId":"…"},
  *     {"kind":"stop","ticketId":"…"},
  *     {"kind":"ignore","reason":"…"}]}
@@ -46,7 +46,7 @@ const ROOT_FIELDS = new Set(['version', 'routes'])
 /** 每种 kind 允许的字段；多一个就按 routeInvalid 拒，不静默忽略。 */
 const ROUTE_FIELDS: Record<SuperAgentRouteKind, ReadonlySet<string>> = {
   accept: new Set(['kind', 'title', 'note', 'sourceRequestId']),
-  attach: new Set(['kind', 'ticketId', 'note']),
+  attach: new Set(['kind', 'ticketId', 'note', 'triggerId']),
   // retry 不带 note：新一代的目标仍是人的原话，路由旁注在这里没有可落的位置，
   // 留个字段只会被当成"写了就会传给 Worker"。
   retry: new Set(['kind', 'ticketId']),
@@ -58,7 +58,7 @@ export type SuperAgentRouteKind = 'accept' | 'attach' | 'retry' | 'stop' | 'igno
 
 export type SuperAgentRouteAction =
   | { kind: 'accept'; title: string; note: string | null; sourceRequestId?: string }
-  | { kind: 'attach'; ticketId: string; note: string | null }
+  | { kind: 'attach'; ticketId: string; note: string | null; triggerId?: string }
   | { kind: 'retry'; ticketId: string }
   | { kind: 'stop'; ticketId: string; note: string | null }
   | { kind: 'ignore'; reason: string | null }
@@ -132,10 +132,17 @@ function toRouteAction(value: unknown, index: number): SuperAgentRouteAction {
   if (kind === 'retry') {
     return { kind, ticketId: requireNonEmptyString(route.ticketId, `routes[${index}].ticketId`) }
   }
+  // attach 可携带外部 Source Trigger：宿主据此绑定 Trigger 并订阅整条 Thread；
+  // 桌面消息没有 triggerId，继续走 ticketMessage。
+  const triggerId =
+    route.triggerId === undefined
+      ? undefined
+      : requireNonEmptyString(route.triggerId, `routes[${index}].triggerId`)
   return {
     kind,
     ticketId: requireNonEmptyString(route.ticketId, `routes[${index}].ticketId`),
     note,
+    ...(triggerId !== undefined ? { triggerId } : {}),
   }
 }
 

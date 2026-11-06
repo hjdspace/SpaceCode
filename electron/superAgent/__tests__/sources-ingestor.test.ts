@@ -433,6 +433,135 @@ describe('T17 订阅 fast path 与寿命', () => {
   })
 })
 
+describe('订阅恢复（T25 #98）', () => {
+  function ticketOnThread(domain: SuperAgentDomain, threadId: string, key: string) {
+    return domain.createTicket({
+      requestId: `req-${key}`,
+      title: `T ${key}`,
+      repoRoot: '/repo',
+      trigger: {
+        key,
+        source: 'fake',
+        threadIds: [threadId],
+        actor: 'fake:user:u1',
+        human: true,
+        addressed: 'mention',
+        text: 'dispatch',
+      },
+    }).ticket
+  }
+
+  function endCompleted(domain: SuperAgentDomain, ticketId: string): void {
+    domain.endTicket({ ticketId, outcome: 'completed', by: 'user', reason: 'done' })
+  }
+
+  it('resumes an ended-but-not-stopped ticket from a human message with a resumed input', async () => {
+    const h = harness([])
+    const ticket = ticketOnThread(h.domain, 'fake:thread:t1', 'd1')
+    endCompleted(h.domain, ticket.ticketId)
+    h.source.appendPages([
+      page({
+        events: [event({ key: 'e1', threadIds: ['fake:thread:t1'], addressed: 'mention', text: '接着改' })],
+        nextCursor: 'c1',
+      }),
+    ])
+
+    await h.ingestor.pollOnce('fake')
+
+    expect(ticket.state).toBe('open')
+    expect(ticket.ended).toBeNull()
+    expect(ticket.inputIds).toHaveLength(1)
+    const input = h.domain.state.inputs[ticket.inputIds[0]]
+    expect(input.kind).toBe('resumed')
+    expect(input.human).toBe(true)
+    expect(input.context).toBe(false)
+    expect(input.text).toBe('接着改')
+    expect(input.triggerId).toBeTruthy()
+    // 不新建 Assignment / Eval：只落恢复事实，后续交既有投递/闸门路径。
+    expect(ticket.assignmentIds).toHaveLength(0)
+    expect(Object.keys(h.domain.state.evals)).toHaveLength(0)
+    expect(h.candidates).toHaveLength(0)
+  })
+
+  it('never resumes an ended ticket from bot or CI messages', async () => {
+    const h = harness([])
+    h.domain.setPolicy({
+      admissions: [{ source: 'fake', channels: [], allowlist: [], bots: ['fake:bot:ci'] }],
+    })
+    const ticket = ticketOnThread(h.domain, 'fake:thread:t1', 'd1')
+    endCompleted(h.domain, ticket.ticketId)
+    h.source.appendPages([
+      page({
+        events: [
+          event({
+            key: 'e1',
+            threadIds: ['fake:thread:t1'],
+            human: false,
+            actor: 'fake:bot:ci',
+            addressed: 'direct',
+            text: 'CI 更新',
+          }),
+        ],
+        nextCursor: 'c1',
+      }),
+    ])
+
+    await h.ingestor.pollOnce('fake')
+
+    expect(ticket.state).toBe('ended')
+    expect(ticket.inputIds).toHaveLength(0)
+    // bot 消息不进工单，但仍按准入规则进 Eval 候选。
+    expect(h.candidates).toHaveLength(1)
+  })
+
+  it('does not swallow the message when the original mandate no longer admits', async () => {
+    const h = harness([])
+    const ticket = ticketOnThread(h.domain, 'fake:thread:t1', 'd1')
+    endCompleted(h.domain, ticket.ticketId)
+    // 原 Mandate 的来源 Trigger 无 channel → 新 Policy 的 scope 不再准入；
+    // 新消息走另一个被准入的 channel。
+    h.domain.setPolicy({
+      admissions: [{ source: 'fake', channels: ['fake:chat:other'], allowlist: [], bots: [] }],
+    })
+    h.source.appendPages([
+      page({
+        events: [
+          event({
+            key: 'e1',
+            threadIds: ['fake:thread:t1'],
+            channel: 'fake:chat:other',
+            addressed: 'mention',
+          }),
+        ],
+        nextCursor: 'c1',
+      }),
+    ])
+
+    await h.ingestor.pollOnce('fake')
+
+    expect(ticket.state).toBe('ended')
+    expect(ticket.inputIds).toHaveLength(0)
+    expect(h.candidates).toHaveLength(1)
+  })
+
+  it('never re-consumes a message the ticket released when it ended', async () => {
+    const h = harness([])
+    const ticket = ticketOnThread(h.domain, 'fake:thread:t1', 'd1')
+    const e1 = event({ key: 'e1', threadIds: ['fake:thread:t1'], addressed: 'mention' })
+    h.source.appendPages([page({ events: [e1], nextCursor: 'c1' }), page({ events: [e1], nextCursor: 'c1' })])
+    await h.ingestor.pollOnce('fake')
+    endCompleted(h.domain, ticket.ticketId)
+    expect(h.domain.state.inputs[ticket.inputIds[0]].releasedAt).not.toBeNull()
+
+    await h.ingestor.pollOnce('fake')
+
+    expect(ticket.state).toBe('ended')
+    expect(ticket.inputIds).toHaveLength(1)
+    // 已交回的消息回到 Eval 候选路径，不再静默吞掉。
+    expect(h.candidates).toHaveLength(1)
+  })
+})
+
 describe('GitHub PR 订阅（#97）', () => {
   const PR_THREAD = 'github:pr:acme/app:42'
 

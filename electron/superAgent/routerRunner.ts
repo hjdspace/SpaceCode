@@ -55,6 +55,8 @@ export interface SuperAgentRouterAttachInput {
   ticketId: string
   /** 挂接给该工单正文：本轮人的原话（含旁注标注）。 */
   text: string
+  /** 外部 Source Trigger：宿主据此绑定 Trigger 并订阅整条 Thread；桌面消息缺省。 */
+  triggerId?: string
 }
 
 export interface SuperAgentRouterStopInput {
@@ -275,6 +277,7 @@ export function createSuperAgentRouterRunner(
             requestId,
             ticketId: route.ticketId,
             text: renderSuperAgentAttachedMessage({ note: route.note, sourceText }),
+            ...(route.triggerId !== undefined ? { triggerId: route.triggerId } : {}),
           })
         } else if (route.kind === 'retry') {
           hooks.retry({ requestId, ticketId: route.ticketId })

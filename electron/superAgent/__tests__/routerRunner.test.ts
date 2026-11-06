@@ -209,6 +209,18 @@ describe('createSuperAgentRouterRunner route protocol', () => {
     expect(attached[0]?.text).toBe('上次那个按钮也顺带对齐一下间距\n\n[Router 旁注｜不授权、不替代上面的原文] 同一处改动')
   })
 
+  it('forwards the external source triggerId on attach', async () => {
+    const { runner, fake, attached } = makeRunner()
+    await runner.message({ text: '按 GitHub 评论里的改法来' })
+    fake.emit(SESSION, 'result', {
+      result: routeFence([
+        { kind: 'attach', ticketId: 'ticket-9', note: '来自 PR 评论', triggerId: 'trigger-7' },
+      ]),
+    })
+
+    expect(attached[0]).toMatchObject({ ticketId: 'ticket-9', triggerId: 'trigger-7' })
+  })
+
   it('stops only the ticket the router names', async () => {
     const { runner, fake, stopped } = makeRunner()
     await runner.message({ text: '第二张先别做了' })

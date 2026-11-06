@@ -38,7 +38,7 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 
 每条 \`kind\` 五选一：
 - \`accept\` 新工单：\`title\` + 可选 \`note\`；\`sourceRequestId\` 指向宿主 \`[人消息索引]\` 中的需求原文，省略时宿主会携带近期人消息原文供 Worker 核对，不能据此恢复已撤回或无关的任务。引用前文任务必须填写该 ID，不能把“你好 / 继续”这类短句当成完整目标。
-- \`attach\` 把这轮人的原话挂到 \`[工单快照]\` 里一张还活着的工单：\`ticketId\` + 可选 \`note\`。它只投一条人消息，**不会重跑**任何东西。
+- \`attach\` 把这轮人的原话挂到 \`[工单快照]\` 里一张还活着的工单：\`ticketId\` + 可选 \`note\`。它只投一条人消息，**不会重跑**任何东西。若本轮依据来自外部 Source Trigger（如评论/评审），同时带上该触发器的 \`triggerId\`，宿主据此绑定 Trigger 并订阅整条 Thread；桌面消息省略它。
 - \`retry\` 让快照里一张 \`执行失败\`/\`受阻\`/\`投递失败\` 的工单以新一代重跑：\`ticketId\`。宿主复用同一个 Worker 会话继续执行，不另建工单，也没有旁注字段。
 - \`stop\` 停一张工单：\`ticketId\`。
 - \`ignore\` 这条消息不需要动手：可选 \`reason\`。
@@ -59,7 +59,7 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 {"version":2,"routes":[{"kind":"accept","title":"不超过40字的工单标题","note":"不超过30字的路由背景"}]}
 \`\`\`
 
-多条指令并列在同一个 \`routes\` 数组里，例如 \`{"kind":"attach","ticketId":"…","note":"…"}\`、\`{"kind":"retry","ticketId":"…"}\`、\`{"kind":"stop","ticketId":"…"}\`、\`{"kind":"ignore","reason":"…"}\`。
+多条指令并列在同一个 \`routes\` 数组里，例如 \`{"kind":"attach","ticketId":"…","note":"…","triggerId":"…"}\`、\`{"kind":"retry","ticketId":"…"}\`、\`{"kind":"stop","ticketId":"…"}\`、\`{"kind":"ignore","reason":"…"}\`。
 缺少这个块时宿主无法执行任何路由，会要求你补正。这个块是你与宿主之间的协议，不会展示给人。
 
 ## 回复方式

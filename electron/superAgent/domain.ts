@@ -544,6 +544,29 @@ export interface AttachTicketResult {
 }
 
 /**
+ * T25 #98：人消息唤醒已结束（非人工停止）工单 —— 按原 Mandate 重开并落
+ * `resumed` Input，不新建 Eval / Assignment。
+ */
+export interface WakeTicketInput {
+  ticketId: string
+  triggerId: string
+  /** fan-out 幂等键。 */
+  requestId: string
+  at?: string
+}
+
+export interface WakeTicketResult {
+  /** 是否重开并落恢复事实。 */
+  woken: boolean
+  /** 未重开原因（`stopped` / `not-human` / `open` / `handedBack` / Gate 原因码等）。 */
+  reason: string | null
+  ticket: SuperAgentTicket
+  /** 恢复产生的 Input；未恢复为 null。 */
+  input: SuperAgentInput | null
+  duplicate: boolean
+}
+
+/**
  * T25 #97：显式 PR 引用 —— 让工单跟随一个外部 Thread（follows）并订阅它，
  * 后续评审/评论会经 Ingestor fan-out 唤醒该工单；幂等，重复引用不重复绑定。
  */
@@ -727,6 +750,11 @@ export interface SuperAgentDomain {
    * 输入；人消息归存活 owner 期间被代码拒绝（只能 stop）。
    */
   attachTicket(input: AttachTicketInput): AttachTicketResult
+  /**
+   * T25 #98：人消息唤醒已结束（非人工停止）工单 —— revalidate 原 Mandate，
+   * 通过后重开并落 `resumed` Input；不新建 Eval / Assignment。
+   */
+  wakeTicket(input: WakeTicketInput): WakeTicketResult
   /**
    * T25 #97：显式 PR 引用 —— 工单跟随外部 Thread（follows）并加入可裁决订阅，
    * 后续 PR 评审/评论可唤醒；重复引用幂等。
@@ -2458,6 +2486,20 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       return { ticket, trigger, input: existing, duplicate: true }
     }
 
+    // 已被该工单交回的消息不得再 attach 回原工单（handback 回流 Eval 语义）。
+    const handedBackHere =
+      ticket.inputIds
+        .map((inputId) => state.inputs[inputId])
+        .find(
+          (record) =>
+            record !== undefined &&
+            record.triggerId === trigger.triggerId &&
+            record.releasedAt !== null,
+        ) ?? null
+    if (handedBackHere) {
+      throw superAgentError('handedBack', { inputId: handedBackHere.inputId })
+    }
+
     // 人消息归存活 owner 期间，Router 只能 stop —— attach 被代码拒绝
     // （显式引用的语义判断在 Router，域层拦机械约束）。
     const owners = followupOwners(trigger.triggerId)
@@ -2477,6 +2519,76 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       at,
     })
     return { ticket, trigger, input: added.input, duplicate: added.duplicate }
+  }
+
+  /**
+   * T25 #98：已结束（非人工停止）工单被人消息唤醒。只把工单状态回 open 并落
+   * `resumed` Input —— 不新建 Eval / Assignment，投递仍走 addInput 既有闸门。
+   * 以下情况不唤醒：已停止（含 stopped）、非人消息、原 Mandate 已失效、
+   * 该工单已消费或交回过这条消息。
+   */
+  function wakeTicket(input: WakeTicketInput): WakeTicketResult {
+    const ticket = requireTicket(input.ticketId)
+    const trigger = state.triggers[input.triggerId]
+    if (!trigger) throw superAgentError('triggerNotFound', { triggerId: input.triggerId })
+
+    if (ticket.state === 'open') {
+      return { woken: false, reason: 'open', ticket, input: null, duplicate: false }
+    }
+    if (ticket.ended?.outcome === 'stopped') {
+      return { woken: false, reason: 'stopped', ticket, input: null, duplicate: false }
+    }
+    // bot / CI 消息永不恢复已结束工单，只能进 Eval 候选。
+    if (!trigger.human) {
+      return { woken: false, reason: 'not-human', ticket, input: null, duplicate: false }
+    }
+    // 恢复不重复消费该工单已交回（或已消费）的消息。
+    const previous =
+      ticket.inputIds
+        .map((inputId) => state.inputs[inputId])
+        .find((record) => record !== undefined && record.triggerId === trigger.triggerId) ?? null
+    if (previous) {
+      return {
+        woken: false,
+        reason: previous.releasedAt !== null ? 'handedBack' : 'consumed',
+        ticket,
+        input: null,
+        duplicate: true,
+      }
+    }
+    const check = revalidateTicket(ticket.ticketId)
+    if (!check.valid) {
+      return {
+        woken: false,
+        reason: check.reason ?? 'revoked',
+        ticket,
+        input: null,
+        duplicate: false,
+      }
+    }
+
+    const previousEnd = ticket.ended
+    const at = atNow(input.at)
+    ticket.state = 'open'
+    ticket.ended = null
+    try {
+      const added = addInput({
+        ticketId: ticket.ticketId,
+        requestId: input.requestId,
+        kind: 'resumed',
+        human: true,
+        context: false,
+        text: trigger.text,
+        triggerId: trigger.triggerId,
+        at,
+      })
+      return { woken: true, reason: null, ticket, input: added.input, duplicate: added.duplicate }
+    } catch (err) {
+      // addInput 落库失败时保持「已结束」，避免工单悬空。
+      ticket.state = 'ended'
+      ticket.ended = previousEnd
+      throw err
+    }
   }
 
   function pruneExpiredSubscriptions(input: { at?: string } = {}): string[] {
@@ -2983,6 +3095,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     handbackInput,
     markUnrelated,
     attachTicket,
+    wakeTicket,
     pruneExpiredSubscriptions,
     followThread,
     followsDone,
