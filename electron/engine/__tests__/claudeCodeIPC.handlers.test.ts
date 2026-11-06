@@ -20,7 +20,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
   BrowserWindow: Object.assign(class {}, { fromWebContents: vi.fn() }),
-  app: { isPackaged: false },
+  app: { isPackaged: false, getPath: vi.fn(() => '/user/data') },
 }))
 
 vi.mock('../../infra/logger', () => {
@@ -116,6 +116,9 @@ const piMcp = vi.hoisted(() => ({
 }))
 const settingsIpc = vi.hoisted(() => ({ loadGuiSettings: vi.fn(async (): Promise<any> => null) }))
 const piInstaller = vi.hoisted(() => ({ installPiSdk: vi.fn() }))
+const ownedSessions = vi.hoisted(() => ({
+  listSuperAgentSessionTypes: vi.fn((): Map<string, unknown> => new Map()),
+}))
 
 vi.mock('../engineGateway', () => ({ engineGateway: gateway }))
 vi.mock('../../session/sessionHistoryManager', () => ({ SessionHistoryManager: history }))
@@ -132,6 +135,7 @@ vi.mock('../../tools/builtinMcpInstaller', () => mcpInstaller)
 vi.mock('../../tools/piMcpProjection', () => piMcp)
 vi.mock('../../ipc/settingsIpc', () => settingsIpc)
 vi.mock('../piInstaller', () => piInstaller)
+vi.mock('../../superAgent/ownedSessions', () => ownedSessions)
 
 import { ipcMain, BrowserWindow } from 'electron'
 import { proxyManager } from '../../infra/proxyManager'
@@ -176,6 +180,7 @@ beforeEach(() => {
   piMcp.syncPiMcpConfigFromStore.mockReset().mockReturnValue({})
   settingsIpc.loadGuiSettings.mockReset().mockResolvedValue(null)
   piInstaller.installPiSdk.mockReset()
+  ownedSessions.listSuperAgentSessionTypes.mockReset().mockReturnValue(new Map())
   ;(proxyManager.getStatus as ReturnType<typeof vi.fn>).mockReset()
   ;(proxyManager.isRunning as ReturnType<typeof vi.fn>).mockReset()
   registerClaudeCodeIPC()
@@ -285,6 +290,21 @@ describe('会话历史 handler', () => {
     await expect(handler('claude-code:listAllSessions')({})).resolves.toEqual([
       { sessionId: 'b', lastMessageTimestamp: 5, title: 'T-b', displayTime: 'F-5' },
     ])
+  })
+
+  it('listAllSessions 给 Super Agent 的会话贴归属，普通会话不带', async () => {
+    history.listAllSessions.mockResolvedValue([
+      { sessionId: 'router-1', lastMessageTimestamp: 5, projectPath: '/repo' },
+      { sessionId: 'human-1', lastMessageTimestamp: 6, projectPath: '/repo' },
+    ])
+    history.getSessionTitle.mockReturnValue('T')
+    history.formatTimestamp.mockReturnValue('F')
+    ownedSessions.listSuperAgentSessionTypes.mockReturnValue(new Map([['router-1', 'superAgent']]))
+
+    const result = await handler('claude-code:listAllSessions')({}) as any[]
+    expect(result[0].sessionType).toBe('superAgent')
+    expect(result[1]).not.toHaveProperty('sessionType')
+    expect(ownedSessions.listSuperAgentSessionTypes).toHaveBeenCalledWith('/user/data')
   })
 
   it('listAllSessions 失败原样抛出', async () => {

@@ -130,8 +130,56 @@ describe('chat session startup', () => {
     expect(store.sessions[0].engineSessionId).toBe('pi-internal-2')
   })
 
-  it('does not resurrect a session that was explicitly deleted', async () => {
-    localStorage.setItem('chat_deleted_sessions_v1', JSON.stringify(['deleted-1']))
+  it('recovers a stamped Super Agent session without putting it in the sidebar list', async () => {
+    mocks.listAllSessions.mockResolvedValueOnce([{
+      sessionId: 'worker-1',
+      projectPath: 'D:/repo',
+      title: '修登录页',
+      sessionType: 'superAgentWorker',
+      lastMessageTimestamp: 5000,
+    }])
+
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+
+    expect(await store.recoverSessionsFromHistory()).toBe(1)
+    expect(store.sessions[0].sessionType).toBe('superAgentWorker')
+    expect(store.normalSessions).toEqual([])
+  })
+
+  it('repairs a Super Agent row that was created as ordinary chat', async () => {
+    // 修复前的现场：Router 会话以普通聊天落了行，一直摆在侧边栏里
+    localStorage.setItem('chat_sessions_v2', JSON.stringify([{
+      id: 'router-1',
+      title: '当前正在进行的任务有哪些',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 2,
+      workingDirectory: 'D:/repo',
+      processStatus: 'none',
+      isTabOpen: true,
+      lastActivityAt: 2,
+      mode: 'code',
+    }]))
+    mocks.listAllSessions.mockResolvedValueOnce([{
+      sessionId: 'router-1',
+      projectPath: 'D:/repo',
+      sessionType: 'superAgent',
+      lastMessageTimestamp: 2,
+    }])
+
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+
+    expect(await store.recoverSessionsFromHistory()).toBe(0)
+    expect(store.sessions[0].sessionType).toBe('superAgent')
+    expect(store.normalSessions).toEqual([])
+    expect(JSON.parse(localStorage.getItem('chat_sessions_v2') || '[]')[0]).toMatchObject({
+      sessionType: 'superAgent',
+    })
+  })
+
+  it('does not resurrect a session that was explicitly deleted', async () => {    localStorage.setItem('chat_deleted_sessions_v1', JSON.stringify(['deleted-1']))
     mocks.listAllSessions.mockResolvedValueOnce([{
       sessionId: 'deleted-1',
       projectPath: 'D:/repo',

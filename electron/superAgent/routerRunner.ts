@@ -393,6 +393,7 @@ export function createSuperAgentRouterRunner(
         sessionId,
         content: input.displayText ?? input.text,
         title: hooks.titleOf?.() ?? 'Super Agent',
+        sessionType: 'superAgent',
         projectPath: repoRoot,
         permissionMode: 'default',
       })

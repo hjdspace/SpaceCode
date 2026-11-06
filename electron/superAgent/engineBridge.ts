@@ -11,6 +11,7 @@
  */
 import { BrowserWindow } from 'electron'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
+import type { SuperAgentSessionKind } from '@/shared/channels/superAgent'
 import { eventChannels } from '@/shared/channelMap'
 import type { H5RemoteUserMessagePayload } from '../h5/h5Types'
 import { engineGateway } from '../engine/engineGateway'
@@ -30,6 +31,11 @@ export interface SuperAgentUserPush {
   content: string
   title: string
   projectPath: string
+  /**
+   * 这条会话属于谁：Router 还是 Worker。渲染层建行时直接落成会话类型，
+   * 缺了它这两类会话会以普通聊天的身份出现在侧边栏列表里。
+   */
+  sessionType: SuperAgentSessionKind
   /**
    * 会话起始权限模式。渲染端的会话记录必须记同一档：权限对账会拿全局默认值
    * 下发，漏记就把这条正在跑的会话就地降级。
@@ -68,6 +74,7 @@ function pushUserMessageToRenderer(push: SuperAgentUserPush): void {
     content: push.content,
     projectPath: push.projectPath,
     title: push.title,
+    sessionType: push.sessionType,
     timestamp: Date.now(),
     // Super Agent 的 Router/Worker 会话不由这条通路抢视图：中置聊天区与右侧
     // 面板都按 sessionId 直接寻址，切换由 app store 负责。

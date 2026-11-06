@@ -21,6 +21,9 @@
       </div>
     </header>
 
+    <!-- Router 工卡：夹在消息区上沿，折叠态只报「这些话落在哪个目录」 -->
+    <RouterWorkBadge v-if="routerSessionId" />
+
     <!-- 执行队列（T05）：串行调度现状，running + 排队位置 + 脏区提示，广播驱动。 -->
     <div
       v-if="queueVisible"
@@ -186,6 +189,7 @@ import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatIn
 import SuperAgentHealth from './SuperAgentHealth.vue'
 import AttentionBubble from './AttentionBubble.vue'
 import TicketTimelineEntry from './TicketTimelineEntry.vue'
+import RouterWorkBadge from './RouterWorkBadge.vue'
 import { buildOutgoingMessage } from '@/lib/composer-outgoing'
 import {
   generateCostMessage,
@@ -222,11 +226,11 @@ const messages = computed(() =>
  */
 const isLoading = computed(() => superAgentStore.routerRunning)
 
-const workingDirectory = computed(() =>
-  routerSessionId.value
-    ? sessionStore.getWorkingDirectory(routerSessionId.value)
-    : appStore.projectRoot
-)
+/**
+ * 输入框 @ 上下文读的工作目录 = 本页绑定的项目根（主进程那份快照才是引擎真正的 cwd）。
+ * 不读实时项目指针：切项目的瞬间若这里先动，@ 文件列表会指向还没绑定的目录。
+ */
+const workingDirectory = computed(() => superAgentStore.boundRepoRoot ?? undefined)
 
 // ── 健康上报（T13 #83）：拉取 + 订阅 health.changed，渲染端只读 ──
 let stopWatchingHealth: (() => void) | null = null
@@ -238,18 +242,30 @@ let stopWatchingAttentions: (() => void) | null = null
 // ── Router 轮次状态（T21）：会话归主进程，typing/停止按钮跟着 router-status 走 ──
 let stopWatchingRouterStatus: (() => void) | null = null
 let unmounted = false
+let subscriptionsStarted = false
 
-onMounted(async () => {
-  const repoRoot = appStore.projectRoot
+/**
+ * 跟随全局项目指针换作用域。
+ *
+ * 本组件是"粘住的 v-if + v-show"挂载的（ChatPanel 里 superAgentMounted 一旦为真
+ * 就不再回 false），切项目不会重挂，所以项目变化只能靠 watch 显式重绑。
+ *
+ * 次序有讲究：switchProject 先确立 store 的项目过滤域，订阅随即建好，再拉五面镜像 ——
+ * 订阅若等慢快照全部返回，期间到达的工单/队列事件就丢了。订阅只建一次：
+ * 各 watch* 都按 snapshot.repoRoot 丢弃不属于当前项目的事件，换根后自动只认新项目。
+ */
+async function followProjectRoot(repoRoot: string): Promise<void> {
+  await superAgentStore.switchProject(repoRoot)
   if (!repoRoot) return
-  await superAgentStore.bind(repoRoot)
   if (unmounted) return
-  // bind 先确立 store 的项目过滤域；订阅不能等慢快照全部返回，否则期间事件会丢失。
-  stopWatchingHealth = superAgentStore.watchHealth()
-  stopWatchingQueue = superAgentStore.watchQueue()
-  stopWatchingTickets = superAgentStore.watchTickets()
-  stopWatchingAttentions = superAgentStore.watchAttentions()
-  stopWatchingRouterStatus = superAgentStore.watchRouterStatus()
+  if (!subscriptionsStarted) {
+    subscriptionsStarted = true
+    stopWatchingHealth = superAgentStore.watchHealth()
+    stopWatchingQueue = superAgentStore.watchQueue()
+    stopWatchingTickets = superAgentStore.watchTickets()
+    stopWatchingAttentions = superAgentStore.watchAttentions()
+    stopWatchingRouterStatus = superAgentStore.watchRouterStatus()
+  }
   await Promise.all([
     superAgentStore.loadState(repoRoot),
     superAgentStore.loadHealth(repoRoot),
@@ -257,7 +273,11 @@ onMounted(async () => {
     superAgentStore.loadTickets(repoRoot),
     superAgentStore.loadAttentions(repoRoot),
   ])
-})
+}
+
+onMounted(() => followProjectRoot(appStore.projectRoot))
+
+watch(() => appStore.projectRoot, root => { void followProjectRoot(root) })
 
 onUnmounted(() => {
   unmounted = true
@@ -353,7 +373,7 @@ async function runTicketAction(action: () => Promise<unknown>): Promise<void> {
 }
 
 function handleTicketAccept(ticketId: string): void {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   void runTicketAction(() => superAgentStore.acceptTicket(repoRoot, ticketId))
 }
@@ -370,19 +390,19 @@ function handleTicketOpen(ticketId: string): void {
 }
 
 function handleTicketStop(ticketId: string): void {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   void runTicketAction(() => superAgentStore.stopTicket(repoRoot, ticketId))
 }
 
 function handleTicketRetry(ticketId: string): void {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   void runTicketAction(() => superAgentStore.retryTicket(repoRoot, ticketId))
 }
 
 function handleTicketMessage(payload: { ticketId: string; text: string }): void {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   void runTicketAction(() =>
     superAgentStore.messageTicket(repoRoot, {
@@ -414,7 +434,7 @@ async function runHealthAction(action: () => Promise<unknown>, successKey: strin
 }
 
 function handleHealthRetry(category: string, subjectId: string | null): void {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   void runHealthAction(
     () => superAgentStore.retryHealthProblem(repoRoot, category, subjectId),
@@ -423,7 +443,7 @@ function handleHealthRetry(category: string, subjectId: string | null): void {
 }
 
 function handleHealthDismiss(category: string, subjectId: string | null): void {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   void runHealthAction(
     () => superAgentStore.dismissProblem(repoRoot, category, subjectId),
@@ -432,7 +452,7 @@ function handleHealthDismiss(category: string, subjectId: string | null): void {
 }
 
 function handleHealthReevaluate(evalId: string): void {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   void runHealthAction(
     () => superAgentStore.reevaluateEval(repoRoot, evalId),
@@ -488,7 +508,7 @@ function handleOpenSkills() {
 // Router 会话归主进程且工具面为空，走 turnStore 就等于把它降格成一条
 // 带全套写工具的普通聊天 —— 那正是"让它派活它自己干了"的根因。
 async function handleSend(content: string, attachments: AllAttachments, options?: SendOptions) {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   const hasContent = content.trim().length > 0 || attachments.files.length > 0 || attachments.images.length > 0
   if (!hasContent) return
@@ -508,7 +528,7 @@ async function handleSend(content: string, attachments: AllAttachments, options?
 }
 
 async function handleStop() {
-  const repoRoot = appStore.projectRoot
+  const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
   try {
     // 只中止 Router 这一轮；Worker 会话由各自的 Assignment 管理，不受影响
@@ -551,7 +571,7 @@ async function executeRouterCommand(command: string, args: string, sid: string):
     case 'clear':
     case 'reset':
     case 'new': {
-      const repoRoot = appStore.projectRoot
+      const repoRoot = superAgentStore.boundRepoRoot
       if (!repoRoot) return ''
       // 中止也走 Router 通路：turnStore.abort 按普通聊天会话寻址，会漏掉主进程那一轮
       await superAgentStore.abortRouter(repoRoot)
@@ -605,7 +625,7 @@ async function executeRouterCommand(command: string, args: string, sid: string):
     default: {
       const cmdDef = findCommand(command)
       if (cmdDef && (cmdDef.kind === 'sdk_command' || cmdDef.kind === 'codepilot_command')) {
-        const repoRoot = appStore.projectRoot
+        const repoRoot = superAgentStore.boundRepoRoot
         if (!repoRoot) return ''
         const fullCommand = args ? `/${command} ${args}` : `/${command}`
         // 仍走 Router 通路：turnStore.sendMessage 会按普通聊天的配置去 init 引擎，
@@ -647,6 +667,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
 
 <style scoped lang="scss">
 .super-agent-view {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;

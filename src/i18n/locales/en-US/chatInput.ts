@@ -7,7 +7,6 @@ export default {
   uploadAttachment: 'Upload attachment',
   removeAttachment: 'Remove attachment',
   pastedText: 'Pasted text',
-  refreshModels: 'Refresh model list',
   workspaceFiles: 'Workspace files',
   searchWorkspaceFiles: 'Search files in this project',
   backToParentDir: 'Back to parent folder',

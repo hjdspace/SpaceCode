@@ -5,6 +5,7 @@ import { info, warn, error, debug } from '../infra/logger'
 import { findPiSessionRecord } from '../engine/engines/piSessionRegistry'
 import { getPiFullSession, listPiSessions } from './piSessionHistory'
 import { parseEngineUserPrompt } from '@/shared/promptEnvelope'
+import type { SuperAgentSessionKind } from '@/shared/channels/superAgent'
 
 export type HistoryEngineType = 'claude-code' | 'pi'
 
@@ -17,6 +18,11 @@ export interface SessionLite {
   engineType?: HistoryEngineType
   /** 引擎自己的会话 id（pi 的 JSONL 头），仅用于展示/诊断。 */
   engineSessionId?: string
+  /**
+   * Super Agent 拥有的会话种类（Router / Worker）。普通聊天不带这个字段。
+   * 由 IPC 适配层按磁盘上的 Super Agent 状态贴上，渲染层据此决定侧边栏是否显示。
+   */
+  sessionType?: SuperAgentSessionKind
 }
 
 export interface SessionMetadata {
@@ -64,8 +70,10 @@ function getProjectDir(projectPath: string): string {
 
 function decodeSanitizedPath(sanitized: string): string {
   if (/^[A-Z]--/.test(sanitized)) {
+    // 盘符与根分隔符一起吃掉两个 '-'（`D:\` → `D--`），第三个字符才是路径首段；
+    // 从 slice(2) 起替换会多留一个分隔符，还原出 `D:\\doc\\AI\\…`。
     const driveLetter = sanitized[0]
-    const rest = sanitized.slice(2).replace(/-/g, path.sep)
+    const rest = sanitized.slice(3).replace(/-/g, path.sep)
     return `${driveLetter}:${path.sep}${rest}`
   }
 
@@ -106,17 +114,24 @@ function normalizeAbsolutePath(input: string): string {
   return p
 }
 
-async function readSessionLite(
-  projectPath: string,
-  sessionId: string
+/**
+ * 读一个**已定位到**的 transcript 文件。
+ *
+ * 项目路径优先取记录里的 cwd：目录名是 sanitizePath 的有损编码（'-'、'.' 与分隔符
+ * 都映射成同一个 '-'），只有文件内部还留着原始路径。调用方拿到目录名时不要先反解
+ * 再重新编码 —— 那样会凭空造出一个不存在的目录名。
+ */
+async function readSessionLiteFromFile(
+  sessionPath: string,
+  projectPathHint: string
 ): Promise<SessionLite | undefined> {
-  const sessionPath = path.join(getProjectDir(projectPath), `${sessionId}.jsonl`)
-  
+  const sessionId = path.basename(sessionPath, '.jsonl')
+
   if (!fs.existsSync(sessionPath)) {
     debug('SessionHistory', `Session file not found: ${sessionPath}`)
     return undefined
   }
-  
+
   let firstUserMessage: string | undefined
   let lastMessageTimestamp: number | undefined
   let metadata: SessionMetadata | undefined
@@ -124,7 +139,7 @@ async function readSessionLite(
 
   try {
     const metadataPath = path.join(
-      getProjectDir(projectPath),
+      path.dirname(sessionPath),
       `${sessionId}.metadata.json`
     )
 
@@ -195,7 +210,7 @@ async function readSessionLite(
   }
   
   return {
-    projectPath: realProjectPath || projectPath,
+    projectPath: realProjectPath || projectPathHint,
     sessionId,
     metadata,
     firstUserMessage,
@@ -204,40 +219,48 @@ async function readSessionLite(
   }
 }
 
-async function loadSameProjectSessions(cwd: string): Promise<SessionLite[]> {
-  const projectDir = getProjectDir(cwd)
-  
-  if (!fs.existsSync(projectDir)) {
-    info('SessionHistory', `Project directory not found: ${projectDir}`)
-    return []
-  }
-  
+/** 列出一个**已定位到**的项目目录里的全部会话。 */
+async function listSessionsInProjectDir(
+  projectDir: string,
+  projectPathHint: string
+): Promise<SessionLite[]> {
   const sessions: SessionLite[] = []
-  
+
   try {
     const entries = fs.readdirSync(projectDir)
     info('SessionHistory', `Found ${entries.length} entries in ${projectDir}`)
-    
+
     for (const entry of entries) {
       if (!entry.endsWith('.jsonl')) continue
-      
+
       const sessionId = entry.slice(0, -'.jsonl'.length)
-      
+
       if (sessionId.startsWith('.') || sessionId.endsWith('.tmp')) continue
-      
-      const session = await readSessionLite(cwd, sessionId)
+
+      const session = await readSessionLiteFromFile(path.join(projectDir, entry), projectPathHint)
       if (session) {
         sessions.push(session)
       }
     }
   } catch (e) {
-    error('SessionHistory', `Failed to load sessions for project ${cwd}`, { error: String(e) })
+    error('SessionHistory', `Failed to load sessions from directory ${projectDir}`, { error: String(e) })
   }
-  
+
   sessions.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
-  
-  info('SessionHistory', `Loaded ${sessions.length} sessions for project ${cwd}`)
+
+  info('SessionHistory', `Loaded ${sessions.length} sessions for project ${projectPathHint}`)
   return sessions
+}
+
+async function loadSameProjectSessions(cwd: string): Promise<SessionLite[]> {
+  const projectDir = getProjectDir(cwd)
+
+  if (!fs.existsSync(projectDir)) {
+    info('SessionHistory', `Project directory not found: ${projectDir}`)
+    return []
+  }
+
+  return listSessionsInProjectDir(projectDir, cwd)
 }
 
 async function loadAllProjectsSessions(): Promise<SessionLite[]> {
@@ -256,16 +279,19 @@ async function loadAllProjectsSessions(): Promise<SessionLite[]> {
     
     for (const entry of entries) {
       const entryPath = path.join(projectsDir, entry)
-      
+
       try {
         if (!fs.statSync(entryPath).isDirectory()) continue
       } catch {
         continue
       }
-      
-      const projectPath = decodeSanitizedPath(entry)
-      
-      const projectSessions = await loadSameProjectSessions(projectPath)
+
+      // 直接读这个目录，不要先把目录名反解成路径、再拿路径重算目录名：
+      // 反解要求 realpathSync 能解析（路径必须真实存在），而 '-' 既是编码符也是路径里的
+      // 真实字符，realpath 一旦解析失败（重名目录、符号链接、指向别处），重算出的目录名
+      // 就和 entry 不是同一个目录，整个项目的历史会在启动恢复里凭空消失。
+      // 反解结果只作为 projectPath 兜底：文件里带 cwd 时以 cwd 为准。
+      const projectSessions = await listSessionsInProjectDir(entryPath, decodeSanitizedPath(entry))
       allSessions.push(...projectSessions)
     }
   } catch (e) {

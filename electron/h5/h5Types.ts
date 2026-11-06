@@ -2,6 +2,7 @@
 // H5 WebUI 访问功能的类型定义
 
 import type { PermissionMode } from '@/shared/channels/claudeCode'
+import type { SuperAgentSessionKind } from '@/shared/channels/superAgent'
 
 /** H5 访问设置（持久化到 h5-access.json） */
 export interface H5AccessSettings {
@@ -69,6 +70,11 @@ export interface H5RemoteUserMessagePayload {
    * 这类「引擎已由主进程起好」的会话必须带上它，否则会话会被就地降级。
    */
   permissionMode?: PermissionMode
+  /**
+   * 推送方拥有的会话种类。Super Agent 的 Router/Worker 会话不由人发起，渲染层
+   * 建行时必须带上它，否则这条会话会出现在侧边栏普通会话列表里。
+   */
+  sessionType?: SuperAgentSessionKind
 }
 
 /** WS 推送的消息格式 */

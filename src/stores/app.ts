@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, markRaw, watch } from 'vue'
-import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow, MessagesSquare, Sparkles, HardHat } from 'lucide-vue-next'
+import { MessageSquare, Terminal as TerminalIcon, FileCode, FileText, FileDiff, Globe, TextSearch, Package, Palette, Workflow, MessagesSquare, Bot, HardHat } from 'lucide-vue-next'
 import { useChatSessionStore } from './chatSession'
 import { useSuperAgentStore } from './superAgent'
 import { useTerminalStore, type CreateTerminalOptions } from './terminal'
@@ -93,10 +93,13 @@ export interface WorkerTabData {
   repoRoot: string
 }
 
-/** 从 worker 标签数据里取 ticketId；非 worker 标签返回 null。 */
-export function workerTicketId(tab: InfoPanelTab | null): string | null {
+/**
+ * worker 标签的完整寻址数据（ticketId + 打开时的项目根）。
+ * 面板要的是这一整份：只取 ticketId 再配实时项目根，切项目后就会绑错边。
+ */
+export function workerTabData(tab: InfoPanelTab | null): WorkerTabData | null {
   if (!tab || tab.type !== 'worker') return null
-  return (tab.data as WorkerTabData | null)?.ticketId ?? null
+  return (tab.data as WorkerTabData | null) ?? null
 }
 
 export interface SubagentPanelState {
@@ -393,14 +396,19 @@ export const useAppStore = defineStore('app', () => {
    * 点击工单卡片打开 Worker 只读标签：id 为 worker:<ticketId>，多标签并存、
    * 重复点击复用已有标签，不抢占其他标签；只读观察，不自动接管。
    * 镜像由 WorkerLivePanel 挂载时 bindWorker 建立。
+   *
+   * 标签必须记住"这张工单属于哪个项目根"：卡片只在中置页绑定的项目里出现，
+   * 所以打的是绑定根而不是实时指针 —— 后者会让旧项目的标签在新项目下误 bind。
    */
   function openWorkerTab(ticketId: string, title: string) {
+    const repoRoot = useSuperAgentStore().boundRepoRoot
+    if (!repoRoot) return
     openInfoTab({
       id: `${WORKER_TAB_PREFIX}${ticketId}`,
       type: 'worker',
       title,
       icon: markRaw(HardHat),
-      data: { ticketId, repoRoot: projectRoot.value },
+      data: { ticketId, repoRoot },
       closeable: true,
     })
   }
@@ -907,7 +915,7 @@ export const useAppStore = defineStore('app', () => {
     centerTabs.value.push({
       id: 'super-agent',
       label: i18n.global.t('superAgent.title'),
-      icon: markRaw(Sparkles),
+      icon: markRaw(Bot),
       closable: true
     })
     activeCenterTab.value = 'super-agent'

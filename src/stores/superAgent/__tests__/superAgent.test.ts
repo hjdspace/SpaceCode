@@ -113,6 +113,15 @@ function loadStores() {
   return { superAgent: useSuperAgentStore(), chat: useChatSessionStore() }
 }
 
+/**
+ * 先进入项目作用域：镜像只接受"属于当前绑定项目"的数据（切换项目时在途旧请求
+ * 不得覆盖新镜像），所以任何 load* 用例都得先 bind。
+ */
+async function bindProject(superAgent: ReturnType<typeof useSuperAgentStore>): Promise<void> {
+  mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+  await superAgent.bind('D:/repo')
+}
+
 describe('superAgent store bind', () => {
   it('registers the router session once and keeps it out of the normal list', async () => {
     const { superAgent, chat } = loadStores()
@@ -134,11 +143,108 @@ describe('superAgent store bind', () => {
     expect(chat.sessions.find(s => s.id === 'router-1')?.title).toBeTruthy()
     expect(chat.normalSessions.map(s => s.id)).toEqual(['chat-1'])
   })
+
+  it('补认修复前以普通聊天落行的 Router 会话', async () => {
+    const { superAgent, chat } = loadStores()
+    // 修复前的现场：主进程推送气泡时没带归属，Router 就这样落了普通聊天行
+    chat.createSession('当前正在进行的任务有哪些', 'D:/repo', 'router-1', { activate: false })
+    expect(chat.normalSessions.map(s => s.id)).toEqual(['router-1'])
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+
+    await superAgent.bind('D:/repo')
+
+    expect(chat.sessions.find(s => s.id === 'router-1')?.sessionType).toBe('superAgent')
+    expect(chat.normalSessions).toEqual([])
+  })
+})
+
+/**
+ * 项目作用域切换。
+ *
+ * 中置页那份镜像一次只能属于一个项目：换根必须整套清空重绑，否则屏幕上是一个项目
+ * 的卡片、动作打到另一个项目；而右侧 Worker 标签带着自己打开时的项目根，不该被牵连。
+ */
+describe('superAgent store 项目作用域切换', () => {
+  it('换根即清空中置页镜像并重绑新项目，Worker 标签镜像不受影响', async () => {
+    const { superAgent } = loadStores()
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+    await superAgent.bind('D:/repo')
+    mocks.queue.mockResolvedValue(queueSnapshot())
+    await superAgent.loadQueue('D:/repo')
+    mocks.tickets.mockResolvedValue({ repoRoot: 'D:/repo', seq: 3, tickets: [ticketCard()] })
+    await superAgent.loadTickets('D:/repo')
+    mocks.workerBind.mockResolvedValue(workerMirror())
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+
+    mocks.routerBind.mockResolvedValue({
+      sessionId: 'router-2',
+      running: false,
+      snapshot: snapshot({ repoRoot: 'D:/other' }),
+    })
+    await superAgent.switchProject('D:/other')
+
+    expect(superAgent.boundRepoRoot).toBe('D:/other')
+    expect(superAgent.queue).toBeNull()
+    expect(superAgent.ticketBoard).toBeNull()
+    expect(superAgent.workerMirrors['ticket-1']).toBeTruthy()
+  })
+
+  it('同一根重复切换不再绑定', async () => {
+    const { superAgent } = loadStores()
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+    await superAgent.switchProject('D:/repo')
+
+    const callsAfterFirst = mocks.routerBind.mock.calls.length
+    await superAgent.switchProject('D:/repo')
+
+    expect(mocks.routerBind).toHaveBeenCalledTimes(callsAfterFirst)
+  })
+
+  it('关闭文件夹（空根）即退出作用域，页面不留旧项目的卡片', async () => {
+    const { superAgent } = loadStores()
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+    await superAgent.bind('D:/repo')
+    mocks.queue.mockResolvedValue(queueSnapshot())
+    await superAgent.loadQueue('D:/repo')
+
+    await superAgent.switchProject('')
+
+    expect(superAgent.boundRepoRoot).toBeNull()
+    expect(superAgent.boundSessionId).toBeNull()
+    expect(superAgent.queue).toBeNull()
+  })
+
+  it('切换后在途的旧项目响应不得覆盖新项目的镜像', async () => {
+    const { superAgent } = loadStores()
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-1', running: false, snapshot: snapshot() })
+    await superAgent.bind('D:/repo')
+
+    let resolveStale: (board: unknown) => void = () => {}
+    mocks.tickets.mockImplementationOnce(
+      () => new Promise(resolve => { resolveStale = resolve }),
+    )
+    const inFlight = superAgent.loadTickets('D:/repo')
+
+    mocks.routerBind.mockResolvedValue({
+      sessionId: 'router-2',
+      running: false,
+      snapshot: snapshot({ repoRoot: 'D:/other' }),
+    })
+    await superAgent.switchProject('D:/other')
+
+    // 旧项目 A 的慢响应此刻才回来：它不属于当前绑定项目，必须整份丢弃
+    resolveStale({ repoRoot: 'D:/repo', seq: 9, tickets: [ticketCard()] })
+    await inFlight
+
+    expect(superAgent.boundRepoRoot).toBe('D:/other')
+    expect(superAgent.ticketBoard).toBeNull()
+  })
 })
 
 describe('superAgent store state', () => {
   it('refreshes the snapshot and exposes the attention count for the badge', async () => {
     const { superAgent } = loadStores()
+    await bindProject(superAgent)
     mocks.state.mockResolvedValue(snapshot({ seq: 4, attention: { unanswered: 2 } }))
 
     const result = await superAgent.loadState('D:/repo')
@@ -308,6 +414,19 @@ describe('superAgent store worker mirror（T07 #77）', () => {
     expect(superAgent.workerMirrors['ticket-1']).toEqual(workerMirror())
   })
 
+  it('补认派工时以普通聊天落行的 Worker 会话', async () => {
+    const { superAgent, chat } = loadStores()
+    // 修复前的现场：Worker 首条指派气泡把会话建成了普通聊天，侧边栏当场多出一条
+    chat.createSession('修登录页', 'D:/repo', 'superagent-worker-ticket-1', { activate: false })
+    mocks.workerBind.mockResolvedValue(workerMirror())
+
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+
+    expect(chat.sessions.find(s => s.id === 'superagent-worker-ticket-1')?.sessionType)
+      .toBe('superAgentWorker')
+    expect(chat.normalSessions).toEqual([])
+  })
+
   it('unbindWorker stops the mirror but keeps the session transcript for restore', async () => {
     const { superAgent, chat } = loadStores()
     mocks.workerBind.mockResolvedValue(workerMirror())
@@ -349,6 +468,7 @@ function queueSnapshot(overrides: Partial<SuperAgentQueueSnapshot> = {}): SuperA
 describe('superAgent store dispatch & queue（T05 #75）', () => {
   it('dispatches through the IPC command and refreshes the queue snapshot', async () => {
     const { superAgent } = loadStores()
+    await bindProject(superAgent)
     mocks.dispatch.mockResolvedValue({
       ticketId: 'ticket-1',
       assignmentId: 'assignment-1',
@@ -380,6 +500,7 @@ describe('superAgent store dispatch & queue（T05 #75）', () => {
 
   it('loadQueue mirrors the snapshot from the queue channel', async () => {
     const { superAgent } = loadStores()
+    await bindProject(superAgent)
     const snapshot = queueSnapshot({
       running: [{ ticketId: 'ticket-1', title: '工单一', position: 0, state: 'running', dirty: true }],
     })
@@ -448,6 +569,7 @@ function ticketProgress(overrides: Partial<SuperAgentTicketProgress> = {}): Supe
 describe('superAgent store 工单卡片（T06 #76）', () => {
   it('loadTickets mirrors the full board with the domain seq watermark', async () => {
     const { superAgent } = loadStores()
+    await bindProject(superAgent)
     mocks.tickets.mockResolvedValue({ repoRoot: 'D:/repo', seq: 5, tickets: [ticketCard()] })
 
     await superAgent.loadTickets('D:/repo')

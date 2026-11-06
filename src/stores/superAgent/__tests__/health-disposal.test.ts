@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { SuperAgentHealthReport } from '@/shared/channels/superAgent'
+import type { SuperAgentHealthReport, SuperAgentSnapshot } from '@/shared/channels/superAgent'
 import { useSuperAgentStore } from '../index'
 
 const mocks = vi.hoisted(() => ({
@@ -64,9 +64,26 @@ beforeEach(() => {
   mocks.stop.mockResolvedValue(undefined)
 })
 
+/**
+ * 项目作用域。生产里只由 bind/switchProject 确立，而镜像写入要求"数据属于当前
+ * 绑定的项目"（切换项目时在途旧响应不得覆盖新镜像），所以处置类用例要先进入该状态。
+ */
+function boundScope(): SuperAgentSnapshot {
+  return {
+    repoRoot: 'D:/repo',
+    seq: 1,
+    asOf: 1700000000000,
+    staleAfterMs: 5000,
+    router: { sessionId: 'router-1', running: false },
+    attention: { unanswered: 0 },
+    review: { reminded: 0 },
+  }
+}
+
 describe('superAgent store 健康处置（T20 #90）', () => {
   it('reevaluateEval invokes the channel and refreshes the health report', async () => {
     const store = useSuperAgentStore()
+    store.snapshot = boundScope()
     mocks.evalReevaluate.mockResolvedValue({
       evalId: 'eval-1',
       requeuedTriggerIds: ['trigger-1'],

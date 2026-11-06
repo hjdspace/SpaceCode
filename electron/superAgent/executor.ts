@@ -242,6 +242,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         sessionId,
         content: firstMessage,
         title: options.titleOf?.(request.ticketId) ?? request.ticketId,
+        sessionType: 'superAgentWorker',
         projectPath: request.repoRoot,
         permissionMode: 'bypassPermissions',
         model: request.model,

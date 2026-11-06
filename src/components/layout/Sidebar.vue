@@ -14,27 +14,6 @@
         <span class="icon-label">{{ t('sidebar.new') }}</span>
       </button>
 
-      <!-- Super Agent Entry (below New Chat) -->
-      <button
-        class="icon-btn super-agent-entry"
-        :class="{ active: appStore.activeCenterTab === 'super-agent' }"
-        data-testid="super-agent-entry"
-        @click="handleSuperAgentClick"
-        :title="t('superAgent.entry')"
-        :aria-label="t('superAgent.entry')"
-      >
-        <Sparkles :size="20" />
-        <!-- 入口徽章（T08/T10）：Attention + review 超时提醒按工单去重合并
-             （review 工单不可能同时挂 open Attention，两组集合天然不相交） -->
-        <span
-          v-if="superAgentEntryBadgeCount > 0"
-          class="super-agent-badge"
-          data-testid="super-agent-attention-badge"
-          :title="t('superAgent.attentionBadge', { count: superAgentEntryBadgeCount })"
-        >{{ superAgentEntryBadgeCount }}</span>
-        <span class="icon-label">{{ t('superAgent.entry') }}</span>
-      </button>
-
       <div class="icon-divider" aria-hidden="true"></div>
 
       <!-- History Tab -->
@@ -209,6 +188,24 @@
 
           <!-- Feature Navigation (CodePilot-style) -->
           <div class="feature-nav">
+            <button
+              class="feature-nav-item"
+              :class="{ active: appStore.activeCenterTab === 'super-agent' }"
+              data-testid="super-agent-entry"
+              @click="handleSuperAgentClick"
+              :title="t('superAgent.entry')"
+              :aria-label="t('superAgent.entry')"
+            >
+              <Bot :size="13" />
+              <span>{{ t('superAgent.entry') }}</span>
+              <!-- 入口徽章：Attention + review 超时提醒按工单去重合并（两组集合天然不相交） -->
+              <span
+                v-if="superAgentEntryBadgeCount > 0"
+                class="feature-nav-badge"
+                data-testid="super-agent-attention-badge"
+                :title="t('superAgent.attentionBadge', { count: superAgentEntryBadgeCount })"
+              >{{ superAgentEntryBadgeCount }}</span>
+            </button>
             <button
               v-if="settingsStore.showSkillsManagerEntry"
               class="feature-nav-item"
@@ -422,7 +419,7 @@ import {
   LayoutGrid,
   Workflow,
   Factory as FactoryIcon,
-  Sparkles,
+  Bot,
   Wrench,
   X
 } from 'lucide-vue-next'
@@ -1122,8 +1119,7 @@ onUnmounted(() => {
     }
   }
 
-  .scm-badge,
-  .super-agent-badge {
+  .scm-badge {
     position: absolute;
     top: 4px;
     right: 2px;
@@ -1449,6 +1445,22 @@ onUnmounted(() => {
           color: var(--accent-primary);
         }
       }
+    }
+
+    .feature-nav-badge {
+      margin-left: auto;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: var(--radius-full);
+      background: var(--accent-primary);
+      color: white;
+      font-size: 9px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
     }
   }
 
