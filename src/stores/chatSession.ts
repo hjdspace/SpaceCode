@@ -432,6 +432,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     lastMessageTimestamp?: number
     engineType?: SessionEngineType
     engineSessionId?: string
+    /** 主进程按 Super Agent 状态贴的归属标签；普通聊天不带。 */
+    sessionType?: SessionType
     metadata?: {
       customTitle?: string
       timestamps?: {
@@ -781,15 +783,21 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       let recovered = 0
       let backfilled = false
 
-      // 旧记录在 engineType 落地之前创建，可能只缺这一列。历史源里能认出来
-      // 就补上，避免左栏继续把它们当成“未知引擎”。
+      // 已存在的行按历史源补归属：旧记录可能缺 engineType（左栏会当成“未知引擎”），
+      // 也可能是修复前以普通聊天身份建出来的 Super Agent Router/Worker 会话 ——
+      // 那两类不该出现在左栏，认出来就地改回，不等用户点开 Super Agent 页才生效。
       for (const session of sessions.value) {
-        if (session.engineType) continue
         const entry = historyById.get(session.id)
-        if (!entry?.engineType) continue
-        session.engineType = entry.engineType
-        if (entry.engineSessionId) session.engineSessionId = entry.engineSessionId
-        backfilled = true
+        if (!entry) continue
+        if (!session.engineType && entry.engineType) {
+          session.engineType = entry.engineType
+          if (entry.engineSessionId) session.engineSessionId = entry.engineSessionId
+          backfilled = true
+        }
+        if (entry.sessionType && session.sessionType !== entry.sessionType) {
+          session.sessionType = entry.sessionType
+          backfilled = true
+        }
       }
 
       for (const entry of historyById.values()) {
@@ -824,6 +832,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
           isTabOpen: false,
           lastActivityAt: timestamp,
           mode: 'code',
+          // 恢复出来的 Super Agent 会话从建出来那刻就不属于侧边栏；不带归属
+          // 等于把刚修好的泄漏从这里重新灌回去。
+          sessionType: entry.sessionType,
         })
         knownIds.add(id)
         recovered++
@@ -1766,11 +1777,28 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
   // sink.persist 的实现：当前持久化无 per-session 粒度（saveToStorage 落全量），保留 sessionId 参数为任务 3 的细粒度持久化预留 seam。
   function saveToStorageForSession(_sessionId: string) { saveToStorage() }
-  function ensureSession(sessionId: string, hint?: { title?: string; projectPath?: string; activate?: boolean }): Session {
+  function ensureSession(
+    sessionId: string,
+    hint?: {
+      title?: string
+      projectPath?: string
+      activate?: boolean
+      sessionType?: SessionType
+    },
+  ): Session {
     const existing = sessions.value.find(s => s.id === sessionId)
-    if (existing) return existing
+    // 已存在的行也要认账：Super Agent 早于本次修复建出来的行没有类型，
+    // 不补就会一直留在侧边栏里。归属只会收紧，不会把普通聊天改没。
+    if (existing) {
+      if (hint?.sessionType && existing.sessionType !== hint.sessionType) {
+        existing.sessionType = hint.sessionType
+        saveToStorage()
+      }
+      return existing
+    }
     return createSession(hint?.title || 'New Chat', hint?.projectPath, sessionId, {
       activate: hint?.activate !== false,
+      sessionType: hint?.sessionType,
     })
   }
 
