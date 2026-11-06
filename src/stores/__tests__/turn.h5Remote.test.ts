@@ -332,4 +332,54 @@ describe('turn H5 remote user events', () => {
     expect(session?.messages[1]).toMatchObject({ role: 'assistant', content: '' })
     expect(turnStore.getIsLoading('h5-session-no-random-uuid')).toBe(true)
   })
+
+  it('登记主进程推来的 Super Agent 会话时带上归属，侧边栏不显示它', async () => {
+    const { useTurnStore } = await import('../turn')
+    useTurnStore()
+    const sessionStore = useChatSessionStore()
+
+    mockState.handlers.onUser({
+      sessionId: 'worker-session-1',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '修登录页',
+        projectPath: 'D:/repo',
+        title: '修登录页',
+        sessionType: 'superAgentWorker',
+        timestamp: Date.now(),
+        activate: false,
+      },
+    })
+
+    expect(sessionStore.getSession('worker-session-1')?.sessionType).toBe('superAgentWorker')
+    // 用户可见的判据：这条不在普通会话列表里
+    expect(sessionStore.normalSessions.find(s => s.id === 'worker-session-1')).toBeUndefined()
+  })
+
+  it('补认修复前以普通聊天建出来的 Super Agent 会话行', async () => {
+    const { useTurnStore } = await import('../turn')
+    useTurnStore()
+    const sessionStore = useChatSessionStore()
+    // 修复前的现场：推送没带归属，于是这条 Router 会话当成普通聊天落了行
+    sessionStore.createSession('当前正在进行的任务有哪些', 'D:/repo', 'router-session-1')
+    expect(sessionStore.normalSessions.some(s => s.id === 'router-session-1')).toBe(true)
+
+    mockState.handlers.onUser({
+      sessionId: 'router-session-1',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: null,
+        content: '继续',
+        projectPath: 'D:/repo',
+        title: 'Super Agent',
+        sessionType: 'superAgent',
+        timestamp: Date.now(),
+        activate: false,
+      },
+    })
+
+    expect(sessionStore.getSession('router-session-1')?.sessionType).toBe('superAgent')
+    expect(sessionStore.normalSessions.some(s => s.id === 'router-session-1')).toBe(false)
+  })
 })
