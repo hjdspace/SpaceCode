@@ -327,7 +327,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
 
   /** T12 #82：拉取执行策略镜像（串/并行、上限、worktree 形态）。 */
   async function loadPolicy(repoRoot: string): Promise<SuperAgentExecutionPolicyView> {
-    const next = await api.superAgent.policy(repoRoot)
+    const next = await api.superAgent.executionPolicy(repoRoot)
     if (isBoundProject(next.repoRoot)) executionPolicy.value = next
     return next
   }
@@ -340,7 +340,7 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     repoRoot: string,
     command: SuperAgentPolicySetCommand,
   ): Promise<SuperAgentExecutionPolicyView> {
-    const next = await api.superAgent.policySet(repoRoot, command)
+    const next = await api.superAgent.executionPolicySet(repoRoot, command)
     if (isBoundProject(next.repoRoot)) executionPolicy.value = next
     await loadQueue(repoRoot)
     return next

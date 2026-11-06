@@ -628,11 +628,12 @@ export const superAgentNamespace = defineNamespace({
     },
     // 执行策略与检查点（T12 #82）：串行（默认）与并行（强制 per-ticket worktree）
     // 策略变更即时生效且运行中不热切换；检查点只支持人工按文件显式回退。
-    policy: {
+    // 命名用 executionPolicy（#92），与领域层授权策略 setPolicy 区分开。
+    executionPolicy: {
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentExecutionPolicyView,
     },
-    policySet: {
+    executionPolicySet: {
       req: [] as unknown as [repoRoot: string, command: SuperAgentPolicySetCommand],
       res: null as unknown as SuperAgentExecutionPolicyView,
     },

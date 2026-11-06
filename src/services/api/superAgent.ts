@@ -118,12 +118,12 @@ const invokeApi = createRendererApi(
     resume: () => {
       throw new Error('resume is not available in the desktop-less runtime')
     },
-    policy: () => ({
+    executionPolicy: () => ({
       // 非桌面环境没有调度运行时：返回默认串行策略（只读，无副作用）
       repoRoot: '',
       policy: { mode: 'serial' as const, maxWorkers: 1, worktree: 'none' as const },
     }),
-    policySet: () => {
+    executionPolicySet: () => {
       // 策略变更依赖主进程领域落库，非桌面环境明确拒绝
       throw new Error('policy set is not available in the desktop-less runtime')
     },

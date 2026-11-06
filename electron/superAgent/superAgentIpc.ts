@@ -497,11 +497,11 @@ export function registerSuperAgentIPCHandlers(
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.resume(root))
     },
-    policy: (repoRoot: unknown) => {
+    executionPolicy: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.executionPolicy(root))
     },
-    policySet: (repoRoot: unknown, command: unknown) => {
+    executionPolicySet: (repoRoot: unknown, command: unknown) => {
       const root = requireRepoRoot(repoRoot)
       const req = requirePolicySetCommand(command)
       return runNoted(service, root, () => service.setExecutionPolicy(root, req))

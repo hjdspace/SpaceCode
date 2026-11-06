@@ -488,13 +488,16 @@ describe('registerSuperAgentIPCHandlers pause & resume（T11 #81）', () => {
   })
 })
 
-describe('registerSuperAgentIPCHandlers policy & checkpoint（T12 #82）', () => {
-  it('registers policy / policySet / checkpoint / checkpointRollback on the shared wire prefix', () => {
+describe('registerSuperAgentIPCHandlers executionPolicy & checkpoint（T12 #82、#92）', () => {
+  it('registers executionPolicy / executionPolicySet / checkpoint / checkpointRollback on the shared wire prefix', () => {
     registerSuperAgentIPCHandlers()
 
-    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}policy`, expect.any(Function))
     expect(probe.handle).toHaveBeenCalledWith(
-      `${SUPER_AGENT_PREFIX}policySet`,
+      `${SUPER_AGENT_PREFIX}executionPolicy`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}executionPolicySet`,
       expect.any(Function),
     )
     expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}checkpoint`, expect.any(Function))
@@ -507,22 +510,26 @@ describe('registerSuperAgentIPCHandlers policy & checkpoint（T12 #82）', () =>
   it('serves the default serial policy and rejects unconfirmed parallel at the entry', async () => {
     registerSuperAgentIPCHandlers()
 
-    const policy = await invoke('policy', '/repo/a')
+    const policy = await invoke('executionPolicy', '/repo/a')
     expect(policy.policy).toEqual({ mode: 'serial', maxWorkers: 1, worktree: 'none' })
 
     // 开启并行必须 UI 二次确认（confirmed）
     await expect(
-      invokeDispatch('policySet', '/repo/a', { mode: 'parallel', maxWorkers: 2 }),
+      invokeDispatch('executionPolicySet', '/repo/a', { mode: 'parallel', maxWorkers: 2 }),
     ).rejects.toThrow(/policyConfirmRequired/)
     // 结构校验在领域层完成：上限越界稳定报错
     await expect(
-      invokeDispatch('policySet', '/repo/a', { mode: 'parallel', maxWorkers: 9, confirmed: true }),
+      invokeDispatch('executionPolicySet', '/repo/a', {
+        mode: 'parallel',
+        maxWorkers: 9,
+        confirmed: true,
+      }),
     ).rejects.toThrow()
     // 非法命令入口拒绝
-    await expect(invokeDispatch('policySet', '/repo/a', null)).rejects.toThrow(/policy set/)
-    await expect(invokeDispatch('policySet', '/repo/a', { mode: 'boost' })).rejects.toThrow(
-      /policy set/,
-    )
+    await expect(invokeDispatch('executionPolicySet', '/repo/a', null)).rejects.toThrow(/policy set/)
+    await expect(
+      invokeDispatch('executionPolicySet', '/repo/a', { mode: 'boost' }),
+    ).rejects.toThrow(/policy set/)
   })
 
   it('serves checkpoint info and rejects malformed rollback commands at the entry', async () => {
