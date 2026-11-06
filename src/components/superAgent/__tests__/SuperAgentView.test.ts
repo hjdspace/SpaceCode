@@ -16,6 +16,8 @@
  */
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick, reactive } from 'vue'
+import type { Message } from '@/types'
 import type {
   SuperAgentAttentionView,
   SuperAgentDispatchResult,
@@ -38,7 +40,7 @@ const probe = vi.hoisted(() => ({
   routerRunning: false,
   getIsLoading: vi.fn(() => false),
   addMessage: vi.fn().mockResolvedValue(undefined),
-  getDisplayMessages: vi.fn(() => []),
+  getDisplayMessages: vi.fn<() => Message[]>(() => []),
   getSessionMessages: vi.fn(() => []),
   getSession: vi.fn(() => null),
   switchAgent: vi.fn().mockResolvedValue(undefined),
@@ -141,6 +143,8 @@ vi.mock('@/stores/settings', () => ({
 
 vi.mock('@/stores/chatSession', () => ({
   useChatSessionStore: () => ({
+    currentSessionId: null,
+    turnChangeCards: [],
     getDisplayMessages: probe.getDisplayMessages,
     getSessionMessages: probe.getSessionMessages,
     getSession: probe.getSession,
@@ -155,6 +159,8 @@ vi.mock('@/stores/turn', () => ({
     sendMessage: probe.sendMessage,
     abort: probe.abort,
     getIsLoading: probe.getIsLoading,
+    isEngineStarting: () => false,
+    getMcpFailures: () => [],
     hasPendingPermissionForToolUse: () => false,
     allowPermission: vi.fn(),
     denyPermission: vi.fn(),
@@ -217,23 +223,29 @@ import WorkerTaskCard from '../WorkerTaskCard.vue'
 function mountView() {
   return mount(SuperAgentView, {
     global: {
-      // 只替换渲染层，保留组件引用与 props 供断言。
-      // MessageList 桩渲染 append 插槽：工单卡片（T06）已移入时间线末尾，
-      // 桩不渲染插槽的话这些卡片的接线断言全部落空。
+      // 真实 MessageList 与 WorkerTaskCard：不能由测试桩发明宿主不存在的 slot。
       stubs: {
         ChatInput: true,
-        // 保留 name 与 props 声明：findComponent({ name }) 与 props() 断言仍可用
-        MessageList: {
-          name: 'MessageList',
-          props: ['messages', 'loading', 'sessionId', 'presentation', 'readonly', 'mode'],
-          template: '<div><slot name="append" /></div>',
+        MessageItem: true,
+        AgentTimeline: {
+          props: ['messages'],
+          template: '<div class="assistant-reply">{{ messages.map(m => m.content).join(" ") }}</div>',
         },
+        DesignBlocks: true,
+        GenuiCardGroup: true,
+        CurrentTurnChangeCard: true,
+        ArtifactSummaryCard: true,
+        ConversationMinimap: true,
+        LoadingState: true,
+        ExtensionDialogCard: true,
       },
     },
   })
 }
 
 beforeEach(() => {
+  HTMLElement.prototype.scrollTo = vi.fn()
+  probe.getDisplayMessages.mockReturnValue([])
   probe.bind.mockClear()
   probe.loadState.mockClear()
   probe.openWorkerTab.mockClear()
@@ -271,6 +283,8 @@ beforeEach(() => {
   probe.loadQueue.mockClear()
   probe.watchQueue.mockClear()
   probe.queue = null
+  probe.loadAttentions.mockClear()
+  probe.watchAttentions.mockClear()
   probe.loadTickets.mockClear()
   probe.watchTickets.mockClear()
   probe.ticketBoard = null
@@ -306,6 +320,8 @@ beforeEach(() => {
   })
   probe.reviewReminders = []
   probe.reviewRemindedCount = 0
+  probe.attentionBubbles = []
+  probe.attentionCount = 0
 })
 
 describe('SuperAgentView empty state', () => {
@@ -470,6 +486,69 @@ describe('SuperAgentView router conversation wiring', () => {
       displayText: '/compact',
     }))
     wrapper.unmount()
+  })
+})
+
+describe('SuperAgentView snapshot/subscription lifecycle', () => {
+  it('慢快照加载期间的状态事件不会丢失，且所有订阅在快照之前就绪', async () => {
+    const board = reactive<SuperAgentTicketBoard>({
+      repoRoot: 'D:/repo', seq: 1,
+      tickets: [{
+        ticketId: 'ticket-live', title: '实时工单', state: 'queued', assignmentId: 'assignment-live',
+        generation: 1, scopePaths: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+        ended: null, reviewRemindedAt: null, canRetry: false, canStop: true,
+      }],
+    })
+    probe.ticketBoard = board
+    let publish: (() => void) | undefined
+    const offTickets = vi.fn(() => { publish = undefined })
+    probe.watchTickets.mockImplementationOnce(() => {
+      publish = () => { board.tickets[0].state = 'working' }
+      return offTickets
+    })
+    // Attention 快照比 Ticket 快照慢；这段期间主进程开始执行 Worker。
+    probe.loadAttentions.mockImplementationOnce(async () => { publish?.() })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="worker-task-card-state"]').text()).toBe('superAgent.ticket.states.working')
+    for (const watch of [probe.watchHealth, probe.watchQueue, probe.watchTickets, probe.watchAttentions, probe.watchRouterStatus]) {
+      expect(watch).toHaveBeenCalledBefore(probe.loadState)
+    }
+    wrapper.unmount()
+    expect(offTickets).toHaveBeenCalledTimes(1)
+  })
+
+  it('快照仍在加载时卸载会清理全部订阅，返回后不会重新订阅', async () => {
+    const watchers = [probe.watchHealth, probe.watchQueue, probe.watchTickets, probe.watchAttentions, probe.watchRouterStatus]
+    const unsubscribes = watchers.map(watch => {
+      const unsubscribe = vi.fn()
+      watch.mockReturnValueOnce(unsubscribe)
+      return unsubscribe
+    })
+    let resolveSnapshot!: () => void
+    probe.loadAttentions.mockImplementationOnce(() => new Promise<void>(resolve => { resolveSnapshot = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.unmount()
+    for (const unsubscribe of unsubscribes) expect(unsubscribe).toHaveBeenCalledTimes(1)
+    resolveSnapshot()
+    await flushPromises()
+    for (const watch of watchers) expect(watch).toHaveBeenCalledTimes(1)
+  })
+
+  it('绑定未完成就卸载，不继续加载也不创建泄漏的订阅', async () => {
+    let resolveBind!: () => void
+    probe.bind.mockImplementationOnce(() => new Promise<void>(resolve => { resolveBind = resolve }))
+    const wrapper = mountView()
+    wrapper.unmount()
+    resolveBind()
+    await flushPromises()
+
+    expect(probe.loadState).not.toHaveBeenCalled()
+    for (const watch of [probe.watchHealth, probe.watchQueue, probe.watchTickets, probe.watchAttentions, probe.watchRouterStatus]) {
+      expect(watch).not.toHaveBeenCalled()
+    }
   })
 })
 
@@ -704,20 +783,170 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     }
   }
 
-  it('renders one reminder bubble per overdue ticket and opens the read-only tab on click', async () => {
+  /** 卡片创建时间要晚于锚点助手回复，才会落进那条回复的时间线单位里。 */
+  function anchoredBoard(board: SuperAgentTicketBoard): SuperAgentTicketBoard {
+    return { ...board, tickets: board.tickets.map((t) => ({ ...t, createdAt: '2026-01-01T00:00:02Z' })) }
+  }
+
+  it('真实 MessageList 中的 Worker 卡片可见且点击打开右侧执行过程', async () => {
+    probe.ticketBoard = reviewBoard()
+    probe.getDisplayMessages.mockReturnValue([
+      { id: 'a1', role: 'assistant', content: '已派 Worker 执行', timestamp: Date.parse('2025-12-31T23:59:59Z') },
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    const list = wrapper.getComponent(MessageList)
+    expect(list.get('.assistant-reply').text()).toBe('已派 Worker 执行')
+    const cards = list.findAll('[data-testid="worker-task-card"]')
+    expect(cards).toHaveLength(2)
+    await cards[1].trigger('click')
+    expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-2', '修复注册')
+    wrapper.unmount()
+  })
+
+  it('卡片归属最近的之前 assistant group，更新及新闲聊不移位、不重复，缺历史时 append', async () => {
+    const history = reactive<Message[]>([
+      { id: 'u1', role: 'user', content: '修复登录', timestamp: Date.parse('2026-01-01T00:00:00Z') },
+      { id: 'a1', role: 'assistant', content: '正在派工', timestamp: Date.parse('2026-01-01T00:00:01Z') },
+      { id: 'a1-more', role: 'assistant', content: '已派 Worker', timestamp: Date.parse('2026-01-01T00:00:03Z') },
+      { id: 'u2', role: 'user', content: '修复注册', timestamp: Date.parse('2026-01-01T00:00:10Z') },
+      { id: 'a2', role: 'assistant', content: '已派另一 Worker', timestamp: Date.parse('2026-01-01T00:00:11Z') },
+    ])
+    const board = reactive(reviewBoard())
+    board.tickets[0].createdAt = '2026-01-01T00:00:02Z'
+    // 时间相同也算之前/当前回复；第一张卡在组内后续 assistant 消息之前创建。
+    board.tickets[1].createdAt = '2026-01-01T00:00:11Z'
+    board.tickets.push({ ...board.tickets[0], ticketId: 'historic', title: '历史工单', createdAt: '2025-12-31T00:00:00Z' })
+    probe.ticketBoard = board
+    probe.getDisplayMessages.mockReturnValue(history)
+    const wrapper = mountView()
+    await flushPromises()
+
+    const firstReply = wrapper.get('[data-minimap-id="a1"]')
+    const firstCard = firstReply.get('[data-testid="worker-task-card"]')
+    expect(firstCard.text()).toContain('修复登录')
+    expect(firstReply.findAll('[data-testid="worker-task-card"]')).toHaveLength(1)
+    expect(wrapper.get('[data-minimap-id="a2"]').get('[data-testid="worker-task-card"]').text()).toContain('修复注册')
+    expect(firstReply.element.lastElementChild?.textContent).toContain('修复登录')
+
+    board.tickets[0] = { ...board.tickets[0], state: 'completed', canStop: false, updatedAt: '2026-01-01T00:00:30Z' }
+    history.push(
+      { id: 'u3', role: 'user', content: '你好', timestamp: Date.parse('2026-01-01T00:01:00Z') },
+      { id: 'a3', role: 'assistant', content: '你好！', timestamp: Date.parse('2026-01-01T00:01:01Z') },
+    )
+    await nextTick()
+
+    expect(firstReply.get('[data-testid="worker-task-card"]').element).toBe(firstCard.element)
+    expect(firstCard.attributes('data-state')).toBe('completed')
+    expect(wrapper.get('[data-minimap-id="a3"]').find('[data-testid="worker-task-card"]').exists()).toBe(false)
+    const cards = wrapper.findAll('[data-testid="worker-task-card"]')
+    expect(cards).toHaveLength(3)
+    expect(cards[2].text()).toContain('历史工单')
+    expect(cards[2].element.closest('.minimap-anchor')).toBeNull()
+
+    // 清空/缺失全部会话历史，工单仍可通过 fallback 打开。
+    history.splice(0)
+    await nextTick()
+    expect(wrapper.findAll('[data-testid="worker-task-card"]')).toHaveLength(3)
+    await wrapper.findAll('[data-testid="worker-task-card"]')[2].trigger('click')
+    expect(probe.openWorkerTab).toHaveBeenCalledWith('historic', '历史工单')
+    wrapper.unmount()
+  })
+
+  it('历史消息 id 重复时，同一张卡也只能属于一个 assistant group', async () => {
+    probe.ticketBoard = reviewBoard()
+    probe.getDisplayMessages.mockReturnValue([
+      { id: 'reused', role: 'assistant', content: '派工回复', timestamp: Date.parse('2025-12-31T23:59:59Z') },
+      { id: 'u2', role: 'user', content: '闲聊', timestamp: Date.parse('2026-01-01T00:01:00Z') },
+      { id: 'reused', role: 'assistant', content: '闲聊回复', timestamp: Date.parse('2026-01-01T00:01:01Z') },
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+    const replies = wrapper.findAll('[data-minimap-id="reused"]')
+    expect(replies[0].findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
+    expect(replies[1].findAll('[data-testid="worker-task-card"]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('待验收超时提醒跟着所属工单出现在时间线里，点击打开只读标签', async () => {
+    probe.ticketBoard = anchoredBoard(reviewBoard())
+    probe.getDisplayMessages.mockReturnValue([
+      { id: 'u1', role: 'user', content: '修复登录', timestamp: Date.parse('2026-01-01T00:00:00Z') },
+      { id: 'a1', role: 'assistant', content: '已派 Worker 修复登录', timestamp: Date.parse('2026-01-01T00:00:01Z') },
+    ])
     probe.reviewReminders = [{ ticketId: 'ticket-1', title: '修复登录', remindedAt: '2026-01-02T00:00:00.000Z' }]
     probe.reviewRemindedCount = 1
     probe.openWorkerTab.mockClear()
     const wrapper = mountView()
     await flushPromises()
 
-    // 同一工单复用原气泡（key=ticketId），不弹 modal
+    // 同一工单复用原气泡（key=ticketId），不弹 modal，也不再挂顶部独立区块
     const bubbles = wrapper.findAll('[data-testid="super-agent-review-reminder-ticket-1"]')
     expect(bubbles).toHaveLength(1)
-    expect(wrapper.find('[data-testid="super-agent-review-reminded-count"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="super-agent-review-reminders"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="super-agent-review-reminded-count"]').exists()).toBe(false)
+
+    // 气泡在 ticket-1 的工单位内，而该单位在消息时间线里
+    const entry = wrapper.get('[data-testid="super-agent-ticket-entry-ticket-1"]')
+    expect(entry.find('[data-testid="super-agent-review-reminder-ticket-1"]').exists()).toBe(true)
+    expect(entry.element.closest('.minimap-anchor')).not.toBeNull()
+    expect(entry.find('[data-testid="worker-task-card"]').text()).toContain('修复登录')
 
     await bubbles[0].trigger('click')
     expect(probe.openWorkerTab).toHaveBeenCalledWith('ticket-1', '修复登录')
+    wrapper.unmount()
+  })
+
+  it('Worker 提问气泡同样随工单卡片进时间线；卡片不在看板时兜底落末尾', async () => {
+    probe.ticketBoard = anchoredBoard(reviewBoard())
+    probe.getDisplayMessages.mockReturnValue([
+      { id: 'u1', role: 'user', content: '修复注册', timestamp: Date.parse('2026-01-01T00:00:00Z') },
+      { id: 'a1', role: 'assistant', content: '已派 Worker 修复注册', timestamp: Date.parse('2026-01-01T00:00:01Z') },
+    ])
+    probe.attentionBubbles = [
+      {
+        attentionId: 'ask-2',
+        ticketId: 'ticket-2',
+        ticketTitle: '修复注册',
+        assignmentId: 'assignment-2',
+        kind: 'question',
+        question: '注册页要一起改吗？',
+        askedAt: '2026-01-02T00:00:00.000Z',
+        status: 'open',
+        answers: [],
+        answeredAt: null,
+      },
+      {
+        attentionId: 'ask-9',
+        ticketId: 'ticket-9',
+        ticketTitle: '已清理的工单',
+        assignmentId: 'assignment-9',
+        kind: 'question',
+        question: '这条问题不能丢',
+        askedAt: '2026-01-02T00:00:00.000Z',
+        status: 'open',
+        answers: [],
+        answeredAt: null,
+      },
+    ]
+    probe.attentionCount = 2
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-attentions"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="super-agent-attention-count"]').exists()).toBe(false)
+
+    const entry = wrapper.get('[data-testid="super-agent-ticket-entry-ticket-2"]')
+    expect(entry.get('[data-testid="attention-bubble-question"]').text()).toBe('注册页要一起改吗？')
+    expect(entry.element.closest('.minimap-anchor')).not.toBeNull()
+
+    // ticket-9 已无卡片：问题仍在末尾出现，不静默消失
+    const orphans = wrapper.findAll('[data-testid="attention-bubble-question"]')
+    expect(orphans).toHaveLength(2)
+    expect(orphans[1].text()).toBe('这条问题不能丢')
+    expect(orphans[1].element.closest('.minimap-anchor')).toBeNull()
     wrapper.unmount()
   })
 
@@ -788,12 +1017,16 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     wrapper.unmount()
   })
 
-  it('hides the reminder section when no ticket is overdue', async () => {
+  it('没有超时工单时工单位里只有卡片，不出现提醒气泡', async () => {
+    probe.ticketBoard = anchoredBoard(reviewBoard())
+    probe.getDisplayMessages.mockReturnValue([
+      { id: 'a1', role: 'assistant', content: '已派工', timestamp: Date.parse('2026-01-01T00:00:01Z') },
+    ])
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="super-agent-review-reminders"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="super-agent-review-reminded-count"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="super-agent-ticket-entry-ticket-1"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid^="super-agent-review-reminder-"]')).toHaveLength(0)
     wrapper.unmount()
   })
 })
