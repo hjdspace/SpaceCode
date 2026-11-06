@@ -134,6 +134,14 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
 
   let active = 0
   const reserved = new Map<string, ReservedSlot>()
+  /**
+   * T23 #94：等权限的 Worker 释放了逻辑槽位；回答前要重新拿槽。
+   * 槽位全满时排队（优先于新工单），避免串行队列自锁。
+   */
+  const permissionWaiters: Array<{
+    ticketId: string
+    resolvers: Array<(acquired: boolean) => void>
+  }> = []
   /** T11 #81：在途 launch promise —— 显式 shutdown 有界等待的对象。 */
   const inFlightLaunches = new Set<Promise<void>>()
   /** T11 #81：shutdown 开始后不再启动新 launch（draining）。 */
@@ -188,12 +196,37 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     return index >= 0 ? index + 1 : 0
   }
 
+  /** T23 #94：权限回答只对仍在跑的当次执行有效；找不到就不占槽。 */
+  function answerableAssignmentOf(ticketId: string) {
+    const candidates = Object.values(domain.state.assignments)
+      .filter((assignment) => assignment.ticketId === ticketId && assignment.state === 'running')
+      .sort((a, b) => a.createdOrdinal - b.createdOrdinal)
+    return candidates[candidates.length - 1]
+  }
+
+  /** T23 #94：回答前重新预留槽位（同步预留，先于任何 await）。 */
+  function reserveSlot(ticketId: string, assignmentId: string): void {
+    active += 1
+    reserved.set(ticketId, { ticketId, assignmentId, dirty: null, released: false })
+  }
+
   /** 槽位在任何 await 之前同步预留；后续的启动流程异步推进。 */
   function pump(): void {
     if (!launcher) return
     // T11 #81：shutdown draining 与项目暂停期间都不再启动新 launch
     // （暂停只阻止新 launch/delivery；活动 turn 不被静默打断）。
     if (stopping || domain.state.paused) return
+    // T23 #94：等权限回答的 Worker 优先回到槽位，其次才是新工单
+    while (active < policy().maxWorkers && permissionWaiters.length > 0) {
+      const waiter = permissionWaiters.shift()!
+      const assignment = answerableAssignmentOf(waiter.ticketId)
+      if (!assignment) {
+        for (const resolve of waiter.resolvers) resolve(false)
+        continue
+      }
+      reserveSlot(waiter.ticketId, assignment.assignmentId)
+      for (const resolve of waiter.resolvers) resolve(true)
+    }
     while (active < policy().maxWorkers) {
       const next = pendingAssignments().find(
         (assignment) => !reserved.has(assignment.ticketId),
@@ -266,6 +299,44 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     if (hasLaterInput) return false
     releaseSlot(slot)
     return true
+  }
+
+  /**
+   * T23 #94：Worker 等权限请求时释放逻辑槽位，进程现场保留。
+   * 与 handoff 不同，这里没有 handoff Report，也不要求 turn 结束 —— 引擎正卡在
+   * permission request 上，这一轮不可能自行收尾。
+   */
+  function holdForPermission(ticketId: string): boolean {
+    const slot = reserved.get(ticketId)
+    if (!slot || slot.released) return false
+    releaseSlot(slot)
+    return true
+  }
+
+  /**
+   * T23 #94：回答权限前重新取得槽位。槽位空闲立即预留；全满则排队，由
+   * releaseSlot → pump 按「先等权限、后新工单」的次序唤醒（串行也不自锁）。
+   * 返回 false 表示该工单已没有可回答的在跑执行（已 stop/收尾）。
+   */
+  function acquireForPermissionAnswer(ticketId: string): Promise<boolean> {
+    const current = reserved.get(ticketId)
+    if (current && !current.released) return Promise.resolve(true)
+    if (stopping || domain.state.paused || !launcher) return Promise.resolve(false)
+    const assignment = answerableAssignmentOf(ticketId)
+    if (!assignment) return Promise.resolve(false)
+    if (active < policy().maxWorkers) {
+      reserveSlot(ticketId, assignment.assignmentId)
+      notify()
+      return Promise.resolve(true)
+    }
+    // 同一工单只排一个等待位：回答与取消可能同时来，重复排队会重复占槽。
+    const pending = permissionWaiters.find((waiter) => waiter.ticketId === ticketId)
+    if (pending) {
+      return new Promise<boolean>((resolve) => pending.resolvers.push(resolve))
+    }
+    return new Promise<boolean>((resolve) => {
+      permissionWaiters.push({ ticketId, resolvers: [resolve] })
+    })
   }
 
   async function launch(ticketId: string, assignmentId: string): Promise<void> {
@@ -341,8 +412,10 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       onLaunchError?.(ticketId, err)
       onDomainChanged?.()
     } finally {
-      if (slot) {
-        releaseSlot(slot)
+      // 可能已经 hold 后重新预留过：释放「当前」槽位，别让重预留泄漏。
+      const current = reserved.get(ticketId)
+      if (current) {
+        releaseSlot(current)
       } else {
         pump()
         notify()
@@ -394,6 +467,10 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
    */
   function settle(timeoutMs: number): Promise<boolean> {
     stopping = true
+    // 停机时不再有人回答权限：挂起的等待者立即失败，不留悬空 Promise。
+    for (const waiter of permissionWaiters.splice(0)) {
+      for (const resolve of waiter.resolvers) resolve(false)
+    }
     if (inFlightLaunches.size === 0) return Promise.resolve(true)
     return new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), timeoutMs)
@@ -424,7 +501,18 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
     return reserved.size > 0
   }
 
-  return { dispatch, queue, retry, settle, resume, handoff, applyPolicy, hasActiveWorkers }
+  return {
+    dispatch,
+    queue,
+    retry,
+    settle,
+    resume,
+    handoff,
+    holdForPermission,
+    acquireForPermissionAnswer,
+    applyPolicy,
+    hasActiveWorkers,
+  }
 }
 
 export type SuperAgentScheduler = ReturnType<typeof createSuperAgentScheduler>

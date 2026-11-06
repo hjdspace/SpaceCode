@@ -36,6 +36,7 @@ export default {
     notReady: '工单还未进入待验收',
     notAttention: '当前没有待处理的请求',
     notQuestion: '该请求不是问题类型',
+    notPermission: '该请求不是权限类型',
     ackEnded: '该确认已经结束',
     mandateRevoked: '授权已撤回',
     conflict: '请求与已有记录冲突',
@@ -223,5 +224,8 @@ export default {
     collapseHint: '收起',
     answerFailedHint: '回答提交失败，请稍后重试',
     deliveryHint: '投递状态待确认，稍后会自动重试',
+    permissionHint: '执行方请求授权，允许后它才会继续',
+    permissionAllow: '允许',
+    permissionDeny: '拒绝',
   },
 }

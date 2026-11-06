@@ -49,6 +49,7 @@ export type SuperAgentErrorCode =
   | 'notReady'
   | 'notAttention'
   | 'notQuestion'
+  | 'notPermission'
   | 'ackEnded'
   | 'mandateRevoked'
   // conflict：重复或并发冲突
@@ -134,6 +135,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   notReady: 'refused',
   notAttention: 'refused',
   notQuestion: 'refused',
+  notPermission: 'refused',
   ackEnded: 'refused',
   mandateRevoked: 'refused',
   conflict: 'conflict',

@@ -10,9 +10,9 @@
  * turn store —— 渲染端关掉也不能影响工单推进（设计 §3.2 第 1 条）。
  *
  * Worker 会话 id 由 ticketId 稳定派生（sessionId.ts），跨代次与重启同一个 id，
- * 引擎按已有 transcript 自动 `--resume`；权限档是 bypassPermissions —— 工单是
- * 人显式派出去的，逐次点授权卡会把后台执行变成人工陪跑，脏区风险改由首条消息
- * 与检查点承担（scheduler 已在 launch 前落检查点）。
+ * 引擎按已有 transcript 自动 `--resume`。权限档由 service 按执行策略给出：
+ * 共享目录（串行/默认）用 acceptEdits，权限请求落成 Attention 交给人；只有
+ * per-ticket worktree 的并行执行才放开 bypassPermissions（脏区彼此隔离）。
  */
 import {
   SUPER_AGENT_WORKER_ROLE_PROMPT,
@@ -37,6 +37,23 @@ export interface SuperAgentExecutorIngestResult {
   ticketId: string | null
 }
 
+export interface SuperAgentPermissionRequestContext {
+  ticketId: string
+  assignmentId: string
+  /** 引擎会话与请求 id：Attention 的审计锚点与回答投递地址。 */
+  sessionId: string
+  requestId: string
+  question: string
+}
+
+export interface SuperAgentPermissionCancelledContext {
+  ticketId: string
+  assignmentId: string
+  sessionId: string
+  requestId: string
+  reason: string
+}
+
 export interface SuperAgentExecutorHooks {
   /** 严格解析并落地 Report；协议失败由实现方记健康，不在此抛穿。 */
   ingest(text: string): SuperAgentExecutorIngestResult
@@ -46,6 +63,10 @@ export interface SuperAgentExecutorHooks {
   onInterrupted(context: { ticketId: string; assignmentId: string; reason: string }): void
   /** 最终 Report 中继给 Router（可缺省：不中继时工单只更新卡片）。 */
   relay?(info: { ticketId: string; kind: SuperAgentReportKind; summary: string }): void
+  /** 引擎权限请求：这一轮没有结束，只是等人在 Attention 上回答。 */
+  onPermissionRequest?(context: SuperAgentPermissionRequestContext): void
+  /** 引擎撤回权限请求（中止/进程退出等）：对应 Attention 撤回，不留下永久气泡。 */
+  onPermissionCancelled?(context: SuperAgentPermissionCancelledContext): void
 }
 
 export interface SuperAgentExecutorOptions {
@@ -58,6 +79,8 @@ export interface SuperAgentExecutorOptions {
   titleOf?(ticketId: string): string
   modelOf?(ticketId: string): string | undefined
   humanInputIds?(ticketId: string): string[]
+  /** Worker 权限档：service 按当前执行策略给出；缺省 acceptEdits（共享目录）。 */
+  permissionModeOf?(): 'acceptEdits' | 'bypassPermissions'
 }
 
 export interface SuperAgentWorkerRun {
@@ -99,6 +122,25 @@ function resultText(data: unknown): string {
   return typeof record?.result === 'string' ? record.result : ''
 }
 
+function eventRecord(data: unknown): Record<string, unknown> {
+  return (data ?? {}) as Record<string, unknown>
+}
+
+/** 权限请求气泡文案：工具名 + 引擎给的描述，缺一不可时仍保留工具名。 */
+function permissionQuestion(data: unknown): string {
+  const record = eventRecord(data)
+  const toolName = typeof record.toolName === 'string' && record.toolName ? record.toolName : '工具'
+  const detail = ['description', 'title', 'displayName']
+    .map((key) => record[key])
+    .find((value): value is string => typeof value === 'string' && value.trim() !== '')
+  return detail ? `权限请求：${toolName}（${detail}）` : `权限请求：${toolName}`
+}
+
+function permissionRequestId(data: unknown): string | null {
+  const record = eventRecord(data)
+  return typeof record.requestId === 'string' && record.requestId ? record.requestId : null
+}
+
 export interface SuperAgentExecutor {
   /** 注入 Scheduler 的 launcher。 */
   launch(request: WorkerLaunchRequest): Promise<void>
@@ -121,12 +163,14 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
   const byTicket = new Map<string, SuperAgentWorkerRun>()
   const repairedQuestions = new WeakSet<SuperAgentWorkerRun>()
 
+  const permissionMode = () => options.permissionModeOf?.() ?? 'acceptEdits'
+
   const workerConfig = (repoRoot: string, model?: string) => {
     const base = bridge.loadConfig(repoRoot)
     return {
       ...base,
       cwd: repoRoot,
-      permissionMode: 'bypassPermissions' as const,
+      permissionMode: permissionMode(),
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
       // Worker 用 round 内的 ask/attempt 协议向 Router 汇报，不该再走主聊天的
       // AskUserQuestion 指引（那会把提问推给人而不是回给 Router，设计 §3.2 第 3 条）。
@@ -188,6 +232,28 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
     if (!run || !run.active) return
     if (eventType === 'result') {
       handleTurnEnd(run, resultText(data))
+    } else if (eventType === 'permission_request') {
+      const requestId = permissionRequestId(data)
+      if (!requestId) return
+      hooks.onPermissionRequest?.({
+        ticketId: run.ticketId,
+        assignmentId: run.assignmentId,
+        sessionId: run.sessionId,
+        requestId,
+        question: permissionQuestion(data),
+      })
+    } else if (eventType === 'permission_request_cancelled') {
+      const requestId = permissionRequestId(data)
+      if (!requestId) return
+      const record = eventRecord(data)
+      const reason = typeof record.reason === 'string' ? record.reason : 'cancelled'
+      hooks.onPermissionCancelled?.({
+        ticketId: run.ticketId,
+        assignmentId: run.assignmentId,
+        sessionId: run.sessionId,
+        requestId,
+        reason,
+      })
     } else if (eventType === 'error') {
       const message = String((data as { message?: unknown })?.message ?? 'engine error')
       hooks.onInterrupted({ ticketId: run.ticketId, assignmentId: run.assignmentId, reason: message })
@@ -247,7 +313,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         title: options.titleOf?.(request.ticketId) ?? request.ticketId,
         sessionType: 'superAgentWorker',
         projectPath: request.repoRoot,
-        permissionMode: 'bypassPermissions',
+        permissionMode: permissionMode(),
         model: request.model,
       })
 

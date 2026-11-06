@@ -69,6 +69,12 @@ export interface SuperAgentEngineBridge {
     options?: { interrupt?: boolean },
   ): Promise<void>
   /**
+   * 放行一次权限请求（Worker 权限 Attention，#94）。
+   *
+   * 不传 updatedInput：保持模型原始工具入参，避免空对象覆盖原请求。
+   */
+  allowPermission(sessionId: string, requestId: string): Promise<void>
+  /**
    * 把输入框选的模型名解析成该引擎认的值。
    *
    * 与主聊天同一套规则（src/utils/engineModel）：claude-code 要 haiku/sonnet/opus
@@ -113,6 +119,8 @@ export const defaultSuperAgentEngineBridge: SuperAgentEngineBridge = {
   stop: (sessionId) => engineGateway.stop(sessionId),
   denyPermission: (sessionId, requestId, message, options) =>
     engineGateway.denyPermission(sessionId, requestId, message, options),
+  allowPermission: (sessionId, requestId) =>
+    engineGateway.allowPermission(sessionId, requestId),
   resolveModelAlias: (modelValue, engineType) => resolveEngineModelAlias(modelValue, engineType),
   onRouteEvent: (listener) => EngineFactory.onRouteEvent(listener),
   pushUserMessage: pushUserMessageToRenderer,

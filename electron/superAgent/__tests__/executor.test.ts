@@ -3,7 +3,8 @@
  * Worker Executor 的引擎通路契约（T21）。
  *
  * 覆盖的是「派出去的任务真的有人在跑」这一层：
- *  - 启动配置：Worker 以 bypassPermissions 起（人工逐次点授权会把后台执行变成陪跑），
+ *  - 启动配置：Worker 默认以 acceptEdits 起（共享目录不放开整片写/执行权限；
+ *    权限请求转成 Attention 交给人），并行策略由 service 覆盖为 bypassPermissions；
  *    角色说明走 appendSystemPrompt，工作目录用调度器给的实际目录；
  *  - 指派身份：assignmentId 随首条消息给出（Report 必须逐字回填），气泡先推再发；
  *  - launch promise 的语义：引擎接受首条消息 ≠ 任务完成，只有最终 Report 或
@@ -43,12 +44,17 @@ function launchRequest(overrides: Partial<WorkerLaunchRequest> = {}): WorkerLaun
   }
 }
 
-function makeExecutor(hookOverrides: Partial<SuperAgentExecutorHooks> = {}) {
+function makeExecutor(
+  hookOverrides: Partial<SuperAgentExecutorHooks> = {},
+  executorOverrides: Partial<Parameters<typeof createSuperAgentExecutor>[0]> = {},
+) {
   const fake = createFakeBridge()
   const ingests: string[] = []
   const failures: Parameters<SuperAgentExecutorHooks['onProtocolFailure']>[0][] = []
   const interruptions: Parameters<SuperAgentExecutorHooks['onInterrupted']>[0][] = []
   const relays: Parameters<NonNullable<SuperAgentExecutorHooks['relay']>>[0][] = []
+  const permissionRequests: Parameters<NonNullable<SuperAgentExecutorHooks['onPermissionRequest']>>[0][] = []
+  const permissionCancels: Parameters<NonNullable<SuperAgentExecutorHooks['onPermissionCancelled']>>[0][] = []
 
   const hooks: SuperAgentExecutorHooks = {
     ingest: (text) => {
@@ -66,6 +72,8 @@ function makeExecutor(hookOverrides: Partial<SuperAgentExecutorHooks> = {}) {
     onProtocolFailure: (context) => failures.push(context),
     onInterrupted: (context) => interruptions.push(context),
     relay: (info) => relays.push(info),
+    onPermissionRequest: (context) => permissionRequests.push(context),
+    onPermissionCancelled: (context) => permissionCancels.push(context),
     ...hookOverrides,
   }
 
@@ -74,8 +82,18 @@ function makeExecutor(hookOverrides: Partial<SuperAgentExecutorHooks> = {}) {
     resolveGeneration: () => 2,
     titleOf: () => '修登录',
     hooks,
+    ...executorOverrides,
   })
-  return { executor, fake, ingests, failures, interruptions, relays }
+  return {
+    executor,
+    fake,
+    ingests,
+    failures,
+    interruptions,
+    relays,
+    permissionRequests,
+    permissionCancels,
+  }
 }
 
 describe('createSuperAgentExecutor launch', () => {
@@ -89,7 +107,7 @@ describe('createSuperAgentExecutor launch', () => {
     expect(start?.sessionId).toMatch(/^[0-9a-f-]{36}$/)
     expect(start?.config).toMatchObject({
       cwd: REPO,
-      permissionMode: 'bypassPermissions',
+      permissionMode: 'acceptEdits',
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
       // Worker 的提问走 round 内 ask/attempt 协议，不继承主聊天 AskUserQuestion 指引。
       askUserQuestionGuidance: false,
@@ -105,6 +123,78 @@ describe('createSuperAgentExecutor launch', () => {
     await launched
   })
 
+  it('lets the service override the permission mode (parallel policy keeps bypass)', async () => {
+    const { executor, fake } = makeExecutor({}, {
+      permissionModeOf: () => 'bypassPermissions',
+    })
+    const launched = executor.launch(launchRequest())
+    await flush()
+
+    expect(fake.started[0]?.config).toMatchObject({ permissionMode: 'bypassPermissions' })
+    expect(fake.pushed[0]).toMatchObject({ permissionMode: 'bypassPermissions' })
+    await fake.emit(fake.started[0]!.sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
+    })
+    await launched
+  })
+
+  it('forwards permission requests and cancellations without ending the run', async () => {
+    const { executor, fake, permissionRequests, permissionCancels } = makeExecutor()
+    const launched = executor.launch(launchRequest())
+    await flush()
+    const sessionId = fake.started[0]!.sessionId
+
+    fake.emit(sessionId, 'permission_request', {
+      requestId: 'permission-1',
+      toolName: 'Edit',
+      description: '修改 src/a.ts',
+    })
+    fake.emit(sessionId, 'permission_request_cancelled', {
+      requestId: 'permission-1',
+      reason: 'aborted',
+    })
+
+    expect(permissionRequests).toEqual([
+      {
+        ticketId: 'ticket-1',
+        assignmentId: 'assignment-1',
+        sessionId,
+        requestId: 'permission-1',
+        question: '权限请求：Edit（修改 src/a.ts）',
+      },
+    ])
+    expect(permissionCancels).toEqual([
+      {
+        ticketId: 'ticket-1',
+        assignmentId: 'assignment-1',
+        sessionId,
+        requestId: 'permission-1',
+        reason: 'aborted',
+      },
+    ])
+    // 权限等待不是一轮结束：launch promise 仍在飞，槽位由 Scheduler 另行 hold
+    expect(executor.isRunning('ticket-1')).toBe(true)
+
+    await fake.emit(sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),
+    })
+    await launched
+  })
+
+  it('ignores permission frames without a requestId', async () => {
+    const { executor, fake, permissionRequests } = makeExecutor()
+    const launched = executor.launch(launchRequest())
+    await flush()
+
+    fake.emit(fake.started[0]!.sessionId, 'permission_request', { toolName: 'Edit' })
+    expect(permissionRequests).toHaveLength(0)
+
+    await fake.emit(fake.started[0]!.sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),
+    })
+    await launched
+  })
+
   it('pushes the assignment bubble before sending, so the panel shows who assigned it', async () => {
     const { executor, fake } = makeExecutor()
     const launched = executor.launch(launchRequest())
@@ -116,7 +206,7 @@ describe('createSuperAgentExecutor launch', () => {
       title: '修登录',
       sessionType: 'superAgentWorker',
       projectPath: REPO,
-      permissionMode: 'bypassPermissions',
+      permissionMode: 'acceptEdits',
     })
     await fake.emit(fake.started[0]!.sessionId, 'result', {
       result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),

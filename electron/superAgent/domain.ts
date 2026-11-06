@@ -216,6 +216,38 @@ export interface AnswerAttentionResult {
   duplicate: boolean
 }
 
+/** T23 #94：Worker 引擎权限请求 —— 落成持久 Attention，按 sessionId+requestId 幂等。 */
+export interface RequestPermissionCommand {
+  ticketId: string
+  assignmentId: string
+  sessionId: string
+  requestId: string
+  question: string
+  at?: string
+}
+
+export interface RequestPermissionResult {
+  attention: SuperAgentAttention
+  duplicate: boolean
+}
+
+/** T23 #94：权限回答已经投递给原引擎请求，关闭对应 Attention。 */
+export interface AnswerPermissionCommand {
+  attentionId: string
+  at?: string
+}
+
+export interface AnswerPermissionResult {
+  attention: SuperAgentAttention
+  duplicate: boolean
+}
+
+/** T23 #94：引擎撤回权限请求（中止/退出），对应 Attention 撤回。 */
+export interface WithdrawPermissionInput {
+  sessionId: string
+  requestId: string
+}
+
 /** T09 #79：可证明未接受才允许重投 —— 把已投未读的 Input 退回 pending。 */
 export interface RequeueInputInput {
   inputId: string
@@ -579,6 +611,12 @@ export interface SuperAgentDomain {
   addInput(command: AddInputCommand): AddInputResult
   /** T08 #78：就地回答 Attention，回答作为领域 Input 投递给对应 Worker。 */
   answerAttention(command: AnswerAttentionCommand): AnswerAttentionResult
+  /** T23 #94：引擎权限请求落成持久 Attention（同一 sessionId+requestId 只建一条）。 */
+  requestPermission(command: RequestPermissionCommand): RequestPermissionResult
+  /** T23 #94：权限应答已送到引擎后关闭 Attention（重复关闭幂等）。 */
+  answerPermission(command: AnswerPermissionCommand): AnswerPermissionResult
+  /** T23 #94：引擎撤回权限请求时撤回对应 Attention。 */
+  withdrawPermission(input: WithdrawPermissionInput): SuperAgentAttention | null
   requeueInput(input: RequeueInputInput): SuperAgentInput
   deliverInput(input: DeliverInputInput): SuperAgentInput
   markInputUncertain(input: MarkInputUncertainInput): MarkInputUncertainResult
@@ -1272,6 +1310,83 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       gated: added.gated,
       duplicate: added.duplicate,
     }
+  }
+
+  /**
+   * T23 #94：Worker 权限请求落成持久 Attention，按 sessionId+requestId 幂等。
+   * 权限等待不是一轮结束：这里只记领域事实，槽位释放由 Scheduler 的
+   * holdForPermission 负责，回答路径也先经 Scheduler 重新取得槽位。
+   */
+  function requestPermission(command: RequestPermissionCommand): RequestPermissionResult {
+    const ticket = requireTicket(command.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+
+    const existing = Object.values(state.attentions).find(
+      (candidate) =>
+        candidate.kind === 'permission' &&
+        candidate.sessionId === command.sessionId &&
+        candidate.requestId === command.requestId,
+    )
+    if (existing) return { attention: existing, duplicate: true }
+
+    const assignment = state.assignments[command.assignmentId]
+    if (!assignment || assignment.ticketId !== ticket.ticketId) {
+      throw superAgentError('assignmentNotFound', { assignmentId: command.assignmentId })
+    }
+
+    const attention: SuperAgentAttention = {
+      attentionId: newId('attention'),
+      ticketId: ticket.ticketId,
+      assignmentId: command.assignmentId,
+      kind: 'permission',
+      question: command.question,
+      askedBy: command.assignmentId,
+      askedAt: atNow(command.at),
+      status: 'open',
+      answers: [],
+      answeredAt: null,
+      sessionId: command.sessionId,
+      requestId: command.requestId,
+    }
+    state.attentions[attention.attentionId] = attention
+    ticket.attentionId = ticket.attentionId ?? attention.attentionId
+    return { attention, duplicate: false }
+  }
+
+  /** T23 #94：权限应答已送达引擎 —— 关闭对应 Attention，重复关闭幂等。 */
+  function answerPermission(command: AnswerPermissionCommand): AnswerPermissionResult {
+    const attention = state.attentions[command.attentionId]
+    if (!attention) throw superAgentError('notAttention', { attentionId: command.attentionId })
+    if (attention.kind !== 'permission') {
+      throw superAgentError('notPermission', { attentionId: command.attentionId })
+    }
+    if (attention.status === 'answered') return { attention, duplicate: true }
+    if (attention.status !== 'open') {
+      throw superAgentError('notAttention', { attentionId: command.attentionId })
+    }
+
+    attention.status = 'answered'
+    attention.answeredAt = atNow(command.at)
+    const ticket = state.tickets[attention.ticketId]
+    if (ticket && ticket.attentionId === attention.attentionId) ticket.attentionId = null
+    return { attention, duplicate: false }
+  }
+
+  /** T23 #94：引擎撤回权限请求（中止/退出）—— 只撤回仍未关闭的那一条。 */
+  function withdrawPermission(input: WithdrawPermissionInput): SuperAgentAttention | null {
+    const attention = Object.values(state.attentions).find(
+      (candidate) =>
+        candidate.kind === 'permission' &&
+        candidate.status === 'open' &&
+        candidate.sessionId === input.sessionId &&
+        candidate.requestId === input.requestId,
+    )
+    if (!attention) return null
+
+    attention.status = 'withdrawn'
+    const ticket = state.tickets[attention.ticketId]
+    if (ticket && ticket.attentionId === attention.attentionId) ticket.attentionId = null
+    return attention
   }
 
   /** T09 #79：requestId 对账可证明未接受（已投未读退回 pending）时才允许重投。 */
@@ -2781,6 +2896,9 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     endAssignment,
     addInput,
     answerAttention,
+    requestPermission,
+    answerPermission,
+    withdrawPermission,
     requeueInput,
     deliverInput,
     markInputUncertain,

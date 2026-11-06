@@ -376,6 +376,9 @@ export interface SuperAgentAttentionView {
   /** 已提交（含已认领）的回答 inputId，按提交顺序。 */
   answers: string[]
   answeredAt: string | null
+  /** 权限类 Attention 的审计锚点（来自引擎 permission_request 的会话与请求 id）。 */
+  sessionId?: string | null
+  requestId?: string | null
 }
 
 /** attentions 通道返回的完整 Attention 看板。 */
@@ -399,18 +402,22 @@ export interface SuperAgentAttentionEvent {
   pendingTickets: number
 }
 
-/** 就地回答命令：回答作为领域 Input 投递给对应 Worker；requestId 为幂等键。 */
+/** 就地回答命令：回答作为领域 Input 投递给对应 Worker；requestId 为幂等键。
+ *  权限类 Attention 不落 Input，改用 decision 直接应答原 permission request；
+ *  text 此时仅作拒绝理由。 */
 export interface SuperAgentAttentionAnswerCommand {
   requestId: string
   attentionId: string
-  text: string
+  text?: string
+  decision?: 'allow' | 'deny'
 }
 
 export interface SuperAgentAttentionAnswerResult {
   attentionId: string
   ticketId: string
-  inputId: string
-  status: 'pending' | 'delivered' | 'read' | 'failed' | 'uncertain'
+  /** 问题类回答落库后的 Input id；权限类直接应答原请求，没有 Input。 */
+  inputId: string | null
+  status: 'pending' | 'delivered' | 'read' | 'failed' | 'uncertain' | null
   delivered: boolean
   /** 被 blocked/failed 闸门拦下：只落库，不投递。 */
   gated: boolean

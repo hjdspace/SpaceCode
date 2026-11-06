@@ -36,6 +36,7 @@ export default {
     notReady: 'The ticket is not ready for review',
     notAttention: 'There is no pending request',
     notQuestion: 'That request is not a question',
+    notPermission: 'That request is not a permission request',
     ackEnded: 'The acknowledgement has ended',
     mandateRevoked: 'The mandate was revoked',
     conflict: 'The request conflicts with an existing record',
@@ -226,5 +227,8 @@ export default {
     collapseHint: 'Collapse',
     answerFailedHint: 'Failed to submit the answer, please retry later',
     deliveryHint: 'Delivery is unconfirmed; it will retry automatically',
+    permissionHint: 'The worker is asking for permission; it will continue once allowed',
+    permissionAllow: 'Allow',
+    permissionDeny: 'Deny',
   },
 }

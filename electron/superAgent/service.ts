@@ -84,7 +84,7 @@ import {
   type EnqueueOutboxInput,
   type SuperAgentDomain,
 } from './domain'
-import type { SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
+import type { SuperAgentAttention, SuperAgentExecutionPolicy, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
 import { SuperAgentDomainError, superAgentError, serializeSuperAgentError } from './errors'
 import { createCheckpointStore, parsePorcelainEntry, type SuperAgentCheckpointStore } from './checkpoint'
 import {
@@ -256,6 +256,15 @@ export interface SuperAgentServiceOptions {
   checkpoints?: SuperAgentCheckpointStore
 }
 
+/** T23 #94：只有显式并行 + per-ticket worktree 才放开 bypass；共享目录一律 acceptEdits。 */
+export function workerPermissionMode(
+  policy: Pick<SuperAgentExecutionPolicy, 'mode' | 'worktree'>,
+): 'acceptEdits' | 'bypassPermissions' {
+  return policy.mode === 'parallel' && policy.worktree === 'per-ticket'
+    ? 'bypassPermissions'
+    : 'acceptEdits'
+}
+
 /** T09 #79：workerMessage 的投递请求（Executor 接入前接缝为 null）。 */
 export interface SuperAgentWorkerDeliveryRequest {
   ticketId: string
@@ -356,7 +365,7 @@ export interface SuperAgentService {
   attentionAnswer(
     repoRoot: string,
     command: SuperAgentAttentionAnswerCommand,
-  ): SuperAgentAttentionAnswerResult
+  ): Promise<SuperAgentAttentionAnswerResult>
   /** T10 #80：接受验收 —— person/review 的显式出口（→ completed）。 */
   ticketAccept(repoRoot: string, command: SuperAgentTicketAcceptCommand): SuperAgentTicketActionResult
   /** T10 #80：停止出口 —— Mandate 撤回 + 工单 stopped，后续自动事件不得重开。 */
@@ -863,6 +872,9 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         humanInputIds: (ticketId) =>
           (project.domain.state.tickets[ticketId]?.inputIds ?? [])
             .filter((id) => project.domain.state.inputs[id]?.human === true),
+        // 共享目录（串行/默认）只自动接受编辑类操作，其余走 Attention 让人决定；
+        // 并行执行强制 per-ticket worktree，脏区彼此隔离后才放开 bypass。
+        permissionModeOf: () => workerPermissionMode(project.domain.state.executionPolicy),
         hooks: {
           ingest: (text) => {
             const report = applyWorkerReport(project, { text })
@@ -916,6 +928,33 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
                 summary: info.summary,
               }),
             )
+          },
+          onPermissionRequest: (context) => {
+            try {
+              project.domain.requestPermission({
+                ticketId: context.ticketId,
+                assignmentId: context.assignmentId,
+                sessionId: context.sessionId,
+                requestId: context.requestId,
+                question: context.question,
+              })
+            } catch {
+              // 工单已结束/执行已换代：不补建 Attention，进程由 stop 路径收尾
+            }
+            // 等权限不占逻辑槽位（进程现场仍由 Executor 持有），下一张可以开跑；
+            // 回答时会经 Scheduler 重新取槽再应答。
+            project.scheduler.holdForPermission(context.ticketId)
+            project.attentionProjector.sync()
+          },
+          onPermissionCancelled: (context) => {
+            project.domain.withdrawPermission({
+              sessionId: context.sessionId,
+              requestId: context.requestId,
+            })
+            // 若请求是被引擎侧自动裁决（而非中止/退出），Worker 会继续跑：
+            // 重新占住槽位，避免「已释放但实际在跑」的调度账错位。
+            void project.scheduler.acquireForPermissionAnswer(context.ticketId)
+            project.attentionProjector.sync()
           },
         },
       })
@@ -982,6 +1021,68 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     })
 
     project.routerRunner = routerRunner
+  }
+
+  /**
+   * T23 #94：权限类 Attention 的回答不走 addInput —— 先重新取得 Scheduler 槽位，
+   * 再向原 permission request 应答（allow/deny），最后关闭 Attention。
+   * 引擎应答失败时退回 hold（Worker 仍卡在权限处），Attention 保持 open 可重试。
+   */
+  async function answerPermissionAttention(
+    project: ProjectState,
+    command: SuperAgentAttentionAnswerCommand,
+    attention: SuperAgentAttention,
+  ): Promise<SuperAgentAttentionAnswerResult> {
+    if (attention.status === 'answered') {
+      const duplicate = project.domain.answerPermission({ attentionId: attention.attentionId })
+      project.attentionProjector.sync()
+      return {
+        attentionId: attention.attentionId,
+        ticketId: attention.ticketId,
+        inputId: null,
+        status: null,
+        delivered: true,
+        gated: false,
+        duplicate: duplicate.duplicate,
+      }
+    }
+    if (attention.status !== 'open' || !attention.sessionId || !attention.requestId) {
+      throw superAgentError('notAttention', { attentionId: attention.attentionId })
+    }
+    if (!command.decision) throw superAgentError('invalidAnswer', { attentionId: attention.attentionId })
+    if (!options.bridge) throw superAgentError('engineLaunchFailed', { ticketId: attention.ticketId })
+
+    const acquired = await project.scheduler.acquireForPermissionAnswer(attention.ticketId)
+    if (!acquired) throw superAgentError('slotUnavailable', { ticketId: attention.ticketId })
+
+    try {
+      if (command.decision === 'allow') {
+        await options.bridge.allowPermission(attention.sessionId, attention.requestId)
+      } else {
+        await options.bridge.denyPermission(
+          attention.sessionId,
+          attention.requestId,
+          command.text?.trim() || '用户拒绝',
+          { interrupt: false },
+        )
+      }
+    } catch (err) {
+      // 应答没送出去：Worker 仍在等权限，槽位退回 hold，气泡保持可回答
+      project.scheduler.holdForPermission(attention.ticketId)
+      throw err
+    }
+
+    const answered = project.domain.answerPermission({ attentionId: attention.attentionId })
+    project.attentionProjector.sync()
+    return {
+      attentionId: attention.attentionId,
+      ticketId: attention.ticketId,
+      inputId: null,
+      status: null,
+      delivered: true,
+      gated: false,
+      duplicate: answered.duplicate,
+    }
   }
 
   /** Worker 只读镜像快照：稳定 sessionId + running + 按 generation 升序的代次分段。 */
@@ -1443,9 +1544,17 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       return project.attentionProjector.board()
     },
 
-    attentionAnswer(repoRoot, command) {
+    async attentionAnswer(repoRoot, command) {
       const project = projectOf(repoRoot)
       assertCommandsAllowed(project, repoRoot)
+      const attention = project.domain.state.attentions[command.attentionId]
+      if (attention?.kind === 'permission') {
+        return answerPermissionAttention(project, command, attention)
+      }
+      if (command.decision) throw superAgentError('invalidAnswer', { attentionId: command.attentionId })
+      if (typeof command.text !== 'string') {
+        throw superAgentError('invalidAnswer', { attentionId: command.attentionId })
+      }
       // 回答经 domain.ts 既有接缝（answerAttention → addInput）落库并投递；
       // 协议失败抛稳定错误码（notAttention/notQuestion/invalidAnswer），由 IPC 层序列化
       const answered = project.domain.answerAttention({

@@ -142,21 +142,25 @@ function requireWorkerMessageCommand(input: unknown): SuperAgentWorkerMessageCom
 }
 
 /**
- * 就地回答命令入口校验（T08 #78）：requestId/attentionId 必须是非空字符串；
- * text 必须是非空字符串（领域层 invalidAnswer 兜底同样校验）。
+ * 就地回答命令入口校验（T08 #78 / T23 #94）：requestId/attentionId 必须是非空字符串；
+ * 问题类要求非空 text；权限类要求 decision=allow|deny，text 仅作拒绝理由。
+ * 具体类型的缺省校验由 service 抛 invalidAnswer。
  */
 function requireAttentionAnswerCommand(input: unknown): SuperAgentAttentionAnswerCommand {
   if (typeof input !== 'object' || input === null) {
     throw new Error('attention answer command is required')
   }
   const command = input as Record<string, unknown>
+  const hasText = typeof command.text === 'string' && command.text.trim() !== ''
+  const hasDecision = command.decision === 'allow' || command.decision === 'deny'
   if (
     typeof command.requestId !== 'string' ||
     command.requestId.trim() === '' ||
     typeof command.attentionId !== 'string' ||
     command.attentionId.trim() === '' ||
-    typeof command.text !== 'string' ||
-    command.text.trim() === ''
+    (!hasText && !hasDecision) ||
+    (command.decision !== undefined && !hasDecision) ||
+    (command.text !== undefined && typeof command.text !== 'string')
   ) {
     throw new Error('invalid attention answer command')
   }

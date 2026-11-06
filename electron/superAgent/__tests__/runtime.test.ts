@@ -91,7 +91,7 @@ describe('super agent runtime wiring', () => {
     const workerStart = fake.started.find((call) => call.sessionId === workerSession)
     expect(workerStart?.config).toMatchObject({
       cwd: REPO,
-      permissionMode: 'bypassPermissions',
+      permissionMode: 'acceptEdits',
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
     })
     // 首条消息带本次执行身份（Report 要逐字回填 assignmentId）

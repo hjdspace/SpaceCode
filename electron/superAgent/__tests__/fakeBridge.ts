@@ -26,12 +26,19 @@ export interface FakePermissionDenial {
   options?: { interrupt?: boolean }
 }
 
+/** 被宿主放行的权限请求（Worker 权限 Attention 的断言面）。 */
+export interface FakePermissionAllowance {
+  sessionId: string
+  requestId: string
+}
+
 export interface FakeBridge {
   bridge: SuperAgentEngineBridge
   started: FakeBridgeCall[]
   sent: FakeBridgeCall[]
   aborted: string[]
   stopped: string[]
+  allowed: FakePermissionAllowance[]
   denied: FakePermissionDenial[]
   pushed: SuperAgentUserPush[]
   /** startSession 的失败注入：一次性的，用完即清。 */
@@ -71,6 +78,9 @@ export function createFakeBridge(): FakeBridge {
       denyPermission: async (sessionId, requestId, message, options) => {
         fake.denied.push({ sessionId, requestId, message, options })
       },
+      allowPermission: async (sessionId, requestId) => {
+        fake.allowed.push({ sessionId, requestId })
+      },
       resolveModelAlias: (modelValue) => modelValue,
       onRouteEvent: (listener) => {
         listeners.push(listener)
@@ -87,6 +97,7 @@ export function createFakeBridge(): FakeBridge {
     sent: [],
     aborted: [],
     stopped: [],
+    allowed: [],
     denied: [],
     pushed: [],
     failNextStart: null,
