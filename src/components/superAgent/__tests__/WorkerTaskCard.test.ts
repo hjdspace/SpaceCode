@@ -62,6 +62,35 @@ describe('WorkerTaskCard 单行工单卡片（T06 #76）', () => {
     expect(stateWord(wrapper)).toBe('working')
   })
 
+  it('compact keeps the status and all review actions without the redundant metadata row', async () => {
+    const wrapper = mount(WorkerTaskCard, {
+      props: { card: card({ state: 'review', scopePaths: [], reviewRemindedAt: '2026-01-02T00:00:00Z' }), compact: true },
+    })
+    expect(wrapper.find('[data-testid="worker-task-card-meta"]').exists()).toBe(false)
+    expect(stateWord(wrapper)).toBe('review')
+    expect(wrapper.get('[data-testid="worker-task-card-title"]').attributes('title')).toBe('修复登录')
+    expect(wrapper.get('[data-testid="worker-task-card-reminded"]').attributes('title')).toBe('superAgent.ticket.remindedMark')
+    for (const [action, label] of [['accept', 'accept'], ['continue', 'continue'], ['stop', 'stop']]) {
+      const button = wrapper.get(`[data-testid="worker-task-card-${action}"]`)
+      expect(button.attributes('aria-label')).toBe(`superAgent.ticket.${label}`)
+      expect(button.attributes('title')).toBe(`superAgent.ticket.${label}`)
+    }
+    await wrapper.get('[data-testid="worker-task-card-accept"]').trigger('click')
+    await wrapper.get('[data-testid="worker-task-card-stop"]').trigger('click')
+    await wrapper.get('[data-testid="worker-task-card-continue"]').trigger('click')
+    expect(wrapper.find('[data-testid="worker-task-card-followup-input"]').exists()).toBe(true)
+    expect(wrapper.emitted('accept')).toHaveLength(1)
+    expect(wrapper.emitted('stop')).toHaveLength(1)
+    expect(wrapper.emitted('open')).toBeUndefined()
+
+    await wrapper.setProps({ card: card({ state: 'failed', canRetry: true }) })
+    const retry = wrapper.get('[data-testid="worker-task-card-retry"]')
+    expect(retry.attributes('aria-label')).toBe('superAgent.ticket.retry')
+    await retry.trigger('click')
+    expect(wrapper.emitted('retry')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('renders the scope-all wording when the mandate covers the whole repo', () => {
     const wrapper = mount(WorkerTaskCard, {
       props: { card: card({ scopePaths: [] }) },
@@ -243,9 +272,35 @@ describe('WorkerTaskCard 验收、停止与重试出口（T10 #80）', () => {
     expect(other.emitted('retry')).toHaveLength(1)
   })
 
-  it('opens the worker tab from the keyboard too', async () => {
+  it.each(['Enter', ' '])('opens the worker tab with %j without scrolling', async (key) => {
     const wrapper = mount(WorkerTaskCard, { props: { card: card() } })
-    await wrapper.get('[data-testid="worker-task-card"]').trigger('keydown.enter')
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    wrapper.element.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
     expect(wrapper.emitted('open')).toEqual([['ticket-abcd1234efgh']])
+    wrapper.unmount()
+  })
+
+  it.each(['Enter', ' '])('nested actions keep native %j activation without opening the worker', async (key) => {
+    const wrapper = mount(WorkerTaskCard, { props: { card: card({ state: 'review' }) } })
+    const accept = wrapper.get('[data-testid="worker-task-card-accept"]')
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    accept.element.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    await accept.trigger('click')
+    expect(wrapper.emitted('accept')).toEqual([['ticket-abcd1234efgh']])
+    expect(wrapper.emitted('open')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('Enter in the follow-up input only sends the message, never opens the worker', async () => {
+    const wrapper = mount(WorkerTaskCard, { props: { card: card({ state: 'review' }) } })
+    await wrapper.get('[data-testid="worker-task-card-continue"]').trigger('click')
+    const input = wrapper.get('[data-testid="worker-task-card-followup-input"]')
+    await input.setValue('再检查一下')
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('message')).toEqual([[{ ticketId: 'ticket-abcd1234efgh', text: '再检查一下' }]])
+    expect(wrapper.emitted('open')).toBeUndefined()
+    wrapper.unmount()
   })
 })
