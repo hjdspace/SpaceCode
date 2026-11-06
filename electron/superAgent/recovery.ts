@@ -3,12 +3,17 @@
  *
  * 顺序（§9.3，WAL 重放由 Store 完成后）：
  *   1. running 标 interrupted —— 重启后不出现「进程已退出但 Assignment 仍 running」；
- *   2. delivered 未 read 的输入对账 —— 未读回队首并清会话副本（只投一次）；
- *      已 read 不重复投递；uncertain 保持并保留 Attention（不盲目重投）；
- *   3. busy 判定 —— 仍在执行未 handoff、或 handoff Report 后又有新 Input 的工单，
+ *   2. busy 判定 —— 仍在执行未 handoff、或 handoff Report 后又有新 Input 的工单，
  *      按原 queueOrder（oldest first）建 generation+1 的恢复 Assignment；
  *      无后续输入的 waiting/ready/blocked/failed 与权限等待保持原 Assignment、
  *      Attention 与阶段，不自动 launch。
+ *   3. delivered 未 read 的输入对账 —— 未读回队首并清会话副本（只投一次）；
+ *      已 read 不重复投递；uncertain 保持并保留 Attention（不盲目重投）。
+ *
+ * busy 判定必须在回队之前（PRD §9.3 就是这个次序）：回队把「已投递未读」改写成
+ * pending，而阶段派生在没有活进程的代次上不再把 pending 输入当作"人已经说过了"。
+ * 先回队再判 busy 会让 waiting/ready 后跟一条人消息的工单从 busy 掉出恢复名单，
+ * 从此没有新一代接手 —— 顺序在这里不是风格问题。
  *
  * 恢复幂等：恢复途中再次崩溃，下次启动重放后不重复建代次、不重复对账。
  * 每一步都经 Domain 命令落库（持久化包装负责 WAL 事务），不直接改内存。
@@ -80,7 +85,7 @@ export function runStartupRecovery(domain: SuperAgentDomain): StartupRecoveryRes
     interrupted.push({ ticketId: ticket.ticketId, assignmentId: assignment.assignmentId })
   }
 
-  // 2. delivered 未 read 的输入对账：未读回队首并清会话副本
+  // 2. busy 工单按原 queueOrder（oldest first）建 generation+1 恢复代次
   const interruptedTickets = Object.values(domain.state.tickets)
     .filter((ticket) => ticket.state === 'open')
     .map((ticket) => ({ ticket, latest: latestOf(domain, ticket) }))
@@ -88,16 +93,6 @@ export function runStartupRecovery(domain: SuperAgentDomain): StartupRecoveryRes
       (item): item is { ticket: SuperAgentTicket; latest: SuperAgentAssignment } =>
         item.latest !== null && item.latest.state === 'interrupted',
     )
-  for (const { ticket } of interruptedTickets) {
-    for (const inputId of ticket.inputIds) {
-      const input = domain.state.inputs[inputId]
-      if (!input || input.status !== 'delivered' || input.readAt !== null) continue
-      domain.requeueInput({ inputId })
-      requeued.push({ ticketId: ticket.ticketId, inputId })
-    }
-  }
-
-  // 3. busy 工单按原 queueOrder（oldest first）建 generation+1 恢复代次
   const busy = interruptedTickets
     .filter((item) => isBusyAfterInterrupt(domain, item.ticket, item.latest))
     .sort((a, b) => a.latest.createdOrdinal - b.latest.createdOrdinal)
@@ -108,6 +103,16 @@ export function runStartupRecovery(domain: SuperAgentDomain): StartupRecoveryRes
       assignmentId: result.assignment.assignmentId,
       generation: result.assignment.generation,
     })
+  }
+
+  // 3. delivered 未 read 的输入对账：未读回队首并清会话副本
+  for (const { ticket } of interruptedTickets) {
+    for (const inputId of ticket.inputIds) {
+      const input = domain.state.inputs[inputId]
+      if (!input || input.status !== 'delivered' || input.readAt !== null) continue
+      domain.requeueInput({ inputId })
+      requeued.push({ ticketId: ticket.ticketId, inputId })
+    }
   }
 
   return { interrupted, requeued, recovered }
