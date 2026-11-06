@@ -224,7 +224,7 @@ describe('createSuperAgentExecutor deliver', () => {
       text: '旧接口还要保留吗？',
     })
     expect(outcome).toBe('accepted')
-    expect(fake.sent[1]?.content).toBe('旧接口还要保留吗？')
+    expect(fake.sent[1]?.content).toBe('旧接口还要保留吗？\n\n[人消息身份] inputId: input-1；需要提问时 askedBy 引用此值。')
     await fake.emit(sessionId, 'result', {
       result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),
     })

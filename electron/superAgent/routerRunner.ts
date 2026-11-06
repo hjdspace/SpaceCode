@@ -11,8 +11,8 @@
  * 2. **动手只能靠路由指令** —— 回复尾部的 ```super-agent:route 块由宿主解析：
  *    accept 逐条走 service.dispatch 落 Decision/Mandate，attach 落一张工单的
  *    人消息输入，stop 走停止命令；授权仍由领域生成，模型拿不到（设计 §8.4）。
- * 3. **人的原话不经过 Router 的手** —— 本轮人说的是什么，宿主就原样带给 Worker
- *    当工单目标；Router 的 \`note\` 只是路由旁注（≤30 字），没有转述的通道。
+ * 3. **人的原话不经过 Router 的手** —— 宿主保存需求原文和后续约束，直接带给 Worker；
+ *    Router 的 \`note\` 只是路由旁注（≤30 字），没有转述的通道。
  *
  * 每项目同一时刻最多一轮：新到的中继说明排队到下一批，不并发写同一 stdin；
  * Router 不阻塞等 Worker —— 工单结果由 Executor 作为新输入投进会话尾部。
@@ -33,10 +33,16 @@ import type { SuperAgentEngineBridge } from './engineBridge'
 export interface SuperAgentRouterDispatchInput {
   requestId: string
   title: string
-  /** 工单目标：本轮人的原话；中继轮没有原话，才退回 Router 的路由说明。 */
+  /** 宿主保存的人消息原文与后续约束，不接受 Router 改写目标。 */
   text: string
   /** Router 的路由说明（≤30 字，见 MAX_ROUTE_NOTE_CHARS）。 */
   note: string | null
+  model?: string
+}
+
+export interface SuperAgentRouterSource {
+  requestId: string
+  text: string
 }
 
 export interface SuperAgentRouterAttachInput {
@@ -75,11 +81,13 @@ export interface SuperAgentRouterRunnerOptions {
      * 返回空串表示本轮不注入。不放 system 说明 —— 那会打没前缀缓存。
      */
     statusContext?(): string
+    sourceRequests?(requestId: string): SuperAgentRouterSource[]
   }
 }
 
 /** 待投递的一轮输入：正文 + 给人看的气泡文本 + 图片附件。 */
 export interface SuperAgentRouterInput {
+  requestId?: string
   text: string
   displayText?: string
   images?: unknown[]
@@ -125,6 +133,7 @@ export function createSuperAgentRouterRunner(
    * 中继轮（工单事件）没有人的原话，为 null。
    */
   let turnSourceText: string | null = null
+  let turnSources: SuperAgentRouterSource[] = []
   /** 用户在输入框选中的模型（显示名）；null = 没选过，沿用设置页槽位。 */
   let selectedModel: string | null = null
   /** 已经落到当前这条会话上的模型选择；与 selectedModel 不一致才需要动作。 */
@@ -188,17 +197,31 @@ export function createSuperAgentRouterRunner(
       return
     }
     const seq = turnSeq
-    // 目标 = 本轮人的原话，不是 Router 的转述；中继轮没有原话，才退回路由说明。
     const sourceText = turnSourceText
     routes.forEach((route, index) => {
       const requestId = `route:${sessionId}:${seq}:${index}`
       try {
         if (route.kind === 'accept') {
+          if (sourceText === null) throw superAgentError('routeInvalid', { field: 'sourceRequestId' })
+          let goal = sourceText
+          if (route.sourceRequestId) {
+            const sourceIndex = turnSources.findIndex((source) => source.requestId === route.sourceRequestId)
+            if (sourceIndex < 0) throw superAgentError('routeInvalid', { field: 'sourceRequestId' })
+            const source = turnSources[sourceIndex]!
+            const followups = turnSources.slice(sourceIndex + 1)
+            goal = source.text
+            if (followups.length) {
+              goal += `\n\n## 后续人消息（按时间排序，保留补充、撤回与范围约束）\n\n${JSON.stringify(followups)}`
+            }
+          } else if (turnSources.length > 1) {
+            goal = `本轮人消息：\n\n${sourceText}\n\n## 前文人消息（按时间排序，仅供核对任务来源）\n\n${JSON.stringify(turnSources.slice(0, -1))}\n\n这不是执行全部历史需求的清单。本轮明确的新任务只按本轮执行；续接任务须核对人的原话与后续撤回、暂停和范围约束，不得重复已派发的任务。问候不构成新的执行授权，任务归属不明确时先提问。`
+          }
           hooks.dispatch({
             requestId,
             title: route.title,
-            text: sourceText ?? route.note ?? route.title,
+            text: goal,
             note: route.note,
+            model: selectedModel ?? undefined,
           })
         } else if (route.kind === 'attach') {
           // attach 的全部内容就是"这条人消息属于那张单"；本轮没有人的原话可带时
@@ -275,7 +298,13 @@ export function createSuperAgentRouterRunner(
   function engineText(input: SuperAgentRouterInput, human: boolean): string {
     if (!human) return input.text
     const context = hooks.statusContext?.() ?? ''
-    return [input.text, SUPER_AGENT_ROUTER_ROLE_PROMPT, context].filter(Boolean).join('\n\n')
+    const sources = turnSources.length
+      ? `[人消息索引]\n${JSON.stringify(turnSources.map((source) => ({
+          requestId: source.requestId,
+          preview: source.text.slice(0, 160),
+        })))}\n引用前文任务时填写 sourceRequestId；宿主会取完整原话并保留后续约束，不要用标题或旁注改写目标。`
+      : ''
+    return [input.text, SUPER_AGENT_ROUTER_ROLE_PROMPT, context, sources].filter(Boolean).join('\n\n')
   }
 
   async function pump(): Promise<void> {
@@ -287,6 +316,10 @@ export function createSuperAgentRouterRunner(
     routeRepairSent = false
     // 这一轮的目标正文只可能在"人在问话"时存在；中继轮带的是工单事实，不是需求。
     turnSourceText = next.human ? next.input.text : null
+    turnSources = next.human && next.input.requestId
+      ? hooks.sourceRequests?.(next.input.requestId) ?? []
+      : []
+    if (next.input.model) selectedModel = next.input.model
     hooks.onStatusChanged(true)
     try {
       await applyModelSelection()
@@ -310,9 +343,6 @@ export function createSuperAgentRouterRunner(
         projectPath: repoRoot,
         permissionMode: 'default',
       })
-      if (input.model !== undefined && input.model !== '' && input.model !== selectedModel) {
-        selectedModel = input.model
-      }
       queue.push({ input, human: true })
       await pump()
     },

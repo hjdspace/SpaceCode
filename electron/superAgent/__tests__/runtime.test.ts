@@ -131,6 +131,118 @@ describe('super agent runtime wiring', () => {
     expect(firstWorkerMessage).toContain('重启覆盖率会话，并派一个 Explore 代理找候选模块')
   })
 
+  it('keeps the selected model on the worker, including queued launches', async () => {
+    const { service, fake } = makeService()
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, { requestId: 'model-a', text: '分析覆盖率', model: 'haiku' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '覆盖率' }]) })
+    await flush()
+    const first = service.tickets(REPO).tickets[0]!
+    const firstSession = superAgentWorkerEngineSessionId(first.ticketId)
+    expect(fake.started.find((call) => call.sessionId === firstSession)?.config?.model).toBe('haiku')
+    expect(fake.pushed.find((call) => call.sessionId === firstSession)?.model).toBe('haiku')
+
+    await service.routerMessage(REPO, { requestId: 'model-b', text: '检查文案', model: 'opus' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '文案' }]) })
+    const second = service.tickets(REPO).tickets[1]!
+    await service.routerMessage(REPO, { requestId: 'model-c', text: '你好', model: 'sonnet' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'ignore' }]) })
+    fake.emit(firstSession, 'result', {
+      result: reportFence({ assignmentId: first.assignmentId, reportId: 'done-a', kind: 'ready', summary: '完成' }),
+    })
+    await flush()
+    const secondSession = superAgentWorkerEngineSessionId(second.ticketId)
+    expect(fake.started.find((call) => call.sessionId === secondSession)?.config?.model).toBe('opus')
+  })
+
+  it.each([true, false])('carries the original task across a greeting (explicit reference: %s)', async (withReference) => {
+    const { service, fake } = makeService()
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, { requestId: 'coverage-request', text: '分析覆盖率，补充测试' })
+    fake.emit(routerSession, 'result', { result: '准备重启覆盖率会话。' })
+    fake.emit(routerSession, 'result', { result: '仍未给出路由。' })
+    await service.routerMessage(REPO, { requestId: 'scope-limit', text: '先别补测试，只分析覆盖率' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'ignore' }]) })
+    await service.routerMessage(REPO, { requestId: 'greeting', text: '你好' })
+    fake.emit(routerSession, 'result', {
+      result: routeFence([{ kind: 'accept', title: '覆盖率', ...(withReference ? { sourceRequestId: 'coverage-request' } : {}) }]),
+    })
+    await flush()
+    const ticket = service.tickets(REPO).tickets[0]
+    expect(ticket).toBeDefined()
+    const text = fake.sent.find((call) => call.sessionId === superAgentWorkerEngineSessionId(ticket!.ticketId))?.content ?? ''
+    expect(text).toContain('分析覆盖率，补充测试')
+    expect(text).toContain('先别补测试，只分析覆盖率')
+    expect(text).toContain('你好')
+    expect(text).not.toContain('## 目标\n\n你好')
+  })
+
+  it.each(['ignore', 'unknown-source', 'relay'])('does not manufacture a task from %s', async (mode) => {
+    const { service, fake } = makeService()
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, { requestId: 'greeting-only', text: '你好' })
+    fake.emit(routerSession, 'result', {
+      result: routeFence(mode === 'unknown-source'
+        ? [{ kind: 'accept', title: '覆盖率', sourceRequestId: 'not-a-human-message' }]
+        : [{ kind: 'ignore' }]),
+    })
+    if (mode === 'relay') {
+      const dispatched = service.dispatch(REPO, { requestId: 'legitimate', title: '已有任务', text: '检查登录页' })
+      await flush()
+      const ticket = service.tickets(REPO).tickets[0]!
+      fake.emit(superAgentWorkerEngineSessionId(dispatched.ticketId), 'result', {
+        result: reportFence({ assignmentId: ticket.assignmentId, reportId: 'finished', kind: 'ready', summary: '已完成' }),
+      })
+      await flush()
+      fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '未经授权的新任务', note: '顺便处理' }]) })
+    }
+    await flush()
+    expect(service.tickets(REPO).tickets).toHaveLength(mode === 'relay' ? 1 : 0)
+  })
+
+  it('provides an asker identity and repairs a waiting report without losing the question', async () => {
+    const { service, fake } = makeService()
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, { requestId: 'req-question', text: '分析覆盖率' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '覆盖率' }]) })
+    await flush()
+    const ticket = service.tickets(REPO).tickets[0]!
+    const workerSession = superAgentWorkerEngineSessionId(ticket.ticketId)
+    const firstMessage = fake.sent.find((call) => call.sessionId === workerSession)?.content ?? ''
+    const asker = firstMessage.match(/inputId: (\S+)/)?.[1]
+    expect(asker).toBeTruthy()
+    fake.emit(workerSession, 'result', {
+      result: reportFence({ assignmentId: ticket.assignmentId, reportId: 'question', kind: 'waiting', summary: '需要确认范围', question: '补测试还是只分析？' }),
+    })
+    await flush()
+    expect(service.tickets(REPO).tickets[0]?.state).toBe('working')
+    expect(fake.sent.filter((call) => call.sessionId === workerSession).slice(-1)[0]?.content).toContain('askedBy')
+    fake.emit(workerSession, 'result', {
+      result: reportFence({ assignmentId: ticket.assignmentId, reportId: 'question-fixed', kind: 'waiting', summary: '需要确认范围', question: '补测试还是只分析？', askedBy: asker }),
+    })
+    await flush()
+    expect(service.tickets(REPO).tickets[0]?.state).toBe('answer')
+    expect(fake.sent.filter((call) => call.sessionId === routerSession).slice(-1)[0]?.content).toContain('需要确认范围')
+  })
+
+  it('stops correcting an invalid question after one attempt and explains the failure', async () => {
+    const { service, fake } = makeService()
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    await service.routerMessage(REPO, { requestId: 'bad-question', text: '分析覆盖率' })
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '覆盖率' }]) })
+    await flush()
+    const ticket = service.tickets(REPO).tickets[0]!
+    const workerSession = superAgentWorkerEngineSessionId(ticket.ticketId)
+    const result = reportFence({ assignmentId: ticket.assignmentId, reportId: 'invalid', kind: 'waiting', summary: '需确认', question: '范围是什么？', askedBy: 'not-an-input' })
+    fake.emit(workerSession, 'result', { result })
+    await flush()
+    fake.emit(workerSession, 'result', { result })
+    await flush()
+    expect(fake.sent.filter((call) => call.sessionId === workerSession)).toHaveLength(2)
+    expect(service.tickets(REPO).tickets[0]?.state).toBe('failed')
+    expect(fake.sent.filter((call) => call.sessionId === routerSession).slice(-1)[0]?.content).toContain('汇报协议失败')
+  })
+
   it('attaches a follow-up to the live ticket instead of opening a duplicate', async () => {
     const { service, fake } = makeService()
     service.routerBind(REPO)

@@ -53,6 +53,8 @@
             <div :inert="props.readonly ? true : undefined">
               <GenuiCardGroup :messages="item.group!.messages" />
             </div>
+            <!-- 宿主可在每组助手回复之后追加内容，不改变共用时间线渲染器。 -->
+            <slot name="assistant-group" :group="item.group!" />
           </div>
           <CurrentTurnChangeCard
             v-else-if="mode !== 'design' && item.type === 'turn-card' && presentation !== 'im'"
@@ -75,6 +77,8 @@
             :inert="props.readonly ? true : undefined"
           />
         </div>
+
+        <slot name="append" />
 
         <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
           <LoadingState

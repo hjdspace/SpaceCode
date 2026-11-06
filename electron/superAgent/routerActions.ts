@@ -8,7 +8,7 @@
  *     {"kind":"stop","ticketId":"…"},
  *     {"kind":"ignore","reason":"…"}]}
  *
- * 工单目标不在这个协议里：宿主把本轮人的原话无条件带给 Worker（见 routerRunner），
+ * 工单目标不在这个协议里：宿主按 sourceRequestId 取原话并保留后续约束（见 routerRunner），
  * `note` 只放路由背景或人明确给出的约束 —— 转述与扩写进不了 Worker 的视野。
  *
  * 严格校验，失败一律抛稳定错误码（refused 类），不猜意图：
@@ -40,7 +40,7 @@ const ROUTE_BLOCK_PATTERN = new RegExp(
 const ROOT_FIELDS = new Set(['version', 'routes'])
 /** 每种 kind 允许的字段；多一个就按 routeInvalid 拒，不静默忽略。 */
 const ROUTE_FIELDS: Record<SuperAgentRouteKind, ReadonlySet<string>> = {
-  accept: new Set(['kind', 'title', 'note']),
+  accept: new Set(['kind', 'title', 'note', 'sourceRequestId']),
   attach: new Set(['kind', 'ticketId', 'note']),
   stop: new Set(['kind', 'ticketId', 'note']),
   ignore: new Set(['kind', 'reason']),
@@ -49,7 +49,7 @@ const ROUTE_FIELDS: Record<SuperAgentRouteKind, ReadonlySet<string>> = {
 export type SuperAgentRouteKind = 'accept' | 'attach' | 'stop' | 'ignore'
 
 export type SuperAgentRouteAction =
-  | { kind: 'accept'; title: string; note: string | null }
+  | { kind: 'accept'; title: string; note: string | null; sourceRequestId?: string }
   | { kind: 'attach'; ticketId: string; note: string | null }
   | { kind: 'stop'; ticketId: string; note: string | null }
   | { kind: 'ignore'; reason: string | null }
@@ -108,7 +108,14 @@ function toRouteAction(value: unknown, index: number): SuperAgentRouteAction {
   }
   const note = optionalNote(route.note, `routes[${index}].note`)
   if (kind === 'accept') {
-    return { kind, title: requireNonEmptyString(route.title, `routes[${index}].title`), note }
+    return {
+      kind,
+      title: requireNonEmptyString(route.title, `routes[${index}].title`),
+      note,
+      ...(route.sourceRequestId !== undefined
+        ? { sourceRequestId: requireNonEmptyString(route.sourceRequestId, `routes[${index}].sourceRequestId`) }
+        : {}),
+    }
   }
   if (kind === 'ignore') {
     return { kind, reason: optionalReason(route.reason, `routes[${index}].reason`) }

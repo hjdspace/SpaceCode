@@ -55,6 +55,8 @@ export interface SuperAgentExecutorOptions {
   resolveGeneration?(assignmentId: string): number
   /** 会话标题（渲染端会话名）。 */
   titleOf?(ticketId: string): string
+  modelOf?(ticketId: string): string | undefined
+  humanInputIds?(ticketId: string): string[]
 }
 
 export interface SuperAgentWorkerRun {
@@ -116,13 +118,18 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
   const { hooks } = options
   const runs = new Map<string, SuperAgentWorkerRun>()
   const byTicket = new Map<string, SuperAgentWorkerRun>()
+  const repairedQuestions = new WeakSet<SuperAgentWorkerRun>()
 
-  const workerConfig = (repoRoot: string) => ({
-    ...bridge.loadConfig(repoRoot),
-    cwd: repoRoot,
-    permissionMode: 'bypassPermissions' as const,
-    appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
-  })
+  const workerConfig = (repoRoot: string, model?: string) => {
+    const base = bridge.loadConfig(repoRoot)
+    return {
+      ...base,
+      cwd: repoRoot,
+      permissionMode: 'bypassPermissions' as const,
+      appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
+      ...(model ? { model: bridge.resolveModelAlias(model, base.engineType) } : {}),
+    }
+  }
 
   function finish(run: SuperAgentWorkerRun): void {
     if (!run.active) return
@@ -134,8 +141,24 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
     let ingestResult: SuperAgentExecutorIngestResult
     try {
       ingestResult = hooks.ingest(text)
-    } catch {
-      // Report 协议失败：领域已抛稳定错误码，这里只按失败收尾，不猜成完成。
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+      const inputIds = options.humanInputIds?.(run.ticketId) ?? []
+      if ((code === 'askerWithoutQuestion' || code === 'notAsker') && inputIds.length && !repairedQuestions.has(run)) {
+        repairedQuestions.add(run)
+        void bridge.sendMessage(run.sessionId, [
+          '[宿主汇报协议校正]',
+          '上一份提问 Report 未被接受：askedBy 缺失或不属于本工单的人消息。',
+          `可引用的 inputId：${JSON.stringify(inputIds)}`,
+          `assignmentId 必须为 ${run.assignmentId}。`,
+          '保留原来的问题和结论，只补正 askedBy 并输出一个完整 super-agent:report 围栏；不要重跑任务。',
+        ].join('\n')).catch(() => {
+          if (!run.active) return
+          hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text })
+          finish(run)
+        })
+        return
+      }
       hooks.onProtocolFailure({ ticketId: run.ticketId, assignmentId: run.assignmentId, text })
       finish(run)
       return
@@ -158,7 +181,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
 
   const unsubscribe = bridge.onRouteEvent((sessionId, eventType, data) => {
     const run = runs.get(sessionId)
-    if (!run) return
+    if (!run || !run.active) return
     if (eventType === 'result') {
       handleTurnEnd(run, resultText(data))
     } else if (eventType === 'error') {
@@ -209,6 +232,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         assignmentId: request.assignmentId,
         generation: options.resolveGeneration?.(request.assignmentId) ?? 1,
         workDir: request.repoRoot,
+        humanInputIds: options.humanInputIds?.(request.ticketId),
       })
       const firstMessage = `${request.firstMessage}\n\n${identity}`
 
@@ -219,10 +243,11 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         title: options.titleOf?.(request.ticketId) ?? request.ticketId,
         projectPath: request.repoRoot,
         permissionMode: 'bypassPermissions',
+        model: request.model,
       })
 
       try {
-        await bridge.startSession(sessionId, workerConfig(request.repoRoot))
+        await bridge.startSession(sessionId, workerConfig(request.repoRoot, request.model))
         run.started = true
         await bridge.sendMessage(sessionId, firstMessage)
       } catch (err) {
@@ -241,9 +266,9 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
       try {
         if (!run?.started) {
           // 重启后或工单空闲期：会话不在，按稳定 id 重新拉起（引擎自己 --resume 历史）。
-          await bridge.startSession(sessionId, workerConfig(repoRoot))
+          await bridge.startSession(sessionId, workerConfig(repoRoot, options.modelOf?.(request.ticketId)))
         }
-        await bridge.sendMessage(sessionId, request.text)
+        await bridge.sendMessage(sessionId, `${request.text}\n\n[人消息身份] inputId: ${request.inputId}；需要提问时 askedBy 引用此值。`)
         return 'accepted'
       } catch {
         // 无法证明引擎是否收下：交回 unknown，由 service 转 uncertain + Attention，

@@ -14,6 +14,8 @@ import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSuperAgentService, type SuperAgentService } from '../service'
 import { openProjectStore } from '../store'
+import { createFakeBridge, reportFence, routeFence } from './fakeBridge'
+import { superAgentRouterEngineSessionId, superAgentWorkerEngineSessionId } from '../sessionId'
 
 const REPO = join(tmpdir(), 'spacecode-recovery-repo')
 // T11 #81：Store 的 projectKey 基于 repoRoot 的 realpath，目录必须真实存在
@@ -91,6 +93,31 @@ beforeEach(() => {
 })
 
 describe('重启恢复（跨实例模拟）', () => {
+  it('排队工单重启后仍使用派工时选中的模型', async () => {
+    const a = createFakeBridge()
+    const serviceA = createSuperAgentService({ userDataDir, bridge: a.bridge })
+    serviceA.pause(REPO)
+    await serviceA.routerMessage(REPO, { requestId: 'queued-model', text: '分析覆盖率', model: 'haiku' })
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    a.emit(routerSession, 'result', { result: routeFence([{ kind: 'accept', title: '覆盖率' }]) })
+    const ticket = serviceA.tickets(REPO).tickets[0]!
+    expect(ticket.state).toBe('queued')
+    await serviceA.routerMessage(REPO, { requestId: 'later-model', text: '你好', model: 'opus' })
+    a.emit(routerSession, 'result', { result: routeFence([{ kind: 'ignore' }]) })
+    await serviceA.shutdown(REPO)
+
+    const b = createFakeBridge()
+    const serviceB = createSuperAgentService({ userDataDir, bridge: b.bridge })
+    await serviceB.resume(REPO)
+    const workerSession = superAgentWorkerEngineSessionId(ticket.ticketId)
+    await waitUntil(() => b.sent.some((call) => call.sessionId === workerSession))
+    expect(b.started.find((call) => call.sessionId === workerSession)?.config?.model).toBe('haiku')
+    b.emit(workerSession, 'result', { result: reportFence({ assignmentId: ticket.assignmentId, reportId: 'done', kind: 'ready', summary: '完成' }) })
+    await waitUntil(() => b.sent.some((call) => call.sessionId === routerSession))
+    b.emit(routerSession, 'result', { result: '已完成，等待验收。' })
+    await serviceB.shutdown(REPO)
+  })
+
   it('busy 工单恢复新代次续跑，review 工单保持原状态，未读输入只投一次', async () => {
     const a = makeLauncher()
     const delivererA = vi.fn(async () => 'accepted' as const)

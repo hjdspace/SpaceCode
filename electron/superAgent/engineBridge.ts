@@ -35,6 +35,7 @@ export interface SuperAgentUserPush {
    * 下发，漏记就把这条正在跑的会话就地降级。
    */
   permissionMode?: PermissionMode
+  model?: string
 }
 
 export type SuperAgentRouteListener = (
@@ -72,6 +73,7 @@ function pushUserMessageToRenderer(push: SuperAgentUserPush): void {
     // 面板都按 sessionId 直接寻址，切换由 app store 负责。
     activate: false,
     ...(push.permissionMode ? { permissionMode: push.permissionMode } : {}),
+    ...(push.model ? { model: push.model } : {}),
   }
 
   for (const win of BrowserWindow.getAllWindows()) {
