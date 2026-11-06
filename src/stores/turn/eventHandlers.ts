@@ -613,10 +613,16 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
         title: data?.title || content.slice(0, 50) || 'Remote Chat',
         projectPath: data?.projectPath || undefined,
         activate: data?.activate !== false,
+        sessionType: data?.sessionType,
       })
     } else {
       if (data?.projectPath && !session.workingDirectory) {
         session.workingDirectory = data.projectPath
+      }
+      // 归属由推送方说了算：修复前建出来的 Super Agent 会话行没有类型，
+      // 不补就一直在侧边栏里当着普通聊天。
+      if (data?.sessionType && session.sessionType !== data.sessionType) {
+        session.sessionType = data.sessionType
       }
       if (data?.activate !== false && getCurrentSessionId() !== sessionId) {
         void selectSession(sessionId)
