@@ -242,13 +242,10 @@ describe('SessionHistoryManager', () => {
 
   // ── listAllSessions ──────────────────────────────────────────
   //
-  // loadAllProjectsSessions 读取 projectsDir 下的子目录名，用 decodeSanitizedPath
-  // 还原出路径，再用 getProjectDir(decodedPath) 重新 sanitize → projects/slug。
-  // 这要求 decoded path 能被 realpathSync 解析（即路径必须真实存在）。
-  // 在 Windows 上，sanitizePath 把非 ASCII 字符（如中文用户名）替换成 '-'，
-  // decodeSanitizedPath 无法无损还原，导致 round-trip 失败。
-  // 所以 listAllSessions 的测试直接用简单英文路径创建项目目录，
-  // 并直接在 projectsDir 下以 sanitized 名字创建子目录写入 session 文件。
+  // loadAllProjectsSessions 扫的是 projectsDir 下的子目录名。目录名 =
+  // sanitizePath(真实路径)，而 '-' 同时是编码符和路径里的真实字符（'.' 也变成 '-'），
+  // 所以目录名不可反解。恢复扫描必须直接读这些目录，项目路径取 JSONL 里的 cwd；
+  // 一旦"先反解成路径、再用路径重算目录名"，含连字符的项目就会整批扫不到。
 
   describe('listAllSessions', () => {
     it('projects 目录不存在时返回空数组', async () => {
@@ -270,6 +267,28 @@ describe('SessionHistoryManager', () => {
 
       const result = await SessionHistoryManager.listAllSessions()
       expect(result).toHaveLength(3)
+    })
+
+    it('项目目录名含连字符时仍然扫到，项目路径以 JSONL 的 cwd 为准', async () => {
+      // 真实事故形状：D:\doc\AI\soc-verify 编码成 D--doc-AI-soc-verify，
+      // 反解会得到 D:\doc\AI\soc\verify（不存在），重算出 D---doc-AI-soc-verify（也不存在），
+      // 于是这个项目下的全部历史在启动恢复里凭空消失。
+      const dir = path.join(projectsDir(), 'D--doc-AI-soc-verify')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(
+        path.join(dir, 'sess-hyphen.jsonl'),
+        JSON.stringify({
+          type: 'user',
+          cwd: 'D:\\doc\\AI\\soc-verify',
+          timestamp: '2026-01-05T00:00:00.000Z',
+          message: { role: 'user', content: '从连字符项目目录恢复' },
+        }),
+        'utf8',
+      )
+
+      const result = await SessionHistoryManager.listAllSessions()
+      expect(result.map((s) => s.sessionId)).toContain('sess-hyphen')
+      expect(result.find((s) => s.sessionId === 'sess-hyphen')?.projectPath).toBe('D:\\doc\\AI\\soc-verify')
     })
 
     it('相同 sessionId 在不同项目目录出现时只保留第一个', async () => {
