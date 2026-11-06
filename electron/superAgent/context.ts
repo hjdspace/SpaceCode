@@ -12,6 +12,7 @@ import { renderSuperAgentRoutingNote } from './prompts'
 import type {
   SuperAgentDecision,
   SuperAgentMandate,
+  SuperAgentPolicyRule,
   SuperAgentTicket,
   SuperAgentTrigger,
 } from './model'
@@ -46,6 +47,8 @@ export interface WorkerFirstMessageInput {
   attachments: string[]
   /** Router 的路由说明（≤30 字）；只是旁注，不授权也不替代目标原文。 */
   note?: string | null
+  /** 当前 Policy 的规则表：把 Mandate 里命中的规则名翻成必须遵守的约束。 */
+  policyRules?: SuperAgentPolicyRule[]
   spillWriter: SpillWriter
 }
 
@@ -66,7 +69,8 @@ function spillMarkdown(title: string, content: string): string {
 
 export function assembleWorkerFirstMessage(input: WorkerFirstMessageInput): WorkerFirstMessage {
   const {
-    ticket, mandate, decision, trigger, workspace, contextPaths, attachments, note, spillWriter,
+    ticket, mandate, decision, trigger, workspace, contextPaths, attachments, note, policyRules,
+    spillWriter,
   } = input
   const spillFiles: string[] = []
 
@@ -104,6 +108,21 @@ export function assembleWorkerFirstMessage(input: WorkerFirstMessageInput): Work
   // ── Router 的路由说明：紧跟目标，位置本身就说明了它的从属 ──
   const noteSection = renderSuperAgentRoutingNote(note)
   if (noteSection !== '') sections.push(noteSection)
+
+  // ── 命中的 Policy 规则：规则名 → 必须遵守的约束指令 ──
+  // Mandate 只存规则名；执行时按当前 Policy 的规则表翻译成 Worker 能直接遵守的指令。
+  const matchedRules = mandate.matchedRules
+    .map((name) => policyRules?.find((rule) => rule.name === name))
+    .filter((rule): rule is SuperAgentPolicyRule => rule !== undefined)
+  if (matchedRules.length > 0) {
+    sections.push(
+      [
+        '## 命中的授权规则（必须遵守）',
+        '',
+        ...matchedRules.map((rule) => `- 「${rule.name}」：${rule.instruction}`),
+      ].join('\n'),
+    )
+  }
 
   // ── 共享工作区现状：launch 前脏区检查结果注入首条消息 ──
   const workspaceText = workspace.dirty

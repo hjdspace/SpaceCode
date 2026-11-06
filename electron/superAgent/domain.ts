@@ -459,6 +459,8 @@ export interface SubmitEvalDecisionInput {
   repoRoot?: string
   /** 命中的 Policy 规则名；提交时校验必须存在于当前 Policy。 */
   matchedRules?: string[]
+  /** 模型给出的判断依据（#99 协议必填，用于审计）。 */
+  reason?: string
   at?: string
 }
 
@@ -2285,7 +2287,13 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     }
 
     evalRecord.state = action === 'unavailable' ? 'unavailable' : 'decided'
-    evalRecord.decision = { action, at, matchedRules, ticketId: ticket?.ticketId ?? null }
+    evalRecord.decision = {
+      action,
+      at,
+      matchedRules,
+      ticketId: ticket?.ticketId ?? null,
+      ...(input.reason ? { reason: input.reason } : {}),
+    }
     thread.evaluating = false
     // Router 真实响应（含模型自报 unavailable）打断连续超时序列，计数清零；
     // 超时路径（expireEval）保持计数作为升级护栏。

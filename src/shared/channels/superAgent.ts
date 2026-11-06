@@ -33,6 +33,14 @@ export const SUPER_AGENT_PREFIX = 'super-agent:'
 export const SUPER_AGENT_ROUTE_FENCE = 'super-agent:route'
 
 /**
+ * Router ↔ 宿主的候选评估协议围栏（#99）。
+ *
+ * Eval 轮是宿主发起的内部准入评估，不是人的消息：它和 route 协议分开，回复里
+ * 只应出现一个 eval 块，宿主据此落 Decision；不会被当成建单指令解析。
+ */
+export const SUPER_AGENT_EVAL_FENCE = 'super-agent:eval'
+
+/**
  * Super Agent 自己拥有的会话种类。
  *
  * 这两类会话由主进程派生 id 并驱动，不是人发起的普通聊天，因此不得出现在侧边栏

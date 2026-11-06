@@ -8,14 +8,23 @@
  * 协议块用带 info string 的围栏（`super-agent:route` / `super-agent:report`），
  * 与 reportParser 的严格解析同一做法：宿主按围栏取，不解析自由文本里的 JSON。
  */
-import { SUPER_AGENT_ROUTE_FENCE } from '@/shared/channels/superAgent'
+import { SUPER_AGENT_EVAL_FENCE, SUPER_AGENT_ROUTE_FENCE } from '@/shared/channels/superAgent'
 import { SUPER_AGENT_REPORT_FENCE } from './reportParser'
 import type { SuperAgentRouteKind } from './routerActions'
 import type { SuperAgentStatusSnapshot } from './sessionStatusQuery'
 import type { SuperAgentTicketCardState } from '@/shared/channels/superAgent'
+import type {
+  SuperAgentAcceptMode,
+  SuperAgentMandateBasis,
+  SuperAgentMandateStrength,
+  SuperAgentPolicyRule,
+} from './model'
 
 /** Router ↔ 宿主的建单协议围栏（单一真相源在 shared 通道表，渲染端 IM 模式同源过滤）。 */
 export { SUPER_AGENT_ROUTE_FENCE }
+
+/** Router ↔ 宿主的候选评估协议围栏（#99）。 */
+export { SUPER_AGENT_EVAL_FENCE }
 
 /** Router 的角色说明：只路由与回答，动手的工作一律交给 Worker。 */
 export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
@@ -319,4 +328,132 @@ export function renderSuperAgentRouterStatusContext(
   )
 
   return lines.join('\n')
+}
+
+/** 评估卡里单条候选正文的上限：够判断意图，又不至于把 Router 上下文撑爆。 */
+const MAX_EVAL_TRIGGER_CHARS = 600
+
+/** 准入评估口径：只判断「这批候选要不要动手」，不替 Worker 做方案。 */
+export const SUPER_AGENT_EVAL_ASSESSMENT_PROMPT = `这是宿主内部的一次准入评估，不是人的消息。你的任务只有一个：判断这批候选消息
+是否要交给 Worker 动手，并给出结构化结论；不要执行、不要写实现计划、不要扩写需求。
+
+## 判断口径
+- 这一批里只要有明确的、要求动手的请求，就 accept；Worker 会拿到整批原文，自行判断范围。
+- 闲聊、讨论、提建议、信息同步、方向未定、信息不足、已经在当前工单里处理中的事，一律 ignore。
+- 人明确要求停止当前 Thread 的工作（取消、别做了、停）才 stop；只是换话题不是 stop。
+- 已有相关工单时，先判断这批候选是否已被现有工单覆盖；覆盖了就 ignore，不要重复建单。
+- 不要把同一个人在同一 Thread 的后续补充拆成多次接受：本次 accept 会成为一张工单。
+- 只有确实无法可靠判断（正文缺失、上下文不足以定位对象）时才 unavailable，不要猜。
+- 逐条看当前启用规则：命中就写进 matchedRules；拿不准就不要写，宁缺毋滥。
+- reason 用一句中文说明判断依据；ignore 必须说明为什么不动手。
+
+## 输出协议
+回复只输出一个 ${SUPER_AGENT_EVAL_FENCE} 围栏块，块内只放一个 JSON 对象：
+${'```'}${SUPER_AGENT_EVAL_FENCE}
+{"version":1,"evalId":"<批次 evalId>","action":"accept|stop|ignore|unavailable","matchedRules":["<命中的规则名，没有就给空数组>"],"reason":"<一句话原因>"}
+${'```'}
+- 不要输出 route 块，不要调用任何工具，不要输出围栏之外的判断文字。`
+
+export interface SuperAgentEvalCardTrigger {
+  triggerId: string
+  source: string
+  actor: string
+  human: boolean
+  addressed: string | null
+  channel: string | null
+  url: string | null
+  text: string
+  handedBack: boolean
+  /** Worker 交回时留下的人消息原文（交回原因）。 */
+  handedBackReason: string | null
+  requeued: boolean
+  filtered: string | null
+}
+
+export interface SuperAgentEvalCardTicket {
+  ticketId: string
+  title: string
+  state: string
+}
+
+export interface SuperAgentEvalCardInput {
+  evalId: string
+  threadId: string
+  threadTitle: string | null
+  policyVersion: number
+  acceptMode: SuperAgentAcceptMode
+  strength: SuperAgentMandateStrength
+  basis: SuperAgentMandateBasis
+  actor: string
+  bot: boolean
+  triggers: SuperAgentEvalCardTrigger[]
+  tickets: SuperAgentEvalCardTicket[]
+  rules: SuperAgentPolicyRule[]
+}
+
+/** 候选评估卡：一个 Thread 的一批候选 + 当前规则 + 输出协议。 */
+export function renderSuperAgentEvalCard(input: SuperAgentEvalCardInput): string {
+  const lines: string[] = ['# 候选评估请求', '', SUPER_AGENT_EVAL_ASSESSMENT_PROMPT, '', '## 批次']
+  lines.push(`- evalId: ${input.evalId}`)
+  lines.push(`- threadId: ${input.threadId}`)
+  if (input.threadTitle) lines.push(`- threadTitle: ${input.threadTitle}`)
+  lines.push(`- policyVersion: ${input.policyVersion}`)
+  lines.push(`- acceptMode: ${input.acceptMode}`)
+  lines.push(`- strength: ${input.strength}`)
+  lines.push(`- basis: ${input.basis}`)
+  lines.push(`- actor: ${input.actor}`)
+  lines.push(`- bot: ${input.bot ? '是' : '否'}`)
+
+  lines.push('', '## 候选消息（按到达顺序）')
+  input.triggers.forEach((trigger, index) => {
+    const traits = [
+      `source=${trigger.source}`,
+      `actor=${trigger.actor}`,
+      `human=${trigger.human ? '是' : '否'}`,
+      trigger.addressed ? `addressed=${trigger.addressed}` : null,
+      trigger.channel ? `channel=${trigger.channel}` : null,
+      trigger.url ? `url=${trigger.url}` : null,
+    ].filter((item): item is string => item !== null)
+    const flags = [
+      trigger.handedBack
+        ? `已由 Worker 交回 Eval${trigger.handedBackReason ? `：${trigger.handedBackReason}` : ''}`
+        : null,
+      trigger.requeued ? '已重新排队' : null,
+      trigger.filtered ? `被拦截：${trigger.filtered}` : null,
+    ].filter((item): item is string => item !== null)
+    lines.push(`${index + 1}. triggerId=${trigger.triggerId} · ${traits.join(' · ')}`)
+    if (flags.length > 0) lines.push(`   标记：${flags.join('；')}`)
+    lines.push('   正文：')
+    lines.push(indentBlock(truncateText(trigger.text, MAX_EVAL_TRIGGER_CHARS), '   '))
+  })
+
+  lines.push('', '## 该 Thread 的相关工单（open 在前）')
+  if (input.tickets.length === 0) {
+    lines.push('- 无')
+  } else {
+    for (const ticket of input.tickets) {
+      lines.push(`- ${ticket.ticketId}「${ticket.title}」：state=${ticket.state}`)
+    }
+  }
+
+  lines.push('', '## 当前启用规则（逐条判断是否命中，命中才写进 matchedRules）')
+  if (input.rules.length === 0) {
+    lines.push('- 无')
+  } else {
+    for (const rule of input.rules) lines.push(`- 「${rule.name}」：${rule.instruction}`)
+  }
+
+  return lines.join('\n')
+}
+
+function truncateText(text: string, limit: number): string {
+  const normalized = text.replace(/\r\n/g, '\n')
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…（已截断）` : normalized
+}
+
+function indentBlock(text: string, indent: string): string {
+  return text
+    .split('\n')
+    .map((line) => `${indent}${line}`)
+    .join('\n')
 }

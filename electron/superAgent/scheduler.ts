@@ -373,6 +373,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
         contextPaths: dispatchContext.get(ticketId)?.contextPaths ?? [],
         attachments: dispatchContext.get(ticketId)?.attachments ?? [],
         note: dispatchContext.get(ticketId)?.note ?? null,
+        policyRules: state.policy.rules,
         spillWriter,
       })
       domain.launchAssignment({ assignmentId })

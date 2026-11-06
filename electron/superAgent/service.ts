@@ -159,6 +159,7 @@ import {
   createSuperAgentRouterRunner,
   type SuperAgentRouterRunner,
 } from './routerRunner'
+import { createSuperAgentEvalDriver, type SuperAgentEvalDriver } from './evalDriver'
 import {
   renderSuperAgentRouterEvent,
   renderSuperAgentRouterStatusContext,
@@ -224,6 +225,11 @@ interface ProjectState {
   executor: SuperAgentExecutor | null
   /** Router 运行时：会话归属主进程，建单由回复尾部的协议块驱动。 */
   routerRunner: SuperAgentRouterRunner | null
+  /**
+   * #99：候选 → Router 评估 → Decision 的闭环驱动；Entities 只有配了引擎接缝
+   * （Router 可用）才存在，否则候选只登记不评估。
+   */
+  evalDriver: SuperAgentEvalDriver | null
   /** T24 #93：Source 轮询器；未配置或装配失败时为 null（不启动任何轮询）。 */
   sourceIngestor: SourceIngestor | null
   /** T24 #93：候选登记（有界）；只暴露事实，不在 service 内建单。 */
@@ -728,6 +734,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         if (sourceCandidates.length > MAX_SOURCE_CANDIDATES) {
           sourceCandidates.splice(0, sourceCandidates.length - MAX_SOURCE_CANDIDATES)
         }
+        // #99：候选到达即尝试建批；没有 Router（未接引擎）时由 evalDriver 为 null 忽略。
+        projects.get(repoRoot)?.evalDriver?.pump()
       })
       project = {
         seq: 0,
@@ -747,6 +755,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         checkpoints,
         executor: null,
         routerRunner: null,
+        evalDriver: null,
         sourceIngestor,
         sourceCandidates,
       }
@@ -1229,6 +1238,28 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     })
 
     project.routerRunner = routerRunner
+
+    // #99：Eval 闭环 —— 候选按 Thread 建批，经 Router 评估后落 Decision。
+    // 领域事实变化复用既有投影/调度路径；协议失败与 unavailable 进 'eval' 健康项，
+    // 新一轮成功裁决时清掉该项的连续失败。
+    project.evalDriver = createSuperAgentEvalDriver({
+      domain: project.domain,
+      repoRoot,
+      router: { evaluate: (turn) => routerRunner.evaluate(turn) },
+      onChanged: () => {
+        project.projector.sync()
+        project.attentionProjector.sync()
+        syncEvalHealth(project)
+        project.scheduler.resume()
+      },
+      onFailure: (code, evalId) => {
+        project.health.recordFailure('eval', { code, subjectId: evalId || null })
+      },
+      onDecided: () => project.health.recordSuccess('eval'),
+    })
+    project.evalDriver.start()
+    // 恢复既有 pending 候选（重启后不依赖下一条 Source 事件才开评估）。
+    project.evalDriver.pump()
   }
 
   /**
@@ -1499,6 +1530,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     project.phase = 'draining'
     // 2. 停止周期扫描类 scheduled effect
     project.reviewReminder.stop()
+    project.evalDriver?.stop()
     if (project.outbox) project.outbox.stop()
     // T24 #93：Source 轮询同样是周期 effect —— 显式 shutdown 立即停止；
     // 已保存的游标保证下次打开从断点续读，不重放已消费事件。
@@ -1517,6 +1549,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     project.executor?.dispose()
     project.routerRunner = null
     project.executor = null
+    project.evalDriver = null
     project.store?.close()
     return { repoRoot, settledWithinBound }
   }
@@ -1611,6 +1644,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       const result = project.domain.reevaluateEval({ evalId: command.evalId })
       // 健康主体项随之解除，落 reevaluated 审计。
       project.health.resolve('eval', command.evalId)
+      // Trigger 已回队：立即按新批次重新评估，不等下一条 Source 事件。
+      project.evalDriver?.pump()
       return {
         evalId: result.eval.evalId,
         requeuedTriggerIds: result.requeuedTriggerIds,
@@ -1912,6 +1947,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       // 暂停期间到达的人消息不丢：补投挂起输入后续跑队列
       await drainPendingInputs(repoRoot, project)
       project.scheduler.resume()
+      // 暂停期间不开始新 Eval；恢复后把积压候选重新建批。
+      project.evalDriver?.pump()
       return true
     },
 
@@ -1937,6 +1974,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         // 让 UI 立刻看到领域 seq 与工单事实一致，而不是等下一次事件。
         project.projector.sync()
         project.attentionProjector.sync()
+        // 旧版本 Eval 已丢弃、Trigger 已回队：按新 Policy 立即重开评估。
+        project.evalDriver?.pump()
       }
       return {
         repoRoot,

@@ -440,6 +440,8 @@ export interface SuperAgentEvalDecision {
   matchedRules: string[]
   /** accept 建单时对应工单；observe/ignore/stop/unavailable 为 null。 */
   ticketId: string | null
+  /** 模型给出的判断依据（#99 协议必填）；超时路径等宿主自行落档时不写。 */
+  reason?: string
 }
 
 /** T16 #86：按 Thread 串行的语义评估批次。 */

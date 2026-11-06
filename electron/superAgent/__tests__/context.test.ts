@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { SUPER_AGENT_CONTEXT_BUDGETS, assembleWorkerFirstMessage } from '../context'
 import { createSuperAgentDomain } from '../domain'
 import type { SuperAgentWorkspaceStatus } from '../workspace'
-import type { SuperAgentTrigger } from '../model'
+import type { SuperAgentPolicyRule, SuperAgentTrigger } from '../model'
 
 const AT = '2026-01-01T00:00:00.000Z'
 
@@ -69,7 +69,12 @@ function makeFixture(overrides: { text?: string; contextPaths?: string[]; attach
 function assemble(
   fixture: Fixture,
   workspace: SuperAgentWorkspaceStatus,
-  overrides: { contextPaths?: string[]; attachments?: string[]; note?: string | null } = {},
+  overrides: {
+    contextPaths?: string[]
+    attachments?: string[]
+    note?: string | null
+    policyRules?: SuperAgentPolicyRule[]
+  } = {},
 ) {
   const state = fixture.domain.state
   return assembleWorkerFirstMessage({
@@ -81,6 +86,7 @@ function assemble(
     contextPaths: overrides.contextPaths ?? ['src/login.ts'],
     attachments: overrides.attachments ?? ['docs/需求.md'],
     note: overrides.note,
+    policyRules: overrides.policyRules,
     spillWriter: fixture.spillWriter,
   })
 }
@@ -119,6 +125,40 @@ describe('assembleWorkerFirstMessage', () => {
     )
     // 没有旁注就不该留一个空标题
     expect(assemble(fixture, CLEAN).text).not.toContain('## 路由说明')
+  })
+
+  it('把 Mandate 命中的 Policy 规则翻成必须遵守的约束指令', () => {
+    const fixture = makeFixture()
+    fixture.domain.setPolicy({
+      acceptMode: 'auto',
+      rules: [
+        { name: 'rule-a', instruction: '先看日志再改代码' },
+        { name: 'rule-b', instruction: '不要碰 engine/' },
+      ],
+      admissions: [],
+    })
+    fixture.domain.state.mandates[fixture.mandateId]!.matchedRules = ['rule-a']
+
+    const message = assemble(fixture, CLEAN, {
+      policyRules: fixture.domain.state.policy.rules,
+    })
+    expect(message.text).toContain('## 命中的授权规则（必须遵守）')
+    expect(message.text).toContain('先看日志再改代码')
+    expect(message.text).not.toContain('不要碰 engine/')
+  })
+
+  it('没有命中规则时不产出授权规则段', () => {
+    const fixture = makeFixture()
+    fixture.domain.setPolicy({
+      acceptMode: 'auto',
+      rules: [{ name: 'rule-a', instruction: '先看日志再改代码' }],
+      admissions: [],
+    })
+
+    const message = assemble(fixture, CLEAN, {
+      policyRules: fixture.domain.state.policy.rules,
+    })
+    expect(message.text).not.toContain('## 命中的授权规则')
   })
 
   it('injects a clean-workspace note when the repository is clean', () => {
