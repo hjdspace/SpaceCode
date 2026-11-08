@@ -29,6 +29,7 @@ import type { DispatchInput, DispatchResult, SuperAgentDomain } from './domain'
 import { superAgentError } from './errors'
 import { createCheckpointStore, type SuperAgentCheckpointStore } from './checkpoint'
 import { createTicketWorktreePreparer, type TicketWorktreePreparer } from './ticketWorktree'
+import { superAgentTicketWorkerSessionId } from './sessionId'
 import {
   createExecFileGitRunner,
   defaultWorkspaceProbe,
@@ -46,6 +47,7 @@ export interface WorkerWorktreeInfo {
 export interface WorkerLaunchRequest {
   ticketId: string
   assignmentId: string
+  sessionId: string
   /** Worker 实际执行的根目录：串行 = repoRoot，并行 = per-ticket worktree。 */
   repoRoot: string
   firstMessage: string
@@ -401,6 +403,7 @@ export function createSuperAgentScheduler(options: SuperAgentSchedulerOptions) {
       await launcher?.launch({
         ticketId,
         assignmentId,
+        sessionId: superAgentTicketWorkerSessionId(ticket),
         repoRoot: workerRoot,
         firstMessage: firstMessage.text,
         model: ticket.execution.model,

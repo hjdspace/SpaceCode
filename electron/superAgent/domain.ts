@@ -12,6 +12,7 @@
 import { randomUUID } from 'crypto'
 import { superAgentError } from './errors'
 import { idempotencyKey } from './idempotency'
+import { superAgentTicketWorkerSessionId } from './sessionId'
 export { idempotencyKey } from './idempotency'
 import {
   clonePolicyAdmissions,
@@ -143,6 +144,8 @@ export interface DispatchInput {
    */
   note?: string
   model?: string
+  /** 人明确要求续聊的已结束工单；新工单继承它的 Worker session。 */
+  resumeTicketId?: string
   actor: string
   /** 派工时携带的 @ 上下文（相对路径），注入 Worker 首轮消息。 */
   contextPaths?: string[]
@@ -1129,6 +1132,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     const fingerprint = canonical({
       kind: 'dispatch',
       ...(input.model ? { model: input.model } : {}),
+      ...(input.resumeTicketId ? { resumeTicketId: input.resumeTicketId } : {}),
       title: input.title,
       repoRoot: input.repoRoot,
       text: input.text,
@@ -1147,6 +1151,22 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
         mandate: state.mandates[ticket.mandateId],
         assignment,
         duplicate: true,
+      }
+    }
+
+    let resumeSessionId: string | null = null
+    if (input.resumeTicketId !== undefined) {
+      const source = state.tickets[input.resumeTicketId]
+      if (!source) throw superAgentError('ticketNotFound', { ticketId: input.resumeTicketId })
+      if (source.state !== 'ended') {
+        throw superAgentError('invalidDispatch', { requestId: input.requestId, resumeTicketId: input.resumeTicketId })
+      }
+      resumeSessionId = superAgentTicketWorkerSessionId(source)
+      const shared = Object.values(state.tickets).some(
+        (ticket) => ticket.state === 'open' && superAgentTicketWorkerSessionId(ticket) === resumeSessionId,
+      )
+      if (shared) {
+        throw superAgentError('invalidDispatch', { requestId: input.requestId, resumeTicketId: input.resumeTicketId })
       }
     }
 
@@ -1189,6 +1209,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     }
     state.decisions[created.ticket.ticketId] = decision
     if (input.model) created.ticket.execution.model = input.model
+    if (resumeSessionId) created.ticket.execution.sessionId = resumeSessionId
 
     const assignment = newAssignmentForTicket(created.ticket, at, 'pending')
 

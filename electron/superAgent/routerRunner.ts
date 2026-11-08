@@ -44,6 +44,8 @@ export interface SuperAgentRouterDispatchInput {
   /** Router 的路由说明（≤30 字，见 MAX_ROUTE_NOTE_CHARS）。 */
   note: string | null
   model?: string
+  /** 人明确要求续聊的已结束工单；新工单继承它的 Worker session。 */
+  resumeTicketId?: string
 }
 
 export interface SuperAgentRouterSource {
@@ -278,6 +280,7 @@ export function createSuperAgentRouterRunner(
             text: goal,
             note: route.note,
             model: selectedModel ?? undefined,
+            ...(route.resumeTicketId !== undefined ? { resumeTicketId: route.resumeTicketId } : {}),
           })
         } else if (route.kind === 'attach') {
           // attach 的全部内容就是"这条人消息属于那张单"；本轮没有人的原话可带时

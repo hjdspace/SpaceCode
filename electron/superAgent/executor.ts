@@ -19,7 +19,6 @@ import {
 } from './prompts'
 import { wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
 import type { SuperAgentEngineBridge } from './engineBridge'
-import { superAgentWorkerEngineSessionId } from './sessionId'
 import type { WorkerLaunchRequest } from './scheduler'
 import type { SuperAgentReportKind } from './model'
 import {
@@ -350,7 +349,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
 
   return {
     async launch(request: WorkerLaunchRequest): Promise<void> {
-      const sessionId = superAgentWorkerEngineSessionId(request.ticketId)
+      const sessionId = request.sessionId
       const run = registerRun(request.ticketId, request.assignmentId, sessionId, request.repoRoot)
 
       const identity = renderSuperAgentAssignmentIdentity({

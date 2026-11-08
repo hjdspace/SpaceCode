@@ -41,6 +41,7 @@ describe('super agent host context anchors', () => {
       slots: { maxWorkers: 1, running: 0, queued: 0 },
       backgroundJobs: 'unknown' as const,
       pendingAttention: 0,
+      endedTickets: [],
       tickets: [],
     }
     const produced: Record<string, string> = {

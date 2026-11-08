@@ -51,7 +51,7 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 - 标题面向卡片，短而具体；正文里不要重复罗列它的细节。
 
 每条 \`kind\` 五选一：
-- \`accept\` 新工单：\`title\` + 可选 \`note\`；\`sourceRequestId\` 指向宿主 \`[人消息索引]\` 中的需求原文，省略时宿主会携带近期人消息原文供 Worker 核对，不能据此恢复已撤回或无关的任务。引用前文任务必须填写该 ID，不能把“你好 / 继续”这类短句当成完整目标。
+- \`accept\` 新工单：\`title\` + 可选 \`note\`；\`sourceRequestId\` 指向宿主 \`[人消息索引]\` 中的需求原文，省略时宿主会携带近期人消息原文供 Worker 核对，不能据此恢复已撤回或无关的任务。引用前文任务必须填写该 ID，不能把“你好 / 继续”这类短句当成完整目标。人明确指定在某个已结束 Worker 会话上继续新任务时，另填该历史工单的 \`resumeTicketId\`：仍建新工单与新授权，但宿主复用原 Worker session 恢复上下文。
 - \`attach\` 把这轮人的原话挂到 \`[工单快照]\` 里一张还活着的工单：\`ticketId\` + 可选 \`note\`。它只投一条人消息，**不会重跑**任何东西。若本轮依据来自外部 Source Trigger（如评论/评审），同时带上该触发器的 \`triggerId\`，宿主据此绑定 Trigger 并订阅整条 Thread；桌面消息省略它。
 - \`retry\` 让快照里一张 \`执行失败\`/\`受阻\`/\`投递失败\` 的工单以新一代重跑：\`ticketId\`。宿主复用同一个 Worker 会话继续执行，不另建工单，也没有旁注字段。
 - \`stop\` 停一张工单：\`ticketId\`。
@@ -61,10 +61,10 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 - 只有人要你动手才 \`accept\`。普通讨论、闲聊、在说别的产品、方向还没定，一律 \`ignore\`，别把争论变成工单。“你好”不表示恢复以前的工作；明确续接或补发之前尚未落实的派工时，引用原请求的 sourceRequestId，并保留后续撤回、暂停或范围约束。
 - \`attach\` 只在消息显式指向那张工单时才用：它点了工单号、那张单的 PR/Issue/回答，或刚做完的改动且只有这一张对得上。**主题相似不是指向** —— 相似主题的新要求是 \`accept\`。
 - 人说“重新执行 / 重跑 / 再来一次 / 继续跑”时，要的是新一代执行：给快照里那张失败的工单 \`retry\`，**不是** \`attach\`。attach 只把这句话投给还在跑的执行，什么都不会重启。
-- 同一件事不要建第二张：先查 \`[工单快照]\`。已完成、已停止、已丢弃的工单既不能 \`attach\` 也不能 \`retry\`，那种情况 \`accept\` 一张新的。
+- 同一件事不要建第二张：先查 \`[工单快照]\`。已完成、已停止、已丢弃的工单既不能 \`attach\` 也不能 \`retry\`，那种情况 \`accept\` 一张新的；只有人明确要求沿用那张旧单的 Worker 会话时才同时填 \`resumeTicketId\`，不要因主题相似就继承。
 - \`stop\` 只在人明确要求停止时用；Worker 报的受阻不是停的理由。人说了"先别动 / 等确认"就要留住这个约束，不要绕过它去 \`accept\`。
 - 相互独立的工作拆成多条指令（一次最多 4 条）；有先后关系的合成一条。
-- “重启/新建会话”“派 Explore/子代理”“后台跑任务”都是动手请求：你不能直接执行，必须 \`accept\`；只有快照里活着且被人明确指向的工单才能 \`attach\`。已结束或根本不存在的旧会话不是可 \`attach\` 的工单。
+- “重启/新建会话”“派 Explore/子代理”“后台跑任务”都是动手请求：你不能直接执行，必须 \`accept\`；只有快照里活着且被人明确指向的工单才能 \`attach\`。已结束或根本不存在的旧会话不是可 \`attach\` 的工单；已结束会话只能按上面的 \`resumeTicketId\` 方式续聊。
 
 ## 协议形状
 每条人消息的回复末尾都必须输出且只输出一个围栏块；纯问答或闲聊用 \`ignore\`。\`[工单事件]\` 中继只需汇报，不需要路由块：
@@ -90,6 +90,7 @@ export const SUPER_AGENT_ROUTE_REPAIR_PROMPT = `[宿主协议校正]
 请只补一个符合系统说明的 route 围栏，不重复正文：
 - 重启/新建会话、派 Explore/子代理、后台执行任务：没有可 attach 的活跃工单时用 accept。
 - 重跑一张失败/受阻的工单：用 retry，不是 attach。
+- 人明确要在某个已结束 Worker 会话上继续新任务：accept 并填该历史工单的 resumeTicketId。
 - 普通问答或闲聊用 ignore。
 不要只口头承诺；只有宿主收到 accept 才会启动 Worker 并显示工单卡片。`
 
@@ -352,6 +353,16 @@ export function renderSuperAgentRouterStatusContext(
       }
       lines.push(line)
     }
+  }
+
+  if (snapshot.endedTickets.length > 0) {
+    lines.push('[已结束工单]')
+    for (const ticket of snapshot.endedTickets) {
+      lines.push(
+        `- 工单 ${ticket.ticketId}「${ticket.title}」：${SUPER_AGENT_STAGE_LABEL[ticket.state]} · Worker 会话 ${ticket.workerSessionId}`,
+      )
+    }
+    lines.push('人明确指定在某个已结束 Worker 会话上继续新任务时，用 accept 并填对应工单的 resumeTicketId。')
   }
 
   if (snapshot.pendingAttention > 0) {

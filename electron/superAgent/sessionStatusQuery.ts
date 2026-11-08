@@ -18,6 +18,7 @@ import type {
 } from '@/shared/channels/superAgent'
 import type { SuperAgentDomain } from './domain'
 import type { SuperAgentReport, SuperAgentReportKind } from './model'
+import { superAgentTicketWorkerSessionId } from './sessionId'
 
 /** 阶段卡在等人回答/处置的卡片状态（§5.2 的 person/* 映射）。 */
 const WAITING_FOR_HUMAN: SuperAgentTicketCardState[] = [
@@ -34,6 +35,7 @@ const ENDED_STATES: SuperAgentTicketCardState[] = ['completed', 'stopped', 'drop
 export interface SuperAgentStatusEntry {
   ticketId: string
   title: string
+  workerSessionId: string
   state: SuperAgentTicketCardState
   assignmentId: string | null
   generation: number
@@ -62,6 +64,8 @@ export interface SuperAgentStatusSnapshot {
   pendingAttention: number
   /** 活跃（未结束）工单，按创建时间升序。 */
   tickets: SuperAgentStatusEntry[]
+  /** 已结束工单，最近的在前；仅供人明确指定 Worker session 后续聊。 */
+  endedTickets: SuperAgentStatusEntry[]
 }
 
 export interface SuperAgentSessionStatusQueryOptions {
@@ -102,12 +106,12 @@ export function createSuperAgentSessionStatusQuery(
     for (const entry of snapshot.running) positions.set(entry.ticketId, entry.position)
     for (const entry of snapshot.queued) positions.set(entry.ticketId, entry.position)
 
-    const openCards = cards().filter((card) => !ENDED_STATES.includes(card.state))
-    const tickets: SuperAgentStatusEntry[] = openCards.map((card) => {
+    const entries: SuperAgentStatusEntry[] = cards().map((card) => {
       const light = progress(card.ticketId)
       return {
         ticketId: card.ticketId,
         title: card.title,
+        workerSessionId: superAgentTicketWorkerSessionId(domain.state.tickets[card.ticketId]!),
         state: card.state,
         assignmentId: card.assignmentId,
         generation: card.generation,
@@ -119,6 +123,8 @@ export function createSuperAgentSessionStatusQuery(
         latestReport: latestConclusiveReport(domain, card.assignmentId),
       }
     })
+    const tickets = entries.filter((entry) => !ENDED_STATES.includes(entry.state))
+    const endedTickets = entries.filter((entry) => ENDED_STATES.includes(entry.state)).reverse()
 
     const pendingAttention = Object.values(domain.state.attentions).filter(
       (attention) => attention.status === 'open',
@@ -136,6 +142,7 @@ export function createSuperAgentSessionStatusQuery(
       backgroundJobs: 'unknown',
       pendingAttention,
       tickets,
+      endedTickets,
     }
   }
 

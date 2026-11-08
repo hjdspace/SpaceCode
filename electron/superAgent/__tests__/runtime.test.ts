@@ -148,6 +148,61 @@ describe('super agent runtime wiring', () => {
     expect(firstWorkerMessage).toMatch(/assignmentId: \S+/)
   })
 
+  it('resumes an explicitly named ended worker session for a new ticket and goal', async () => {
+    const { service, fake } = makeService()
+    const oldDispatch = service.dispatch(REPO, {
+      requestId: 'coverage-old',
+      title: '分析覆盖率',
+      text: '分析覆盖率并列出低覆盖模块',
+    })
+    await flush()
+    const oldSession = superAgentWorkerEngineSessionId(oldDispatch.ticketId)
+    fake.emit(oldSession, 'result', {
+      result: reportFence({
+        assignmentId: oldDispatch.assignmentId,
+        reportId: 'coverage-ready',
+        kind: 'ready',
+        summary: '覆盖率分析完成',
+      }),
+    })
+    await flush()
+    service.ticketAccept(REPO, { ticketId: oldDispatch.ticketId })
+
+    service.routerBind(REPO)
+    const routerSession = superAgentRouterEngineSessionId(REPO)
+    fake.emit(routerSession, 'result', { result: routeFence([{ kind: 'ignore' }]) })
+    await flush()
+    await service.routerMessage(REPO, {
+      requestId: 'coverage-resume',
+      text: '在之前覆盖率的 Worker session 上继续补充低覆盖模块测试',
+    })
+    const routerInput = fake.sent.find((call) =>
+      call.sessionId === routerSession && call.content?.includes('在之前覆盖率的 Worker session'),
+    )?.content ?? ''
+    expect(routerInput).toContain(oldDispatch.ticketId)
+    expect(routerInput).toContain(oldSession)
+
+    fake.emit(routerSession, 'result', {
+      result: routeFence([{
+        kind: 'accept',
+        title: '补充低覆盖模块测试',
+        resumeTicketId: oldDispatch.ticketId,
+      }]),
+    })
+    await flush()
+
+    const resumed = service.tickets(REPO).tickets.find((ticket) => ticket.title === '补充低覆盖模块测试')
+    expect(resumed).toBeDefined()
+    expect(resumed!.ticketId).not.toBe(oldDispatch.ticketId)
+    expect(service.workerBind(REPO, resumed!.ticketId).sessionId).toBe(oldSession)
+    expect(fake.started.filter((call) => call.sessionId === oldSession)).toHaveLength(2)
+    expect(fake.started.some((call) => call.sessionId === superAgentWorkerEngineSessionId(resumed!.ticketId))).toBe(false)
+    const resumedCalls = fake.sent.filter((call) => call.sessionId === oldSession)
+    const resumedInput = resumedCalls[resumedCalls.length - 1]?.content ?? ''
+    expect(resumedInput).toContain('在之前覆盖率的 Worker session 上继续补充低覆盖模块测试')
+    expect(resumedInput).toContain(resumed!.assignmentId)
+  })
+
   it('recovers a missing route and launches the worker for the original request', async () => {
     const { service, fake } = makeService()
     service.routerBind(REPO)

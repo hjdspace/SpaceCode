@@ -18,6 +18,7 @@ import { createSuperAgentDomain } from '../domain'
 import { createSuperAgentProgressProjector } from '../progressProjector'
 import { renderSuperAgentRouterStatusContext } from '../prompts'
 import { createSuperAgentSessionStatusQuery } from '../sessionStatusQuery'
+import { superAgentWorkerEngineSessionId } from '../sessionId'
 
 const REPO = 'D:/repo'
 
@@ -138,6 +139,38 @@ describe('createSuperAgentSessionStatusQuery', () => {
     })
   })
 
+  it('keeps ended tickets and their worker session ids available for an explicit resume', () => {
+    const h = harness()
+    const done = h.dispatchTicket('分析覆盖率')
+    h.domain.launchAssignment({ assignmentId: done.assignmentId })
+    h.domain.report({
+      ticketId: done.ticketId,
+      assignmentId: done.assignmentId,
+      reportId: 'report-done',
+      kind: 'ready',
+      summary: '覆盖率分析完成',
+    })
+    h.domain.ticketAccept({ ticketId: done.ticketId })
+    h.projector.sync()
+
+    const snapshot = h.query.statusQuery()
+    const workerSessionId = superAgentWorkerEngineSessionId(done.ticketId)
+
+    expect(snapshot.tickets).toEqual([])
+    expect(snapshot.endedTickets).toEqual([
+      expect.objectContaining({
+        ticketId: done.ticketId,
+        title: '分析覆盖率',
+        state: 'completed',
+        workerSessionId,
+      }),
+    ])
+    const context = renderSuperAgentRouterStatusContext(snapshot)
+    expect(context).toContain('[已结束工单]')
+    expect(context).toContain(done.ticketId)
+    expect(context).toContain(workerSessionId)
+  })
+
   it('surfaces the latest conclusive report and flags tickets waiting for a person', () => {
     const h = harness()
     const { ticketId, assignmentId } = h.dispatchTicket('补测试用例')
@@ -216,6 +249,7 @@ describe('renderSuperAgentRouterStatusContext', () => {
       backgroundJobs: 'unknown',
       pendingAttention: 0,
       tickets: [],
+      endedTickets: [],
     })
 
     expect(text).toContain('[工单快照]')
@@ -230,10 +264,12 @@ describe('renderSuperAgentRouterStatusContext', () => {
       slots: { maxWorkers: 1, running: 1, queued: 1 },
       backgroundJobs: 'unknown',
       pendingAttention: 0,
+      endedTickets: [],
       tickets: [
         {
           ticketId: 'ticket-1',
           title: '补测试用例',
+          workerSessionId: 'worker-session-1',
           state: 'working',
           assignmentId: 'a1',
           generation: 1,
@@ -247,6 +283,7 @@ describe('renderSuperAgentRouterStatusContext', () => {
         {
           ticketId: 'ticket-2',
           title: '收口表单校验',
+          workerSessionId: 'worker-session-2',
           state: 'queued',
           assignmentId: 'a2',
           generation: 1,

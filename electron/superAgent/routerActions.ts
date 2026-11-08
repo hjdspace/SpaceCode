@@ -45,7 +45,7 @@ const ROUTE_BLOCK_PATTERN = new RegExp(
 const ROOT_FIELDS = new Set(['version', 'routes'])
 /** 每种 kind 允许的字段；多一个就按 routeInvalid 拒，不静默忽略。 */
 const ROUTE_FIELDS: Record<SuperAgentRouteKind, ReadonlySet<string>> = {
-  accept: new Set(['kind', 'title', 'note', 'sourceRequestId']),
+  accept: new Set(['kind', 'title', 'note', 'sourceRequestId', 'resumeTicketId']),
   attach: new Set(['kind', 'ticketId', 'note', 'triggerId']),
   // retry 不带 note：新一代的目标仍是人的原话，路由旁注在这里没有可落的位置，
   // 留个字段只会被当成"写了就会传给 Worker"。
@@ -57,7 +57,7 @@ const ROUTE_FIELDS: Record<SuperAgentRouteKind, ReadonlySet<string>> = {
 export type SuperAgentRouteKind = 'accept' | 'attach' | 'retry' | 'stop' | 'ignore'
 
 export type SuperAgentRouteAction =
-  | { kind: 'accept'; title: string; note: string | null; sourceRequestId?: string }
+  | { kind: 'accept'; title: string; note: string | null; sourceRequestId?: string; resumeTicketId?: string }
   | { kind: 'attach'; ticketId: string; note: string | null; triggerId?: string }
   | { kind: 'retry'; ticketId: string }
   | { kind: 'stop'; ticketId: string; note: string | null }
@@ -123,6 +123,9 @@ function toRouteAction(value: unknown, index: number): SuperAgentRouteAction {
       note,
       ...(route.sourceRequestId !== undefined
         ? { sourceRequestId: requireNonEmptyString(route.sourceRequestId, `routes[${index}].sourceRequestId`) }
+        : {}),
+      ...(route.resumeTicketId !== undefined
+        ? { resumeTicketId: requireNonEmptyString(route.resumeTicketId, `routes[${index}].resumeTicketId`) }
         : {}),
     }
   }

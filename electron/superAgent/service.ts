@@ -196,7 +196,7 @@ import {
 import { createSuperAgentSessionStatusQuery } from './sessionStatusQuery'
 import {
   superAgentRouterEngineSessionId,
-  superAgentWorkerEngineSessionId,
+  superAgentTicketWorkerSessionId,
 } from './sessionId'
 import type { SuperAgentEngineBridge } from './engineBridge'
 
@@ -1039,7 +1039,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
   function applyDispatch(
     repoRoot: string,
     project: ProjectState,
-    command: SuperAgentDispatchCommand & { model?: string },
+    command: SuperAgentDispatchCommand & { model?: string; resumeTicketId?: string },
   ): SuperAgentDispatchResult {
     const outcome = project.scheduler.dispatch({
       requestId: command.requestId,
@@ -1048,6 +1048,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       text: command.text,
       note: command.note,
       model: command.model,
+      resumeTicketId: command.resumeTicketId,
       actor: command.actor ?? 'desktop-user',
       contextPaths: command.contextPaths ?? [],
       attachments: command.attachments ?? [],
@@ -1561,6 +1562,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             text: input.text,
             note: input.note ?? undefined,
             model: input.model,
+            resumeTicketId: input.resumeTicketId,
             actor: 'router',
           }),
         attach: (input) => applyRouterAttach(repoRoot, project, input),
@@ -1723,7 +1725,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       // 引擎会话 id（UUIDv5 派生，见 sessionId.ts）：渲染端按它登记只读会话，
       // 事件与 transcript 都挂在同一个 id 上；可读标签 superagent-worker-<ticket>
       // 不能直接交给 CLI。
-      sessionId: superAgentWorkerEngineSessionId(ticketId),
+      sessionId: superAgentTicketWorkerSessionId(ticket),
       running: project.executor?.isRunning(ticketId) ?? false,
       ticketState: project.projector.cards().find((card) => card.ticketId === ticketId)?.state ?? 'queued',
       takenOver: project.takeover?.ticketId === ticketId,
@@ -1903,7 +1905,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           triggerId: added.input.triggerId,
           requestId: command.requestId,
           repoRoot,
-          sessionId: superAgentWorkerEngineSessionId(command.ticketId),
+          sessionId: superAgentTicketWorkerSessionId(project.domain.state.tickets[command.ticketId]!),
           text: command.text,
         })
         if (outcome === 'accepted') {
@@ -2017,7 +2019,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           triggerId: input.triggerId,
           requestId: input.requestId,
           repoRoot,
-          sessionId: superAgentWorkerEngineSessionId(ticket.ticketId),
+          sessionId: superAgentTicketWorkerSessionId(ticket),
           text: input.text,
         })
         if (outcome === 'accepted') {

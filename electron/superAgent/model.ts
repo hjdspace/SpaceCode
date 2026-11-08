@@ -191,6 +191,8 @@ export interface SuperAgentTicket {
     directory: string
     assignmentId: string | null
     model?: string
+    /** 显式续聊时继承的 Worker session；缺省按 ticketId 派生。 */
+    sessionId?: string
   }
   /** 跟随的 Thread（如 PR），只补上下文。 */
   follows: string[]

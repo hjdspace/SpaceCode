@@ -18,6 +18,7 @@ import type { WorkerLaunchRequest } from '../scheduler'
 import type { SuperAgentReportKind } from '../model'
 import { createFakeBridge, reportFence } from './fakeBridge'
 import { parseEngineUserPrompt, wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
+import { superAgentWorkerEngineSessionId } from '../sessionId'
 
 const REPO = '/repo/a'
 
@@ -30,6 +31,7 @@ function launchRequest(overrides: Partial<WorkerLaunchRequest> = {}): WorkerLaun
   return {
     ticketId: 'ticket-1',
     assignmentId: 'assignment-1',
+    sessionId: superAgentWorkerEngineSessionId('ticket-1'),
     repoRoot: REPO,
     firstMessage: '# 工单指派：修登录\n\n## 目标\n\n让登录页可用',
     workspace: {
