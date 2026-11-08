@@ -67,7 +67,7 @@
       </div>
 
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
-      <div class="textarea-wrapper" @click="focusEditor">
+      <div class="textarea-wrapper" :class="{ 'has-optimize-btn': showActions }" @click="focusEditor">
         <div
           ref="editorRef"
           class="inline-editor"
@@ -112,6 +112,18 @@
             <span>{{ thinkingHint.text }}</span>
           </div>
         </Transition>
+        <!-- 提示词优化按钮 — 悬浮在输入区右上角 -->
+        <button
+          v-if="showActions"
+          class="optimize-btn"
+          :class="{ 'is-optimizing': isOptimizing }"
+          :disabled="isOptimizing || props.isSending || !hasContent"
+          :title="t('chatInput.optimizePrompt')"
+          @click.stop.prevent="handleOptimizePrompt"
+        >
+          <Loader2 v-if="isOptimizing" :size="16" class="spin" />
+          <Sparkles v-else :size="16" />
+        </button>
       </div>
 
       <!-- 语音输入提示：权限指引 / 无语音 / 安装进度与失败 -->
@@ -194,21 +206,8 @@
           <slot name="toolbar-extra"></slot>
         </div>
 
-        <!-- 右侧按钮组：优化提示词 + 语音输入 + 发送/停止 -->
+        <!-- 右侧按钮组：语音输入 + 发送/停止 -->
         <div class="toolbar-right">
-          <!-- 优化提示词按钮（位于发送按钮左侧） -->
-          <button
-            v-if="showActions"
-            class="optimize-btn"
-            :class="{ 'is-optimizing': isOptimizing }"
-            :disabled="isOptimizing || props.isSending || !hasContent"
-            :title="t('chatInput.optimizePrompt')"
-            @click.stop.prevent="handleOptimizePrompt"
-          >
-            <Loader2 v-if="isOptimizing" :size="16" class="spin" />
-            <Sparkles v-else :size="16" />
-          </button>
-
           <!-- 语音输入：录音中显示电平波形与停止方块 -->
           <template v-if="voiceSupported">
             <VoiceWaveform v-if="voiceActive" :level="voiceLevel" class="voice-waveform-slot" />
@@ -1898,6 +1897,11 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   margin-bottom: 12px;
   cursor: text;
 
+  // 右上角悬浮优化按钮，文字为它让出横向空间，避免首行被遮住
+  &.has-optimize-btn {
+    padding-right: 36px;
+  }
+
   .inline-editor {
     width: 100%;
     min-height: 24px;
@@ -2144,7 +2148,14 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   }
 }
 
-// 优化提示词按钮
+// 优化提示词按钮（悬浮在输入区右上角）
+.textarea-wrapper > .optimize-btn {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  z-index: 2;
+}
+
 .toolbar-right {
   display: flex;
   align-items: center;
