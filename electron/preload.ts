@@ -26,6 +26,17 @@ export interface FileStat {
   mtime: number
 }
 
+export interface DesignSystemSummaryShape {
+  id: string
+  name: string
+  category: string
+  description?: string
+  previewPages: Array<{ path: string; role: string; title: string }>
+  swatches?: Array<{ name: string; value: string }>
+  officialUrl?: string
+  source?: 'built-in' | 'user'
+}
+
 // ============================================================
 // Renderer Logger — 将前端日志转发到主进程写入文件
 // ============================================================
@@ -643,17 +654,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Design API
   design: {
-    listSystems: (): Promise<
-      Array<{
-        id: string;
-        name: string;
-        category: string;
-        description?: string;
-        previewPages: Array<{ path: string; role: string; title: string }>;
-        swatches?: Array<{ name: string; value: string }>;
-        officialUrl?: string;
-      }>
-    > => ipcRenderer.invoke('design:list-systems'),
+    listSystems: (): Promise<DesignSystemSummaryShape[]> =>
+      ipcRenderer.invoke('design:list-systems'),
+    createSystem: (input: {
+      title: string;
+      category?: string;
+      summary?: string;
+      accentColor?: string;
+    }): Promise<DesignSystemSummaryShape> => ipcRenderer.invoke('design:create-system', input),
+    deleteSystem: (systemId: string): Promise<void> =>
+      ipcRenderer.invoke('design:delete-system', systemId),
     getSystemPreview: (systemId: string, pagePath: string): Promise<string> =>
       ipcRenderer.invoke('design:get-system-preview', systemId, pagePath),
     getSystemFile: (systemId: string, filePath: string): Promise<string> =>

@@ -1,6 +1,14 @@
 import { ipcMain } from 'electron';
 import { composeSystemPrompt, ComposeInput } from './prompts/system';
 import { renderDesignSystemShowcase } from './showcase';
+import {
+  createUserDesignSystem,
+  deleteUserDesignSystem,
+  directoryExists,
+  isSafeDesignSystemId,
+  listUserDesignSystemIds,
+  type CreateUserDesignSystemInput,
+} from './userSystems';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -15,6 +23,8 @@ export interface DesignSystemSwatch {
   value: string;
 }
 
+export type DesignSystemSource = 'built-in' | 'user';
+
 export interface DesignSystemSummary {
   id: string;
   name: string;
@@ -23,6 +33,8 @@ export interface DesignSystemSummary {
   previewPages: PreviewPage[];
   swatches?: DesignSystemSwatch[];
   officialUrl?: string;
+  /** 缺失即 built-in：随包只读库里的一律不可删改。 */
+  source?: DesignSystemSource;
 }
 
 /**
@@ -212,30 +224,62 @@ async function parseSwatchesFromDesignTokens(systemPath: string): Promise<Design
   }
 }
 
+function bundledLibDir(extraResourcesPath: string): string {
+  return path.join(extraResourcesPath, 'design-systems-lib');
+}
+
+/**
+ * 同一个 id 可能在两个库里：用户自建优先（自建就是为了盖住同名的预设）。
+ * 返回的是**根目录**而不是系统目录，好让下面所有读取沿用自己的既有签名。
+ * 目录不存在时也返回随包根 —— 保持「读不到就是空串」的既有行为，不新增分支。
+ */
+async function resolveSystemsRoot(
+  extraResourcesPath: string,
+  systemId: string,
+  userSystemsPath?: string
+): Promise<string> {
+  const libDir = bundledLibDir(extraResourcesPath);
+  if (userSystemsPath && isSafeDesignSystemId(systemId)) {
+    if (await directoryExists(path.join(userSystemsPath, systemId))) return userSystemsPath;
+  }
+  return libDir;
+}
+
+/** 拼出 `<root>/<systemId>/<filePath>` 并保证结果没跑出根目录。 */
+function containedPath(root: string, systemId: string, filePath: string): string | null {
+  if (!isSafeDesignSystemId(systemId)) return null;
+  const absRoot = path.resolve(root);
+  const absTarget = path.resolve(absRoot, systemId, filePath);
+  return absTarget.startsWith(absRoot + path.sep) ? absTarget : null;
+}
+
 export async function getSystemFile(
   extraResourcesPath: string,
   systemId: string,
-  filePath: string
+  filePath: string,
+  userSystemsPath?: string
 ): Promise<string> {
-  const systemsLibDir = path.join(extraResourcesPath, 'design-systems-lib');
-  const fullPath = path.join(systemsLibDir, systemId, filePath);
+  const root = await resolveSystemsRoot(extraResourcesPath, systemId, userSystemsPath);
+  const fullPath = containedPath(root, systemId, filePath);
+  if (!fullPath) return '';
   return fs.readFile(fullPath, 'utf-8').catch(() => '');
 }
 
 export async function getSystemShowcaseHtml(
   extraResourcesPath: string,
-  systemId: string
+  systemId: string,
+  userSystemsPath?: string
 ): Promise<string> {
-  const designMd = await getSystemFile(extraResourcesPath, systemId, 'DESIGN.md');
+  const designMd = await getSystemFile(extraResourcesPath, systemId, 'DESIGN.md', userSystemsPath);
   if (designMd) {
     return renderDesignSystemShowcase(systemId, designMd);
   }
 
   const candidates = ['system/kit.html', 'system/index.html', 'preview/app.html', 'components.html'];
   for (const candidate of candidates) {
-    const html = await getSystemFile(extraResourcesPath, systemId, candidate);
+    const html = await getSystemFile(extraResourcesPath, systemId, candidate, userSystemsPath);
     if (html) {
-      return getSystemPreviewHtml(extraResourcesPath, systemId, candidate);
+      return getSystemPreviewHtml(extraResourcesPath, systemId, candidate, userSystemsPath);
     }
   }
   return '';
@@ -243,9 +287,10 @@ export async function getSystemShowcaseHtml(
 
 export async function getSystemTokensHtml(
   extraResourcesPath: string,
-  systemId: string
+  systemId: string,
+  userSystemsPath?: string
 ): Promise<string> {
-  const tokensCss = await getSystemFile(extraResourcesPath, systemId, 'tokens.css');
+  const tokensCss = await getSystemFile(extraResourcesPath, systemId, 'tokens.css', userSystemsPath);
   if (!tokensCss) return '';
 
   const swatches = parseSwatchesFromTokensCss(tokensCss);
@@ -398,11 +443,12 @@ async function inlineLocalScripts(html: string, baseDir: string): Promise<string
 export async function getSystemPreviewHtml(
   extraResourcesPath: string,
   systemId: string,
-  pagePath: string
+  pagePath: string,
+  userSystemsPath?: string
 ): Promise<string> {
-  const systemsLibDir = path.join(extraResourcesPath, 'design-systems-lib');
-  const systemDir = path.join(systemsLibDir, systemId);
-  const fullPath = path.join(systemDir, pagePath);
+  const root = await resolveSystemsRoot(extraResourcesPath, systemId, userSystemsPath);
+  const fullPath = containedPath(root, systemId, pagePath);
+  if (!fullPath) return '';
   const pageDir = path.dirname(fullPath);
   let html = await fs.readFile(fullPath, 'utf-8').catch(() => '');
   if (!html) return '';
@@ -423,52 +469,96 @@ export async function getSystemPreviewHtml(
   return html;
 }
 
-export async function listDesignSystems(extraResourcesPath: string): Promise<DesignSystemSummary[]> {
-  const systemsLibDir = path.join(extraResourcesPath, 'design-systems-lib');
-  const dirs = await fs.readdir(systemsLibDir, { withFileTypes: true });
+async function describeDesignSystem(
+  systemPath: string,
+  id: string,
+  source: DesignSystemSource
+): Promise<DesignSystemSummary> {
+  let manifest: any = { name: id, category: 'General', previewPages: [] };
+  try {
+    const manifestStr = await fs.readFile(path.join(systemPath, 'manifest.json'), 'utf-8');
+    manifest = JSON.parse(manifestStr);
+  } catch {
+    // No manifest, fallback to folder name
+  }
+  let swatches: DesignSystemSwatch[] = [];
+  const designTokensSwatches = await parseSwatchesFromDesignTokens(systemPath);
+  if (designTokensSwatches.length > 0) {
+    swatches = designTokensSwatches;
+  } else {
+    try {
+      const tokensCss = await fs.readFile(path.join(systemPath, 'tokens.css'), 'utf-8');
+      swatches = parseSwatchesFromTokensCss(tokensCss);
+    } catch {
+      swatches = [];
+    }
+  }
+  const officialUrl: string | undefined =
+    manifest.officialUrl || manifest.website || OFFICIAL_URL_PRESETS[id];
+  return {
+    id,
+    name: manifest.name || id,
+    category: manifest.category || 'General',
+    description: manifest.description,
+    previewPages: manifest.preview?.pages || [],
+    swatches,
+    officialUrl,
+    source,
+  };
+}
+
+async function listDesignSystemsInRoot(
+  rootDir: string,
+  source: DesignSystemSource
+): Promise<DesignSystemSummary[]> {
+  const dirs = await fs.readdir(rootDir, { withFileTypes: true });
   const systems: DesignSystemSummary[] = [];
   for (const dir of dirs) {
     if (dir.isDirectory() && !dir.name.startsWith('.')) {
-      let manifest: any = { name: dir.name, category: 'General', previewPages: [] };
-      try {
-        const manifestStr = await fs.readFile(path.join(systemsLibDir, dir.name, 'manifest.json'), 'utf-8');
-        manifest = JSON.parse(manifestStr);
-      } catch {
-        // No manifest, fallback to folder name
-      }
-      const systemPath = path.join(systemsLibDir, dir.name);
-      let swatches: DesignSystemSwatch[] = [];
-      const designTokensSwatches = await parseSwatchesFromDesignTokens(systemPath);
-      if (designTokensSwatches.length > 0) {
-        swatches = designTokensSwatches;
-      } else {
-        try {
-          const tokensCss = await fs.readFile(path.join(systemPath, 'tokens.css'), 'utf-8');
-          swatches = parseSwatchesFromTokensCss(tokensCss);
-        } catch {
-          swatches = [];
-        }
-      }
-      const officialUrl: string | undefined =
-        manifest.officialUrl || manifest.website || OFFICIAL_URL_PRESETS[dir.name];
-      systems.push({
-        id: dir.name,
-        name: manifest.name || dir.name,
-        category: manifest.category || 'General',
-        description: manifest.description,
-        previewPages: manifest.preview?.pages || [],
-        swatches,
-        officialUrl,
-      });
+      systems.push(await describeDesignSystem(path.join(rootDir, dir.name), dir.name, source));
     }
   }
   return systems;
 }
 
+export async function listDesignSystems(
+  extraResourcesPath: string,
+  userSystemsPath?: string
+): Promise<DesignSystemSummary[]> {
+  // 随包库读不到要照常抛错 —— 上层 IPC 靠它回退到占位清单；用户库缺失是常态。
+  const builtIn = await listDesignSystemsInRoot(
+    bundledLibDir(extraResourcesPath),
+    'built-in'
+  );
+  if (!userSystemsPath) return builtIn;
+
+  const entries = await fs.readdir(userSystemsPath, { withFileTypes: true }).catch(() => []);
+  const candidates = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.'));
+  // 新建的排在最前：刚创建完就想用它，不该滚到列表尾部去找
+  const withMtime = await Promise.all(
+    candidates.map(async (dir) => ({
+      name: dir.name,
+      mtimeMs: (await fs.stat(path.join(userSystemsPath, dir.name)).catch(() => null))?.mtimeMs ?? 0,
+    }))
+  );
+  withMtime.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  const user = await Promise.all(
+    withMtime.map((entry) =>
+      describeDesignSystem(path.join(userSystemsPath, entry.name), entry.name, 'user')
+    )
+  );
+  const userIds = new Set(withMtime.map((entry) => entry.name));
+  return [...user, ...builtIn.filter((s) => !userIds.has(s.id))];
+}
+
 /**
  * 注册提示词栈相关的 Electron IPC Handler
  */
-export function registerPromptStackHandlers(extraResourcesPath: string) {
+export function registerPromptStackHandlers(
+  extraResourcesPath: string,
+  userSystemsPath: string
+) {
   ipcMain.handle(
     'design:compose-prompt-stack',
     async (_event, input: {
@@ -480,9 +570,12 @@ export function registerPromptStackHandlers(extraResourcesPath: string) {
       let designSystem: DesignSystemAssets | undefined;
       
       if (input.designSystemId) {
-        // 扫 extraResources 下的 design-systems-lib 目录
-        const systemsLibDir = path.join(extraResourcesPath, 'design-systems-lib');
-        designSystem = await readDesignSystemAssets(systemsLibDir, input.designSystemId);
+        const systemsRoot = await resolveSystemsRoot(
+          extraResourcesPath,
+          input.designSystemId,
+          userSystemsPath
+        );
+        designSystem = await readDesignSystemAssets(systemsRoot, input.designSystemId);
       }
 
       const composeInput: ComposeInput = {
@@ -504,7 +597,7 @@ export function registerPromptStackHandlers(extraResourcesPath: string) {
 
   ipcMain.handle('design:list-systems', async () => {
     try {
-      return await listDesignSystems(extraResourcesPath);
+      return await listDesignSystems(extraResourcesPath, userSystemsPath);
     } catch {
       return [
         { id: 'stripe', name: 'Stripe', category: 'Fintech', previewPages: [] },
@@ -515,19 +608,31 @@ export function registerPromptStackHandlers(extraResourcesPath: string) {
     }
   });
 
+  ipcMain.handle('design:create-system', async (_event, input: CreateUserDesignSystemInput) => {
+    // 内置 id 要先预留：用户建的项目录撞名会遮蔽同名预设，
+    // 让位成 <slug>-2 才能保证列表里一条名字只对应一套系统。
+    const builtInIds = await fs.readdir(bundledLibDir(extraResourcesPath)).catch(() => []);
+    const created = await createUserDesignSystem(userSystemsPath, input, new Set(builtInIds));
+    return describeDesignSystem(path.join(userSystemsPath, created.id), created.id, 'user');
+  });
+
+  ipcMain.handle('design:delete-system', async (_event, systemId: string) => {
+    await deleteUserDesignSystem(userSystemsPath, systemId);
+  });
+
   ipcMain.handle('design:get-system-preview', async (_event, systemId: string, pagePath: string) => {
-    return getSystemPreviewHtml(extraResourcesPath, systemId, pagePath);
+    return getSystemPreviewHtml(extraResourcesPath, systemId, pagePath, userSystemsPath);
   });
 
   ipcMain.handle('design:get-system-file', async (_event, systemId: string, filePath: string) => {
-    return getSystemFile(extraResourcesPath, systemId, filePath);
+    return getSystemFile(extraResourcesPath, systemId, filePath, userSystemsPath);
   });
 
   ipcMain.handle('design:get-system-showcase', async (_event, systemId: string) => {
-    return getSystemShowcaseHtml(extraResourcesPath, systemId);
+    return getSystemShowcaseHtml(extraResourcesPath, systemId, userSystemsPath);
   });
 
   ipcMain.handle('design:get-system-tokens-html', async (_event, systemId: string) => {
-    return getSystemTokensHtml(extraResourcesPath, systemId);
+    return getSystemTokensHtml(extraResourcesPath, systemId, userSystemsPath);
   });
 }

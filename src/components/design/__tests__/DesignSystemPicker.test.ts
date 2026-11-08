@@ -3,6 +3,7 @@ import { mount, flushPromises, config } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import DesignSystemPicker from '../DesignSystemPicker.vue'
 import DesignSystemPreviewModal from '../DesignSystemPreviewModal.vue'
+import DesignSystemCreateModal from '../DesignSystemCreateModal.vue'
 import zhCN from '@/i18n/locales/zh-CN'
 import enUS from '@/i18n/locales/en-US'
 
@@ -10,8 +11,18 @@ vi.mock('@/services/electronAPI', () => ({
   api: {
     design: {
       getSystemShowcase: vi.fn().mockResolvedValue('<html>preview</html>'),
+      createSystem: vi.fn(),
+      deleteSystem: vi.fn().mockResolvedValue(undefined),
     },
   },
+}))
+
+const confirmState = vi.hoisted(() => ({ result: true }))
+vi.mock('@/composables/useDialog', () => ({
+  useDialog: () => ({
+    showConfirm: vi.fn(async () => confirmState.result),
+    showAlert: vi.fn(),
+  }),
 }))
 
 const i18n = createI18n({
@@ -23,14 +34,15 @@ const i18n = createI18n({
 config.global.plugins = [i18n]
 
 const systems = [
+  { id: 'my-warm', name: '我的暖调', category: 'Custom', description: '暖米底', previewPages: [], source: 'user' as const },
   { id: 'agentic', name: 'Agentic', category: 'Themed & Unique', description: 'AI-first', previewPages: [{ path: 'preview/colors.html', role: 'colors', title: 'Colors' }] },
   { id: 'apple', name: 'Apple', category: 'Corporate', description: 'Apple iOS', previewPages: [] },
 ]
 
 // 菜单 Teleport 到 body 后不在 wrapper 子树内，交互用例把 teleport stub 掉就地渲染
-function mountPicker(stubs: Record<string, unknown> = {}) {
+function mountPicker(stubs: Record<string, unknown> = {}, extraProps: Record<string, unknown> = {}) {
   return mount(DesignSystemPicker, {
-    props: { systems, modelValue: null },
+    props: { systems, modelValue: null, ...extraProps },
     global: { stubs: { teleport: true, ...stubs } },
   })
 }
@@ -59,6 +71,7 @@ function stubLayout(widthPx: number) {
 describe('DesignSystemPicker', () => {
   beforeEach(() => {
     config.global.plugins = [i18n]
+    confirmState.result = true
     vi.clearAllMocks()
   })
 
@@ -69,7 +82,7 @@ describe('DesignSystemPicker', () => {
   it('打开后渲染系统列表（含不指定选项）', async () => {
     const w = mountPicker()
     await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
-    expect(w.findAll('[data-testid^="ds-option-"]')).toHaveLength(3)
+    expect(w.findAll('[data-testid^="ds-option-"]')).toHaveLength(4)
   })
 
   it('选择系统触发 update:modelValue', async () => {
@@ -140,6 +153,85 @@ describe('DesignSystemPicker', () => {
 
     await w.find('[data-testid="ds-preview-frame-wrap"]').trigger('click')
     expect(w.findComponent(DesignSystemPreviewModal).exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('创建按钮可点击，点击后收起浮层并打开创建弹窗', async () => {
+    const w = mountPicker({ DesignSystemCreateModal: true })
+    await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
+
+    const create = w.find('[data-testid="ds-picker-create"]')
+    expect((create.element as HTMLButtonElement).disabled).toBe(false)
+
+    await create.trigger('click')
+    expect(w.find('[data-testid="ds-picker-menu"]').exists()).toBe(false)
+    expect(w.findComponent(DesignSystemCreateModal).exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('创建成功后向上层抛出 created 并关闭弹窗', async () => {
+    const created = {
+      id: 'warm-editorial',
+      name: 'Warm Editorial',
+      category: 'Custom',
+      previewPages: [],
+      source: 'user' as const,
+    }
+    const w = mountPicker({ DesignSystemCreateModal: true })
+    await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
+    await w.find('[data-testid="ds-picker-create"]').trigger('click')
+
+    w.findComponent(DesignSystemCreateModal).vm.$emit('created', created)
+    await flushPromises()
+    expect(w.emitted('created')?.[0]).toEqual([created])
+    expect(w.findComponent(DesignSystemCreateModal).exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('自建项独立分组排在官方预设之前', async () => {
+    const w = mountPicker()
+    await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
+
+    expect(w.findAll('.ds-picker-group-label').map((n) => n.text())).toEqual(['我的设计系统', '官方预设'])
+    // 「不指定」恒在首位，其后才是自建组
+    const options = w.findAll('[data-testid^="ds-option-"]').map((n) => n.attributes('data-testid'))
+    expect(options).toEqual(['ds-option-none', 'ds-option-my-warm', 'ds-option-agentic', 'ds-option-apple'])
+    expect(w.find('[data-testid="ds-option-my-warm"]').text()).toContain('自建')
+    w.unmount()
+  })
+
+  it('只有自建项给删除入口；确认后调 deleteSystem 并抛出 removed', async () => {
+    const { api } = await import('@/services/electronAPI')
+    const w = mountPicker()
+    await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
+
+    await w.find('[data-testid="ds-option-agentic"]').trigger('mouseenter')
+    await flushPromises()
+    expect(w.find('[data-testid="ds-preview-delete"]').exists()).toBe(false)
+
+    await w.find('[data-testid="ds-option-my-warm"]').trigger('mouseenter')
+    await flushPromises()
+    await w.find('[data-testid="ds-preview-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(api.design.deleteSystem).toHaveBeenCalledWith('my-warm')
+    expect(w.emitted('removed')?.[0]).toEqual(['my-warm'])
+    w.unmount()
+  })
+
+  it('删除确认里取消就不动文件也不通知上层', async () => {
+    confirmState.result = false
+    const { api } = await import('@/services/electronAPI')
+    const w = mountPicker()
+    await w.find('[data-testid="ds-picker-trigger"]').trigger('click')
+    await w.find('[data-testid="ds-option-my-warm"]').trigger('mouseenter')
+    await flushPromises()
+
+    await w.find('[data-testid="ds-preview-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(api.design.deleteSystem).not.toHaveBeenCalled()
+    expect(w.emitted('removed')).toBeFalsy()
     w.unmount()
   })
 })

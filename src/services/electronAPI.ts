@@ -81,6 +81,8 @@ export interface DesignSystemSummary {
   previewPages: PreviewPage[]
   swatches?: DesignSystemSwatch[]
   officialUrl?: string
+  /** 缺失即 built-in：随包只读库里的一律不可删改。 */
+  source?: 'built-in' | 'user'
 }
 
 export interface FileStat {

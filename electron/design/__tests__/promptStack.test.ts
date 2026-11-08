@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listDesignSystems, getSystemPreviewHtml, getSystemShowcaseHtml, getSystemFile, getSystemTokensHtml, parseSwatchesFromTokensCss, readDesignSystemAssets, registerPromptStackHandlers, type DesignSystemSummary } from '../promptStack'
 import * as path from 'path'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, utimesSync } from 'fs'
 import { tmpdir } from 'os'
 
 const extraResourcesPath = path.resolve(__dirname, '../../../resources/')
@@ -18,11 +18,24 @@ vi.mock('electron', () => ({
 // ─────────────────────────── 临时夹具 ───────────────────────────
 // design-systems-lib 的目录结构：resources/design-systems-lib/<id>/{DESIGN.md,tokens.css,...}
 let libRoot: string
+let userRoot: string
 let scratch: string[]
 
 function makeSystem(id: string, files: Record<string, string> = {}): string {
   // 被测函数都把 extraResourcesPath 拼上 design-systems-lib 段，夹具必须建在同一层
   const dir = path.join(libRoot, 'design-systems-lib', id)
+  mkdirSync(dir, { recursive: true })
+  for (const [rel, content] of Object.entries(files)) {
+    const full = path.join(dir, rel)
+    mkdirSync(path.dirname(full), { recursive: true })
+    writeFileSync(full, content)
+  }
+  return dir
+}
+
+// 用户自建库的根目录不掺 design-systems-lib 段，直接就是 <userData>/design-systems
+function makeUserSystem(id: string, files: Record<string, string> = {}): string {
+  const dir = path.join(userRoot, id)
   mkdirSync(dir, { recursive: true })
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(dir, rel)
@@ -40,12 +53,13 @@ function makeLibRoot(): string {
 
 beforeEach(() => {
   libRoot = makeLibRoot()
+  userRoot = mkdtempSync(path.join(tmpdir(), 'spacecode-user-systems-'))
   scratch = []
   mockState.ipcHandle.mockClear()
 })
 
 afterEach(() => {
-  for (const dir of [libRoot, ...scratch]) {
+  for (const dir of [libRoot, userRoot, ...scratch]) {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
@@ -383,6 +397,8 @@ function handlerOf(channel: string): (...args: unknown[]) => unknown {
 const DESIGN_CHANNELS = [
   'design:compose-prompt-stack',
   'design:list-systems',
+  'design:create-system',
+  'design:delete-system',
   'design:get-system-preview',
   'design:get-system-file',
   'design:get-system-showcase',
@@ -390,9 +406,9 @@ const DESIGN_CHANNELS = [
 ]
 
 describe('registerPromptStackHandlers', () => {
-  it('注册全部 6 个 design 通道', () => {
-    registerPromptStackHandlers(libRoot)
-    expect(mockState.ipcHandle).toHaveBeenCalledTimes(6)
+  it('注册全部 8 个 design 通道', () => {
+    registerPromptStackHandlers(libRoot, userRoot)
+    expect(mockState.ipcHandle).toHaveBeenCalledTimes(8)
     for (const channel of DESIGN_CHANNELS) {
       expect(mockState.ipcHandle).toHaveBeenCalledWith(channel, expect.any(Function))
     }
@@ -404,7 +420,7 @@ describe('registerPromptStackHandlers', () => {
       'tokens.css': ':root { --accent: #abcdef; }',
       'manifest.json': '{"name":"Fixture"}',
     })
-    registerPromptStackHandlers(libRoot)
+    registerPromptStackHandlers(libRoot, userRoot)
     const prompt = (await handlerOf('design:compose-prompt-stack')(null, {
       designSystemId: 'fixture',
       skillBody: 'SKILL BODY',
@@ -423,7 +439,7 @@ describe('registerPromptStackHandlers', () => {
   })
 
   it('compose 不带设计系统时注入视觉方向库回退', async () => {
-    registerPromptStackHandlers(libRoot)
+    registerPromptStackHandlers(libRoot, userRoot)
     const prompt = (await handlerOf('design:compose-prompt-stack')(null, {
       locale: 'zh-CN',
     })) as string
@@ -431,15 +447,89 @@ describe('registerPromptStackHandlers', () => {
   })
 
   it('list-systems 走真实目录，目录不可读时回退到 4 个内置系统', async () => {
-    registerPromptStackHandlers(libRoot)
+    registerPromptStackHandlers(libRoot, userRoot)
     const systems = (await handlerOf('design:list-systems')()) as DesignSystemSummary[]
     expect(systems).toEqual([])
 
     // 清掉上一次注册，让 handlerOf 只能取到指向不可读路径的新 handler
     mockState.ipcHandle.mockClear()
-    registerPromptStackHandlers(path.join(libRoot, 'does-not-exist'))
+    registerPromptStackHandlers(path.join(libRoot, 'does-not-exist'), userRoot)
     const fallback = (await handlerOf('design:list-systems')()) as DesignSystemSummary[]
     expect(fallback.map((s) => s.id)).toEqual(['stripe', 'linear-app', 'vercel', 'apple'])
+  })
+
+  it('list-systems 把用户自建排在前面并标 source，同名时遮蔽内置', async () => {
+    makeSystem('stripe', { 'DESIGN.md': '# Stripe' })
+    makeSystem('agentic', { 'DESIGN.md': '# Agentic' })
+    const warm = makeUserSystem('my-warm', {
+      'DESIGN.md': '# My Warm',
+      'manifest.json': '{"name":"我的暖调","category":"Custom"}',
+      'tokens.css': ':root { --accent: #ff5701; }',
+    })
+    makeUserSystem('stripe', { 'DESIGN.md': '# My Stripe clone' })
+    // 自建项之间按目录 mtime 倒序，显式钉住时间，别依赖两次 mkdir 的纳秒差
+    utimesSync(path.join(userRoot, 'stripe'), new Date(1000), new Date(1000))
+    utimesSync(warm, new Date(2000), new Date(2000))
+    registerPromptStackHandlers(libRoot, userRoot)
+
+    const systems = (await handlerOf('design:list-systems')()) as DesignSystemSummary[]
+    expect(systems.map((s) => s.id)).toEqual(['my-warm', 'stripe', 'agentic'])
+    expect(systems[0]).toMatchObject({ name: '我的暖调', category: 'Custom', source: 'user' })
+    expect(systems[0]!.swatches).toEqual([{ name: '--accent', value: '#ff5701' }])
+    // 内置的 stripe 被同名用户目录遮蔽，列表里不会同时出现两条 stripe
+    expect(systems[1]!.source).toBe('user')
+    expect(systems[2]!.source).toBe('built-in')
+  })
+
+  it('create-system 落盘后立刻可被 list / showcase 读到', async () => {
+    registerPromptStackHandlers(libRoot, userRoot)
+    const created = (await handlerOf('design:create-system')(null, {
+      title: 'Warm Editorial',
+      category: 'Editorial',
+      summary: '暖米底色配赭石强调色。',
+      accentColor: '#D66F4D',
+    })) as DesignSystemSummary
+
+    expect(created.id).toBe('warm-editorial')
+    expect(created.source).toBe('user')
+
+    const systems = (await handlerOf('design:list-systems')()) as DesignSystemSummary[]
+    expect(systems.map((s) => s.id)).toContain('warm-editorial')
+
+    const showcase = (await handlerOf('design:get-system-showcase')(null, 'warm-editorial')) as string
+    expect(showcase).toContain('Warm Editorial')
+    expect(showcase).toContain('#d66f4d')
+
+    const prompt = (await handlerOf('design:compose-prompt-stack')(null, {
+      designSystemId: 'warm-editorial',
+      locale: 'zh-CN',
+    })) as string
+    expect(prompt).toContain('暖米底色配赭石强调色')
+  })
+
+  it('delete-system 只删用户库，内置同名目录不受影响', async () => {
+    makeSystem('keepme', { 'DESIGN.md': '# Built-in Keepme' })
+    registerPromptStackHandlers(libRoot, userRoot)
+    await handlerOf('design:create-system')(null, { title: 'KeepMe shadow' })
+
+    // 内置项走的是同名用户目录不存在的分支：报错而不是把随包文件删了
+    await expect(handlerOf('design:delete-system')(null, 'keepme')).rejects.toThrow()
+    expect(existsSync(path.join(libRoot, 'design-systems-lib', 'keepme'))).toBe(true)
+    expect(await handlerOf('design:get-system-file')(null, 'keepme', 'DESIGN.md')).toBe('# Built-in Keepme')
+
+    await handlerOf('design:delete-system')(null, 'keepme-shadow')
+    expect(existsSync(path.join(userRoot, 'keepme-shadow'))).toBe(false)
+    // 目录已不在就要报错，不能静默成功让 UI 以为删掉了别的什么
+    await expect(handlerOf('design:delete-system')(null, 'keepme-shadow')).rejects.toThrow()
+  })
+
+  it('路径穿越的 systemId 读不到随包库外的文件', async () => {
+    writeFileSync(path.join(libRoot, 'secret.txt'), 'top secret')
+    registerPromptStackHandlers(libRoot, userRoot)
+    expect(await handlerOf('design:get-system-file')(null, '..', '../secret.txt')).toBe('')
+    expect(await handlerOf('design:get-system-file')(null, '../..', '../../secret.txt')).toBe('')
+    expect(await handlerOf('design:get-system-file')(null, 'x', '../secret.txt')).toBe('')
+    await expect(handlerOf('design:delete-system')(null, '../design-systems-lib')).rejects.toThrow()
   })
 
   it('preview / file / showcase / tokens-html 四个通道原样委托', async () => {
@@ -448,7 +538,7 @@ describe('registerPromptStackHandlers', () => {
       'preview/app.html': '<html><body>delegate page</body></html>',
       'tokens.css': ':root { --accent: #123456; }',
     })
-    registerPromptStackHandlers(libRoot)
+    registerPromptStackHandlers(libRoot, userRoot)
 
     expect(await handlerOf('design:get-system-preview')(null, 'delegate', 'preview/app.html')).toContain('delegate page')
     expect(await handlerOf('design:get-system-file')(null, 'delegate', 'DESIGN.md')).toBe('# Delegate rules')

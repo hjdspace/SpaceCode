@@ -39,6 +39,8 @@
           v-model="designStore.selectedDesignSystemId"
           :systems="designSystems"
           @update:model-value="onDesignSystemChange"
+          @created="onDesignSystemCreated"
+          @removed="onDesignSystemRemoved"
         />
       </template>
     </ChatInput>
@@ -105,8 +107,12 @@ const activeMessages = computed(() => {
   return chatSessionStore.getSessionMessages(activeSessionId.value) || []
 })
 
-onMounted(async () => {
+async function reloadDesignSystems() {
   designSystems.value = await api.design.listSystems()
+}
+
+onMounted(() => {
+  reloadDesignSystems()
   mcpStore.fetchServers()
 })
 
@@ -187,6 +193,18 @@ async function handleToolSkip(messageId: string, toolId: string) {
 function onDesignSystemChange(systemId: string | null) {
   const system = designSystems.value.find(s => s.id === systemId) || null
   switchDesignSystem(systemId, system?.name || null)
+}
+
+// 新建的那套还不在 designSystems 里：先补列表再切，否则按 id 反查不到名字，
+// 提示词前导与「已切换」提示都会拿到 null。
+async function onDesignSystemCreated(system: DesignSystemSummary) {
+  await reloadDesignSystems()
+  await switchDesignSystem(system.id, system.name)
+}
+
+async function onDesignSystemRemoved(systemId: string) {
+  await reloadDesignSystems()
+  if (designStore.selectedDesignSystemId === systemId) await switchDesignSystem(null, null)
 }
 </script>
 

@@ -391,7 +391,7 @@ app.whenReady().then(async () => {
   const designResourcesPath = app.isPackaged
     ? process.resourcesPath
     : resolve(__dirname, '..', 'resources')
-  registerDesignIPCHandlers(getMainWindow()!, designResourcesPath)
+  registerDesignIPCHandlers(getMainWindow()!, designResourcesPath, app.getPath('userData'))
   info('Startup', 'Design IPC handlers registered')
 
   // ── Notifications ─────────────────────────────────────────────
