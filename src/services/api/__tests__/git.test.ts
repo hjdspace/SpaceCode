@@ -8,7 +8,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { gitChannels } from '@/shared/channels/git'
 
 const CHANNELS = Object.keys(gitChannels)
-const EVENTS: string[] = []
 
 const H = vi.hoisted(() => ({
   electronAPI: null as Record<string, Record<string, (...a: unknown[]) => unknown>> | null,

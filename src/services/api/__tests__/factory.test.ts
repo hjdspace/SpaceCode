@@ -35,7 +35,7 @@ async function importFresh(): Promise<FactoryModule> {
 function makeFake() {
   const m: Record<string, (...a: unknown[]) => unknown> = {}
   for (const k of CHANNELS) m[k] = vi.fn((...a: unknown[]) => Promise.resolve({ ok: true, __args: a }))
-  for (const k of EVENTS) m[k] = vi.fn((...a: unknown[]) => () => {})
+  for (const k of EVENTS) m[k] = vi.fn(() => () => {})
   H.electronAPI = { factory: m }
   return m
 }
