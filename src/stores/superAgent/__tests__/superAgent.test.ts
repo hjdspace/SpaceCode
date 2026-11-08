@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
   onTicketProgress: vi.fn(),
   workerBind: vi.fn(),
   workerUnbind: vi.fn(),
+  onWorkerUpdated: vi.fn().mockReturnValue(() => {}),
   authorizationPolicy: vi.fn(),
   authorizationPolicySet: vi.fn(),
   traceEvent: vi.fn(),
@@ -69,6 +70,7 @@ vi.mock('@/services/electronAPI', () => ({
       onTicketProgress: mocks.onTicketProgress,
       workerBind: mocks.workerBind,
       workerUnbind: mocks.workerUnbind,
+      onWorkerUpdated: mocks.onWorkerUpdated,
       authorizationPolicy: mocks.authorizationPolicy,
       authorizationPolicySet: mocks.authorizationPolicySet,
     },
@@ -111,6 +113,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.stop.mockResolvedValue(undefined)
   mocks.getFullSession.mockResolvedValue(null)
+  mocks.workerBind.mockReset()
+  mocks.workerUnbind.mockReset().mockResolvedValue(true)
+  mocks.onWorkerUpdated.mockReset().mockReturnValue(() => {})
 })
 
 function loadStores() {
@@ -378,6 +383,7 @@ function workerMirror(overrides: Partial<SuperAgentWorkerMirror> = {}): SuperAge
     title: '修复登录',
     sessionId: 'superagent-worker-ticket-1',
     running: true,
+    ticketState: 'working',
     takenOver: false,
     segments: [
       {
@@ -397,6 +403,95 @@ function workerMirror(overrides: Partial<SuperAgentWorkerMirror> = {}): SuperAge
 }
 
 describe('superAgent store worker mirror（T07 #77）', () => {
+  it('updates an open old-project tab in the same generation without reloading its transcript', async () => {
+    const { superAgent } = loadStores()
+    await bindProject(superAgent)
+    mocks.workerBind.mockResolvedValue(workerMirror())
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+    const onUpdate = mocks.onWorkerUpdated.mock.calls[0]?.[0]
+    expect(onUpdate).toBeTypeOf('function')
+    mocks.routerBind.mockResolvedValue({ sessionId: 'router-2', running: false, snapshot: snapshot({ repoRoot: 'D:/other' }) })
+    await superAgent.switchProject('D:/other')
+    mocks.getFullSession.mockClear()
+    const ready = workerMirror({ running: false, ticketState: 'review' })
+    onUpdate('D:/repo', ready)
+    expect(superAgent.workerMirrors['ticket-1']).toEqual(ready)
+    onUpdate('D:/repo', workerMirror({ running: true, ticketState: 'working' }))
+    expect(superAgent.workerMirrors['ticket-1']?.running).toBe(true)
+    onUpdate('D:/other', workerMirror({ repoRoot: 'D:/other', running: false }))
+    onUpdate('D:/repo', workerMirror({ ticketId: 'unopened' }))
+    expect(superAgent.workerMirrors['ticket-1']?.repoRoot).toBe('D:/repo')
+    expect(superAgent.workerMirrors['ticket-1']?.running).toBe(true)
+    expect(superAgent.workerMirrors.unopened).toBeUndefined()
+    expect(mocks.getFullSession).not.toHaveBeenCalled()
+    expect(mocks.workerBind).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases a failed binding so later events cannot create an unopened mirror', async () => {
+    const { superAgent } = loadStores()
+    const off = vi.fn()
+    mocks.onWorkerUpdated.mockReturnValueOnce(off)
+    mocks.workerBind.mockRejectedValueOnce(new Error('ticket not found'))
+    await expect(superAgent.bindWorker('D:/repo', 'ticket-1')).rejects.toThrow('ticket not found')
+    const onUpdate = mocks.onWorkerUpdated.mock.calls[0]?.[0]
+    onUpdate('D:/repo', workerMirror())
+    expect(superAgent.workerMirrors['ticket-1']).toBeUndefined()
+    expect(off).toHaveBeenCalledOnce()
+  })
+
+  it('ignores a slow snapshot for a previous project binding of the same ticket id', async () => {
+    const { superAgent } = loadStores()
+    let resolveOld!: (mirror: SuperAgentWorkerMirror) => void
+    mocks.workerBind.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    const old = superAgent.bindWorker('D:/repo', 'ticket-1')
+    const next = workerMirror({ repoRoot: 'D:/other', running: false })
+    mocks.workerBind.mockResolvedValueOnce(next)
+    await superAgent.bindWorker('D:/other', 'ticket-1')
+    resolveOld(workerMirror())
+    await old
+    expect(superAgent.workerMirrors['ticket-1']).toEqual(next)
+    expect(mocks.getFullSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not overwrite a newer event with a slow bind snapshot', async () => {
+    const { superAgent } = loadStores()
+    let resolveSnapshot!: (mirror: SuperAgentWorkerMirror) => void
+    mocks.workerBind.mockImplementationOnce(() => new Promise(resolve => { resolveSnapshot = resolve }))
+    const binding = superAgent.bindWorker('D:/repo', 'ticket-1')
+    const onUpdate = mocks.onWorkerUpdated.mock.calls[0]?.[0]
+    expect(onUpdate).toBeTypeOf('function')
+    const ready = workerMirror({ running: false, ticketState: 'review' })
+    onUpdate('D:/repo', ready)
+    resolveSnapshot(workerMirror())
+    await binding
+    expect(superAgent.workerMirrors['ticket-1']).toEqual(ready)
+  })
+
+  it('invalidates pending snapshots and events immediately on unbind, without removing a reopened tab', async () => {
+    const { superAgent } = loadStores()
+    const off = vi.fn()
+    mocks.onWorkerUpdated.mockReturnValueOnce(off)
+    let resolveSnapshot!: (mirror: SuperAgentWorkerMirror) => void
+    let resolveUnbind!: (value: boolean) => void
+    mocks.workerBind.mockImplementationOnce(() => new Promise(resolve => { resolveSnapshot = resolve }))
+    mocks.workerUnbind.mockImplementationOnce(() => new Promise(resolve => { resolveUnbind = resolve }))
+    const binding = superAgent.bindWorker('D:/repo', 'ticket-1')
+    const onUpdate = mocks.onWorkerUpdated.mock.calls[0]?.[0]
+    expect(onUpdate).toBeTypeOf('function')
+    const unbinding = superAgent.unbindWorker('D:/repo', 'ticket-1')
+    onUpdate('D:/repo', workerMirror())
+    resolveSnapshot(workerMirror())
+    await binding
+    expect(superAgent.workerMirrors['ticket-1']).toBeUndefined()
+    expect(mocks.getFullSession).not.toHaveBeenCalled()
+    expect(off).toHaveBeenCalledOnce()
+    mocks.workerBind.mockResolvedValueOnce(workerMirror({ running: false }))
+    await superAgent.bindWorker('D:/repo', 'ticket-1')
+    resolveUnbind(true)
+    await unbinding
+    expect(superAgent.workerMirrors['ticket-1']?.running).toBe(false)
+  })
+
   it('bindWorker registers the worker session once and keeps it out of the normal list', async () => {
     const { superAgent, chat } = loadStores()
     chat.createSession('Chat', 'D:/repo', 'chat-1', { activate: false })

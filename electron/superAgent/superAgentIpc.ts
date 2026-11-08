@@ -61,6 +61,7 @@ import {
   type SuperAgentTicketProgress,
   type SuperAgentTicketUpdateEvent,
   type SuperAgentWorkerMessageCommand,
+  type SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { createSuperAgentService, type SuperAgentService } from './service'
 import type { SuperAgentEngineBridge } from './engineBridge'
@@ -400,6 +401,14 @@ function broadcastAttentionEvent(repoRoot: string, event: SuperAgentAttentionEve
  * Router 轮次起止广播（T21）：载荷就是快照里的 router 投影，所有窗口直接应用
  * 即幂等 —— IM 视图的 typing/计时与 Composer 停止按钮都跟着它，不看本地 turn。
  */
+function broadcastWorkerUpdated(repoRoot: string, mirror: SuperAgentWorkerMirror): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(SUPER_AGENT_EVENTS.onWorkerUpdated, repoRoot, mirror)
+    }
+  }
+}
+
 function broadcastRouterStatus(repoRoot: string, router: SuperAgentRouterState): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -425,6 +434,7 @@ export function createBroadcastingSuperAgentService(
     bridge: options.bridge,
     onHealthChanged: broadcastHealthChanged,
     onRouterStatusChanged: broadcastRouterStatus,
+    onWorkerUpdated: broadcastWorkerUpdated,
     onQueueChanged: broadcastQueueChanged,
     onTicketUpdated: broadcastTicketUpdated,
     onTicketProgress: broadcastTicketProgress,

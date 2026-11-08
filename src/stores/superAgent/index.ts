@@ -37,7 +37,7 @@
  * IPC 序列化）；reviewReminders 从卡片看板派生（state=review 且带提醒水位），
  * 同一工单复用原气泡；reviewRemindedCount 按工单去重联动入口徽章与状态条。
  */
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/services/electronAPI'
 import { i18n } from '@/i18n'
@@ -66,7 +66,6 @@ import type {
   SuperAgentTakeoverState,
   SuperAgentTicketActionResult,
   SuperAgentTicketBoard,
-  SuperAgentTicketCard,
   SuperAgentTicketMessageCommand,
   SuperAgentTicketMessageResult,
   SuperAgentTicketProgress,
@@ -401,30 +400,69 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
     const next = await api.superAgent.tickets(repoRoot)
     if (isBoundProject(next.repoRoot)) {
       ticketBoard.value = next
-      syncStaleWorkerMirrors(repoRoot, next.tickets)
     }
     return next
   }
 
-  /**
-   * 幂等挂 Worker 只读镜像（T07 #77）：取稳定 sessionId 与代次分段快照，
-   * 登记 Worker 会话（不激活）。重开标签时再次调用即可从快照恢复。
-   */
+  // 订阅属于 Worker 标签而非中置页项目：切换项目后旧标签仍继续接收自己的事件。
+  const workerBindings = new Map<string, { repoRoot: string; receivedUpdate: boolean }>()
+  let offWorkerUpdates: (() => void) | null = null
+
+  function watchWorkerUpdates(): void {
+    if (offWorkerUpdates) return
+    offWorkerUpdates = api.superAgent.onWorkerUpdated((repoRoot, mirror) => {
+      const binding = workerBindings.get(mirror.ticketId)
+      if (!binding || binding.repoRoot !== repoRoot || mirror.repoRoot !== repoRoot) return
+      binding.receivedUpdate = true
+      workerMirrors.value[mirror.ticketId] = mirror
+      // 状态更新绝不重读转录；只登记会话，流事件继续驱动时间线。
+      ensureWorkerSession(mirror)
+    })
+  }
+
+  onScopeDispose(() => {
+    offWorkerUpdates?.()
+    offWorkerUpdates = null
+    workerBindings.clear()
+  })
+
+  /** 摘掉绑定并停订阅：绑定表空了就没有事件该往这里落。 */
+  function dropWorkerBinding(repoRoot: string, ticketId: string): void {
+    if (workerBindings.get(ticketId)?.repoRoot !== repoRoot) return
+    workerBindings.delete(ticketId)
+    delete workerMirrors.value[ticketId]
+    // 主进程会在 unbind 时一并释放接管；本地立即清，面板不残留接管态
+    if (takeover.value?.ticketId === ticketId) takeover.value = null
+    if (workerBindings.size === 0) {
+      offWorkerUpdates?.()
+      offWorkerUpdates = null
+    }
+  }
+
+  /** 幂等挂镜像；先订阅再读快照，慢快照不得覆盖事件、解绑或新的绑定。 */
   async function bindWorker(repoRoot: string, ticketId: string): Promise<SuperAgentWorkerMirror> {
-    const mirror = await api.superAgent.workerBind(repoRoot, ticketId)
-    workerMirrors.value[ticketId] = mirror
+    const binding = { repoRoot, receivedUpdate: false }
+    workerBindings.set(ticketId, binding)
+    watchWorkerUpdates()
+    let mirror: SuperAgentWorkerMirror
+    try {
+      mirror = await api.superAgent.workerBind(repoRoot, ticketId)
+    } catch (error) {
+      if (workerBindings.get(ticketId) === binding) dropWorkerBinding(repoRoot, ticketId)
+      throw error
+    }
+    if (workerBindings.get(ticketId) !== binding || mirror.repoRoot !== repoRoot || mirror.ticketId !== ticketId) return mirror
+    if (!binding.receivedUpdate) workerMirrors.value[ticketId] = mirror
     ensureWorkerSession(mirror)
-    // Worker 会话 id 跨重启稳定：重开标签先接上 transcript，再由事件续流。
+    // 只有显式开标签/重绑才接历史，状态事件不刷新整个 transcript。
     await useChatSessionStore().refreshSessionHistory(mirror.sessionId)
     return mirror
   }
 
-  /** 只停镜像并清掉本地快照；Worker 会话与转录保留，后台推进不受影响。 */
+  /** 立即失效在途快照；IPC 完成后不得删除期间重新打开的标签。 */
   async function unbindWorker(repoRoot: string, ticketId: string): Promise<void> {
+    dropWorkerBinding(repoRoot, ticketId)
     await api.superAgent.workerUnbind(repoRoot, ticketId)
-    delete workerMirrors.value[ticketId]
-    // 主进程会在 unbind 时一并释放接管；本地立即清镜像，面板不残留接管态
-    if (takeover.value?.ticketId === ticketId) takeover.value = null
   }
 
   /**
@@ -589,25 +627,6 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
   }
 
   /**
-   * 代次一变就重拉已绑定的 Worker 镜像。
-   *
-   * 镜像没有推送通道：`running` 与代次分段只在 bindWorker 时取一次快照。人工重试、
-   * Router 的 retry、重启恢复都会把 generation+1，不重拉的话右侧面板继续停在上一代
-   * 结束后的"空闲" —— 人以为重跑根本没发生。
-   */
-  function syncStaleWorkerMirrors(
-    repoRoot: string,
-    tickets: readonly SuperAgentTicketCard[],
-  ): void {
-    for (const [ticketId, mirror] of Object.entries(workerMirrors.value)) {
-      const card = tickets.find((item) => item.ticketId === ticketId)
-      if (!card) continue
-      const mirrored = mirror.segments.reduce((max, segment) => Math.max(max, segment.generation), 0)
-      if (card.generation !== mirrored) void bindWorker(repoRoot, ticketId)
-    }
-  }
-
-  /**
    * 订阅 ticket-updated / ticket-progress（T06 #76），返回退订函数。
    *
    * 领域断档重拉：ticket-updated 携带 fromSeq/toSeq，fromSeq 与本地水位不一致
@@ -624,7 +643,6 @@ export const useSuperAgentStore = defineStore('superAgent', () => {
         return
       }
       ticketBoard.value = { repoRoot, seq: event.toSeq, tickets: event.tickets }
-      syncStaleWorkerMirrors(repoRoot, event.tickets)
     })
     const offProgress = api.superAgent.onTicketProgress((repoRoot, progress) => {
       if (snapshot.value?.repoRoot !== repoRoot) return

@@ -5,7 +5,7 @@
  * 用真实 service + Executor + fake bridge 覆盖接线：引擎事件 → 注册表 → 新 Input
  * → 既有投递路径；以及超时后 kill、waiting 报告与槽位释放。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createSuperAgentService } from '../service'
 import { superAgentRouterEngineSessionId, superAgentWorkerEngineSessionId } from '../sessionId'
 import { createFakeBridge, reportFence, routeFence } from './fakeBridge'
@@ -32,6 +32,27 @@ function backgroundBashStart(fake: ReturnType<typeof createFakeBridge>, sessionI
 }
 
 describe('super agent background jobs (#104)', () => {
+  it('publishes idle when a ready worker releases its background hold', async () => {
+    const fake = createFakeBridge()
+    const onWorkerUpdated = vi.fn()
+    const service = createSuperAgentService({ bridge: fake.bridge, onWorkerUpdated })
+    const repoRoot = '/repo/background-review'
+    const { ticketId, assignmentId } = service.dispatch(repoRoot, { requestId: 'ready', title: '检查', text: '检查' })
+    await flush()
+    const mirror = service.workerBind(repoRoot, ticketId)
+    // ready 的 shell 属于验收支撑，不占槽；subagent 才会保留这个 hold。
+    fake.emit(mirror.sessionId, 'tool_use', { id: 'agent-ready', name: 'Agent', input: {} })
+    fake.emit(mirror.sessionId, 'result', {
+      result: reportFence({ assignmentId, reportId: 'ready', kind: 'ready', summary: '已完成' }),
+    })
+    expect(service.workerBind(repoRoot, ticketId).running).toBe(true)
+    fake.emit(mirror.sessionId, 'tool_result', { tool_use_id: 'agent-ready', content: 'passed' })
+    await flush()
+    expect(service.workerBind(repoRoot, ticketId).running).toBe(false)
+    expect(onWorkerUpdated).toHaveBeenLastCalledWith(repoRoot, expect.objectContaining({ ticketId, running: false, ticketState: 'review' }))
+    expect(service.queue(repoRoot).running).toHaveLength(0)
+  })
+
   it('keeps the slot at turn end, then wakes an idle worker when the shell completes', async () => {
     const fake = createFakeBridge()
     const service = createSuperAgentService({ bridge: fake.bridge })

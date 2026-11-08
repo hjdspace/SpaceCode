@@ -8,7 +8,7 @@
  *  - 「Router 自己把活干了」= Router 走的是渲染端普通聊天（带全套写工具）。
  * 用例只注入 fake 引擎接缝，不打真 CLI（设计 §13.1）。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createSuperAgentService } from '../service'
 import { SUPER_AGENT_ROUTER_ROLE_PROMPT, SUPER_AGENT_WORKER_ROLE_PROMPT } from '../prompts'
 import {
@@ -30,6 +30,52 @@ function makeService() {
 }
 
 describe('super agent runtime wiring', () => {
+  it('publishes ready as runtime idle without ending the reusable assignment, then runs a same-generation follow-up', async () => {
+    const fake = createFakeBridge()
+    const onWorkerUpdated = vi.fn()
+    const service = createSuperAgentService({ bridge: fake.bridge, onWorkerUpdated })
+    const dispatched = service.dispatch(REPO, { requestId: 'status', title: '检查', text: '检查' })
+    await flush()
+    const { ticketId, assignmentId } = dispatched
+    const mirror = service.workerBind(REPO, ticketId)
+    expect(mirror.running).toBe(true)
+    fake.emit(mirror.sessionId, 'result', {
+      result: reportFence({ assignmentId, reportId: 'ready-1', kind: 'ready', summary: '待验收' }),
+    })
+    await flush()
+
+    expect(service.workerBind(REPO, ticketId)).toMatchObject({
+      running: false,
+      ticketState: 'review',
+      segments: [{ assignmentId, generation: 1, state: 'running', endedAt: null, reportKind: 'ready' }],
+    })
+    expect(onWorkerUpdated).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ ticketId, running: false, ticketState: 'review' }))
+
+    await service.ticketMessage(REPO, { requestId: 'follow-up', ticketId, text: '再检查一次' })
+    expect(service.workerBind(REPO, ticketId)).toMatchObject({ running: true, segments: [{ assignmentId, generation: 1 }] })
+    expect(onWorkerUpdated).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ ticketId, running: true }))
+    fake.emit(mirror.sessionId, 'result', {
+      result: reportFence({ assignmentId, reportId: 'ready-2', kind: 'ready', summary: '再次完成' }),
+    })
+    await flush()
+    expect(service.workerBind(REPO, ticketId)).toMatchObject({ running: false, segments: [{ reportSummary: '再次完成' }] })
+  })
+
+  it.each(['stop', 'error', 'exit', 'start-failure'] as const)('publishes runtime idle after %s', async (ending) => {
+    const fake = createFakeBridge()
+    const onWorkerUpdated = vi.fn()
+    const service = createSuperAgentService({ bridge: fake.bridge, onWorkerUpdated })
+    if (ending === 'start-failure') fake.failNextStart = new Error('spawn failed')
+    const dispatched = service.dispatch(REPO, { requestId: ending, title: '检查', text: '检查' })
+    const mirror = service.workerBind(REPO, dispatched.ticketId)
+    await flush()
+    if (ending === 'stop') service.ticketStop(REPO, { ticketId: dispatched.ticketId })
+    else if (ending !== 'start-failure') fake.emit(mirror.sessionId, ending, { message: 'engine failure' })
+    await flush()
+    expect(service.workerBind(REPO, dispatched.ticketId).running).toBe(false)
+    expect(onWorkerUpdated).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ ticketId: dispatched.ticketId, running: false }))
+  })
+
   it('binds the router to a stable engine session id derived from the project', async () => {
     const { service } = makeService()
     const bound = service.routerBind(REPO)

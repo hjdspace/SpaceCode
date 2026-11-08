@@ -176,6 +176,8 @@ export interface SuperAgentTicketCard {
   generation: number
   /** Mandate scope 相对路径；空数组 = 整个仓库。 */
   scopePaths: string[]
+  /** Worker 报告中的产物与文档，按执行目录解析后的绝对路径。 */
+  artifacts?: string[]
   createdAt: string
   updatedAt: string
   ended: { outcome: string; by: string; reason: string; at: string } | null
@@ -339,8 +341,10 @@ export interface SuperAgentWorkerMirror {
   title: string
   /** Worker 稳定会话 id；渲染层据此登记只读会话并复用既有 route event。 */
   sessionId: string
-  /** 最新 Assignment 是否在执行中（不含排队）。 */
+  /** Executor 是否仍在活动（含占槽后台工作），不是 Assignment 的领域生命周期。 */
   running: boolean
+  /** 工单投影状态：运行结束后区分待验收、等待与终态，不结束可复用的 Assignment。 */
+  ticketState: SuperAgentTicketCard['state']
   /** 该工单当前是否处于接管态（T09 #79）：面板据此切换只读/可写。 */
   takenOver: boolean
   /** 代次分段，按 generation 升序。 */
@@ -747,6 +751,10 @@ export const superAgentNamespace = defineNamespace({
     onRouterStatus: {
       channel: 'router-status',
       args: [] as unknown as [repoRoot: string, router: SuperAgentRouterState],
+    },
+    onWorkerUpdated: {
+      channel: 'worker-updated',
+      args: [] as unknown as [repoRoot: string, mirror: SuperAgentWorkerMirror],
     },
     onQueueChanged: {
       channel: 'queue-changed',

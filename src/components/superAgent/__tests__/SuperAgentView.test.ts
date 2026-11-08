@@ -274,7 +274,7 @@ function mountView() {
         MessageItem: true,
         AgentTimeline: {
           props: ['messages'],
-          template: '<div class="assistant-reply">{{ messages.map(m => m.content).join(" ") }}</div>',
+          template: '<div><div v-for="(message, index) in messages" :key="index" class="assistant-reply">{{ message.content }}</div></div>',
         },
         DesignBlocks: true,
         GenuiCardGroup: true,
@@ -952,7 +952,67 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     wrapper.unmount()
   })
 
-  it('卡片归属最近的之前 assistant group，更新及新闲聊不移位、不重复；早于对话的旧单钳到最早回复，历史全缺时才 append', async () => {
+  it.each([false, true])('keeps dispatch → card → permission → summaries with stable DOM (duplicate IDs: %s)', async (duplicateIds) => {
+    const history = reactive<{ messages: Message[] }>({ messages: [
+      { id: 'dispatch', role: 'assistant', content: '已派 Worker 执行', timestamp: Date.parse('2026-01-01T00:00:01Z') },
+    ] })
+    const board = reactive(reviewBoard())
+    board.tickets.splice(1)
+    board.tickets[0].createdAt = '2026-01-01T00:00:02Z'
+    probe.ticketBoard = board
+    probe.getDisplayMessages.mockImplementation(() => history.messages)
+    probe.attentionBubbles = [{
+      attentionId: 'permission-1',
+      ticketId: 'ticket-1',
+      ticketTitle: '修复登录',
+      assignmentId: 'assignment-1',
+      kind: 'permission',
+      question: '允许执行验证命令？',
+      askedAt: '2026-01-01T00:00:03Z',
+      status: 'open',
+      answers: [],
+      answeredAt: null,
+    }]
+    const wrapper = mountView()
+    await flushPromises()
+    try {
+      const list = wrapper.getComponent(MessageList)
+      const card = list.get('[data-testid="worker-task-card"]').element
+      const permission = list.get('[data-testid="attention-bubble"]').element
+      expect(list.find('[data-testid="attention-bubble-allow"]').exists()).toBe(true)
+      const order = () => list.findAll(
+        '.assistant-reply, [data-testid="worker-task-card"], [data-testid="attention-bubble-question"]',
+      ).map(node => node.attributes('data-testid') === 'worker-task-card' ? 'card' : node.text())
+      expect(order()).toEqual(['已派 Worker 执行', 'card', '允许执行验证命令？'])
+
+      history.messages.push(
+        { id: duplicateIds ? 'dispatch' : 'summary-1', role: 'assistant', content: '修复完成', timestamp: Date.parse('2026-01-01T00:00:10Z') },
+        { id: duplicateIds ? 'dispatch' : 'summary-2', role: 'assistant', content: '验证中', timestamp: Date.parse('2026-01-01T00:00:11Z') },
+      )
+      await nextTick()
+      expect(order()).toEqual(['已派 Worker 执行', 'card', '允许执行验证命令？', '修复完成', '验证中'])
+      expect(list.findAll('[data-testid="worker-task-card"]')).toHaveLength(1)
+      expect(list.get('[data-testid="worker-task-card"]').element).toBe(card)
+      expect(list.get('[data-testid="attention-bubble"]').element).toBe(permission)
+
+      // Store-style streaming replaces the array and message objects; updatedAt is not an anchor.
+      history.messages = history.messages.map((message, index) => ({
+        ...message,
+        content: index === 2 ? '验证通过' : message.content,
+      }))
+      board.tickets[0] = { ...board.tickets[0], state: 'completed', canStop: false, updatedAt: '2026-01-01T00:00:30Z' }
+      await nextTick()
+      expect(order()).toEqual(['已派 Worker 执行', 'card', '允许执行验证命令？', '修复完成', '验证通过'])
+      expect(list.findAll('[data-testid="worker-task-card"]')).toHaveLength(1)
+      expect(list.get('[data-testid="worker-task-card"]').element).toBe(card)
+      expect(card.getAttribute('data-state')).toBe('completed')
+      expect(list.get('[data-testid="attention-bubble"]').element).toBe(permission)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('卡片归属最近的之前 assistant 消息，更新及新闲聊不移位、不重复；早于对话的旧单钳到最早回复，历史全缺时才 append', async () => {
     const history = reactive<Message[]>([
       { id: 'u1', role: 'user', content: '修复登录', timestamp: Date.parse('2026-01-01T00:00:00Z') },
       { id: 'a1', role: 'assistant', content: '正在派工', timestamp: Date.parse('2026-01-01T00:00:01Z') },
@@ -976,7 +1036,8 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     // 两条：属于这一轮的「修复登录」，加上钳到最早回复的那张历史工单
     expect(firstReply.findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
     expect(wrapper.get('[data-minimap-id="a2"]').get('[data-testid="worker-task-card"]').text()).toContain('修复注册')
-    expect(firstReply.element.lastElementChild?.textContent).toContain('修复登录')
+    const laterReply = wrapper.findAll('.assistant-reply').find(reply => reply.text() === '已派 Worker')!
+    expect(firstCard.element.compareDocumentPosition(laterReply.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
     board.tickets[0] = { ...board.tickets[0], state: 'completed', canStop: false, updatedAt: '2026-01-01T00:00:30Z' }
     history.push(

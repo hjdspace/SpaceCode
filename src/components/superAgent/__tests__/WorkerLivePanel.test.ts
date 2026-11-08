@@ -89,6 +89,7 @@ function workerMirror(overrides: Partial<SuperAgentWorkerMirror> = {}): SuperAge
     title: '修复登录',
     sessionId: 'superagent-worker-ticket-1',
     running: false,
+    ticketState: 'queued',
     takenOver: false,
     segments: [
       {
@@ -139,6 +140,36 @@ beforeEach(() => {
 })
 
 describe('WorkerLivePanel readonly mirror（T07 #77）', () => {
+  it('shows pending acceptance and stops the real timeline loading prop while the ready assignment stays reusable', async () => {
+    const segment = workerMirror().segments[0]!
+    probe.mirror = workerMirror({
+      running: false,
+      ticketState: 'review',
+      segments: [{ ...segment, state: 'running', reportKind: 'ready', reportSummary: '已完成' }],
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.findComponent(AgentTimeline).props('loading')).toBe(false)
+    expect(wrapper.get('[data-testid="worker-state"]').text()).toBe('superAgent.worker.pendingAcceptance')
+    expect(wrapper.get('[data-testid="worker-segment-1"]').text()).toContain('superAgent.worker.pendingAcceptance')
+    expect(probe.mirror.segments[0]?.state).toBe('running')
+    wrapper.unmount()
+  })
+
+  it('shows running again for a same-generation follow-up despite the preceding ready report', async () => {
+    probe.mirror = workerMirror({
+      running: true,
+      ticketState: 'working',
+      segments: [{ ...workerMirror().segments[0]!, state: 'running', reportKind: 'ready' }],
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.findComponent(AgentTimeline).props('loading')).toBe(true)
+    expect(wrapper.get('[data-testid="worker-state"]').text()).toBe('superAgent.worker.running')
+    expect(wrapper.get('[data-testid="worker-segment-1"]').text()).toContain('superAgent.worker.states.running')
+    wrapper.unmount()
+  })
+
   it('镜像缺失时挂载即幂等挂 workerBind，已有快照则不重复挂', async () => {
     const wrapper = mountPanel()
     await flushPromises()

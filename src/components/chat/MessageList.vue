@@ -53,7 +53,9 @@
             <div :inert="props.readonly ? true : undefined">
               <GenuiCardGroup :messages="item.group!.messages" />
             </div>
-            <!-- 宿主可在每组助手回复之后追加内容，不改变共用时间线渲染器。 -->
+            <!-- IM 宿主按消息挂载工单等内容；后续助手回复不能把附件拖到整组末尾。 -->
+            <slot v-if="splitAssistantMessages" name="assistant-message" :message="item.group!.messages[0]" />
+            <!-- 原有分组插槽保持兼容；普通聊天仍合并连续助手消息。 -->
             <slot name="assistant-group" :group="item.group!" />
           </div>
           <CurrentTurnChangeCard
@@ -94,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, computed, onUnmounted } from 'vue'
+import { ref, watch, nextTick, onMounted, computed, onUnmounted, useSlots } from 'vue'
 import type { Message } from '@/types'
 import type { TurnChangeCardData } from '@/types'
 import { storeToRefs } from 'pinia'
@@ -181,6 +183,10 @@ interface DisplayItem {
   artifacts?: import('@/types').ArtifactSummaryEntry[]
 }
 
+// 只有 IM 宿主使用消息级插槽时才拆分；单条消息内的流式事件仍由 AgentTimeline 合并。
+const slots = useSlots()
+const splitAssistantMessages = computed(() => props.presentation === 'im' && !!slots['assistant-message'])
+
 // ========== 优化1: 消息分组计算缓存 (类似useMemo) ==========
 // 使用输入数组引用 + 数组形态作为缓存键. 关键约束:
 //  - chat store 的 updateMessage() 每次流式 text_delta 都会执行
@@ -201,6 +207,7 @@ let _cachedMessagesRef: Message[] | null = null
 let _cachedMessagesLength = -1
 let _cachedFirstMessageId = ''
 let _cachedLastMessageId = ''
+let _cachedSplitAssistantMessages = false
 
 function buildMessageGroups(msgs: Message[]): MessageGroup[] {
   const firstMessageId = msgs[0]?.id || ''
@@ -211,7 +218,8 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
     _cachedMessagesRef === msgs &&
     _cachedMessagesLength === msgs.length &&
     _cachedFirstMessageId === firstMessageId &&
-    _cachedLastMessageId === lastMessageId
+    _cachedLastMessageId === lastMessageId &&
+    _cachedSplitAssistantMessages === splitAssistantMessages.value
   ) {
     return _cachedMessageGroups
   }
@@ -223,7 +231,7 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
   for (const msg of msgs) {
     const groupType = msg.role === 'user' ? 'user' : 'assistant'
 
-    if (!currentGroup || currentGroup.type !== groupType) {
+    if (!currentGroup || currentGroup.type !== groupType || (groupType === 'assistant' && splitAssistantMessages.value)) {
       // Ensure unique key: prefer msg.id, but append suffix if duplicated
       let key = msg.id
       let suffix = 1
@@ -248,6 +256,7 @@ function buildMessageGroups(msgs: Message[]): MessageGroup[] {
   _cachedMessagesLength = msgs.length
   _cachedFirstMessageId = firstMessageId
   _cachedLastMessageId = lastMessageId
+  _cachedSplitAssistantMessages = splitAssistantMessages.value
   return groups
 }
 

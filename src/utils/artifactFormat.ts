@@ -9,6 +9,9 @@ const HTML_PREVIEW_EXTS = new Set(['html', 'htm'])
  */
 const OFFICE_PREVIEW_EXTS = new Set(['pptx', 'docx', 'xlsx', 'pdf'])
 
+/** 交给内置浏览器直接渲染的图片产物（webview tab） */
+const IMAGE_PREVIEW_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'avif', 'bmp', 'ico'])
+
 function extOfPath(filePath: string): string {
   const name = filePath.split(/[\\/]/).pop() || ''
   const dot = name.lastIndexOf('.')
@@ -21,6 +24,10 @@ export function isHtmlPreviewPath(filePath: string): boolean {
 
 export function isOfficePreviewPath(filePath: string): boolean {
   return OFFICE_PREVIEW_EXTS.has(extOfPath(filePath))
+}
+
+export function isImagePreviewPath(filePath: string): boolean {
+  return IMAGE_PREVIEW_EXTS.has(extOfPath(filePath))
 }
 
 /**

@@ -20,6 +20,8 @@ import type {
   SuperAgentTicketProgress,
   SuperAgentTicketUpdateEvent,
 } from '@/shared/channels/superAgent'
+import path from 'node:path'
+import type { SuperAgentReport } from './model'
 import { canRetryTicket, latestAssignmentOf, type TicketStageFacts } from './stage'
 import type { SuperAgentDomain } from './domain'
 
@@ -56,6 +58,67 @@ export interface SuperAgentProgressProjector {
 }
 
 const DEFAULT_THROTTLE_MS = 1_000
+
+const DOC_EXT_PATTERN = 'mdx?|txt|html?|pdf|docx|xlsx|pptx|csv|json'
+const DOC_EXT_TAIL = new RegExp(`\\.(?:${DOC_EXT_PATTERN})$`, 'iu')
+const LINK_DEST_RE = /!?\[[^\]]*\]\(\s*([^()\n]+?)\s*\)/g
+const CODE_SPAN_RE = /`([^`\n]+)`/g
+const BARE_PATH_RE = new RegExp(
+  `[^\\s\`"'<>()[\\]{},;，。；：！？（）*]+\\.(?:${DOC_EXT_PATTERN})(?=$|[\\s\`"'<>()[\\]{},;，。；：！？（）*])`,
+  'giu',
+)
+
+function blank(source: string, start: number, length: number): string {
+  return `${source.slice(0, start)}${' '.repeat(length)}${source.slice(start + length)}`
+}
+
+/**
+ * 旧报告只把交付路径写在正文里，没有 artifacts 字段 —— 从 Markdown 结构取，不扫工作区。
+ *
+ * 先取链接目的地址与行内代码（这两处才是路径本身，链接文字与含空格的路径都会让
+ * 纯词法切分截断或误取），把已取走的片段原地抹平再扫裸路径，索引对齐才能保持文中次序。
+ */
+function summaryPathCandidates(summary: string): string[] {
+  const found: Array<{ at: number; path: string }> = []
+  let masked = summary
+  const take = (pattern: RegExp, pick: (match: RegExpMatchArray) => string) => {
+    for (const match of masked.matchAll(pattern)) {
+      const at = match.index ?? 0
+      const path = pick(match).trim().replace(/^["']|["']$/g, '')
+      if (!DOC_EXT_TAIL.test(path)) continue
+      found.push({ at, path })
+      masked = blank(masked, at, match[0].length)
+    }
+  }
+  take(LINK_DEST_RE, match => match[1])
+  take(CODE_SPAN_RE, match => match[1])
+  for (const match of masked.matchAll(BARE_PATH_RE)) {
+    found.push({ at: match.index ?? 0, path: match[0] })
+  }
+  return found.sort((a, b) => a.at - b.at).map(entry => entry.path)
+}
+
+function reportArtifacts(report: SuperAgentReport | null, directory: string): string[] {
+  if (!report) return []
+  // 已有报告可能只在 summary 写交付路径；只提取报告里的引用，不扫描共享工作区。
+  const candidates = report.artifacts.length ? report.artifacts : report.kind === 'ready'
+    ? summaryPathCandidates(report.summary)
+    : []
+  const paths = /^[a-z]:[\\/]|^\\\\/i.test(directory) ? path.win32 : path.posix
+  const root = paths.resolve(directory)
+  const seen = new Set<string>()
+  return candidates.flatMap(candidate => {
+    if (/^[a-z][\w+.-]*:/i.test(candidate) && !/^[a-z]:[\\/]/i.test(candidate)) return []
+    const absolute = paths.resolve(root, candidate)
+    const relative = paths.relative(root, absolute)
+    if (!relative || relative === '..' || relative.startsWith(`..${paths.sep}`) || paths.isAbsolute(relative)) return []
+    const normalized = absolute.replace(/\\/g, '/')
+    const key = paths === path.win32 ? normalized.toLowerCase() : normalized
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [normalized]
+  })
+}
 
 function mapStageToCardState(
   stage: string,
@@ -111,6 +174,7 @@ export function createSuperAgentProgressProjector(
     const mandate = domain.state.mandates[ticket.mandateId]
     const stage = domain.stageOf(ticketId)
     const report = assignment?.report ?? null
+    const artifacts = reportArtifacts(report, ticket.execution.directory)
 
     const updatedAtCandidates = [ticket.createdAt]
     if (ticket.ended) updatedAtCandidates.push(ticket.ended.at)
@@ -150,6 +214,7 @@ export function createSuperAgentProgressProjector(
       assignmentId: assignment?.assignmentId ?? null,
       generation: assignment?.generation ?? 0,
       scopePaths: mandate ? [...mandate.scope.paths] : [],
+      ...(artifacts.length ? { artifacts } : {}),
       createdAt: ticket.createdAt,
       updatedAt,
       ended: ticket.ended

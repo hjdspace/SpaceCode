@@ -84,7 +84,7 @@ describe('super agent controlled replies over the desktop outbox', () => {
         assignmentId: ticket.assignmentId,
         reportId: 'report-ready',
         kind: 'ready',
-        summary: '登录页已可提交',
+        summary: '**登录页已可提交**\n\n- 已补测试\n- 已验证提交流程',
       }),
     })
     await flush()
@@ -92,7 +92,7 @@ describe('super agent controlled replies over the desktop outbox', () => {
     const result = replyOf(service, 'result')
     expect(result).toBeDefined()
     const bubble = fake.pushed.find((push) => push.messageId === result!.messageId)
-    expect(bubble?.content).toContain('登录页已可提交')
+    expect(bubble?.content).toBe('**已完成 · 待验收**\n\n修复登录页\n\n**登录页已可提交**\n\n- 已补测试\n- 已验证提交流程')
     expect(service.outboxQueue(REPO).find((m) => m.messageId === result!.messageId)?.status).toBe('sent')
   })
 

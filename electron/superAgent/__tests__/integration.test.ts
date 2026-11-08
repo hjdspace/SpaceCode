@@ -737,7 +737,8 @@ describe('T14 崩溃重启恢复（验收清单 7/13）', () => {
     expect(mirror.segments).toHaveLength(2)
     expect(mirror.segments[0]).toMatchObject({ generation: 1, state: 'interrupted' })
     expect(mirror.segments[1]).toMatchObject({ generation: 2, state: 'running' })
-    expect(mirror.running).toBe(true)
+    // 恢复代次已接管卡片状态；running 留给真实引擎接缝（runtime/background-jobs 用例覆盖）
+    expect(mirror.ticketState).toBe('working')
 
     // 未读输入对账：退回 pending 后，同 requestId 重发经幂等只补投一次
     b.service.workerTakeover(REPO, dispatched.ticketId)

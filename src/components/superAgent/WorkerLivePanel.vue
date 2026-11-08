@@ -7,7 +7,7 @@
         data-testid="worker-state"
         class="worker-state"
         :class="{ running: mirror.running }"
-      >{{ mirror.running ? t('superAgent.worker.running') : t('superAgent.worker.idle') }}</span>
+      >{{ statusLabel }}</span>
       <span v-if="!isTakenOver" class="readonly-hint" data-testid="worker-readonly-hint">{{ t('superAgent.worker.readonlyHint') }}</span>
       <button
         v-if="ticketId && repoRoot"
@@ -31,10 +31,10 @@
         :key="segment.assignmentId"
         :data-testid="`worker-segment-${segment.generation}`"
         class="segment"
-        :class="[`state-${segment.state}`, { current: segment === latestSegment }]"
+        :class="[`state-${segment === latestSegment && !mirror.running ? 'idle' : segment.state}`, { current: segment === latestSegment }]"
       >
         <span class="generation">{{ t('superAgent.worker.generation', { n: segment.generation }) }}</span>
-        <span class="segment-state">{{ t(`superAgent.worker.states.${segment.state}`) }}</span>
+        <span class="segment-state">{{ segment === latestSegment && segment.state === 'running' && !mirror.running ? statusLabel : t(`superAgent.worker.states.${segment.state}`) }}</span>
         <span v-if="segment.reportSummary" class="report" :title="segment.reportSummary">{{ segment.reportSummary }}</span>
       </li>
     </ul>
@@ -113,6 +113,15 @@ const repoRoot = computed<string | null>(() => tabData.value?.repoRoot ?? null)
 const mirror = computed(() => {
   const id = ticketId.value
   return id ? superAgentStore.workerMirrors[id] : undefined
+})
+
+/** 运行真值优先；ready 仍保留 running Assignment，但界面应显示待验收。 */
+const statusLabel = computed(() => {
+  if (mirror.value?.running) return t('superAgent.worker.running')
+  const state = mirror.value?.ticketState
+  if (state === 'review') return t('superAgent.worker.pendingAcceptance')
+  if (!state || state === 'working' || state === 'idle') return t('superAgent.worker.idle')
+  return t(`superAgent.ticket.states.${state}`)
 })
 
 const messages = computed(() =>

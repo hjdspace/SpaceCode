@@ -114,10 +114,10 @@
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
         >
-          <template #assistant-group="{ group }">
-            <div v-if="cardsForGroup(group.messages).length" class="ticket-cards" data-testid="super-agent-tickets">
+          <template #assistant-message="{ message }">
+            <div v-if="cardsForMessage(message).length" class="ticket-cards" data-testid="super-agent-tickets">
               <TicketTimelineEntry
-                v-for="card in cardsForGroup(group.messages)"
+                v-for="card in cardsForMessage(message)"
                 :key="card.ticketId"
                 :card="card"
                 :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
@@ -352,12 +352,8 @@ const ticketAnchors = computed(() => {
   return anchors
 })
 
-function cardsForGroup(groupMessages: Message[]): SuperAgentTicketCard[] {
-  const members = new Set(groupMessages.map(message => toRaw(message)))
-  return ticketCards.value.filter(card => {
-    const anchor = ticketAnchors.value.get(card.ticketId)
-    return anchor !== undefined && members.has(anchor)
-  })
+function cardsForMessage(message: Message): SuperAgentTicketCard[] {
+  return ticketCards.value.filter(card => ticketAnchors.value.get(card.ticketId) === toRaw(message))
 }
 
 const unanchoredCards = computed(() =>

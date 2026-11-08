@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   SUPER_AGENT_ROUTE_REPAIR_PROMPT,
   SUPER_AGENT_ROUTER_ROLE_PROMPT,
+  SUPER_AGENT_WORKER_ROLE_PROMPT,
   renderSuperAgentRouterEvent,
   renderSuperAgentRouterStatusContext,
 } from '../prompts'
@@ -25,6 +26,13 @@ const REPO = '/repo/a'
 const SESSION = 'router-session'
 
 describe('super agent host context anchors', () => {
+  it('guides structured Markdown replies and explicit delivered artifact paths', () => {
+    expect(SUPER_AGENT_ROUTER_ROLE_PROMPT).toContain('Markdown')
+    expect(SUPER_AGENT_ROUTER_ROLE_PROMPT).not.toContain('收到就用一句话向人汇报')
+    expect(SUPER_AGENT_WORKER_ROLE_PROMPT).toContain('artifacts')
+    expect(SUPER_AGENT_WORKER_ROLE_PROMPT).toContain('details')
+  })
+
   it('每个锚点都真的出现在宿主注入的正文里', async () => {
     const snapshot = {
       repoRoot: REPO,

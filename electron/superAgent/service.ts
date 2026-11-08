@@ -98,7 +98,7 @@ import {
   type EnqueueOutboxInput,
   type SuperAgentDomain,
 } from './domain'
-import type { SuperAgentAttention, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxReplyPayload, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
+import type { SuperAgentAttention, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxReplyPayload, SuperAgentOutboxStatus, SuperAgentReport, SuperAgentReportKind, SuperAgentTicket } from './model'
 import {
   SuperAgentDomainError,
   isSuperAgentDomainError,
@@ -277,6 +277,8 @@ export interface SuperAgentServiceOptions {
   onHealthChanged?: (repoRoot: string, report: SuperAgentHealthReport) => void
   /** T21：Router 轮次起止时回调（IPC 层据此广播 router-status）。 */
   onRouterStatusChanged?: (repoRoot: string, router: SuperAgentRouterState) => void
+  /** Worker 运行起止与领域状态变化；不携带转录，不推进领域 seq。 */
+  onWorkerUpdated?: (repoRoot: string, mirror: SuperAgentWorkerMirror) => void
   /**
    * T21：引擎接缝（Executor / RouterRunner 共用）。由生产入口
    * `createBroadcastingSuperAgentService` 注入真实通路；未注入时不建运行时，
@@ -563,6 +565,20 @@ function checkpointDirtyOf(cp: ReturnType<SuperAgentCheckpointStore['latest']> |
   return new Set((cp?.entries ?? []).map((entry) => entry.replace(/\\/g, '/')))
 }
 
+/**
+ * 宿主替 Worker 说的收尾话：分段 Markdown，不是一行挤到底的字符串拼接。
+ *
+ * summary/details 本身就是 Worker 写的 Markdown，另起段落原样带上才能在 IM 气泡里
+ * 渲染出层次；把状态放进标题行，人一眼看出这是"做完了等你验收"而不是"已发布"。
+ */
+function renderSuperAgentResultReply(ticketTitle: string, report: SuperAgentReport): string {
+  const outcome = report.kind === 'ready' ? '已完成 · 待验收' : '已放弃'
+  return [`**${outcome}**`, ticketTitle, report.summary, report.details ?? '']
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 export function createSuperAgentService(options: SuperAgentServiceOptions = {}): SuperAgentService {
   const projects = new Map<string, ProjectState>()
   /** T12 #82：策略闸门与检查点候选清单共用的探针；检查点存储按 repoRoot 分键共享。 */
@@ -710,7 +726,13 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       const projector = createSuperAgentProgressProjector({
         domain,
         repoRoot,
-        onTicketUpdated: (event) => options.onTicketUpdated?.(repoRoot, event),
+        onTicketUpdated: (event) => {
+          options.onTicketUpdated?.(repoRoot, event)
+          const current = projects.get(repoRoot)
+          if (current) {
+            for (const ticket of event.tickets) notifyWorkerUpdated(current, repoRoot, ticket.ticketId)
+          }
+        },
         onTicketProgress: (progress) => options.onTicketProgress?.(repoRoot, progress),
       })
       const attentionProjector = createSuperAgentAttentionProjector({
@@ -1257,7 +1279,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             () => ({
               kind: 'reply',
               replyType: 'result',
-              text: `「${ticket.title}」${kind === 'ready' ? '已完成' : '已放弃'}：${result.report.summary}`,
+              text: renderSuperAgentResultReply(ticket.title, result.report),
               inReplyTo: null,
               attentionId: null,
               reportId: result.report.reportId,
@@ -1368,10 +1390,15 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
           project.domain.state.assignments[assignmentId]?.generation ?? 1,
         titleOf: (ticketId) => project.domain.state.tickets[ticketId]?.title ?? ticketId,
         modelOf: (ticketId) => project.domain.state.tickets[ticketId]?.execution.model,
+        assignmentIdOf: (ticketId) => {
+          const ids = project.domain.state.tickets[ticketId]?.assignmentIds
+          return ids?.[ids.length - 1]
+        },
         humanInputIds: (ticketId) =>
           (project.domain.state.tickets[ticketId]?.inputIds ?? [])
             .filter((id) => project.domain.state.inputs[id]?.human === true),
         hooks: {
+          onStatusChanged: (ticketId) => notifyWorkerUpdated(project, repoRoot, ticketId),
           ingest: (text) => {
             const report = applyWorkerReport(repoRoot, project, { text })
             return {
@@ -1613,6 +1640,11 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     }
   }
 
+  function notifyWorkerUpdated(project: ProjectState, repoRoot: string, ticketId: string): void {
+    const ticket = project.domain.state.tickets[ticketId]
+    if (ticket) options.onWorkerUpdated?.(repoRoot, workerMirrorOf(repoRoot, project, ticketId, ticket))
+  }
+
   /** Worker 只读镜像快照：稳定 sessionId + running + 按 generation 升序的代次分段。 */
   function workerMirrorOf(
     repoRoot: string,
@@ -1644,7 +1676,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       // 事件与 transcript 都挂在同一个 id 上；可读标签 superagent-worker-<ticket>
       // 不能直接交给 CLI。
       sessionId: superAgentWorkerEngineSessionId(ticketId),
-      running: segments.some((segment) => segment.state === 'running'),
+      running: project.executor?.isRunning(ticketId) ?? false,
+      ticketState: project.projector.cards().find((card) => card.ticketId === ticketId)?.state ?? 'queued',
       takenOver: project.takeover?.ticketId === ticketId,
       segments,
     }

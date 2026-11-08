@@ -42,7 +42,7 @@ import {
   superAgentRouterEngineSessionId,
   superAgentWorkerEngineSessionId,
 } from '../sessionId'
-import { createFakeBridge, routeFence } from './fakeBridge'
+import { createFakeBridge, reportFence, routeFence } from './fakeBridge'
 import { SUPER_AGENT_PREFIX } from '@/shared/channels/superAgent'
 
 const HEALTH_CHANGED_CHANNEL = `${SUPER_AGENT_PREFIX}health-changed`
@@ -65,6 +65,21 @@ beforeEach(() => {
 })
 
 describe('registerSuperAgentIPCHandlers', () => {
+  it('broadcasts worker-updated with authoritative status on the generated event channel', async () => {
+    const fake = createFakeBridge()
+    const service = createBroadcastingSuperAgentService({ bridge: fake.bridge })
+    const repoRoot = '/repo/worker-status'
+    const { ticketId, assignmentId } = service.dispatch(repoRoot, { requestId: 'worker-status', title: '检查', text: '检查' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const mirror = service.workerBind(repoRoot, ticketId)
+    fake.emit(mirror.sessionId, 'result', {
+      result: reportFence({ assignmentId, reportId: 'ready', kind: 'ready', summary: '完成' }),
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(probe.send).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}worker-updated`, repoRoot,
+      expect.objectContaining({ ticketId, running: false, ticketState: 'review' }))
+  })
+
   it('registers state, routerBind and health on the shared wire prefix', () => {
     registerSuperAgentIPCHandlers()
 

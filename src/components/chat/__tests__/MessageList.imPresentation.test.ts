@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { defineComponent } from 'vue'
-import { mount, config } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
+import { mount, config, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { createPinia, setActivePinia } from 'pinia'
 import MessageList from '../MessageList.vue'
+import AgentTimeline from '../AgentTimeline.vue'
+import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import type { Message } from '@/types'
 import zhCN from '@/i18n/locales/zh-CN'
 import enUS from '@/i18n/locales/en-US'
@@ -105,6 +107,73 @@ describe('MessageList IM 展示模式', () => {
     expect(wrapper.findAllComponents({ name: 'ArtifactSummaryCard' })).toHaveLength(0)
     // 时间线本身仍然渲染 —— 只是剥掉了围绕它的卡片
     expect(wrapper.findAllComponents({ name: 'AgentTimeline' })).toHaveLength(1)
+  })
+
+  it('IM 的 assistant-message slot 挂在每条消息后，普通模式和未使用 slot 的 IM 仍合并连续回复', async () => {
+    const messages: Message[] = [
+      { id: 'a1', role: 'assistant', content: '派工', timestamp: 1 },
+      { id: 'a2', role: 'assistant', content: '完成', timestamp: 2 },
+    ]
+    const withoutSlot = mountList(messages, 'im')
+    expect(withoutSlot.findAllComponents(AgentTimelineStub)).toHaveLength(1)
+    withoutSlot.unmount()
+
+    const wrapper = mount(MessageList, {
+      props: { messages, loading: false },
+      global: { stubs: STUBS },
+      slots: {
+        'assistant-message': ({ message }: { message: Message }) => h('aside', { class: 'message-attachment' }, message.content),
+      },
+    })
+    // A message slot must not change ordinary conversation grouping.
+    expect(wrapper.findAllComponents(AgentTimelineStub)).toHaveLength(1)
+    expect(wrapper.findAll('.message-attachment')).toHaveLength(0)
+
+    // The same array must be regrouped when presentation changes (cache invalidation).
+    await wrapper.setProps({ presentation: 'im' })
+    const timelines = wrapper.findAllComponents(AgentTimelineStub)
+    expect(timelines).toHaveLength(2)
+    expect(timelines.map(timeline => timeline.props('messages'))).toEqual([[messages[0]], [messages[1]]])
+    expect(wrapper.findAll('.agent-timeline-stub, .message-attachment').map(node =>
+      node.classes().includes('agent-timeline-stub') ? 'timeline' : node.text(),
+    )).toEqual(['timeline', '派工', 'timeline', '完成'])
+
+    await wrapper.setProps({ presentation: undefined })
+    expect(wrapper.findAllComponents(AgentTimelineStub)).toHaveLength(1)
+    expect(wrapper.findAll('.message-attachment')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('真实 IM 时间线在附件前后保留 Markdown 的 strong、列表与链接', async () => {
+    const messages: Message[] = [
+      { id: 'dispatch', role: 'assistant', content: '**已派工**\n\n```super-agent:route\n{"version":1,"tickets":[]}\n```', timestamp: 1 },
+      { id: 'summary', role: 'assistant', content: '- **验证通过**\n- [查看结果](https://example.com/result)', timestamp: 2 },
+    ]
+    const wrapper = mount(MessageList, {
+      props: { messages, loading: false, presentation: 'im' },
+      global: { stubs: { ...STUBS, AgentTimeline: false } },
+      slots: {
+        'assistant-message': ({ message }: { message: Message }) => message.id === 'dispatch'
+          ? h('aside', { class: 'message-attachment' }, '工单')
+          : [],
+      },
+    })
+    await flushPromises()
+    try {
+      expect(wrapper.findAllComponents(AgentTimeline)).toHaveLength(2)
+      expect(wrapper.findAllComponents(MarkdownRenderer)).toHaveLength(2)
+      expect(wrapper.findAll('.markdown-renderer strong').map(node => node.text())).toEqual(['已派工', '验证通过'])
+      expect(wrapper.findAll('.markdown-renderer ul li').map(node => node.text())).toEqual(['验证通过', '查看结果'])
+      expect(wrapper.get('.markdown-renderer a').attributes('href')).toBe('https://example.com/result')
+      expect(wrapper.text()).not.toContain('super-agent:route')
+      const order = wrapper.findAll('.markdown-renderer, .message-attachment')
+      expect(order).toHaveLength(3)
+      expect(order[0].text()).toBe('已派工')
+      expect(order[1].text()).toBe('工单')
+      expect(order[2].find('ul').exists()).toBe(true)
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('IM 模式用更窄的单列容器（原型 720px），默认模式不变', () => {

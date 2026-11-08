@@ -59,6 +59,8 @@ export interface SuperAgentPermissionCancelledContext {
 }
 
 export interface SuperAgentExecutorHooks {
+  /** 活动状态已更新；包括启动失败、停止与后台 hold 释放。 */
+  onStatusChanged?(ticketId: string): void
   /** 严格解析并落地 Report；协议失败由实现方记健康，不在此抛穿。 */
   ingest(text: string): SuperAgentExecutorIngestResult
   /** turn 结束但没有最终 Report（协议失败）：实现方负责卡片与健康上报。 */
@@ -96,6 +98,8 @@ export interface SuperAgentExecutorOptions {
   /** 会话标题（渲染端会话名）。 */
   titleOf?(ticketId: string): string
   modelOf?(ticketId: string): string | undefined
+  /** 已收尾或重启后追问，仍跟踪同一代 Assignment 的新 turn。 */
+  assignmentIdOf?(ticketId: string): string | undefined
   humanInputIds?(ticketId: string): string[]
 }
 
@@ -214,6 +218,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
     if (!run.active) return
     run.active = false
     run.resolve()
+    hooks.onStatusChanged?.(run.ticketId)
   }
 
   function handleTurnEnd(run: SuperAgentWorkerRun, text: string): void {
@@ -320,9 +325,22 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
     }
   })
 
-  function register(run: SuperAgentWorkerRun): void {
-    runs.set(run.sessionId, run)
-    byTicket.set(run.ticketId, run)
+  function registerRun(ticketId: string, assignmentId: string, sessionId: string, repoRoot: string): SuperAgentWorkerRun {
+    let resolveRun: () => void = () => {}
+    const promise = new Promise<void>((resolve) => { resolveRun = resolve })
+    const run: SuperAgentWorkerRun = {
+      ticketId, assignmentId, sessionId, repoRoot,
+      active: true,
+      started: false,
+      awaitingBackground: false,
+      jobKinds: new Map(),
+      resolve: resolveRun,
+      promise,
+    }
+    runs.set(sessionId, run)
+    byTicket.set(ticketId, run)
+    hooks.onStatusChanged?.(ticketId)
+    return run
   }
 
   function forget(run: SuperAgentWorkerRun): void {
@@ -333,23 +351,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
   return {
     async launch(request: WorkerLaunchRequest): Promise<void> {
       const sessionId = superAgentWorkerEngineSessionId(request.ticketId)
-      let resolveLaunch: () => void = () => {}
-      const promise = new Promise<void>((resolve) => {
-        resolveLaunch = resolve
-      })
-      const run: SuperAgentWorkerRun = {
-        ticketId: request.ticketId,
-        assignmentId: request.assignmentId,
-        sessionId,
-        repoRoot: request.repoRoot,
-        active: true,
-        started: false,
-        awaitingBackground: false,
-        jobKinds: new Map(),
-        resolve: resolveLaunch,
-        promise,
-      }
-      register(run)
+      const run = registerRun(request.ticketId, request.assignmentId, sessionId, request.repoRoot)
 
       const identity = renderSuperAgentAssignmentIdentity({
         ticketId: request.ticketId,
@@ -376,22 +378,33 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         run.started = true
         await bridge.sendMessage(sessionId, firstMessage)
       } catch (err) {
+        finish(run)
         forget(run)
         throw err
       }
-      await promise
+      await run.promise
       forget(run)
     },
 
     async deliver(request: SuperAgentWorkerDeliveryRequest): Promise<SuperAgentWorkerDeliveryOutcome> {
       const sessionId = request.sessionId
-      const run = runs.get(sessionId)
+      let run = runs.get(sessionId)
       const repoRoot = request.repoRoot ?? run?.repoRoot
       if (!repoRoot) return 'unknown'
+      const assignmentId = options.assignmentIdOf?.(request.ticketId) ?? run?.assignmentId
+      let resumed: SuperAgentWorkerRun | undefined
+      if (!run?.active && assignmentId) {
+        resumed = registerRun(request.ticketId, assignmentId, sessionId, repoRoot)
+        run = resumed
+        void resumed.promise.then(() => forget(resumed!))
+      }
+      // 同一 hold 内唤醒也开始了新 turn，不能被迟到的后台完成通知提前释放。
+      if (run) run.awaitingBackground = false
       try {
         if (!run?.started) {
           // 重启后或工单空闲期：会话不在，按稳定 id 重新拉起（引擎自己 --resume 历史）。
           await bridge.startSession(sessionId, workerConfig(repoRoot, options.modelOf?.(request.ticketId)))
+          if (run) run.started = true
         }
         // 身份说明是宿主与 Worker 之间的东西，包进信封让回放侧能摘掉：
         // 否则重启后这条人消息的气泡里挂着 inputId 与 askedBy 规则。
@@ -403,6 +416,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         await bridge.sendMessage(sessionId, [request.text, hostContext].filter(Boolean).join('\n\n'))
         return 'accepted'
       } catch {
+        if (resumed) finish(resumed)
         // 无法证明引擎是否收下：交回 unknown，由 service 转 uncertain + Attention，
         // 禁止盲目重投（设计 §7.1）。
         return 'unknown'

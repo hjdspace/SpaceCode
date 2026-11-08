@@ -149,6 +149,69 @@ describe('ticket.updated 投影与 seq 水位', () => {
   })
 })
 
+describe('Worker 产物投影', () => {
+  it('projects reported files from the execution directory, without duplicates or paths outside it', () => {
+    const h = harness()
+    const { ticketId, assignmentId } = dispatchTicket(h)
+    h.domain.state.tickets[ticketId].execution.directory = 'D:/worktrees/ticket-1'
+    h.domain.launchAssignment({ assignmentId })
+    h.domain.report({
+      ticketId, assignmentId, reportId: 'artifacts-1', kind: 'ready', summary: '完成',
+      artifacts: ['docs/优化方案.md', './docs/优化方案.md', 'D:\\worktrees\\ticket-1\\report.txt', '../secret.txt', 'https://example.test/doc.md'],
+    })
+    h.projector.sync()
+    expect(h.projector.cards()[0].artifacts).toEqual([
+      'D:/worktrees/ticket-1/docs/优化方案.md',
+      'D:/worktrees/ticket-1/report.txt',
+    ])
+    expect(h.projector.sync()).toBeNull()
+  })
+
+  it('finds document references in reports that did not declare artifacts, without scanning the working tree', () => {
+    const h = harness()
+    const { ticketId, assignmentId } = dispatchTicket(h)
+    h.domain.launchAssignment({ assignmentId })
+    h.domain.report({
+      ticketId, assignmentId, reportId: 'artifacts-2', kind: 'ready',
+      summary: '交付 docs/optimization-plan-2026-11.md（只读分析）；[补充](docs/补充说明.md)。',
+    })
+    h.projector.sync()
+    expect(h.projector.cards()[0].artifacts).toEqual([
+      'D:/repo/docs/optimization-plan-2026-11.md', 'D:/repo/docs/补充说明.md',
+    ])
+  })
+
+  it('reads markdown link destinations and code spans without truncating the real path', () => {
+    const h = harness()
+    const { ticketId, assignmentId } = dispatchTicket(h)
+    h.domain.state.tickets[ticketId].execution.directory = 'D:/worktrees/ticket-1'
+    h.domain.launchAssignment({ assignmentId })
+    h.domain.report({
+      ticketId, assignmentId, reportId: 'artifacts-markdown', kind: 'ready',
+      summary: '[report.md](docs/report.md)、`docs/final report.md` 与 **docs/bold.md** 均已交付。',
+    })
+    h.projector.sync()
+    expect(h.projector.cards()[0].artifacts).toEqual([
+      'D:/worktrees/ticket-1/docs/report.md',
+      'D:/worktrees/ticket-1/docs/final report.md',
+      'D:/worktrees/ticket-1/docs/bold.md',
+    ])
+  })
+
+  it('does not show an empty artifact card or treat external references as local files', () => {
+    const h = harness()
+    const { ticketId, assignmentId } = dispatchTicket(h)
+    expect(h.projector.cards()[0].artifacts).toBeUndefined()
+    h.domain.launchAssignment({ assignmentId })
+    h.domain.report({
+      ticketId, assignmentId, reportId: 'artifacts-3', kind: 'ready',
+      summary: '参考 https://example.test/docs/a.md 和 ../../private.md。',
+    })
+    h.projector.sync()
+    expect(h.projector.cards()[0].artifacts).toBeUndefined()
+  })
+})
+
 describe('卡片状态全集', () => {
   it('covers every documented card state', () => {
     const h = harness()
