@@ -1,3 +1,50 @@
+## [0.9.0](https://github.com/hjdspace/SpaceCode/compare/v0.8.14...v0.9.0) (2026-11-08)
+
+### Features
+
+- **superAgent:** Super Agent 端到端落地：Router 与 Worker 双角色协作，Router 复用主聊天输入框与时间线，支持显式派工与串行调度
+- **superAgent:** 工单生命周期与卡片投影，覆盖排队、执行、待验收、提问、阻塞、失败与完成，支持验收、追问、停止与重试
+- **superAgent:** Worker 只读镜像与接管交还，按代次分段，关闭标签不影响后台推进，重开后从快照恢复
+- **superAgent:** Attention 问答链路（非模态气泡 + 就地回答）、健康上报与系统问题面板，支持重试与忽略处置
+- **superAgent:** 执行策略与授权：串行/并行策略与 per-ticket worktree、按会话工具面裁剪、Worker 权限档位 acceptEdits、授权策略设置面板
+- **superAgent:** 外部 Source 框架接入飞书 IM 与 GitHub PR：项目配置、订阅/退订与 follows 绑定、PR 评审闭环
+- **superAgent:** Outbox 回写与受控 reply，覆盖 desktop、飞书与 GitHub 发送通道，注册后台作业并在完成时唤醒 Worker
+- **superAgent:** Gate、语义 Eval 与 Policy 版本化，崩溃恢复与退出收尾
+- **chat:** 思考态统一为 LoadingState，新增活动标签与统一时长格式化
+- **chat:** 提示词优化按钮移至输入框右上角
+- **design:** 设计系统下拉支持创建与删除自建项
+- **layout:** 右面板默认宽度加宽到 560px
+- **electron:** 新增单实例锁；会话新增 sessionType，按类型区分 Router、Worker 与普通会话
+
+### Bug Fixes
+
+- **superAgent:** 修复受控 reply 落回助手侧，不再顶用户头像
+- **superAgent:** 修复工单收尾未结束最新代次，notAccepted 重投不再误报冲突
+- **superAgent:** 修复 Worker 派活仍需逐次授权，统一走完全信任
+- **superAgent:** 修复 Worker 会话续聊、任务进度胶囊显示时机与工单卡失效 CSS 变量引用
+
+### Performance
+
+- 首载与主进程减重，xterm/highlight/i18n/h5Server 改为按需加载
+- 设计令牌改为单点发射，dist CSS 减重 2.8 MB
+
+### Refactor
+
+- 拆分超大模块并开启未使用符号检查
+- Super Agent IPC 通道 `policy`/`policySet` 更名为 `executionPolicy`/`executionPolicySet`
+
+### Tests
+
+- 补齐 Super Agent 全链路（T14 Phase 1 集成验收）、Git 与渲染层 API 用例
+
+### CI
+
+- 补类型检查与构建门禁，性能预算改为文件化棘轮
+
+### Docs
+
+- 新增 Super Agent 桌面实现规格与实现计划，补充 UI 原型
+
 ## [0.8.14](https://github.com/hjdspace/SpaceCode/compare/v0.8.13...v0.8.14) (2026-11-02)
 
 ### Features
