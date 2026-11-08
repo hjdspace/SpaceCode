@@ -95,6 +95,7 @@
   
   --accent-tertiary: #{$accent-tertiary};
   --accent-tertiary-hover: #{$accent-tertiary-hover};
+  --accent-tertiary-glow: rgba(124, 58, 237, 0.12);
   
   --success: #{$success};
   --success-glow: #{$success-glow};
@@ -199,6 +200,7 @@
 
   --accent-tertiary: #e8a55a;
   --accent-tertiary-hover: #d99440;
+  --accent-tertiary-glow: rgba(232, 165, 90, 0.15);
 
   /* Semantic Colors - Official Status Palette */
   --success: #5db872;
@@ -318,6 +320,7 @@
 
   --accent-tertiary: #e8a55a;
   --accent-tertiary-hover: #f0b56a;
+  --accent-tertiary-glow: rgba(232, 165, 90, 0.18);
 
   /* Semantic Colors - Adjusted for dark background contrast (Official Palette) */
   --success: #5db872;
@@ -425,6 +428,7 @@
   
   --accent-tertiary: #8b5cf6;
   --accent-tertiary-hover: #a78bfa;
+  --accent-tertiary-glow: rgba(139, 92, 246, 0.2);
   
   --success: #22c55e;
   --success-glow: rgba(34, 197, 94, 0.2);
