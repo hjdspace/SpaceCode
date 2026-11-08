@@ -251,6 +251,8 @@ describe('WorkerLivePanel readonly mirror（T07 #77）', () => {
     expect(wrapper.find('[data-testid="worker-readonly-hint"]').text()).toBe(
       'superAgent.worker.readonlyHint',
     )
+    // 任务进度胶囊随输入框一起只在接管后出现
+    expect(wrapper.findComponent(ChatInput).exists()).toBe(false)
     const head = wrapper.find('[data-testid="worker-state"]')
     expect(head.text()).toBe('superAgent.worker.running')
     expect(head.classes()).toContain('running')
@@ -329,6 +331,8 @@ describe('WorkerLivePanel takeover & giveback（T09 #79）', () => {
     expect(composer.exists()).toBe(true)
     expect(composer.props('sessionId')).toBe('superagent-worker-ticket-1')
     expect(composer.props('compact')).toBe(true)
+    // 任务进度胶囊只在接管后出现（默认只读时不渲染 ChatInput）
+    expect(composer.props('showStatusBar')).toBe(true)
 
     await button.trigger('click')
     expect(probe.releaseWorker).toHaveBeenCalledWith('D:/repo', 'ticket-1')

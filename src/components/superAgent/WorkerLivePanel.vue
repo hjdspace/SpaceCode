@@ -67,6 +67,7 @@
       v-if="isTakenOver"
       class="worker-composer"
       compact
+      show-status-bar
       :session-id="mirror.sessionId"
       :placeholder="t('superAgent.worker.composerPlaceholder')"
       :show-work-gallery-action="false"
@@ -92,6 +93,8 @@
  *   作为领域输入投递。交还后回到只读，草稿域按 Worker 会话 id 隔离。
  * - 代次分段：workerBind 快照里的 segments 按 generation 升序，作为时间线上方
  *   薄层区块叠加；最新代次高亮。
+ * - 任务进度胶囊：只随接管后的紧凑输入框出现（默认隐藏），按 Worker 会话
+ *   自己的消息取数，不读全局 sessionContext。
  * - 生命周期：标签打开时若快照缺失则幂等 bindWorker；关闭标签由 app store
  *   负责停镜像（unbindWorker），本面板不监听关闭事件，切标签不解绑。
  */
@@ -377,6 +380,12 @@ function sendPermissionAnswer(text: string): void {
 .worker-composer {
   border-top: 1px solid var(--surface-border);
   background: var(--bg-primary);
+}
+
+// 接管态下时间线底部永远有「交还」悬浮胶囊（占高约 46px）。
+// 任务进度胶囊默认贴着输入框顶部，会和它叠在一起，这里抬高一个胶囊位。
+.worker-composer :deep(.composer-status-bar) {
+  bottom: calc(100% + 52px);
 }
 
 .worker-segments {

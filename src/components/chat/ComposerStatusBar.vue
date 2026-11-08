@@ -9,14 +9,14 @@
       v-if="hasTasks"
       ref="taskZoneRef"
       class="status-zone task-zone"
-      :class="{ 'has-tasks': hasTasks }"
+      :class="{ 'has-tasks': hasTasks, 'is-static': !openTaskPanel }"
       @mouseenter="handleTaskEnter"
       @mouseleave="handleTaskLeave"
       @click="openTasksPanel"
       @keydown.enter.prevent="openTasksPanel"
       @keydown.space.prevent="openTasksPanel"
-      role="button"
-      tabindex="0"
+      :role="openTaskPanel ? 'button' : undefined"
+      :tabindex="openTaskPanel ? 0 : undefined"
     >
       <Loader2 v-if="hasInProgressTasks" :size="14" class="zone-icon spin" />
       <ClipboardList v-else :size="14" class="zone-icon" />
@@ -63,7 +63,7 @@
         </div>
         <div class="popup-body">
           <div
-            v-for="task in sessionContext.tasks"
+            v-for="task in tasks"
             :key="task.id || task.content"
             class="popup-task-item"
             :class="[task.status, { subtask: task.isSubtask }]"
@@ -133,15 +133,23 @@ import { useSessionContext } from '@/stores/sessionContext'
 import { useSessionFileChangesStore, type SessionChangeRow } from '@/stores/sessionFileChanges'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAppStore } from '@/stores/app'
+import { useSessionTaskProgress } from '@/composables/useSessionTaskProgress'
 import {
   ClipboardList, Loader2, CheckCircle2, Circle, Lock,
   FileDiff, FileText
 } from 'lucide-vue-next'
 
 /** 归属的会话；未传时回退全局当前会话，与 ChatInput 的取数口径一致 */
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   sessionId?: string
-}>()
+  /**
+   * false = 宿主没有会话右面板（如 Worker 嵌入面板）：
+   * 任务区只做 hover 浮层，不渲染按钮语义、不打开右侧任务面板。
+   */
+  openTaskPanel?: boolean
+}>(), {
+  openTaskPanel: true,
+})
 
 const { t } = useI18n()
 const sessionContext = useSessionContext()
@@ -161,15 +169,20 @@ let taskLeaveTimer: ReturnType<typeof setTimeout> | null = null
 let changesEnterTimer: ReturnType<typeof setTimeout> | null = null
 let changesLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
-const taskProgress = computed(() => sessionContext.taskProgress)
-const hasTasks = computed(() => sessionContext.tasks.length > 0)
-
 const activeSessionId = computed(() => props.sessionId || chatSessionStore.currentSessionId || '')
+
+/**
+ * 任务进度按会话取数：sessionContext.tasks 是全局快照，Worker 会话的
+ * TodoWrite 会经共享 taskManager 混进来，并在 Router 页的胶囊上冒出来。
+ */
+const { tasks, progress: taskProgress } = useSessionTaskProgress(() => activeSessionId.value)
+const hasTasks = computed(() => tasks.value.length > 0)
+
 const changes = computed(() => sessionFileChanges.summaryFor(activeSessionId.value))
 
 /** 只看本会话写过/编辑过的文件 —— 仓库里其他会话的未提交改动不算。 */
 const hasChanges = computed(() => changes.value.sessionCount > 0)
-const hasInProgressTasks = computed(() => sessionContext.tasks.some(t => t.status === 'in_progress'))
+const hasInProgressTasks = computed(() => tasks.value.some(t => t.status === 'in_progress'))
 
 const visible = computed(() => hasTasks.value || hasChanges.value)
 
@@ -226,6 +239,7 @@ function clearTimers() {
 }
 
 function openTasksPanel() {
+  if (!props.openTaskPanel) return
   sessionContext.openRightPanel('tasks')
 }
 
@@ -344,6 +358,16 @@ onUnmounted(clearTimers)
   &:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
+  }
+
+  // 只做浮层展示的宿主（Worker 嵌入面板）没有可打开的任务面板
+  &.is-static {
+    cursor: default;
+
+    &:hover {
+      background: transparent;
+      color: inherit;
+    }
   }
 }
 

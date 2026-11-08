@@ -50,7 +50,11 @@
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing, 'is-voice-active': voiceActive }">
       <!-- 悬浮任务/改动状态栏 -->
-      <ComposerStatusBar v-if="!compact" :session-id="sessionId" />
+      <ComposerStatusBar
+        v-if="!compact || showStatusBar"
+        :session-id="sessionId"
+        :open-task-panel="!compact"
+      />
 
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <QuoteAttachmentsBar :quotes="attachedQuotes" @remove="removeQuoteAttachment" />
@@ -400,8 +404,10 @@ const props = withDefaults(defineProps<{
   showOpenProjectAction?: boolean
   /** 本输入框绑定的会话 id；未传时回退全局 currentSessionId */
   sessionId?: string
-  /** 紧凑模式（侧边任务）：隐藏依赖全局 sessionContext 单例的悬浮状态栏 */
+  /** 紧凑模式（侧边任务）：默认不渲染悬浮状态栏，需要时由 showStatusBar 打开 */
   compact?: boolean
+  /** true = 紧凑模式下也渲染悬浮状态栏（Worker 接管态用；宿主自己负责显隐时机） */
+  showStatusBar?: boolean
   /** 'none' = 不读也不写会话草稿。弹窗等临时宿主用它可避免把宿主会话的草稿冲掉 */
   draftScope?: 'session' | 'none'
   /** 受控权限模式：传入时选择器只 emit，不再读写本会话的权限模式 */
