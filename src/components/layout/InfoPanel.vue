@@ -457,7 +457,7 @@ watch(() => appStore.webviewUrl, () => {
 
 <style lang="scss" scoped>
 .info-panel {
-  width: 400px;
+  width: 560px;
   min-width: 300px;
   max-width: 90vw;
   height: 100%;

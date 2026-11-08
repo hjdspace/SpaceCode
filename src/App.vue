@@ -249,14 +249,15 @@ const {
 })
 
 /** 右面板全屏前保存的宽度，退出全屏时恢复 */
-let savedRightWidth = 400
+let savedRightWidth = 560
 
 const {
   size: rightWidth,
   isResizing: isRightResizing,
   onMousedown: startRightResize,
 } = useResizablePanel({
-  initial: 400,
+  // Worker 镜像标签承载完整聊天时间线，400px 会把气泡与工具卡压得过窄
+  initial: 560,
   min: 200,
   // 右面板允许拓宽至接近全窗口，仅保留极小主内容区（48px = 侧边栏折叠宽度）
   max: () => Math.max(650, window.innerWidth - 48),
