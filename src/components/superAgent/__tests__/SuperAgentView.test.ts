@@ -667,13 +667,23 @@ describe('SuperAgentView health entry（T13 #83）', () => {
     wrapper.unmount()
   })
 
-  it('系统健康时：入口无徽章、面板默认收起', async () => {
+  it('系统健康时：问题入口不出现、面板默认收起', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-health-entry"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="super-agent-health"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('面板展开期间问题清零也保留入口：否则没人能把面板收起来', async () => {
+    probe.healthPanelOpen = true
+    probe.healthProblemCount = 0
     const wrapper = mountView()
     await flushPromises()
 
     expect(wrapper.find('[data-testid="super-agent-health-entry"]').exists()).toBe(true)
     expect(wrapper.find('.count').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="super-agent-health"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

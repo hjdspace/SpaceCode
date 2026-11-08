@@ -1,11 +1,15 @@
 <template>
   <div class="super-agent-view">
-    <!-- 顶部操作区（T13 #83）：系统问题汇总入口（只读面板，MVP 不可操作）。
+    <!-- 顶部操作区：只放"此刻需要人处理"的东西。
          派工不再有独立入口 —— Router 已能按对话建单（super-agent:route），
-         两个入口并存只会让人纠结"该在这儿填还是跟它说"。 -->
+         两个入口并存只会让人纠结"该在这儿填还是跟它说"。
+         系统问题平时不占位：计数为 0 就没有可做的事；面板展开期间保留入口，
+         否则忽略掉最后一条问题后没人能把面板收起来。
+         授权策略是低频设置，收进右侧齿轮，不与运维入口并排挂在主区。 -->
     <header class="health-entry">
       <div class="entry-group">
         <button
+          v-if="superAgentStore.healthProblemCount > 0 || superAgentStore.healthPanelOpen"
           class="health-chip"
           :class="{ open: superAgentStore.healthPanelOpen }"
           type="button"
@@ -18,18 +22,19 @@
             {{ superAgentStore.healthProblemCount }}
           </span>
         </button>
-        <!-- 授权策略（T25 #96）：设置组按需展开，避免每次进页面都多一次 IPC。 -->
-        <button
-          class="health-chip"
-          :class="{ open: authorizationPanelOpen }"
-          type="button"
-          data-testid="super-agent-authorization-entry"
-          @click="toggleAuthorizationPanel"
-        >
-          <ShieldCheck :size="14" />
-          <span>{{ t('superAgent.authorization.entry') }}</span>
-        </button>
       </div>
+      <button
+        class="settings-chip"
+        :class="{ open: authorizationPanelOpen }"
+        type="button"
+        :title="t('superAgent.authorization.entry')"
+        :aria-label="t('superAgent.authorization.entry')"
+        :aria-expanded="authorizationPanelOpen"
+        data-testid="super-agent-authorization-entry"
+        @click="toggleAuthorizationPanel"
+      >
+        <Settings :size="14" />
+      </button>
     </header>
 
     <!-- Router 工卡：夹在消息区上沿，折叠态只报「这些话落在哪个目录」 -->
@@ -194,7 +199,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HeartPulse, Sparkles, ShieldCheck } from 'lucide-vue-next'
+import { HeartPulse, Settings, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -808,6 +813,29 @@ async function handleToolSkip(messageId: string, toolId: string) {
   font-weight: 600;
   line-height: 18px;
   text-align: center;
+}
+
+// ── 齿轮入口（T25 #96 授权策略）：只有图标, 语义靠 title/aria-label ──
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  &.open {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
 }
 
 // ── 执行队列（T05）：串行调度现状（执行中/排队位置/脏区提示）──
