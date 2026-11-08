@@ -269,6 +269,28 @@ describe('WorkerLivePanel readonly mirror（T07 #77）', () => {
 })
 
 describe('WorkerLivePanel takeover & giveback（T09 #79）', () => {
+  it('接管入口悬浮在时间线底部，不再占用顶部标题栏', async () => {
+    probe.mirror = workerMirror()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const dock = wrapper.get('[data-testid="worker-takeover-dock"]')
+    expect(dock.find('[data-testid="worker-takeover-button"]').exists()).toBe(true)
+    expect(wrapper.find('.worker-head [data-testid="worker-takeover-button"]').exists()).toBe(false)
+    expect(wrapper.get('.worker-timeline').classes()).toContain('with-dock')
+    wrapper.unmount()
+  })
+
+  it('标签缺少项目根时不渲染接管入口（寻址不全宁可不给按钮）', async () => {
+    probe.tabRepoRoot = ''
+    probe.mirror = workerMirror()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="worker-takeover-dock"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('默认只读展示接管按钮：点击走 takeoverWorker(repoRoot, ticketId)，不自动接管', async () => {
     probe.mirror = workerMirror()
     const wrapper = mountPanel()

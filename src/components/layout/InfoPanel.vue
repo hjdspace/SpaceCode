@@ -500,6 +500,11 @@ watch(() => appStore.webviewUrl, () => {
   overflow: hidden;
 }
 
+// Worker 镜像面板：时间线自己滚动，外层不滚 —— 底部悬浮的接管按钮才能固定在可见区域
+.info-panel.worker .panel-content {
+  overflow: hidden;
+}
+
 .webview-nav {
   display: flex;
   align-items: center;
