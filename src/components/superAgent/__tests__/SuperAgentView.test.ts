@@ -268,6 +268,8 @@ function mountView() {
     global: {
       // 真实 MessageList 与 WorkerTaskCard：不能由测试桩发明宿主不存在的 slot。
       stubs: {
+        // 系统问题/授权策略走弹窗：Teleport 就地渲染才查得到里面的控件。
+        teleport: true,
         ChatInput: true,
         MessageItem: true,
         AgentTimeline: {

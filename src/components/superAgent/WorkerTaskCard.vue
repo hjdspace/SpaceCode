@@ -278,7 +278,7 @@ function closeFollowup(): void {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--bg-elevated);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-primary);
   // 整行是"打开这张工单的右侧工作态"的入口（§10.3），不是只读文本
   cursor: pointer;
@@ -341,12 +341,12 @@ function closeFollowup(): void {
 .worker-task-card[data-state='failed'] .state-icon,
 .worker-task-card[data-state='blocked'] .state-icon,
 .worker-task-card[data-state='delivery'] .state-icon {
-  color: var(--status-error, #d4564d);
+  color: var(--error);
 }
 
 .worker-task-card[data-state='completed'] .state-icon,
 .worker-task-card[data-state='review'] .state-icon {
-  color: var(--status-success, #3f9e6b);
+  color: var(--success);
 }
 
 .title {
@@ -380,9 +380,9 @@ function closeFollowup(): void {
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  border: 1px solid var(--status-warning, #c99a2e);
+  border: 1px solid var(--warning);
   border-radius: 10px;
-  color: var(--status-warning, #c99a2e);
+  color: var(--warning);
   white-space: nowrap;
 }
 
@@ -417,7 +417,7 @@ function closeFollowup(): void {
   border-radius: 6px;
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
   white-space: nowrap;
 
@@ -426,13 +426,13 @@ function closeFollowup(): void {
   }
 
   &.accept {
-    border-color: var(--status-success, #3f9e6b);
-    color: var(--status-success, #3f9e6b);
+    border-color: var(--success);
+    color: var(--success);
   }
 
   &.stop {
-    border-color: var(--status-error, #d4564d);
-    color: var(--status-error, #d4564d);
+    border-color: var(--error);
+    color: var(--error);
   }
 
   &.ghost {
@@ -453,7 +453,7 @@ function closeFollowup(): void {
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   text-align: left;
   cursor: pointer;
 
@@ -465,7 +465,7 @@ function closeFollowup(): void {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--text-secondary);
 }
 
@@ -499,7 +499,7 @@ function closeFollowup(): void {
   border-radius: 6px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 
   &::placeholder {
     color: var(--text-muted);
@@ -520,16 +520,16 @@ function closeFollowup(): void {
 .worker-task-card[data-state='blocked'] .dot,
 .worker-task-card[data-state='failed'] .dot,
 .worker-task-card[data-state='dropped'] .dot {
-  background: var(--status-error, #d4564d);
+  background: var(--error);
 }
 
 .worker-task-card[data-state='completed'] .dot,
 .worker-task-card[data-state='review'] .dot {
-  background: var(--status-success, #3f9e6b);
+  background: var(--success);
 }
 
 .worker-task-card[data-state='answer'] .dot,
 .worker-task-card[data-state='stopped'] .dot {
-  background: var(--status-warning, #c99a2e);
+  background: var(--warning);
 }
 </style>

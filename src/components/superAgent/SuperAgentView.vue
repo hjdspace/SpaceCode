@@ -13,6 +13,8 @@
           class="health-chip"
           :class="{ open: superAgentStore.healthPanelOpen }"
           type="button"
+          aria-haspopup="dialog"
+          :aria-expanded="superAgentStore.healthPanelOpen"
           data-testid="super-agent-health-entry"
           @click="superAgentStore.toggleHealthPanel()"
         >
@@ -29,6 +31,7 @@
         type="button"
         :title="t('superAgent.authorization.entry')"
         :aria-label="t('superAgent.authorization.entry')"
+        aria-haspopup="dialog"
         :aria-expanded="authorizationPanelOpen"
         data-testid="super-agent-authorization-entry"
         @click="toggleAuthorizationPanel"
@@ -69,34 +72,31 @@
       </div>
     </div>
 
-    <!-- 健康面板（T13 #83，T20 #90 升级为可操作）：重试/忽略/重新评估。 -->
-    <template v-if="superAgentStore.healthPanelOpen">
-      <SuperAgentHealth
-        :problems="superAgentStore.healthProblems"
-        @retry="handleHealthRetry"
-        @dismiss="handleHealthDismiss"
-        @reevaluate="handleHealthReevaluate"
-      />
-      <p
-        v-if="healthActionHint"
-        class="health-action-hint"
-        :class="{ failed: healthActionFailed }"
-        data-testid="super-agent-health-action-hint"
-      >
-        {{ healthActionHint }}
-      </p>
-    </template>
+    <!-- 系统问题弹窗（T13 #83，T20 #90 升级为可操作）：处置回显随 hint 进底栏。
+         不再内联展开 —— 顶部那条带里有 z-index 30 的悬浮工卡。 -->
+    <SuperAgentHealth
+      :visible="superAgentStore.healthPanelOpen"
+      :problems="superAgentStore.healthProblems"
+      :hint="healthActionHint"
+      :hint-failed="healthActionFailed"
+      @close="superAgentStore.toggleHealthPanel()"
+      @retry="handleHealthRetry"
+      @dismiss="handleHealthDismiss"
+      @reevaluate="handleHealthReevaluate"
+    />
 
-    <!-- 授权策略设置组（T25 #96）：acceptMode 默认 off（外部候选默认不建单），
+    <!-- 授权策略弹窗（T25 #96）：acceptMode 默认 off（外部候选默认不建单），
          保存后 version 递增；发生变化时回显被丢弃重排的运行中 Eval。 -->
     <AuthorizationPolicyPanel
-      v-if="authorizationPanelOpen"
+      :visible="authorizationPanelOpen"
       :policy="superAgentStore.authorizationPolicy?.policy ?? null"
+      :repo-root="superAgentStore.authorizationPolicy?.repoRoot ?? ''"
       :loading="authorizationLoading"
       :saving="authorizationSaving"
       :hint="authorizationHint"
       :hint-failed="authorizationHintFailed"
       @save="handleAuthorizationSave"
+      @close="closeAuthorizationPanel"
     />
 
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
@@ -507,6 +507,12 @@ function toggleAuthorizationPanel(): void {
   if (authorizationPanelOpen.value) void loadAuthorizationPolicy()
 }
 
+function closeAuthorizationPanel(): void {
+  authorizationPanelOpen.value = false
+  authorizationHint.value = ''
+  authorizationHintFailed.value = false
+}
+
 async function loadAuthorizationPolicy(): Promise<void> {
   const repoRoot = superAgentStore.boundRepoRoot
   if (!repoRoot) return
@@ -790,7 +796,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
   border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
 
   &:hover {
@@ -848,7 +854,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 8px);
   background: var(--bg-elevated);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .queue-heading {
@@ -883,10 +889,6 @@ async function handleToolSkip(messageId: string, toolId: string) {
   color: var(--text-secondary);
 }
 
-.super-agent-health {
-  margin: 6px 12px 0;
-}
-
 // ── 工单单位（卡片 + 提问 + 超时提醒）：挂在所属助手回复下方，缺历史的在末尾兜底，随时间线滚动 ──
 .ticket-cards {
   display: flex;
@@ -898,19 +900,8 @@ async function handleToolSkip(messageId: string, toolId: string) {
 // T10 #80：出口动作失败的非模态提示（同在时间线末尾）
 .ticket-action-hint {
   margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--status-error, #d4564d);
-}
-
-// ── T20 #90：健康处置回显 —— 成功为中性提示，失败为错误色 ──
-.health-action-hint {
-  margin: 4px 12px 0;
-  font-size: 12px;
-  color: var(--text-muted);
-
-  &.failed {
-    color: var(--status-error, #d4564d);
-  }
+  font-size: var(--text-sm);
+  color: var(--error);
 }
 
 .super-agent-empty {
@@ -938,14 +929,14 @@ async function handleToolSkip(messageId: string, toolId: string) {
 
 h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-lg-plus);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1.6;
   color: var(--text-secondary);
 }

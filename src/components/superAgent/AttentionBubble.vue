@@ -159,7 +159,7 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid var(--border-normal);
+  border: 1px solid var(--border-default);
   border-left: 3px solid var(--accent-primary);
   border-radius: 8px;
   background: var(--bg-elevated);
@@ -169,7 +169,7 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 
   .icon-ask {
@@ -190,13 +190,13 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
   border-radius: 999px;
   background: var(--accent-primary);
   color: var(--bg-elevated);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   white-space: nowrap;
 }
 
 .question {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
@@ -205,7 +205,7 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
 .submitted-hint,
 .delivery-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
@@ -218,11 +218,11 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
     resize: vertical;
     min-height: 44px;
     padding: 6px 8px;
-    border: 1px solid var(--border-normal);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-family: inherit;
   }
 
@@ -233,11 +233,11 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
     border-radius: 6px;
     background: var(--accent-primary);
     color: var(--bg-elevated);
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
 
     &:hover:not(:disabled) {
-      background: var(--bg-primary-hover);
+      background: var(--bg-hover);
     }
 
     &:disabled {
@@ -254,7 +254,7 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
 
   .permission-hint {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
   }
 
@@ -265,11 +265,11 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
 
   .permission-btn {
     padding: 4px 14px;
-    border: 1px solid var(--border-normal);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
 
     &:hover:not(:disabled) {
@@ -288,18 +288,18 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
   }
 
   .permission-btn.deny {
-    color: var(--danger, #e5484d);
+    color: var(--error);
   }
 }
 
 .failed-hint {
   margin: 0;
-  font-size: 12px;
-  color: var(--danger, #e5484d);
+  font-size: var(--text-sm);
+  color: var(--error);
 }
 
 .is-collapsed {
-  border-left-color: var(--border-normal);
+  border-left-color: var(--border-default);
 
   .collapsed-row {
     display: flex;
@@ -310,7 +310,7 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
     border: none;
     background: none;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
 
@@ -343,8 +343,8 @@ async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
     flex-direction: column;
     gap: 4px;
     padding-top: 6px;
-    border-top: 1px dashed var(--border-normal);
-    font-size: 12px;
+    border-top: 1px dashed var(--border-default);
+    font-size: var(--text-sm);
 
     .question-full {
       margin: 0;
