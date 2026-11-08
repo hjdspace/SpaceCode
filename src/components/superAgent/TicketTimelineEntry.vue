@@ -81,16 +81,16 @@ const { t } = useI18n()
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--status-warning, #c99a2e);
+  border: 1px solid var(--warning);
   border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
 
   .reminder-icon {
     flex: none;
-    color: var(--status-warning, #c99a2e);
+    color: var(--warning);
   }
 
   .reminder-open {

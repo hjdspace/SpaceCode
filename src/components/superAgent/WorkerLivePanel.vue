@@ -209,7 +209,7 @@ function sendPermissionAnswer(text: string): void {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--surface-border);
   background: var(--bg-primary);
 
   .worker-icon {
@@ -227,21 +227,21 @@ function sendPermissionAnswer(text: string): void {
 
   .worker-state {
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     padding: 2px 8px;
     border-radius: 10px;
     color: var(--text-muted);
     background: var(--surface-hover);
 
     &.running {
-      color: var(--success-color, #16a34a);
+      color: var(--success);
     }
   }
 
   .readonly-hint {
     margin-left: auto;
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
   }
 
@@ -249,9 +249,9 @@ function sendPermissionAnswer(text: string): void {
   .take-action {
     margin-left: auto;
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     padding: 3px 10px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-strong);
     border-radius: 10px;
     background: var(--bg-elevated, var(--bg-primary));
     color: var(--text-secondary);
@@ -262,8 +262,8 @@ function sendPermissionAnswer(text: string): void {
     }
 
     &.active {
-      border-color: var(--warning-color, #d97706);
-      color: var(--warning-color, #d97706);
+      border-color: var(--warning);
+      color: var(--warning);
     }
   }
 }
@@ -271,15 +271,15 @@ function sendPermissionAnswer(text: string): void {
 // 接管横幅（T09 #79）：提示自动推进已暂停、此刻由人接管
 .takeover-banner {
   padding: 6px 12px;
-  font-size: 12px;
-  color: var(--warning-color, #d97706);
-  background: color-mix(in srgb, var(--warning-color, #d97706) 10%, transparent);
-  border-bottom: 1px solid var(--border-color);
+  font-size: var(--text-sm);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border-bottom: 1px solid var(--surface-border);
 }
 
 // 紧凑接管输入框：跟随面板宽度，草稿域由 sessionId 隔离
 .worker-composer {
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--surface-border);
   background: var(--bg-primary);
 }
 
@@ -290,7 +290,7 @@ function sendPermissionAnswer(text: string): void {
   list-style: none;
   margin: 0;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--surface-border);
   background: var(--bg-elevated, var(--bg-primary));
 
   .segment {
@@ -299,7 +299,7 @@ function sendPermissionAnswer(text: string): void {
     gap: 8px;
     padding: 3px 8px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-secondary);
 
     &.current {
@@ -317,7 +317,7 @@ function sendPermissionAnswer(text: string): void {
       color: var(--text-muted);
 
       .state-running & {
-        color: var(--success-color, #16a34a);
+        color: var(--success);
       }
     }
 
