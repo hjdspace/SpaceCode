@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="anthropic">
+<head>
+<meta charset="utf-8" />
+<title>Router 工卡 · 材质自检</title>
+<style>
+  /* ── 从 src/styles/_variables.scss 抄出的当前主题 token ── */
+  :root {
+    --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+    --font-body: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+    --radius-xs: 4px; --radius-sm: 6px; --radius-lg: 12px; --radius-full: 9999px;
+    --text-2xs: 11px; --text-xs-plus: 11.5px; --text-sm: 12px;
+    --font-weight-medium: 500; --font-weight-semibold: 600;
+    --leading-tight: 1.25; --leading-compact: 1.3;
+  }
+  [data-theme='anthropic'] {
+    --bg-primary: #faf9f5; --bg-secondary: #efe9de; --bg-tertiary: #e8e0d2; --bg-elevated: #faf9f5;
+    --surface-soft: #f5f0e8; --surface-strong: #e8e0d2;
+    --surface-glass: rgba(20, 20, 19, 0.015); --surface-border: rgba(20, 20, 19, 0.06);
+    --surface-border-strong: rgba(20, 20, 19, 0.12);
+    --text-primary: #141413; --text-secondary: #3d3d3a; --text-muted: #6c6a64; --text-disabled: #8e8b82;
+    --accent-primary: #cc785c; --accent-primary-glow: rgba(204, 120, 92, 0.15);
+    --success: #5db872; --success-glow: rgba(93, 184, 114, 0.15);
+    --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.04); --shadow-xl: 0 8px 32px rgba(20, 20, 19, 0.1);
+    --glass-highlight: rgba(255, 255, 255, 0.5);
+  }
+  [data-theme='dark'] {
+    --bg-primary: #0d0d0d; --bg-secondary: #141414; --bg-tertiary: #1a1a1a; --bg-elevated: #1f1f1f;
+    --surface-soft: #121212; --surface-strong: #1a1a1a;
+    --surface-glass: rgba(255, 255, 255, 0.03); --surface-border: rgba(255, 255, 255, 0.06);
+    --surface-border-strong: rgba(255, 255, 255, 0.12);
+    --text-primary: #f5f5f5; --text-secondary: #a3a3a3; --text-muted: #737373; --text-disabled: #525252;
+    --accent-primary: #3b82f6; --accent-primary-glow: rgba(59, 130, 246, 0.25);
+    --success: #22c55e; --success-glow: rgba(34, 197, 94, 0.2);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3); --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+    --glass-highlight: rgba(255, 255, 255, 0.04);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: var(--font-body);
+    background: var(--bg-primary); color: var(--text-primary);
+    display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 24px;
+  }
+  .bar { display: flex; gap: 8px; }
+  .bar button { padding: 4px 10px; font: inherit; cursor: pointer; }
+  .stage { position: relative; width: 620px; height: 420px; border: 1px solid var(--surface-border); }
+
+  /* ── 以下与 RouterWorkBadge.vue 的 scoped 样式一致 ── */
+  .router-badge {
+    position: absolute; top: 4px; left: 50%; transform: translateX(-50%); z-index: 30;
+    display: flex; flex-direction: column; align-items: center;
+    width: min(330px, calc(100% - 24px)); pointer-events: auto;
+  }
+  .lanyard {
+    position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center;
+    margin-bottom: -5px; pointer-events: none;
+  }
+  .strap {
+    width: 13px; height: 11px; border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+    background: repeating-linear-gradient(45deg,
+      color-mix(in srgb, var(--accent-primary) 28%, transparent) 0 2px,
+      color-mix(in srgb, var(--accent-primary) 10%, transparent) 2px 4px);
+    box-shadow: inset 0 0 0 1px var(--surface-border);
+  }
+  .clip {
+    width: 26px; height: 12px; border: 1px solid var(--surface-border-strong);
+    border-radius: var(--radius-xs);
+    background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--surface-strong) 48%, var(--bg-elevated) 100%);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow-sm);
+  }
+  .card {
+    position: relative; z-index: 0; display: grid; grid-template-columns: auto minmax(0, 1fr);
+    width: 100%; overflow: hidden; border: 1px solid var(--surface-border-strong);
+    border-radius: var(--radius-lg); color: var(--text-primary);
+    background: repeating-linear-gradient(135deg, var(--surface-glass) 0 1px, transparent 1px 4px),
+      linear-gradient(158deg, var(--bg-elevated) 0%, var(--bg-elevated) 44%, var(--surface-soft) 100%);
+    box-shadow: var(--shadow-xl), inset 0 1px 0 var(--glass-highlight),
+      inset 0 -1px 0 color-mix(in srgb, var(--text-primary) 6%, transparent);
+    transition: transform 0.16s ease;
+  }
+  .card::after {
+    content: ''; position: absolute; inset: 0; z-index: 2; opacity: 0; pointer-events: none;
+    background: linear-gradient(105deg, transparent 44%,
+      color-mix(in srgb, var(--accent-primary) 12%, transparent) 50%, transparent 56%);
+    transform: translateX(-110%); transition: opacity 0.2s ease, transform 0.5s ease;
+  }
+  .router-badge:hover .card { transform: translateY(-1px); }
+  .router-badge:hover .card::after { opacity: 1; transform: translateX(110%); }
+  .slot {
+    position: absolute; top: 4px; left: 50%; z-index: 1; width: 22px; height: 5px;
+    transform: translateX(-50%); border-radius: var(--radius-full); background: var(--bg-secondary);
+    box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-primary) 24%, transparent); pointer-events: none;
+  }
+  .rail {
+    grid-column: 1; grid-row: 1 / span 2; display: flex; align-items: flex-start;
+    padding: 12px 8px 9px; border-right: 1px solid var(--surface-border);
+  }
+  .head {
+    grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 12px 9px 8px 10px; border: none;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent);
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .router-badge.expanded .head { border-bottom: 1px solid var(--surface-border); }
+  .head:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+  .photo {
+    position: relative; flex: none; width: 36px; height: 36px;
+    border: 1px solid var(--surface-border-strong); border-radius: var(--radius-sm);
+    background: linear-gradient(160deg, var(--surface-soft), var(--bg-tertiary));
+    box-shadow: inset 0 1px 0 var(--glass-highlight); color: var(--text-secondary); overflow: hidden;
+  }
+  .avatar { display: block; width: 100%; height: 100%; }
+  .avatar .line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .avatar .dot { fill: var(--accent-primary); }
+  .on-duty {
+    position: absolute; right: 3px; bottom: 3px; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--success); box-shadow: 0 0 0 1.5px var(--bg-elevated);
+    animation: duty-breathe 2.4s ease-in-out infinite;
+  }
+  .ident { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+  .name {
+    font-size: var(--text-sm); font-weight: var(--font-weight-semibold); line-height: var(--leading-tight);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cwd {
+    font-family: var(--font-mono); font-size: var(--text-2xs); line-height: var(--leading-tight);
+    color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chevron { flex: none; color: var(--text-muted); transition: transform 0.16s ease; }
+  .chevron.open { transform: rotate(180deg); }
+  .body { grid-column: 2; grid-row: 2; padding: 7px 10px 8px; }
+  .fields { display: grid; gap: 4px; margin: 0; }
+  .field { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .field dt {
+    flex: 0 0 5em; font-size: var(--text-2xs); font-weight: var(--font-weight-medium);
+    letter-spacing: 0.08em; color: var(--text-secondary);
+  }
+  .field dd {
+    flex: 1; min-width: 0; margin: 0; font-size: var(--text-xs-plus); font-weight: var(--font-weight-medium);
+    line-height: var(--leading-compact); color: var(--text-primary);
+  }
+  .field dd.live { color: var(--success); }
+  .field dd.mono { font-family: var(--font-mono); font-size: var(--text-2xs); }
+  .field dd.path { word-break: break-all; }
+  .foot {
+    grid-column: 1 / -1; grid-row: 3; display: flex; align-items: flex-end; gap: 8px;
+    padding: 6px 10px 7px; border-top: 1px solid var(--surface-border);
+  }
+  .barcode { flex: 1; min-width: 0; height: 15px; background-repeat: no-repeat; background-size: 100% 100%; opacity: 0.8; }
+  .card-no { flex: none; font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.02em; color: var(--text-secondary); }
+  [hidden] { display: none !important; }
+  @keyframes duty-breathe {
+    0%, 100% { box-shadow: 0 0 0 1.5px var(--bg-elevated), 0 0 0 2px var(--success-glow); }
+    50% { box-shadow: 0 0 0 1.5px var(--bg-elevated), 0 0 0 3.5px transparent; }
+  }
+  .readout { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: pre; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button id="toggle">展开 / 折叠</button>
+    <button id="theme">切主题</button>
+  </div>
+
+  <div class="stage">
+    <div class="router-badge expanded" id="badge">
+      <span class="lanyard"><span class="strap"></span><span class="clip"></span></span>
+      <div class="card">
+        <span class="slot"></span>
+        <div class="rail">
+          <span class="photo">
+            <svg class="avatar" viewBox="0 0 48 48">
+              <path class="line" d="M9 43c1.5-6.5 7.5-9.5 15-9.5S37.5 36.5 39 43" />
+              <rect class="line" x="14" y="12" width="20" height="17" rx="7" />
+              <path class="line" d="M24 12V7" />
+              <path class="line" d="M19 20.5h10" />
+              <circle class="dot" cx="24" cy="5.5" r="2" />
+            </svg>
+            <span class="on-duty"></span>
+          </span>
+        </div>
+        <button class="head">
+          <span class="ident">
+            <span class="name">SpaceCode</span>
+            <span class="cwd">D:\AI\SpaceCode</span>
+          </span>
+          <svg class="chevron open" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="body" id="body">
+          <dl class="fields">
+            <div class="field"><dt>岗位</dt><dd>调度 Router</dd></div>
+            <div class="field"><dt>状态</dt><dd class="live">在岗调度中</dd></div>
+            <div class="field"><dt>工作目录</dt><dd class="mono path">D:\AI\SpaceCode</dd></div>
+            <div class="field"><dt>执行方式</dt><dd>串行 · 共享项目根目录</dd></div>
+            <div class="field"><dt>检查点</dt><dd>暂无检查点</dd></div>
+            <div class="field"><dt>工单</dt><dd>执行中 0 · 排队 0 · 上限 1</dd></div>
+            <div class="field"><dt>等人处理</dt><dd>待回答 0 · 超时待验收 0 · 系统问题 0</dd></div>
+          </dl>
+        </div>
+        <div class="foot" id="foot">
+          <span class="barcode" id="barcode"></span>
+          <span class="card-no">工号 f6249e97-4ef5</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="readout" id="readout"></div>
+
+<script>
+  const BAR_COUNT = 44
+  function barcodeImage(seed) {
+    let h = 2166136261
+    for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619) }
+    const stops = []; let pos = 0
+    for (let i = 0; i < BAR_COUNT; i++) {
+      h ^= h << 13; h ^= h >>> 17; h ^= h << 5
+      const bar = 1 + (Math.abs(h) % 3)
+      const gap = 1 + (Math.abs(h >>> 8) % 2)
+      stops.push(`var(--text-secondary) ${pos}px ${pos + bar}px`)
+      stops.push(`transparent ${pos + bar}px ${pos + bar + gap}px`)
+      pos += bar + gap
+    }
+    return `linear-gradient(90deg, ${stops.join(', ')})`
+  }
+  document.getElementById('barcode').style.backgroundImage = barcodeImage('f6249e97-4ef5')
+
+  const badge = document.getElementById('badge')
+  const bodyEl = document.getElementById('body')
+  const footEl = document.getElementById('foot')
+  function sync() {
+    const on = badge.classList.contains('expanded')
+    bodyEl.hidden = !on
+    footEl.hidden = !on
+    badge.querySelector('.chevron').classList.toggle('open', on)
+    const r = badge.getBoundingClientRect(), c = badge.querySelector('.card').getBoundingClientRect()
+    const slot = badge.querySelector('.slot').getBoundingClientRect()
+    const name = badge.querySelector('.name').getBoundingClientRect()
+    const cwd = badge.querySelector('.cwd').getBoundingClientRect()
+    const bc = badge.querySelector('.barcode').getBoundingClientRect()
+    document.getElementById('readout').textContent = [
+      `card       ${Math.round(c.width)} x ${Math.round(c.height)}`,
+      `badge top  ${Math.round(r.top)}  bottom ${Math.round(r.bottom)}`,
+      `slot       y ${Math.round(slot.top)}..${Math.round(slot.bottom)}  x ${Math.round(slot.left)}..${Math.round(slot.right)}`,
+      `name       y ${Math.round(name.top)}..${Math.round(name.bottom)}`,
+      `cwd        y ${Math.round(cwd.top)}..${Math.round(cwd.bottom)}  clipped=${cwd.width >= badge.querySelector('.cwd').scrollWidth ? 'no' : 'yes'}`,
+      `barcode    ${Math.round(bc.width)} x ${Math.round(bc.height)}  bg=${getComputedStyle(badge.querySelector('.barcode')).backgroundImage.slice(0, 34)}...`,
+      `label col  ${Math.round(badge.querySelector('.field dt').getBoundingClientRect().width)}px`,
+      `overlap    slot/name=${slot.bottom > name.top}  slot/cwd=${slot.bottom > cwd.top}`,
+    ].join('\n')
+  }
+  document.getElementById('toggle').onclick = () => { badge.classList.toggle('expanded'); sync() }
+  document.getElementById('theme').onclick = () => {
+    document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'anthropic' : 'dark'
+    sync()
+  }
+  sync()
+</script>
+</body>
+</html>

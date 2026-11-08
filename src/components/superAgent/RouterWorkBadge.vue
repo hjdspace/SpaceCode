@@ -5,70 +5,82 @@
     :class="{ expanded }"
     data-testid="super-agent-work-badge"
   >
-    <!-- 挂绳夹：工卡夹在消息区上沿，不新占一条工具栏高度 -->
-    <span class="clip" aria-hidden="true" />
+    <!-- 挂绳：织带 + 金属夹，夹口插进卡顶的打孔槽 -->
+    <span class="lanyard" aria-hidden="true">
+      <span class="strap" />
+      <span class="clip" />
+    </span>
 
-    <button
-      type="button"
-      class="badge-shell"
-      :aria-expanded="expanded"
-      aria-controls="router-badge-details"
-      data-testid="super-agent-badge-toggle"
-      @click="toggle"
-    >
-      <span class="photo">
-        <svg class="avatar" viewBox="0 0 48 48" aria-hidden="true">
-          <path class="line" d="M9 43c1.5-6.5 7.5-9.5 15-9.5S37.5 36.5 39 43" />
-          <rect class="line" x="14" y="12" width="20" height="17" rx="7" />
-          <path class="line" d="M24 12V7" />
-          <path class="line" d="M19 20.5h10" />
-          <circle class="dot" cx="24" cy="5.5" r="2" />
-        </svg>
-        <span v-if="running" class="on-duty" data-testid="super-agent-badge-on-duty" />
-      </span>
-      <span class="ident">
-        <span class="name">{{ projectName }}</span>
-        <span class="cwd" :title="repoRoot">{{ repoRoot }}</span>
-      </span>
-      <ChevronDown :size="13" class="chevron" :class="{ open: expanded }" />
-    </button>
+    <div class="card">
+      <span class="slot" aria-hidden="true" />
 
-    <div v-show="expanded" id="router-badge-details" class="details">
-      <dl class="fields">
-        <div class="field">
-          <dt>{{ t('superAgent.badge.role') }}</dt>
-          <dd>{{ t('superAgent.badge.roleRouter') }}</dd>
-        </div>
-        <div class="field">
-          <dt>{{ t('superAgent.badge.status') }}</dt>
-          <dd :class="{ live: running }">{{ statusText }}</dd>
-        </div>
-        <div class="field">
-          <dt>{{ t('superAgent.badge.employeeId') }}</dt>
-          <dd class="mono" :title="sessionId || undefined">{{ shortId }}</dd>
-        </div>
-        <div class="field">
-          <dt>{{ t('superAgent.badge.workDir') }}</dt>
-          <dd class="mono path">{{ repoRoot }}</dd>
-        </div>
-        <div class="field">
-          <dt>{{ t('superAgent.badge.policy') }}</dt>
-          <dd>{{ policyText }}</dd>
-        </div>
-        <div class="field">
-          <dt>{{ t('superAgent.badge.checkpoint') }}</dt>
-          <dd>{{ checkpointText }}</dd>
-        </div>
-        <div class="field">
-          <dt>{{ t('superAgent.badge.crew') }}</dt>
-          <dd>{{ crewText }}</dd>
-        </div>
-        <div class="field">
-          <dt>{{ t('superAgent.badge.pending') }}</dt>
-          <dd>{{ pendingText }}</dd>
-        </div>
-      </dl>
-      <span class="barcode" aria-hidden="true" />
+      <!-- 左栏只放照片：栏宽恒定，展开时卡往下长，内容不横移 -->
+      <div class="rail">
+        <span class="photo">
+          <svg class="avatar" viewBox="0 0 48 48" aria-hidden="true">
+            <path class="line" d="M9 43c1.5-6.5 7.5-9.5 15-9.5S37.5 36.5 39 43" />
+            <rect class="line" x="14" y="12" width="20" height="17" rx="7" />
+            <path class="line" d="M24 12V7" />
+            <path class="line" d="M19 20.5h10" />
+            <circle class="dot" cx="24" cy="5.5" r="2" />
+          </svg>
+          <span v-if="running" class="on-duty" data-testid="super-agent-badge-on-duty" />
+        </span>
+      </div>
+
+      <button
+        type="button"
+        class="head"
+        :aria-expanded="expanded"
+        aria-controls="router-badge-details"
+        data-testid="super-agent-badge-toggle"
+        @click="toggle"
+      >
+        <span class="ident">
+          <span class="name">{{ projectName }}</span>
+          <span class="cwd" :title="repoRoot">{{ repoRoot }}</span>
+        </span>
+        <ChevronDown :size="13" class="chevron" :class="{ open: expanded }" />
+      </button>
+
+      <div v-show="expanded" id="router-badge-details" class="body">
+        <dl class="fields">
+          <div class="field">
+            <dt>{{ t('superAgent.badge.role') }}</dt>
+            <dd>{{ t('superAgent.badge.roleRouter') }}</dd>
+          </div>
+          <div class="field">
+            <dt>{{ t('superAgent.badge.status') }}</dt>
+            <dd :class="{ live: running }">{{ statusText }}</dd>
+          </div>
+          <div class="field">
+            <dt>{{ t('superAgent.badge.workDir') }}</dt>
+            <dd class="mono path">{{ repoRoot }}</dd>
+          </div>
+          <div class="field">
+            <dt>{{ t('superAgent.badge.policy') }}</dt>
+            <dd>{{ policyText }}</dd>
+          </div>
+          <div class="field">
+            <dt>{{ t('superAgent.badge.checkpoint') }}</dt>
+            <dd>{{ checkpointText }}</dd>
+          </div>
+          <div class="field">
+            <dt>{{ t('superAgent.badge.crew') }}</dt>
+            <dd>{{ crewText }}</dd>
+          </div>
+          <div class="field">
+            <dt>{{ t('superAgent.badge.pending') }}</dt>
+            <dd>{{ pendingText }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- 卡号印在条码下，跟真工卡一致：编号不再单独占一行 -->
+      <div v-show="expanded" class="foot">
+        <span class="barcode" :style="barcodeStyle" aria-hidden="true" />
+        <span class="card-no">{{ t('superAgent.badge.employeeId') }} {{ shortId }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -162,6 +174,34 @@ const pendingText = computed(() =>
   }),
 )
 
+/**
+ * 条码的条宽序列由工号散列出，而不是固定节奏循环 —— 固定循环一眼能数出周期，
+ * 就退回成装饰纹样；绑住工号才像同一张卡的机器可读编号。
+ */
+const BAR_COUNT = 44
+function barcodeImage(seed: string): string {
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  const stops: string[] = []
+  let pos = 0
+  for (let i = 0; i < BAR_COUNT; i++) {
+    h ^= h << 13
+    h ^= h >>> 17
+    h ^= h << 5
+    const bar = 1 + (Math.abs(h) % 3)
+    const gap = 1 + (Math.abs(h >>> 8) % 2)
+    stops.push(`var(--text-secondary) ${pos}px ${pos + bar}px`)
+    stops.push(`transparent ${pos + bar}px ${pos + bar + gap}px`)
+    pos += bar + gap
+  }
+  return `linear-gradient(90deg, ${stops.join(', ')})`
+}
+
+const barcodeStyle = computed(() => ({ backgroundImage: barcodeImage(sessionId.value || 'badge') }))
+
 function toggle(): void {
   expanded.value = !expanded.value
   if (!expanded.value) return
@@ -194,53 +234,163 @@ function toggle(): void {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(280px, calc(100% - 24px));
+  width: min(330px, calc(100% - 24px));
   pointer-events: auto;
 }
 
-.clip {
-  width: 30px;
-  height: 7px;
-  border: 1px solid var(--border-light);
-  border-bottom: none;
-  border-radius: 4px 4px 0 0;
-  background: var(--bg-secondary);
+/* ── 挂绳：织带 + 金属夹 ─────────────────────────────── */
+
+.lanyard {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  // 夹口压进卡顶，视觉上是夹住而不是摆在卡上方
+  margin-bottom: -5px;
+  pointer-events: none;
 }
 
-.badge-shell {
+.strap {
+  width: 13px;
+  height: 11px;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--accent-primary) 28%, transparent) 0 2px,
+    color-mix(in srgb, var(--accent-primary) 10%, transparent) 2px 4px
+  );
+  box-shadow: inset 0 0 0 1px var(--surface-border);
+}
+
+.clip {
+  width: 26px;
+  height: 12px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--radius-xs);
+  background: linear-gradient(
+    180deg,
+    var(--bg-elevated) 0%,
+    var(--surface-strong) 48%,
+    var(--bg-elevated) 100%
+  );
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow-sm);
+}
+
+/* ── 卡体：一张完整卡，一套边框与阴影 ────────────────── */
+
+.card {
+  position: relative;
+  z-index: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  // 斜纹织物 + 斜向受光渐变：纯平底色读起来是设置面板，不是卡
+  background: repeating-linear-gradient(135deg, var(--surface-glass) 0 1px, transparent 1px 4px),
+    linear-gradient(158deg, var(--bg-elevated) 0%, var(--bg-elevated) 44%, var(--surface-soft) 100%);
+  // 投射阴影定高度；顶边内高光 + 底边内暗给出 PVC 的厚度
+  box-shadow: var(--shadow-xl), inset 0 1px 0 var(--glass-highlight),
+    inset 0 -1px 0 color-mix(in srgb, var(--text-primary) 6%, transparent);
+  transition: transform 0.16s ease;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    opacity: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      105deg,
+      transparent 44%,
+      color-mix(in srgb, var(--accent-primary) 12%, transparent) 50%,
+      transparent 56%
+    );
+    transform: translateX(-110%);
+    transition: opacity 0.2s ease, transform 0.5s ease;
+  }
+}
+
+.router-badge:hover .card {
+  transform: translateY(-1px);
+
+  &::after {
+    opacity: 1;
+    transform: translateX(110%);
+  }
+}
+
+.slot {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  z-index: 1;
+  width: 22px;
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-primary) 24%, transparent);
+  pointer-events: none;
+}
+
+/* ── 左栏：照片 ───────────────────────────────────────── */
+
+.rail {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 8px 9px;
+  border-right: 1px solid var(--surface-border);
+}
+
+/* ── 抬头带：卡上唯一的可点区 ─────────────────────────── */
+
+.head {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-md);
-  color: var(--text-primary);
+  // 上内衬留出打孔槽的位置，印刷内容不从槽底下穿出来
+  padding: 12px 9px 8px 10px;
+  border: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-primary) 7%, transparent),
+    transparent
+  );
+  color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
 
-  &:hover {
-    border-color: var(--accent-primary);
-  }
+.router-badge.expanded .head {
+  border-bottom: 1px solid var(--surface-border);
+}
 
-  &:focus-visible {
-    outline: 2px solid var(--accent-primary);
-    outline-offset: 1px;
-  }
+.head:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
 }
 
 .photo {
   position: relative;
   flex: none;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: linear-gradient(160deg, var(--bg-secondary), var(--bg-elevated));
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--radius-sm);
+  // 照片区凹进卡面一档：内高光 + 比卡面深一档的底
+  background: linear-gradient(160deg, var(--surface-soft), var(--bg-tertiary));
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   color: var(--text-secondary);
   overflow: hidden;
 }
@@ -264,13 +414,16 @@ function toggle(): void {
 
 .on-duty {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 6px;
-  height: 6px;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--success);
   box-shadow: 0 0 0 1.5px var(--bg-elevated);
+  // 呼吸环与分隔圈叠在同一个 box-shadow 里动画：照片区是 overflow hidden，
+  // 用伪元素外扩会被裁掉，只会看见半个环。
+  animation: duty-breathe 2.4s ease-in-out infinite;
 }
 
 .ident {
@@ -282,9 +435,9 @@ function toggle(): void {
 }
 
 .name {
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.25;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-tight);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -292,8 +445,8 @@ function toggle(): void {
 
 .cwd {
   font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.25;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-tight);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -310,42 +463,43 @@ function toggle(): void {
   }
 }
 
-.details {
-  width: 100%;
-  padding: 8px 10px 6px;
-  border: 1px solid var(--border-light);
-  border-top: none;
-  border-radius: 0 0 8px 8px;
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-lg);
+/* ── 字段区：印刷式微标签 + 值 ────────────────────────── */
+
+.body {
+  grid-column: 2;
+  grid-row: 2;
+  padding: 7px 10px 8px;
+  animation: card-unfold 180ms ease-out both;
 }
 
 .fields {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  display: grid;
+  gap: 4px;
   margin: 0;
 }
 
 .field {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
 .field dt {
-  flex: 0 0 62px;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
+  flex: 0 0 5em;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
 }
 
 .field dd {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-xs-plus);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-compact);
   color: var(--text-primary);
 
   &.live {
@@ -354,7 +508,7 @@ function toggle(): void {
 
   &.mono {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
 
   &.path {
@@ -362,24 +516,71 @@ function toggle(): void {
   }
 }
 
+/* ── 卡底：条码 + 卡号 ───────────────────────────────── */
+
+.foot {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 10px 7px;
+  border-top: 1px solid var(--surface-border);
+  animation: card-unfold 200ms ease-out both;
+}
+
 .barcode {
-  display: block;
-  height: 14px;
-  margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--border-light);
-  background-image: repeating-linear-gradient(
-    90deg,
-    var(--text-secondary) 0 1px,
-    transparent 1px 3px,
-    var(--text-secondary) 3px 5px,
-    transparent 5px 8px,
-    var(--text-secondary) 8px 9px,
-    transparent 9px 12px
-  );
-  background-size: 100% 10px;
+  flex: 1;
+  min-width: 0;
+  height: 15px;
   background-repeat: no-repeat;
-  background-position: center bottom;
-  opacity: 0.5;
+  background-size: 100% 100%;
+  opacity: 0.8;
+}
+
+.card-no {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+@keyframes duty-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1.5px var(--bg-elevated), 0 0 0 2px var(--success-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 1.5px var(--bg-elevated), 0 0 0 3.5px transparent;
+  }
+}
+
+@keyframes card-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .chevron {
+    transition: none;
+  }
+
+  .body,
+  .foot,
+  .on-duty {
+    animation: none;
+  }
+
+  .card::after {
+    display: none;
+  }
 }
 </style>

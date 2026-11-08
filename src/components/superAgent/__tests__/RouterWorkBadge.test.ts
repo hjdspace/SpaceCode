@@ -107,6 +107,19 @@ describe('RouterWorkBadge', () => {
     expect(wrapper.text()).toContain('superAgent.badge.serialValue')
   })
 
+  it('卡号随条码印在卡底，工号不再单独占一行', async () => {
+    const superAgent = useSuperAgentStore()
+    superAgent.snapshot = snapshot()
+    superAgent.boundSessionId = 'router-1'
+
+    const wrapper = mountBadge()
+    await wrapper.find('[data-testid="super-agent-badge-toggle"]').trigger('click')
+
+    // 岗位/状态/工作目录/执行方式/检查点/工单/等人处理 —— 工号让位给条码下方
+    expect(wrapper.findAll('.field')).toHaveLength(7)
+    expect(wrapper.find('.card-no').text()).toBe('superAgent.badge.employeeId router-1-er-1')
+  })
+
   it('Router 在跑时挂上岗标记', () => {
     const superAgent = useSuperAgentStore()
     superAgent.snapshot = snapshot()
