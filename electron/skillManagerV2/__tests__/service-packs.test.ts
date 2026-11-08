@@ -15,7 +15,6 @@ import * as os from 'os'
 import { SkillManagerService } from '../service'
 import type {
   UpsertPackInput,
-  SkillPackDetail,
   RemovePackFromAgentPreview,
   DeletePackPreview,
 } from '@/types/skillManagerV2'

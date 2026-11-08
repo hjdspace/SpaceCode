@@ -44,7 +44,7 @@ export function useOpenProjectWorkflow() {
       recordRecentProjectRoot(folderPath)
       sessionStore.addProject(folderPath)
       syncProjectRootToSettings(folderPath)
-      const session = sessionStore.createSession(t('common.newChat'), folderPath)
+      sessionStore.createSession(t('common.newChat'), folderPath)
       dispatchSessionCreated()
     } catch (error) {
       console.error('[useOpenProjectWorkflow] openProjectFromPicker failed:', error)
@@ -69,7 +69,7 @@ export function useOpenProjectWorkflow() {
       syncProjectRootToSettings(projectPath)
 
       if (options?.forceNewSession) {
-        const session = sessionStore.createSession(t('common.newChat'), projectPath)
+        sessionStore.createSession(t('common.newChat'), projectPath)
         dispatchSessionCreated()
         return
       }
@@ -83,7 +83,7 @@ export function useOpenProjectWorkflow() {
         )[0]
         sessionStore.selectSession(latest.id)
       } else {
-        const session = sessionStore.createSession(t('common.newChat'), projectPath)
+        sessionStore.createSession(t('common.newChat'), projectPath)
         dispatchSessionCreated()
       }
     } catch (error) {

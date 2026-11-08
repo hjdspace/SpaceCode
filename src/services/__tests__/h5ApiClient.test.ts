@@ -263,7 +263,7 @@ describe('h5ApiClient', () => {
         ['searchFiles', () => mod.h5ApiClient.searchFiles('/a', 'q'), '/api/fs/search-files'],
       ]
 
-      for (const [, invoke, expected] of cases) {
+      for (const [, invoke] of cases) {
         await invoke()
       }
 

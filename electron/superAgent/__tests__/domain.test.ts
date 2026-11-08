@@ -650,7 +650,7 @@ describe('blocked/failed input gate', () => {
   it('refuses the same requestId with a different payload', () => {
     const domain = makeDomain()
     const { ticket } = createDesktopTicket(domain)
-    const assignment = startFirstAssignment(domain, ticket.ticketId)
+    startFirstAssignment(domain, ticket.ticketId)
     domain.addInput({
       ticketId: ticket.ticketId,
       requestId: 'request-1',

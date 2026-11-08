@@ -33,12 +33,6 @@ import type { UnifiedEngineEvent } from '../engine/engines/types'
 // Types
 // ──────────────────────────────────────────────────────────────────────────
 
-interface ClientConnection {
-  ws: WebSocket
-  sessionId: string
-  token: string
-}
-
 interface SessionRecord {
   sessionId: string
   token: string
@@ -211,7 +205,7 @@ export class ImServer {
   }
 
   /** GET /api/sessions/:id — Check if session exists */
-  private handleCheckSession(req: IncomingMessage, res: ServerResponse, path: string): void {
+  private handleCheckSession(_req: IncomingMessage, res: ServerResponse, path: string): void {
     const sessionId = path.split('/').pop() ?? ''
 
     if (!SESSION_ID_RE.test(sessionId)) {

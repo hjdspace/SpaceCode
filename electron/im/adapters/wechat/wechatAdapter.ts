@@ -70,7 +70,6 @@ export class WechatAdapter {
   private messageDedup: MessageDedup
   private pairing: Pairing
   private httpClient: HttpClient
-  private mediaHandler: WechatMediaHandler
   private typingIndicator: TypingIndicator
   private config: AdapterConfig
   private readonly serverUrl: string
@@ -110,7 +109,7 @@ export class WechatAdapter {
     this.pairing = new Pairing()
 
     const encryptKey = this.config.wechat.botToken
-    this.mediaHandler = new WechatMediaHandler(
+    new WechatMediaHandler(
       this.bot,
       opts.attachmentDir ?? resolveUserDefaultWorkDir(),
       encryptKey
@@ -353,7 +352,7 @@ export class WechatAdapter {
   // User message handling
   // ────────────────────────────────────────────────────────────────────────
 
-  private async handleUserMessage(chatId: string, text: string, userId: string): Promise<void> {
+  private async handleUserMessage(chatId: string, text: string, _userId: string): Promise<void> {
     // Check for permission quick-reply
     const pending = this.pendingPermissions.get(chatId)
     if (pending && pending.length > 0) {

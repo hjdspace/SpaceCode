@@ -4,7 +4,6 @@
  * UI 状态在 selectionBar store, 非响应式簿记在本模块闭包中。
  */
 
-import { onBeforeUnmount } from 'vue'
 import { useSelectionBarStore, type SelectionBarAnchor } from '@/stores/selectionBar'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'

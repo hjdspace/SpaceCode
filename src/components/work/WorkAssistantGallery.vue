@@ -235,7 +235,7 @@ async function handleSelect(a: AgentDef) {
   }
   starting.value = true
   try {
-    const session = await sessionStore.startWorkAssistantSession({
+    await sessionStore.startWorkAssistantSession({
       name: a.name,
       skills: a.skills,
       permission: a.permission,

@@ -4,7 +4,6 @@ import { SessionConfig } from '../../session/sessionProcess'
 import type { IEngine, EngineType, EngineSessionConfig, EngineSessionStatus, AgentInfo, ImageAttachment, PermissionDecision, PermissionMode, PermissionUpdate, ThinkingUpdateTiming, EffortLevel } from './types'
 import { discoverAgentDefinitions, toAgentInfos } from './agentDefinitions'
 import { resolveSideTaskContextPath } from '../../session/transcriptDigest'
-import { info } from '../../infra/logger'
 
 const BUILTIN_AGENTS: AgentInfo[] = [
   {
@@ -38,14 +37,12 @@ const BUILTIN_AGENTS: AgentInfo[] = [
 export class ClaudeCodeEngine implements IEngine {
   readonly type: EngineType = 'claude-code'
   private pool: ClaudeCodeProcessPool
-  private _mainWindow: BrowserWindow | null = null
 
   constructor() {
     this.pool = new ClaudeCodeProcessPool()
   }
 
   setMainWindow(window: BrowserWindow): void {
-    this._mainWindow = window
     this.pool.setMainWindow(window)
   }
 

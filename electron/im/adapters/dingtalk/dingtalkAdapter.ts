@@ -72,7 +72,6 @@ export class DingtalkAdapter {
   private pairing: Pairing
   private httpClient: HttpClient
   private permissionCard: DingtalkPermissionCard
-  private mediaHandler: DingtalkMediaHandler
   private config: AdapterConfig
   private readonly serverUrl: string
   private streamStates: Map<string, DingtalkStreamState> = new Map()
@@ -110,7 +109,7 @@ export class DingtalkAdapter {
 
     const templateId = this.config.dingtalk.permissionCardTemplateId || DEFAULT_AI_CARD_TEMPLATE_ID
     this.permissionCard = new DingtalkPermissionCard(this.bot, templateId)
-    this.mediaHandler = new DingtalkMediaHandler(this.bot, opts.attachmentDir ?? resolveUserDefaultWorkDir())
+    new DingtalkMediaHandler(this.bot, opts.attachmentDir ?? resolveUserDefaultWorkDir())
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -352,8 +351,8 @@ export class DingtalkAdapter {
   private async handleUserMessage(
     chatId: string,
     text: string,
-    userId: string,
-    displayName: string
+    _userId: string,
+    _displayName: string
   ): Promise<void> {
     const webhook = this.getWebhook(chatId)
     if (!webhook) return
@@ -408,7 +407,7 @@ return
   // Session management
   // ────────────────────────────────────────────────────────────────────────
 
-  private async startNewSession(chatId: string, userId: string): Promise<void> {
+  private async startNewSession(chatId: string, _userId: string): Promise<void> {
     this.bridge.resetSession(chatId)
     this.clearStreamState(chatId)
     this.permissionCard.clear(this.getWebhook(chatId) ?? '')

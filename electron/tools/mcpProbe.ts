@@ -6,7 +6,6 @@
  */
 
 import { spawn, ChildProcess } from 'child_process'
-import { info, warn } from '../infra/logger'
 
 export interface McpProbeConfig {
   type: 'stdio' | 'sse' | 'http'
@@ -66,7 +65,6 @@ function probeStdio(
     let proc: ChildProcess | null = null
     let buffer = ''
     let settled = false
-    let initResponseReceived = false
     let stderrBuffer = ''
 
     const timer = setTimeout(() => {
@@ -166,7 +164,6 @@ function probeStdio(
     function handleJsonRpcMessage(msg: any) {
       // initialize 响应
       if (msg.id === 1 && msg.result) {
-        initResponseReceived = true
         const serverInfo = msg.result.serverInfo
         // 2) 发送 initialized 通知
         send({ jsonrpc: '2.0', method: 'notifications/initialized' })

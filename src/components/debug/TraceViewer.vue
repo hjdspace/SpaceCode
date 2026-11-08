@@ -19,12 +19,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores/app'
 import TraceListPage from './TraceListPage.vue'
 import TraceSessionPage from './TraceSessionPage.vue'
 
 const { t } = useI18n()
-const appStore = useAppStore()
 const selectedSessionId = ref<string | null>(null)
 
 function handleSelectSession(sessionId: string) {

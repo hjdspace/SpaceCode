@@ -50,8 +50,6 @@ function makeFakeApi() {
   }
 }
 
-type Fake = ReturnType<typeof makeFakeApi>
-
 async function setup(messages = [{ id: 'm-1', role: 'user' as const, content: '修一下恢复顺序', timestamp: 0 }]) {
   const fake = makeFakeApi()
   const { useTurnStore } = await import('@/stores/turn')

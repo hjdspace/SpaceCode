@@ -2,7 +2,7 @@ import type { BrowserWindow } from 'electron'
 import type { EngineAvailability, EngineType, IEngine } from './types'
 import { ClaudeCodeEngine } from './ClaudeCodeEngine'
 import { PiEngine } from './PiEngine'
-import { info, warn } from '../../infra/logger'
+import { info } from '../../infra/logger'
 
 export class EngineFactory {
   private static engines: Map<EngineType, IEngine> = new Map()

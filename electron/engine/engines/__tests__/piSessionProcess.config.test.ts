@@ -4,7 +4,7 @@ import * as path from 'path'
 import { PiSessionProcess } from '../PiSessionProcess'
 import { MIN_PI_VERSION, resetPiCliProbeCache } from '../piCliResolver'
 import type { EngineSessionConfig } from '../types'
-import { info as loggerInfo, warn as loggerWarn } from '../../../infra/logger'
+import { warn as loggerWarn } from '../../../infra/logger'
 
 /**
  * Engine launch configuration: which cli.js to run, which flags and env vars the
@@ -66,9 +66,7 @@ const SRC_DIR = path.resolve(__dirname, '..')
 const DEV_CLI_1 = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const DEV_CLI_2 = path.resolve(SRC_DIR, '..', '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const APP_CLI = path.join(APP_ROOT, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
-const APP_MONOREPO_CLI = path.join(APP_ROOT, 'pi-engine', 'packages', 'coding-agent', 'dist', 'cli.js')
 const RES_CLI = path.join(RESOURCES, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
-const RES_PI_ENGINE_CLI = path.join(RESOURCES, 'pi-engine', 'dist', 'cli.js')
 /** #52 之后 packaged 分支唯一的落点：extraResources 搬出去的自包含 bundle */
 const BUNDLED_CLI = path.join(RESOURCES, 'pi', 'dist', 'bundle', 'cli.js')
 const BUNDLED_PKG_JSON = path.join(RESOURCES, 'pi', 'package.json')

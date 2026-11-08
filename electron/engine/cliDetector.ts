@@ -682,7 +682,7 @@ function openDownloadPage(missing: string[]): void {
 }
 
 export async function installCli(
-  mainWindow: Electron.BrowserWindow | null,
+  _mainWindow: Electron.BrowserWindow | null,
   onProgress: (p: InstallProgress) => void,
 ): Promise<{ success: boolean; error?: string }> {
   info(SCOPE, 'Starting CLI installation')

@@ -6,7 +6,7 @@
  */
 
 import { ref, computed } from 'vue'
-import type { Message, Session } from '@/types'
+import type { Message } from '@/types'
 import { BUILT_IN_COMMANDS, findCommand, COMMAND_PROMPTS, type CommandKind } from '@/lib/constants/commands'
 
 export interface CommandBadge {
@@ -44,7 +44,7 @@ export function useChatCommands(options: UseChatCommandsOptions) {
    * Execute an immediate command
    */
   function executeImmediateCommand(command: string): string | null {
-    const cmd = findCommand(command)
+    findCommand(command)
 
     switch (command.toLowerCase()) {
       case 'help':
@@ -151,7 +151,6 @@ export function useChatCommands(options: UseChatCommandsOptions) {
 
     const parts = content.slice(1).split(/\s+/, 2)
     const commandName = parts[0]
-    const args = parts[1] || ''
 
     const cmd = findCommand(commandName)
 

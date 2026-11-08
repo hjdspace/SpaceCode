@@ -460,7 +460,6 @@ const editingServer = ref<MCPServer | undefined>()
 const expanded = reactive<Record<string, boolean>>({})
 
 const servers = computed(() => mcpStore.servers)
-const serverList = computed(() => mcpStore.serverList)
 const loading = computed(() => mcpStore.loading)
 const runtimeLoading = computed(() => mcpStore.runtimeLoading)
 const error = computed(() => mcpStore.error)

@@ -12,14 +12,12 @@ export class PiEngine implements IEngine {
   readonly type: EngineType = 'pi'
 
   private pool: PiProcessPool
-  private _mainWindow: BrowserWindow | null = null
 
   constructor() {
     this.pool = new PiProcessPool()
   }
 
   setMainWindow(window: BrowserWindow): void {
-    this._mainWindow = window
     this.pool.setMainWindow(window)
     info('PiEngine', 'Main window set')
   }

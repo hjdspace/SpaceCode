@@ -57,7 +57,7 @@ describe('MessageDedup', () => {
   })
 
   it('should handle re-record + sweep correctly (S2 regression)', () => {
-    const t0 = Date.now()
+    Date.now()
     dedup.tryRecord('a') // t0
     dedup.tryRecord('b') // t0
     dedup.tryRecord('c') // t0

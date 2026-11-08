@@ -23,7 +23,7 @@ function makeFakeApi() {
       onError: (cb: any) => { handlers.onError = cb; return () => {} },
       onPermissionRequest: (cb: any) => { handlers.onPermissionRequest = cb; return () => {} },
       onPermissionRequestCancelled: (cb: any) => { handlers.onPermissionRequestCancelled = cb; return () => {} },
-      sendMessage: vi.fn().mockImplementation((sid: string, ...args: any[]) => {
+      sendMessage: vi.fn().mockImplementation((sid: string, ..._args: any[]) => {
         queueMicrotask(() => handlers.onResult?.({ sessionId: sid, data: {} }))
         return Promise.resolve(undefined)
       }),

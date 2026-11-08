@@ -74,11 +74,6 @@ function seedUnavailableState(): { state: SuperAgentDomainState; evalId: string;
   return { state: JSON.parse(JSON.stringify(domain.state)) as SuperAgentDomainState, evalId, triggerId }
 }
 
-interface Harness {
-  service: ReturnType<typeof createSuperAgentService>
-  repoRoot: string
-}
-
 /**
  * 用持久化 Store 种出 unavailable Eval，再经 userDataDir 打开 Service ——
  * 与生产路径同一重水化链路（openPersistedSuperAgentProject）。

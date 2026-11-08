@@ -1,5 +1,5 @@
 import { ref, readonly } from 'vue'
-import type { RewindOption, RewindState } from '@/types/rewind'
+import type { RewindState } from '@/types/rewind'
 
 /**
  * Rewind 对话框 UI 状态机 module。

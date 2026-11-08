@@ -27,13 +27,11 @@ export interface HealthServerOptions {
 export class HealthServer {
   private server: ReturnType<typeof createServer> | null = null
   private readonly port: number
-  private readonly platform: string
   private readonly getReport: () => HealthReport
   private startTime: number = Date.now()
 
   constructor(opts: HealthServerOptions) {
     this.port = opts.port
-    this.platform = opts.platform
     this.getReport = opts.getReport
   }
 

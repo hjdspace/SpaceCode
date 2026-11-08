@@ -96,7 +96,7 @@ const SEND_TO_HOST = `function sendToHost(payload) {
  * Bridge 1: 清理/截断 Title，防范潜在 XSS
  */
 function sanitizeTitleInDoc(html: string): string {
-  return html.replace(/<title>([\s\S]*?)<\/title>/gi, (match, titleText) => {
+  return html.replace(/<title>([\s\S]*?)<\/title>/gi, (_match, titleText) => {
     const cleanText = titleText.replace(/</g, '&lt;').replace(/>/g, '&gt;').trim();
     return `<title>${cleanText}</title>`;
   });

@@ -94,7 +94,7 @@ export function buildTraceViewModel(
   const spans = new Map<string, MutableSpan>()
   const turns: TraceTurn[] = []
   const rootId = 'session:root'
-  const nowTimestamp = normalizeNowTimestamp(options.now)
+  normalizeNowTimestamp(options.now)
   const fallbackTimestamp = events[0]?.timestamp || new Date().toISOString()
 
   const hasErrors = events.some(e => e.status === 'failed' || e.error)

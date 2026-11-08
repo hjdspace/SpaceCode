@@ -15,7 +15,6 @@ import {
   type VoiceComposerTarget,
   type VoiceFailureCode,
   type VoiceInputState,
-  type VoiceOutcome,
   type VoiceSessionPort,
 } from '@/lib/voice/voiceDictation'
 import type { VoiceSilenceTracker } from '@/lib/voice/silenceTracker'

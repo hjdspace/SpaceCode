@@ -9,7 +9,6 @@ import type {
   FactoryPermissionMode,
   FactoryReview,
   FactoryRun,
-  FactoryRunStatus,
   FactoryTask,
   FactoryTaskConfigSnapshot,
 } from '@/shared/factory'

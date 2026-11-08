@@ -99,7 +99,6 @@
 import { ref, watch, nextTick, onMounted, computed, onUnmounted, useSlots } from 'vue'
 import type { Message } from '@/types'
 import type { TurnChangeCardData } from '@/types'
-import { storeToRefs } from 'pinia'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
 import DesignBlocks from './DesignBlocks.vue'

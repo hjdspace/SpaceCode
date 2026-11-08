@@ -212,7 +212,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Check, Palette, Type, Rows, Code2, BarChart3 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'

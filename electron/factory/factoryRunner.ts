@@ -250,7 +250,7 @@ function userDirtyLines(status: string): string[] {
     })
 }
 
-function startError(error: WorktreeGitError, stdout = '', stderr = ''): FactoryTaskStartError {
+function startError(error: WorktreeGitError, _stdout = '', _stderr = ''): FactoryTaskStartError {
   return error === 'branch-in-use' || error === 'not-git-repo' || error === 'path-too-long' || error === 'permission'
     ? error
     : 'git-error'
@@ -720,7 +720,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
   }
 
   /** 交回/停止运行前收口接管回合，同一个工作树不留第二个驱动。 */
-  async function stopTakeoverTurn(repoRoot: string, runId: string, taskId: string): Promise<void> {
+  async function stopTakeoverTurn(_repoRoot: string, runId: string, taskId: string): Promise<void> {
     const entry = takeoverTurns.get(taskId)
     if (!entry || entry.runId !== runId) return
     takeoverTurns.delete(taskId)
@@ -844,7 +844,7 @@ export function createFactoryRunner(deps: FactoryRunnerDeps = {}): FactoryRunner
     return null
   }
 
-  function activeTaskIds(repoRoot: string, runId: string): string[] {
+  function activeTaskIds(_repoRoot: string, runId: string): string[] {
     return [...running.entries()]
       .filter(([, entry]) => entry.runId === runId)
       .map(([id]) => id)

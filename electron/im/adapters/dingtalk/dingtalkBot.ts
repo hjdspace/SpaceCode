@@ -20,7 +20,6 @@ import { createLogger } from '../common/logger'
 const log = createLogger('DingtalkBot')
 
 const DINGTALK_API_BASE = 'https://api.dingtalk.com'
-const DINGTALK_OAPI_BASE = 'https://oapi.dingtalk.com'
 
 export interface DingtalkMessage {
   senderId: string

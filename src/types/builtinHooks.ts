@@ -2,7 +2,6 @@ import type { Component } from 'vue'
 import {
   BellRing,
   Shield,
-  Sparkles,
   Workflow,
   FileWarning,
   Wrench,

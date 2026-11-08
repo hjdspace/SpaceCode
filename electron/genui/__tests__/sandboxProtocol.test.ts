@@ -5,7 +5,7 @@
  * 只断言外部可观察行为：给一个请求 URL，返回什么状态、什么 MIME、带不带 CSP 头、
  * 读到什么内容。资源根注入为临时目录，于是同一套闸门同时服务协议与开发期静态服务。
  */
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, vi, afterAll } from 'vitest'
 
 vi.mock('electron', () => ({
   protocol: {

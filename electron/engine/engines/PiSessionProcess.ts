@@ -14,7 +14,6 @@ import { info, warn, error, debug } from '../../infra/logger'
 import { redactArgsForLog } from '../../infra/redactArgs'
 import {
   killTree as engineKillTree,
-  isProbableBunExecutable as engineIsProbableBunExecutable,
 } from '../../session/engineChildProcess'
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
 import { engineBlockedError } from '@/shared/engineErrors'
@@ -947,68 +946,6 @@ export class PiSessionProcess extends EventEmitter {
     }
 
     return cli.entry
-  }
-
-  /**
-   * Resolve the path to a usable bun binary for running the Pi CLI.
-   * Checks: bundled bun in engine/bin → platform-specific bundled bun → global bun.
-   * Returns null if no usable bun is found (caller should fall back to ELECTRON_RUN_AS_NODE).
-   */
-  private resolveBunPath(): string | null {
-    const platform = process.platform
-    const arch = process.arch
-
-    // 1. Bundled bun in engine/bin (same location as Claude Code engine)
-    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
-    const resourcesDir = process.resourcesPath || ''
-    const bundledBun = path.join(resourcesDir, 'engine', 'bin', bunName)
-    if (this.isProbableBunExecutable(bundledBun)) {
-      return bundledBun
-    }
-
-    // 2. Platform-specific bundled bun
-    const platformSuffix = platform === 'win32' ? 'windows-x64'
-      : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
-      : 'linux-x64'
-    const platformSpecificBun = path.join(resourcesDir, 'engine', 'bin', `bun-${platformSuffix}`)
-    if (this.isProbableBunExecutable(platformSpecificBun)) {
-      return platformSpecificBun
-    }
-    if (platform === 'win32') {
-      const exe = `${platformSpecificBun}.exe`
-      if (this.isProbableBunExecutable(exe)) {
-        return exe
-      }
-    }
-
-    // 3. Dev mode: check relative to __dirname
-    const devBun = path.resolve(__dirname, '../../engine/bin', bunName)
-    if (this.isProbableBunExecutable(devBun)) {
-      return devBun
-    }
-
-    // 4. Global bun
-    try {
-      const { execSync } = require('child_process')
-      const cmd = platform === 'win32' ? 'where bun' : 'which bun'
-      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
-      const globalBun = output.split(/\r?\n/)[0]?.trim()
-      if (globalBun && this.isProbableBunExecutable(globalBun)) {
-        return globalBun
-      }
-    } catch {
-      // bun not available globally
-    }
-
-    return null
-  }
-
-  /**
-   * Check if a file exists and looks like a real bun executable (not a placeholder or LFS pointer).
-   * Delegates to EngineChildProcess.isProbableBunExecutable for the shared implementation.
-   */
-  private isProbableBunExecutable(absPath: string): boolean {
-    return engineIsProbableBunExecutable(absPath)
   }
 
   /**

@@ -11,25 +11,6 @@
 import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
-import type {
-  CuaDriverStatus,
-  CuaDriverUpdateInfo,
-  CuaDriverPermissions,
-  HealthCheck,
-  McpToolResult,
-} from '@/types/computerUse'
-
-import type {
-  BrowserUseStatus,
-  BrowserUseUpdateInfo,
-  BrowserUseHealthCheck,
-  BrowserUseInstallProgress,
-  BrowserUseInstallOptions,
-  BrowserUseToolResult,
-  BrowserUseLiveSnapshot,
-  BrowserUseAgentConfig,
-} from '@/types/browserUse'
-
 export type {
   CuaDriverStatus,
   CuaDriverUpdateInfo,

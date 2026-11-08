@@ -84,7 +84,7 @@
 
 <script setup lang="ts">
 import { computed, watch, ref as vueRef } from 'vue'
-import { useAppStore, type ToolDiffData } from '@/stores/app'
+import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { FileDiff, Check, Undo2, Columns3 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'

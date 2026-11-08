@@ -195,7 +195,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
 import {
   Download, RefreshCw, FileText, Info, Check, AlertCircle, RotateCw,
 } from 'lucide-vue-next'
@@ -204,8 +203,6 @@ import DOMPurify from 'dompurify'
 import { api } from '@/services/electronAPI'
 import { useAutoUpdate } from '@/composables/useAutoUpdate'
 import appIcon from '@/assets/app-icon.svg'
-
-const { t } = useI18n()
 
 const {
   status: updateStatus,

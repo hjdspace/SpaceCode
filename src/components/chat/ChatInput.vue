@@ -329,10 +329,10 @@ import FileAttachmentCard from './FileAttachmentCard.vue'
 import { useAppStore, type InputInjectPayload } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
-import type { PendingMessage } from '@/stores/turn/types'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { usePendingMessages } from '@/composables/usePendingMessages'
 import { useFileToChat } from '@/composables/useFileToChat'
 import PermissionModeSelector from './PermissionModeSelector.vue'
 import ComposerStatusBar from './ComposerStatusBar.vue'
@@ -367,7 +367,7 @@ import type { VoiceInputTarget } from '@/lib/voice/voiceTargetRegistry'
 import { buildDictationAppend } from '@/lib/voice/mergeDictation'
 import type { VoiceComposerTarget, VoiceSnapshot } from '@/lib/voice/voiceDictation'
 import type { VoiceModelInstallInfo } from '@/shared/channels/voice'
-import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
+import type { ImageAttachment, AllAttachments, SendOptions } from '@/composables/types'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
@@ -474,11 +474,11 @@ const editor = useContentEditor({
 })
 const {
   editorRef, containerRef, inputText,
-  getEditorPlainText, getTextBeforeCursor, getCursorOffset,
+  getEditorPlainText, getTextBeforeCursor,
   setCursorToEnd, focusEditor,
   insertMentionChip, insertCommandChip, insertImageChip,
   removeTriggerText, setEditorContent, clearEditor,
-  collectMentions, collectAllAttachments, autoResize,
+  collectAllAttachments, autoResize,
   insertPastedTextWithMarkers,
   hasContent: editorHasContent, handleBackspaceChip,
 } = editor
@@ -532,7 +532,7 @@ const {
   addFile: addFileAttachment,
   addUploadedFilesFromDialog,
   removeFile: removeAttachment,
-  clearFiles, handleAddClick, closeAttachmentMenu,
+  handleAddClick, closeAttachmentMenu,
   handleBrowseFiles: handleBrowseFilesBase,
 } = fileAttachments
 
@@ -771,7 +771,7 @@ const draftPersistence = useDraftPersistence({
   attachedQuotes,
   draftScope: () => props.draftScope,
 })
-const { editorSessionId, saveDraftForSession, loadDraftForSession, restoreStashData } = draftPersistence
+const { editorSessionId, saveDraftForSession, loadDraftForSession } = draftPersistence
 
 // ── Local state (not extracted) ──────────────────────────────────
 const showSteerHint = ref(false)
@@ -791,50 +791,24 @@ function closeImagePreview() {
 // ── Computed ─────────────────────────────────────────────────────
 const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value) || attachedQuotes.value.length > 0)
 
-const currentPendingMessages = computed(() => {
-  const sid = editorSessionId.value
-  if (!sid) return []
-  return turnStore.getPendingMessages(sid)
-})
-
 // ── Pending Messages ─────────────────────────────────────────────
-// 全部按 editorSessionId（本输入框绑定的会话）寻址，而非全局 currentSessionId：
-// 分屏与侧边任务会同时存在多个 ChatInput 实例，用全局 id 会串到别的会话。
-
-/** 排队消息摊回编辑器：召回按钮与空输入框按 ↑ 共用这一份恢复逻辑 */
-function applyPendingSnapshot(msg: PendingMessage) {
-  inputText.value = msg.content
-  if (editorRef.value) {
-    editorRef.value.innerText = msg.content
-  }
-  attachedFiles.value = msg.attachments.map(f => ({ ...f }))
-  attachedImages.value = msg.images.map(img => ({ ...img }))
-  nextTick(() => focusEditor())
-}
-
-function recallPendingMsg(msgId: string) {
-  const sid = editorSessionId.value
-  if (!sid) return
-  const recalled = turnStore.recallPendingMessage(sid, msgId)
-  if (recalled) applyPendingSnapshot(recalled)
-}
-
-function removePendingMsg(msgId: string) {
-  const sid = editorSessionId.value
-  if (sid) turnStore.removePendingMessage(sid, msgId)
-}
-
-function sendPendingNow(msgId: string) {
-  const sid = editorSessionId.value
-  if (!sid) return
-  const recalled = turnStore.recallPendingMessage(sid, msgId)
-  if (!recalled) return
-  const allAttachments = collectAllAttachments(
-    recalled.attachments.map(f => ({ ...f })),
-    recalled.images.map(img => ({ ...img })),
-  )
-  emit('send', recalled.content, allAttachments)
-}
+// 排队消息按本输入框绑定的会话寻址，逻辑见 usePendingMessages。
+const {
+  currentPendingMessages,
+  applyPendingSnapshot,
+  recallPendingMsg,
+  removePendingMsg,
+  sendPendingNow,
+} = usePendingMessages({
+  sessionId: editorSessionId,
+  inputText,
+  editorRef,
+  attachedFiles,
+  attachedImages,
+  collectAllAttachments,
+  focusEditor,
+  onSend: (content, attachments) => emit('send', content, attachments),
+})
 
 // ── Thinking toggle ──────────────────────────────────────────────
 let thinkingHintTimer: ReturnType<typeof setTimeout> | undefined
@@ -1471,7 +1445,7 @@ function handleDrop(e: DragEvent) {
   }
 
   if (data.type === 'image-files') {
-    for (const file of data.files) {
+    data.files.forEach(() => {
       // Convert the plain object back to a File for handleImageFile
       // Since drag events give us real File objects, we need to get them from the original event
       const realFiles = Array.from(e.dataTransfer?.files || [])
@@ -1480,7 +1454,7 @@ function handleDrop(e: DragEvent) {
           handleImageFileFromComposable(realFile, (image) => insertImageChip(image))
         }
       }
-    }
+    })
   }
 }
 

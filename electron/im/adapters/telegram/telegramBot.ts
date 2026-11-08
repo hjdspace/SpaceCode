@@ -8,10 +8,6 @@
  * API reference: https://core.telegram.org/bots/api
  */
 
-import { createLogger } from '../common/logger'
-
-const log = createLogger('TelegramBot')
-
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
 
 export interface TelegramMessage {

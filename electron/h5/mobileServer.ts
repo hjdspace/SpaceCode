@@ -5,7 +5,7 @@ import * as net from 'net'
 import * as os from 'os'
 import * as child_process from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
-import type { MobileRequest, MobilePush, QRCodeData, ServerStatus, ThemeSyncData, ConnectData } from './mobileServerTypes'
+import type { MobileRequest, MobilePush, QRCodeData, ServerStatus, ThemeSyncData } from './mobileServerTypes'
 
 export class MobileServer extends EventEmitter {
   private wss: WebSocketServer | null = null
@@ -17,7 +17,7 @@ export class MobileServer extends EventEmitter {
   private port: number = 0
 
   constructor(
-    private readonly onMessage: (message: MobileRequest) => Promise<unknown>,
+    _onMessage: (message: MobileRequest) => Promise<unknown>,
     private readonly getThemeSyncData: () => ThemeSyncData | Promise<ThemeSyncData>
   ) {
     super()

@@ -151,11 +151,6 @@ const appStore = useAppStore()
 
 const HOVER_DELAY_MS = 180
 
-const taskZoneRef = ref<HTMLElement | null>(null)
-const changesZoneRef = ref<HTMLElement | null>(null)
-const taskPopupRef = ref<HTMLElement | null>(null)
-const changesPopupRef = ref<HTMLElement | null>(null)
-
 const taskHover = ref(false)
 const changesHover = ref(false)
 const showTaskPopup = ref(false)

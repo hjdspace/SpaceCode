@@ -52,7 +52,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 
 const props = defineProps<{
@@ -86,7 +85,6 @@ const INITIAL_LIMIT = 20
 const LOAD_MORE_COUNT = 20
 
 const { t } = useI18n()
-const appStore = useAppStore()
 const sessionStore = useChatSessionStore()
 
 const filteredSessions = computed(() => {

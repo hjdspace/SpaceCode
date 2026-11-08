@@ -75,7 +75,6 @@ const appStore = useAppStore()
 const { activeSessionId } = storeToRefs(designStore)
 const { createDesignSession, submitQuestionForm, stopDesignGeneration, switchDesignSystem, buildDesignMessage } = useDesignSession()
 
-const bodyRef = ref<HTMLElement | null>(null)
 const designSystems = ref<DesignSystemSummary[]>([])
 
 // ── loading 状态：直接复用 chatStream 的 loadingSessions ──

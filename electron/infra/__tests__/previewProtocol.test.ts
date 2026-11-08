@@ -6,7 +6,7 @@
  * 产物自带的 CSP meta 被移除；非 HTML 不执行任何脚本。文件闸门与 HTTP 预览
  * 服务共用 `previewGrants`，这里用同一套边界用例收口。
  */
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, vi, afterAll } from 'vitest'
 
 vi.mock('electron', () => ({
   protocol: {
@@ -27,7 +27,6 @@ import { join } from 'path'
 import { protocol } from 'electron'
 import {
   PREVIEW_CSP,
-  PREVIEW_HOST,
   PREVIEW_HOST_ORIGIN_PARAM,
   PREVIEW_NONCE_PARAM,
   PREVIEW_ORIGIN,

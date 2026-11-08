@@ -21,7 +21,6 @@ import {
   createGithubPrHttpClient,
   extractPrReferences,
   githubPrItemToEvent,
-  githubPrThreadId,
   type GithubPrClient,
   type GithubPrItem,
 } from '../sources/githubPr'

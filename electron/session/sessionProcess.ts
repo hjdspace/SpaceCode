@@ -13,7 +13,6 @@ import {
   killTree as engineKillTree,
   resolveBunPath as engineResolveBunPath,
   resolveBunPathForPackagedDesktop as engineResolveBunPathForPackagedDesktop,
-  isProbableBunExecutable as engineIsProbableBunExecutable,
   resolveCliRoot as engineResolveCliRoot,
 } from './engineChildProcess'
 import {
@@ -2086,16 +2085,6 @@ export class SessionProcess extends EventEmitter {
 
     warn('SessionProcess', `[${this.sessionId.slice(0, 8)}] No engine artifact under ${this.cliRoot}, falling back to global 'claude' command`)
     return { command: 'claude', args: [] }
-  }
-
-  /**
-   * Reject placeholders / broken copies (existsSync alone is not enough on portable builds).
-   * Real bun binaries are multi‑MB; empty or LFS-pointer files cause spawn ENOENT or instant failure.
-   *
-   * Delegates to EngineChildProcess.isProbableBunExecutable for the shared implementation.
-   */
-  private isProbableBunExecutable(absPath: string): boolean {
-    return engineIsProbableBunExecutable(absPath)
   }
 
   /** For dist-desktop: only return bun if the binary looks real; otherwise null so we can fall back to Electron-as-Node. */

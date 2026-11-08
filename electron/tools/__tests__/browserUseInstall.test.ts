@@ -492,7 +492,7 @@ describe('installBrowserUse — China mirrors', () => {
   const TSINGHUA = 'https://pypi.tuna.tsinghua.edu.cn/simple'
 
   it('passes the Tsinghua index plus its trusted host to pip and the CDN to Playwright', async () => {
-    const uv = uvOnPath()
+    uvOnPath()
     const py = pythonOnPath('3.12.1', 'linux')
     const svc = await loadService('linux')
 
@@ -509,7 +509,7 @@ describe('installBrowserUse — China mirrors', () => {
   })
 
   it('uses the Aliyun index but the official Playwright CDN, which Aliyun does not mirror', async () => {
-    const py = pythonOnPath('3.12.1', 'linux')
+    pythonOnPath('3.12.1', 'linux')
     const svc = await loadService('linux')
 
     await svc.installBrowserUse({ useMirror: true, mirrorType: 'aliyun' })

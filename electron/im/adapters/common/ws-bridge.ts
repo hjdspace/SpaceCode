@@ -229,7 +229,7 @@ export class WsBridge {
   // Private: WS event handlers
   // ────────────────────────────────────────────────────────────────────────
 
-  private onOpen(chatId: string, session: BridgeSession): void {
+  private onOpen(_chatId: string, session: BridgeSession): void {
     session.reconnectAttempts = 0
     // Start heartbeat on first successful connection
     if (!this.heartbeatTimer) {
@@ -281,7 +281,7 @@ export class WsBridge {
     }
   }
 
-  private onClose(chatId: string, session: BridgeSession, code: number, reason: string): void {
+  private onClose(chatId: string, session: BridgeSession, code: number, _reason: string): void {
     // Stale check: if session was replaced, don't reconnect
     if (this.sessions.get(chatId) !== session) {
       return

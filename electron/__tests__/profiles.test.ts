@@ -6,7 +6,7 @@ import * as os from 'os'
 // Mock electron 模块（main.ts 依赖 app.getPath / app.isPackaged / app.whenReady 等）
 vi.mock('electron', () => ({
   app: {
-    getPath: vi.fn((name: string) => os.tmpdir()),
+    getPath: vi.fn((_name: string) => os.tmpdir()),
     isPackaged: false,
     setAppUserModelId: vi.fn(),
     requestSingleInstanceLock: vi.fn(() => true),

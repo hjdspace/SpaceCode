@@ -21,7 +21,6 @@
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type {
-  SuperAgentDispatchResult,
   SuperAgentQueueEntry,
   SuperAgentQueueSnapshot,
 } from '@/shared/channels/superAgent'

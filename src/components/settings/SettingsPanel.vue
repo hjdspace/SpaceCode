@@ -137,7 +137,6 @@ const asyncSetting = (loader: AsyncComponentLoader) => defineAsyncComponent({
 })
 
 const GeneralSettings = asyncSetting(() => import('./GeneralSettings.vue'))
-const ModelSettings = asyncSetting(() => import('./ModelSettings.vue'))
 const ProfileCards = asyncSetting(() => import('./ProfileCards.vue'))
 
 const AppearanceSettings = asyncSetting(() => import('./AppearanceSettings.vue'))

@@ -7,7 +7,7 @@
  * - Command navigation and selection
  * - Immediate command dispatch vs chip insertion
  */
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { useCommandPalette } from '@/composables/useCommandPalette'
 import { BUILT_IN_COMMANDS } from '@/lib/constants/commands'
 import { useSkillsStore } from '@/stores/skills'

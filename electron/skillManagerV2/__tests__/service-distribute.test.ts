@@ -12,11 +12,6 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { SkillManagerService } from '../service'
-import type {
-  DistributionPreview,
-  DistributionChange,
-  DistributionBlocker,
-} from '@/types/skillManagerV2'
 
 // ── Test helpers ───────────────────────────────────────────────────
 

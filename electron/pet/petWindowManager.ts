@@ -443,7 +443,7 @@ export class PetWindowController {
   // ── 面板贴边翻转 ──
 
   private evaluatePanelPlacement(
-    window: BrowserWindow,
+    _window: BrowserWindow,
     windowPosition: Position,
     workArea: Rectangle,
     mascot: Rectangle,

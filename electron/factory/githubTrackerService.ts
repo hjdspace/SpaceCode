@@ -37,7 +37,6 @@ import {
   createGhApi,
   createRestApi,
   type GhRunner,
-  type GithubApi,
   type GithubFetch,
 } from './githubClient'
 import { buildMergeComment, createGithubTracker, type GithubTracker } from './githubTracker'
@@ -120,7 +119,7 @@ export function createGithubTrackerService(deps: GithubTrackerServiceDeps): Gith
   }
 
   async function defaultResolve(
-    repoRoot: string,
+    _repoRoot: string,
     config: FactoryConfig,
     locallyClaimed: number[],
     holdsClaim: (issueNumber: number, runId: string) => boolean,

@@ -359,7 +359,7 @@ export class TerminalManager {
     return process.env.SHELL || '/bin/bash'
   }
 
-  private getShellArgs(shell: string): string[] {
+  private getShellArgs(_shell: string): string[] {
     if (process.platform === 'win32') {
       // 不传 -NoLogo，让用户 profile 正常加载（别名、提示符、模块等）
       return []

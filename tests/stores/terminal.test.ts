@@ -57,7 +57,7 @@ describe('terminal store — tab lifecycle', () => {
 
   it('closeTab removes tab and switches to adjacent', () => {
     const store = useTerminalStore()
-    const id1 = store.createTab()!
+    store.createTab()!
     const id2 = store.createTab()!
     const id3 = store.createTab()!
 
@@ -238,7 +238,7 @@ describe('terminal store — renumberTabs', () => {
   it('does not renumber custom-labeled tabs after close', () => {
     const store = useTerminalStore()
     const id1 = store.createTab({ label: 'Custom A' })!
-    const id2 = store.createTab()! // Terminal 2
+    store.createTab()! // Terminal 2
 
     store.closeTab(id1)
     // Custom A is gone, Terminal 2 → renumbered to Terminal 1

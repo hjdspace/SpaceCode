@@ -40,9 +40,6 @@ export function buildSelectionMessages(ctx: SelectionAIContext): Array<{ role: s
   const fileHint = ctx.fileName ? (isZh ? `\n\n（来自文件：${ctx.fileName}）` : `\n\n(From file: ${ctx.fileName})`) : ''
 
   if (ctx.type === 'explain') {
-    const system = isZh
-      ? '你是技术解释助手。用简体中文简洁解释用户提供的内容，可以使用 markdown 格式。直接给出解释，不要开场白。'
-      : 'You are a technical explanation assistant. Explain the provided content concisely in English using markdown. Give the explanation directly, no preamble.'
     return [{ role: 'user', content: `请解释以下内容：\n\n${fenced}${fileHint}` }]
   }
 
@@ -54,17 +51,7 @@ export function buildSelectionMessages(ctx: SelectionAIContext): Array<{ role: s
     custom: { zh: `按以下要求处理这段文字：${ctx.customInstruction || ''}`, en: `Edit the text as follows: ${ctx.customInstruction || ''}` },
   }
   const task = isZh ? actionText[ctx.type].zh : actionText[ctx.type].en
-  const codeRule = ctx.isCode
-    ? (isZh
-      ? '这是代码，改写时必须保持代码正确性（仅允许注释/字符串内的措辞调整），只输出替换后的代码。'
-      : 'This is code. Preserve code correctness (only wording inside comments/strings may change) and output only the replacement code.')
-    : (isZh
-      ? '只输出改写后的文本，不要任何解释、引号或代码围栏。'
-      : 'Output ONLY the rewritten text — no explanations, no surrounding quotes, no code fences.')
 
-  const system = isZh
-    ? `你是专业编辑助手。${codeRule}`
-    : `You are a professional editor. ${codeRule}`
   return [{ role: 'user', content: `${task}：\n\n${fenced}${fileHint}` }]
 }
 

@@ -16,7 +16,7 @@ import { FeishuAdapter } from '@electron/im/adapters/feishu/feishuAdapter'
 import type { FeishuBot, FeishuMessage } from '@electron/im/adapters/feishu/feishuBot'
 import { saveConfig } from '@electron/im/adapters/common/config'
 import type { AdapterConfig } from '@electron/im/adapters/common/config'
-import type { MessageHandler, SessionBinding, ServerMessage } from '@electron/im/adapters/common/types'
+import type { MessageHandler, SessionBinding } from '@electron/im/adapters/common/types'
 
 // Callable mock surface for the captured test doubles (vitest's Mock union type
 // returned by ReturnType<typeof vi.fn> is not directly callable under vue-tsc).
@@ -530,7 +530,7 @@ describe('FeishuAdapter — command parsing & routing', () => {
       ['/cancel', '✅ 已取消当前操作'],
       ['/health', '✅ 适配器运行正常'],
     ]
-    for (const [command, copy] of expected) {
+    for (const [command] of expected) {
       await sendEvent(adapter, textMsg(command))
     }
 

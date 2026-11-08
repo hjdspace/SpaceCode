@@ -80,7 +80,6 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Session } from '@/types'
-import { MessageSquare } from 'lucide-vue-next'
 import SessionListItem from './SessionListItem.vue'
 import ProjectGroupHeader from './ProjectGroupHeader.vue'
 import {

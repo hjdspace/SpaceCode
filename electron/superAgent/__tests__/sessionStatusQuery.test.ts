@@ -14,7 +14,7 @@ import type {
   SuperAgentQueueSnapshot,
   SuperAgentTicketProgress,
 } from '@/shared/channels/superAgent'
-import { createSuperAgentDomain, type SuperAgentDomain } from '../domain'
+import { createSuperAgentDomain } from '../domain'
 import { createSuperAgentProgressProjector } from '../progressProjector'
 import { renderSuperAgentRouterStatusContext } from '../prompts'
 import { createSuperAgentSessionStatusQuery } from '../sessionStatusQuery'

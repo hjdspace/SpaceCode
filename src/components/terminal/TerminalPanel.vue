@@ -45,23 +45,12 @@ const props = defineProps<{
 const { t } = useI18n()
 const terminalStore = useTerminalStore()
 const appStore = useAppStore()
-const panelRef = ref<HTMLElement | null>(null)
 
 const copyToast = ref({
   show: false,
   message: '已复制到剪贴板'
 })
 let copyToastTimer: ReturnType<typeof setTimeout> | null = null
-
-function showCopyToast(message: string = '已复制到剪贴板') {
-  if (copyToastTimer) {
-    clearTimeout(copyToastTimer)
-  }
-  copyToast.value = { show: true, message }
-  copyToastTimer = setTimeout(() => {
-    copyToast.value.show = false
-  }, 2000)
-}
 
 function handleCreateTab() {
   appStore.createTerminalTab()

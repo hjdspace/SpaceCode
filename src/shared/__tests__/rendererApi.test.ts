@@ -11,7 +11,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { defineChannels, defineNamespace } from '../channelMap'
 import { createRendererApi, createEventApi } from '../rendererApi'
-import type { ChannelNamespace } from '../channelMap'
 
 // ── Test fixture: minimal channel map mirroring gitChannels ──────────────
 
@@ -21,9 +20,6 @@ const testChannels = defineChannels({
   getBranches: { req: [] as unknown as [cwd: string], res: null as unknown as string[] },
   getLog: { req: [] as unknown as [cwd: string, count?: number], res: null as unknown as string[] },
 })
-
-type TestChannelMap = typeof testChannels
-type TestRendererApi = import('../channelMap').DeriveRendererApi<TestChannelMap>
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
@@ -80,7 +76,7 @@ describe('createRendererApi', () => {
         git: {
           isRepo: (cwd: string) => Promise.resolve(cwd === '/repo'),
           getStatus: (cwd: string) => Promise.resolve({ isRepo: true, cwd }),
-          getBranches: (cwd: string) => Promise.resolve(['main', 'dev']),
+          getBranches: (_cwd: string) => Promise.resolve(['main', 'dev']),
           getLog: (cwd: string, count?: number) =>
             Promise.resolve([`${cwd}:${count ?? 50}`]),
         },

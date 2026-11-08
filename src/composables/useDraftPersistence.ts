@@ -8,7 +8,6 @@
  */
 import { ref, nextTick, type Ref } from 'vue'
 import { useChatSessionStore } from '@/stores/chatSession'
-import { useTurnStore } from '@/stores/turn'
 import { resolveDraftSave, resolveDraftLoad, isMirrorValid } from '@/composables/usePromptStash'
 import type { ImageAttachment, Attachment, TextQuoteAttachment } from '@/composables/types'
 

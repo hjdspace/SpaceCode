@@ -87,7 +87,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Search, RefreshCw, FolderOpen, Eye, EyeOff } from 'lucide-vue-next'
+import { Search, RefreshCw, Eye, EyeOff } from 'lucide-vue-next'
 import FileTreeNode from './FileTreeNode.vue'
 import FileContextMenu from './FileContextMenu.vue'
 import { api } from '@/services/electronAPI'
@@ -130,7 +130,6 @@ const emit = defineEmits<{
 
 const appStore = useAppStore()
 const scmStore = useScmStore()
-const treeContentRef = ref<HTMLElement>()
 
 // State
 const treeData = ref<TreeNode[]>([])
@@ -169,11 +168,6 @@ const gitMarks = computed(() => buildGitTreeMarks(appStore.projectRoot, {
 }))
 
 // Methods
-function getFileIcon(extension?: string) {
-  // This is handled by FileTreeNode component now
-  return null
-}
-
 function containsMatch(node: TreeNode, query: string): boolean {
   if (node.name.toLowerCase().includes(query)) return true
   if (node.children) {
@@ -385,7 +379,7 @@ function handleRename(node: TreeNode) {
   renameRequest.value = { path: node.path }
 }
 
-function handleDelete(node: TreeNode) {
+function handleDelete(_node: TreeNode) {
   // Refresh tree after deletion
   refreshTree()
 }

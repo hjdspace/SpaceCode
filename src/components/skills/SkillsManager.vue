@@ -163,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Search, Zap, ArrowLeft } from 'lucide-vue-next'
 import { useSkillsStore, type Skill } from '@/stores/skills'
@@ -189,7 +189,6 @@ const selected = ref<Skill | null>(null)
 const showCreate = ref(false)
 const viewTab = ref<'local' | 'marketplace' | 'library'>('local')
 
-const loading = computed(() => skillsStore.loading)
 const skills = computed(() => skillsStore.skills)
 
 const filtered = computed(() => {

@@ -111,7 +111,7 @@ function makeProc(overrides: Partial<SessionConfig> = {}): any {
   return proc
 }
 
-function feed(proc: any, obj: Record<string, any>): void {
+function feed(_proc: any, obj: Record<string, any>): void {
   cp.calls[cp.calls.length - 1].child.stdout.emit('data', Buffer.from(`${JSON.stringify(obj)}\n`, 'utf8'))
 }
 

@@ -16,7 +16,6 @@ import {
   buildFileTree,
   inspectPath,
   removePath,
-  pathExists,
   expandTilde,
 } from '../fsutil'
 
@@ -100,7 +99,6 @@ describe('fsutil', () => {
 
     it('excludes node_modules from hash', () => {
       const dir1 = path.join(tmpDir, 'skill1')
-      const dir2 = path.join(tmpDir, 'skill1') // same name for fair comparison
       writeFile(path.join(dir1, 'SKILL.md'), 'content')
       writeFile(path.join(dir1, 'node_modules', 'pkg', 'index.js'), 'noise')
 

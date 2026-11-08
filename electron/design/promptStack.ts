@@ -6,7 +6,6 @@ import {
   deleteUserDesignSystem,
   directoryExists,
   isSafeDesignSystemId,
-  listUserDesignSystemIds,
   type CreateUserDesignSystemInput,
 } from './userSystems';
 import * as fs from 'fs/promises';

@@ -2,8 +2,8 @@
 // 桌面宠物类型定义。参考 cc-haha 重构：sprite atlas 渲染 + 任务状态监控。
 // 丢弃旧的 SVG/反应气泡/AI 反应模型。
 
-import type { PetSessionActivity, PetSessionStatus } from '@/lib/petSessionModel'
-import type { PetAnimationState, PetLookDirection } from '@/lib/petAnimation'
+import type { PetSessionActivity } from '@/lib/petSessionModel'
+import type { PetAnimationState } from '@/lib/petAnimation'
 
 // ── 内置宠物描述符 ──
 

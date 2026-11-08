@@ -1,13 +1,12 @@
 import { EventEmitter } from 'events'
-import { spawn, execFile, type ChildProcess } from 'child_process'
+import { spawn, execFile } from 'child_process'
 import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as https from 'https'
-import { createWriteStream, createReadStream, existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
-import { pipeline } from 'stream/promises'
-import { info, warn, error, debug } from '../infra/logger'
+import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
+import { info, warn, debug } from '../infra/logger'
 import { GITHUB_MIRROR_PREFIXES } from '@/shared/githubMirrorPrefixes'
 
 const RTK_GITHUB_REPO = 'rtk-ai/rtk'
@@ -750,7 +749,7 @@ class RtkManager extends EventEmitter {
       }
 
       const timeout = options?.timeout ?? 15_000
-      const child = execFile(binaryPath, args, {
+      execFile(binaryPath, args, {
         timeout,
         maxBuffer: 1024 * 1024 * 5, // 5MB
         windowsHide: true,

@@ -175,7 +175,6 @@ import {
   createSuperAgentExecutor,
   isSuperAgentHandoffReport,
   type SuperAgentExecutor,
-  type SuperAgentExecutorIngestResult,
 } from './executor'
 import {
   createSuperAgentBackgroundJobs,
@@ -809,7 +808,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             },
           )
         },
-        onLaunchError: (ticketId, err) => {
+        onLaunchError: (ticketId, _err) => {
           // launch 失败计入健康（effect:launch），错误信息带 ticketId 便于追溯
           health.recordFailure('effect:launch', {
             code: 'engineLaunchFailed',

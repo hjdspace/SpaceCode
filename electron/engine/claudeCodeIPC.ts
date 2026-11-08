@@ -1,11 +1,9 @@
 import { ipcMain, BrowserWindow, app } from 'electron'
 import type { WebContents } from 'electron'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { join } from 'path'
 import { EngineFactory } from './engines/EngineFactory'
-import type { EngineSessionConfig, EngineType, AgentInfo } from './engines/types'
+import type { EngineSessionConfig, EngineType } from './engines/types'
 import { info, warn, error, debug } from '../infra/logger'
-import { SessionHistoryManager, SessionLite } from '../session/sessionHistoryManager'
+import { SessionHistoryManager } from '../session/sessionHistoryManager'
 import { listSuperAgentSessionTypes } from '../superAgent/ownedSessions'
 import {
   detectInstalledCli,
@@ -46,10 +44,7 @@ import { channelNames, eventChannels } from '@/shared/channelMap'
 const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
 const CLAUDE_CODE_EVENTS = eventChannels(claudeCodeNamespace.events, 'claude-code:')
 
-let mainWindow: BrowserWindow | null = null
-
 export function setMainWindow(window: BrowserWindow) {
-  mainWindow = window
   EngineFactory.setMainWindow(window)
 }
 

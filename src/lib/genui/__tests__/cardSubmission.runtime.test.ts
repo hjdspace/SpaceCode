@@ -84,7 +84,7 @@ function seedSession(overrides: Partial<GenuiCardRecord> = {}): GenuiCardRecord 
   return card
 }
 
-async function makeHost(fake: Fake, card: GenuiCardRecord) {
+async function makeHost(fake: Fake, _card: GenuiCardRecord) {
   const { useTurnStore } = await import('@/stores/turn')
   const turn = useTurnStore(fake as any)
   const sessionStore = useChatSessionStore()

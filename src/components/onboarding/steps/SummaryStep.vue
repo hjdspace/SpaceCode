@@ -45,12 +45,6 @@ interface SummaryRow {
 }
 
 const rows = computed<SummaryRow[]>(() => {
-  const activeConfig = settingsStore.authMethod === 'openai_compatible'
-    ? settingsStore.openaiConfig
-    : settingsStore.authMethod === 'gemini_api'
-      ? settingsStore.geminiConfig
-      : settingsStore.anthropicConfig
-
   const providerName = t(AUTH_METHOD_NAME_KEY[settingsStore.authMethod])
   const isOAuth = OAUTH_METHODS.has(settingsStore.authMethod)
   const model = settingsStore.getSonnetModel()

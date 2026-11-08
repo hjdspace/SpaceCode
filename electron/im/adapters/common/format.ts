@@ -9,8 +9,6 @@
  * - formatImStatus: Format session status for display
  */
 
-import type { ServerMessage } from './types'
-
 // ──────────────────────────────────────────────────────────────────────────
 // splitMessage
 // ──────────────────────────────────────────────────────────────────────────

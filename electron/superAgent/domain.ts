@@ -50,7 +50,6 @@ import type {
   SuperAgentOutboxPayload,
   SuperAgentPolicy,
   SuperAgentPolicyRule,
-  SuperAgentReplyType,
   SuperAgentReport,
   SuperAgentReportKind,
   SuperAgentSourceAdmission,

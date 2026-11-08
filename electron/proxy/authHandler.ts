@@ -23,7 +23,7 @@ function joinUpstreamUrl(baseUrl: string, versionedPath: string): string {
 
 export function buildUpstreamRequest(
   path: string,
-  body: Record<string, any>,
+  _body: Record<string, any>,
   config: ProxyConfig
 ): UpstreamRequestOptions {
   const baseUrl = config.upstreamBaseUrl.replace(/\/+$/, '')

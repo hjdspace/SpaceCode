@@ -102,7 +102,7 @@ export class DingtalkStreamState {
   // Private
   // ────────────────────────────────────────────────────────────────────────
 
-  private async handleFlush(text: string, isComplete: boolean): Promise<void> {
+  private async handleFlush(_text: string, isComplete: boolean): Promise<void> {
     if (this.state === 'completed') return
 
     // Create AI card on first content
