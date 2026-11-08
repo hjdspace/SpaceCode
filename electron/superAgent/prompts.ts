@@ -82,7 +82,7 @@ export const SUPER_AGENT_ROUTER_ROLE_PROMPT = `# Super Agent Router
 - 做了路由决定就用一句话交代，工单卡片由宿主紧接着显示。
 
 ## 工单事件
-宿主会把工单的最终结果、Worker 提问与验收情况以 \`[工单事件]\` 追加到会话尾部。收到后先给结论，必要时另起段落列出产物、验证结果与未完成项；保留事实与 Markdown 层次，不照搬整份报告，也不把多项结果挤成一段。
+宿主会把工单的最终结果、Worker 提问与验收情况以 \`[工单事件]\` 追加到会话尾部。收到后先给结论，必要时另起段落列出产物、验证结果与未完成项；保留事实与 Markdown 层次，不照搬整份报告，也不把多项结果挤成一段。工单卡只给状态与产物入口，这段汇报就是人看到的收尾 —— 不要因为"卡片里有了"就省略结论。
 宿主也会以 \`[路由未执行]\` 告诉你某条路由指令没有生效。此时不要重复承诺：如实说明没有执行与原因，再按上面的口径换一种 \`kind\`（或 \`ignore\`）向人交代。`
 
 export const SUPER_AGENT_ROUTE_REPAIR_PROMPT = `[宿主协议校正]
@@ -236,14 +236,17 @@ export interface SuperAgentRouterEventInput {
 /**
  * 工单事件的中继说明（追加到 Router 会话尾部，设计 §6.3）。
  *
- * 只给事实与一句提示，不转发 Worker 原文 —— Router 的活是把它翻成一句人话。
+ * 桌面气泡上宿主只留一行状态兜底，给人看的收尾汇报就是 Router 这一轮的输出：
+ * 所以这里给事实与口径，不转发 Worker 原文 —— 把多项结果整理成有层次的短段落是
+ * Router 的活，字数不封顶（任务大小不同），但一句话能说清就不要展开。
  */
 export function renderSuperAgentRouterEvent(event: SuperAgentRouterEventInput): string {
   return [
     '[工单事件]',
     `ticket=${event.ticketId} 「${event.title}」 report=${event.kind}`,
     `Worker 结论：${event.summary}`,
-    '请用不超过 100 字向人汇报这一条结果；不要转发原文，也不要重复卡片内容。',
+    '请把这一条整理成给人看的收尾汇报：先给结论，必要时另起短段落列出产物、验证结果与未完成项。',
+    '不要转发 Worker 原文，也不要重复工单卡片已经给出的内容；长度随任务本身伸缩，一句话能说清就不要展开。',
   ].join('\n')
 }
 

@@ -142,7 +142,7 @@ import {
 } from './outboxChannelRouter'
 import { FEISHU_OUTBOX_CHANNEL_PREFIX } from './feishuChannel'
 import { GITHUB_OUTBOX_CHANNEL_PREFIX } from './githubChannel'
-import { resolveSuperAgentReplyChannel } from './replyTarget'
+import { resolveSuperAgentReplyChannel, type SuperAgentReplyChannelShape } from './replyTarget'
 import { openPersistedSuperAgentProject } from './persistence'
 import { runStartupRecovery, type StartupRecoveryResult } from './recovery'
 import { projectDirOf, projectKeyOf, type ProjectStore, type ProjectStoreDeps } from './store'
@@ -565,15 +565,51 @@ function checkpointDirtyOf(cp: ReturnType<SuperAgentCheckpointStore['latest']> |
   return new Set((cp?.entries ?? []).map((entry) => entry.replace(/\\/g, '/')))
 }
 
+/** 人消息与报告摘录：压成一行，超长截断（acknowledgement 与桌面结果气泡共用）。 */
+function superAgentExcerpt(text: string | null | undefined, limit = 80): string {
+  const normalized = (text ?? '').replace(/\s+/g, ' ').trim()
+  if (normalized === '') return '（无内容）'
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized
+}
+
+/** 收尾气泡的状态标签；主进程文案，不走渲染端 i18n。 */
+function superAgentResultOutcomeLabel(report: SuperAgentReport): string {
+  return report.kind === 'ready' ? '已完成 · 待验收' : '已放弃'
+}
+
 /**
- * 宿主替 Worker 说的收尾话：分段 Markdown，不是一行挤到底的字符串拼接。
+ * 桌面结果气泡：只留一行兜底 —— 状态、工单标题与 summary 首句。
  *
- * summary/details 本身就是 Worker 写的 Markdown，另起段落原样带上才能在 IM 气泡里
- * 渲染出层次；把状态放进标题行，人一眼看出这是"做完了等你验收"而不是"已发布"。
+ * Worker 原文不整份刷进聊天：面向人的收尾汇报由 Router 的中继轮负责（见
+ * `renderSuperAgentRouterEvent`），`details` 与产物走工单卡。这行留着是 #101
+ * 的兜底语义 —— Router 那一轮失败或引擎不可用时，人仍收到一句如实的收尾。
  */
-function renderSuperAgentResultReply(ticketTitle: string, report: SuperAgentReport): string {
-  const outcome = report.kind === 'ready' ? '已完成 · 待验收' : '已放弃'
-  return [`**${outcome}**`, ticketTitle, report.summary, report.details ?? '']
+export function renderSuperAgentDesktopResultReply(
+  ticketTitle: string,
+  report: SuperAgentReport,
+): string {
+  return [
+    `**${superAgentResultOutcomeLabel(report)}**`,
+    ticketTitle,
+    superAgentExcerpt(report.summary),
+  ].join('\n\n')
+}
+
+/**
+ * 平台渠道（飞书/GitHub）的结果正文：那边没有 Router 的语音，Worker 自己写的
+ * summary/details 是这张工单唯一能到达人的文字，另起段落原样带上才能在气泡里
+ * 渲染出层次。
+ */
+export function renderSuperAgentResultReply(
+  ticketTitle: string,
+  report: SuperAgentReport,
+): string {
+  return [
+    `**${superAgentResultOutcomeLabel(report)}**`,
+    ticketTitle,
+    report.summary,
+    report.details ?? '',
+  ]
     .map((part) => part.trim())
     .filter(Boolean)
     .join('\n\n')
@@ -754,18 +790,24 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         // #101：accept 建单时的 origin 人消息此刻才落成 Input（授权链要求），
         // 受控 acknowledgement 必须指向它。
         onOriginHumanInput: (ticketId, inputId) => {
-          enqueueSuperAgentReply(repoRoot, ticketId, `reply:ack:${inputId}`, (project) => {
-            const input = project.domain.state.inputs[inputId]
-            if (!input) return null
-            return {
-              kind: 'reply',
-              replyType: 'acknowledgement',
-              text: `收到：${superAgentExcerpt(input.text)}。已交给 Worker 处理。`,
-              inReplyTo: inputId,
-              attentionId: null,
-              reportId: null,
-            }
-          })
+          enqueueSuperAgentReply(
+            repoRoot,
+            ticketId,
+            `reply:ack:${inputId}`,
+            { replyType: 'acknowledgement', inReplyTo: inputId },
+            (project) => {
+              const input = project.domain.state.inputs[inputId]
+              if (!input) return null
+              return {
+                kind: 'reply',
+                replyType: 'acknowledgement',
+                text: `收到：${superAgentExcerpt(input.text)}。已交给 Worker 处理。`,
+                inReplyTo: inputId,
+                attentionId: null,
+                reportId: null,
+              }
+            },
+          )
         },
         onLaunchError: (ticketId, err) => {
           // launch 失败计入健康（effect:launch），错误信息带 ticketId 便于追溯
@@ -1266,7 +1308,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
     // question/answers 变化驱动 Attention 气泡（T08 #78）
     project.attentionProjector.sync()
     // #101：受控 reply 的 Router 侧产生点 —— result / attention / answer 都经
-    // Outbox 外发（desktop 通道），不再依赖 Router 自己说话。重复 Report 不重复产生。
+    // Outbox 外发，不再依赖 Router 自己说话。重复 Report 不重复产生。
+    // result 的正文按通道选：桌面一行兜底（精炼汇报归 Router 中继轮），平台渠道带全文。
     if (!result.duplicate) {
       const ticket = project.domain.state.tickets[assignment.ticketId]
       if (ticket) {
@@ -1276,10 +1319,14 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             repoRoot,
             assignment.ticketId,
             `reply:result:${result.report.reportId}`,
-            () => ({
+            { replyType: 'result', inReplyTo: null },
+            (_project, channel) => ({
               kind: 'reply',
               replyType: 'result',
-              text: renderSuperAgentResultReply(ticket.title, result.report),
+              text:
+                channel === DESKTOP_OUTBOX_CHANNEL
+                  ? renderSuperAgentDesktopResultReply(ticket.title, result.report)
+                  : renderSuperAgentResultReply(ticket.title, result.report),
               inReplyTo: null,
               attentionId: null,
               reportId: result.report.reportId,
@@ -1293,6 +1340,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
               repoRoot,
               assignment.ticketId,
               `reply:attention:${attention.attentionId}`,
+              { replyType: 'attention', inReplyTo: attention.askedBy },
               () => ({
                 kind: 'reply',
                 replyType: 'attention',
@@ -1310,6 +1358,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
             repoRoot,
             assignment.ticketId,
             `reply:answer:${inputId}`,
+            { replyType: 'answer', inReplyTo: inputId },
             () => ({
               kind: 'reply',
               replyType: 'answer',
@@ -2025,26 +2074,30 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
    *
    * #103：channel 按 reply 目标解析（设计 §6.4）—— ack/answer/attention 回到
    * 人消息所在会话，result 回到工单发起会话；未启用的通道直接跳过，不误发。
+   *
+   * 通道先于正文确定：同一个 result 在桌面只该是一行兜底（精炼汇报是 Router 的活），
+   * 在飞书/GitHub 却是唯一出口（必须带完整正文）—— 所以正文口径由 build 按通道选。
    */
   function enqueueSuperAgentReply(
     repoRoot: string,
     ticketId: string,
     messageId: string,
-    build: (project: ProjectState) => SuperAgentOutboxReplyPayload | null,
+    shape: SuperAgentReplyChannelShape,
+    build: (project: ProjectState, channel: string) => SuperAgentOutboxReplyPayload | null,
   ): void {
     const project = projects.get(repoRoot)
     if (!project?.outbox) return
     if (project.domain.state.outbox[messageId]) return
-    const payload = build(project)
-    if (!payload) return
     const ticket = project.domain.state.tickets[ticketId]
     if (!ticket) return
     const channel = resolveSuperAgentReplyChannel({
       ticket,
-      payload,
+      payload: shape,
       state: project.domain.state,
     })
     if (!replyChannelEnabled(channel)) return
+    const payload = build(project, channel)
+    if (!payload) return
     try {
       project.domain.enqueueOutboxMessage({
         messageId,
@@ -2073,12 +2126,6 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         : options.outbox.github !== null
     }
     return false
-  }
-
-  function superAgentExcerpt(text: string | null | undefined, limit = 80): string {
-    const normalized = (text ?? '').replace(/\s+/g, ' ').trim()
-    if (normalized === '') return '（无内容）'
-    return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized
   }
 
   return {

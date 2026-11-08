@@ -6,11 +6,20 @@
  * accept 建单时的 origin 人消息由 Scheduler 在 launch 时落成 Input（#75 既有行为），
  * acknowledgement 指向它；ready/dropped Report 产生 result；提问产生 attention；
  * Worker 用 answers 认领后产生 answer。
+ *
+ * result 的正文按通道分口径：桌面只留「状态 + 标题 + 一行结论」的兜底，精炼汇报
+ * 由 Router 的中继轮给出（见 renderSuperAgentRouterEvent）；飞书/GitHub 没有
+ * Router 语音，仍带 Worker 的完整 summary/details。
  */
 import { describe, expect, it } from 'vitest'
-import { createSuperAgentService } from '../service'
+import {
+  createSuperAgentService,
+  renderSuperAgentDesktopResultReply,
+  renderSuperAgentResultReply,
+} from '../service'
 import { superAgentRouterEngineSessionId } from '../sessionId'
 import { createFakeBridge, reportFence, routeFence, type FakeBridge } from './fakeBridge'
+import type { SuperAgentReport } from '../model'
 
 const REPO = '/repo/a'
 
@@ -75,7 +84,7 @@ describe('super agent controlled replies over the desktop outbox', () => {
     })
   })
 
-  it('reports a ready Report as a result reply', async () => {
+  it('reports a ready Report as a one-line desktop fallback, not the Worker report', async () => {
     const { service, fake } = makeService()
     const ticket = await acceptTicket(service, fake, 'req-result', '修登录页', '修复登录页')
 
@@ -85,6 +94,7 @@ describe('super agent controlled replies over the desktop outbox', () => {
         reportId: 'report-ready',
         kind: 'ready',
         summary: '**登录页已可提交**\n\n- 已补测试\n- 已验证提交流程',
+        details: '## 方法\n\n逐文件跑覆盖率\n\n## 结论\n\n可以验收',
       }),
     })
     await flush()
@@ -92,8 +102,39 @@ describe('super agent controlled replies over the desktop outbox', () => {
     const result = replyOf(service, 'result')
     expect(result).toBeDefined()
     const bubble = fake.pushed.find((push) => push.messageId === result!.messageId)
-    expect(bubble?.content).toBe('**已完成 · 待验收**\n\n修复登录页\n\n**登录页已可提交**\n\n- 已补测试\n- 已验证提交流程')
+    // 精炼汇报归 Router 的中继轮；桌面气泡只留状态 + 标题 + 一行结论，details 不进聊天
+    expect(bubble?.content).toBe(
+      '**已完成 · 待验收**\n\n修复登录页\n\n**登录页已可提交** - 已补测试 - 已验证提交流程',
+    )
+    expect(bubble?.content).not.toContain('逐文件跑覆盖率')
     expect(service.outboxQueue(REPO).find((m) => m.messageId === result!.messageId)?.status).toBe('sent')
+  })
+
+  it('keeps the full Worker report for platform channels, which have no Router voice', () => {
+    const report: SuperAgentReport = {
+      reportId: 'report-1',
+      assignmentId: 'assignment-1',
+      ticketId: 'ticket-1',
+      ordinal: 1,
+      kind: 'ready',
+      summary: '**登录页已可提交**\n\n- 已补测试',
+      at: '2026-01-01T00:00:00.000Z',
+      question: null,
+      askedBy: null,
+      answers: [],
+      details: '## 方法\n\n逐文件跑覆盖率',
+      artifacts: [],
+    }
+
+    expect(renderSuperAgentResultReply('修复登录页', report)).toBe(
+      '**已完成 · 待验收**\n\n修复登录页\n\n**登录页已可提交**\n\n- 已补测试\n\n## 方法\n\n逐文件跑覆盖率',
+    )
+    // 桌面口径压成一行并截断：长报告不整份刷进气泡
+    const long: SuperAgentReport = { ...report, summary: `结论。\n\n${'细节'.repeat(60)}` }
+    const desktop = renderSuperAgentDesktopResultReply('修复登录页', long)
+    expect(desktop.split('\n\n')).toHaveLength(3)
+    expect(desktop).toContain('…')
+    expect(desktop).not.toContain('## 方法')
   })
 
   it('forwards an open question as an attention reply', async () => {

@@ -21,6 +21,15 @@ import type {
   SuperAgentTrigger,
 } from './model'
 
+/**
+ * 通道解析只用到 reply 的两个引用字段，不需要正文：正文口径要等通道定了
+ * 才能选（桌面一行兜底 / 平台渠道完整原文），所以这里不收整个 payload。
+ */
+export interface SuperAgentReplyChannelShape {
+  replyType: SuperAgentOutboxReplyPayload['replyType']
+  inReplyTo: string | null
+}
+
 export interface SuperAgentReplyTargetState {
   triggers: Record<string, SuperAgentTrigger>
   inputs: Record<string, SuperAgentInput>
@@ -28,7 +37,7 @@ export interface SuperAgentReplyTargetState {
 
 export function resolveSuperAgentReplyChannel(input: {
   ticket: SuperAgentTicket
-  payload: SuperAgentOutboxReplyPayload
+  payload: SuperAgentReplyChannelShape
   state: SuperAgentReplyTargetState
 }): string {
   const trigger = replyTrigger(input.ticket, input.payload, input.state)
@@ -55,7 +64,7 @@ export function resolveSuperAgentReplyChannel(input: {
 
 function replyTrigger(
   ticket: SuperAgentTicket,
-  payload: SuperAgentOutboxReplyPayload,
+  payload: SuperAgentReplyChannelShape,
   state: SuperAgentReplyTargetState,
 ): SuperAgentTrigger | null {
   if (payload.replyType === 'result') {
