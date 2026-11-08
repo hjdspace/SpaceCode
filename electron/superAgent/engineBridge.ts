@@ -52,6 +52,11 @@ export interface SuperAgentUserPush {
    * 这条消息不是人在说话，也不该等主进程回一帧事件来收尾。
    */
   startTurn?: boolean
+  /**
+   * 气泡落在哪一侧，缺省 'user'. Outbox 的受控 reply 由宿主代发，要显式给
+   * 'assistant' —— 只靠 startTurn:false 分不出「宿主说的话」和「没启轮次的人消息」。
+   */
+  role?: 'user' | 'assistant'
 }
 
 export type SuperAgentRouteListener = (
@@ -110,6 +115,7 @@ function pushUserMessageToRenderer(push: SuperAgentUserPush): void {
     // 面板都按 sessionId 直接寻址，切换由 app store 负责。
     activate: false,
     ...(push.startTurn === false ? { startTurn: false } : {}),
+    ...(push.role ? { role: push.role } : {}),
     ...(push.permissionMode ? { permissionMode: push.permissionMode } : {}),
     ...(push.model ? { model: push.model } : {}),
   }

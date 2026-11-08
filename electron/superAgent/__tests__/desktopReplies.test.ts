@@ -63,6 +63,8 @@ describe('super agent controlled replies over the desktop outbox', () => {
       sessionId: superAgentRouterEngineSessionId(REPO),
       sessionType: 'superAgent',
       startTurn: false,
+      // 宿主替 Agent 说给人听的话：落成 user 会变成用户气泡
+      role: 'assistant',
     })
     expect(bubble?.content).toContain('修登录页')
 

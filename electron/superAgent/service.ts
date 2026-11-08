@@ -777,7 +777,8 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
       // effect:<kind> 健康项（失败信息带 ticketId 便于追溯）。
       // #101：desktop 通道——reply 作为 IM 气泡推回 Router 会话。用稳定
       // messageId + startTurn:false，重复投递由渲染端按 id 去重，且不额外触发
-      // 一轮 Router 对话。
+      // 一轮 Router 对话。role:'assistant' 是这条气泡的归属：它是宿主替 Agent
+      // 说给人听的话，落成 user 会被当成人在说话（渲染成用户气泡、重试时重发）。
       const desktopChannel =
         options.outbox?.desktop && options.bridge
           ? createSuperAgentDesktopOutboxChannel({
@@ -793,6 +794,7 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
                   sessionType: 'superAgent',
                   messageId: message.messageId,
                   startTurn: false,
+                  role: 'assistant',
                 })
               },
             })

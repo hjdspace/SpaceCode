@@ -75,6 +75,12 @@ export interface H5RemoteUserMessagePayload {
    * 建行时必须带上它，否则这条会话会出现在侧边栏普通会话列表里。
    */
   sessionType?: SuperAgentSessionKind
+  /**
+   * 气泡落在哪一侧。缺省 'user' —— 手机端/IM 发起的确实是人消息。
+   * 宿主代发的受控 reply 不是人在说话，必须带 'assistant'，否则它会顶着
+   * 用户头像出现在自己那条答复下面，还会被 retryLastMessage 当成「上一次问的」重发。
+   */
+  role?: 'user' | 'assistant'
 }
 
 /** WS 推送的消息格式 */

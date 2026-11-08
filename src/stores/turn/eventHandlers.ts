@@ -673,7 +673,7 @@ export function createEventHandlers(opts: EventReducerOptions): EventReducer {
     if (content.trim() && !hasExactMessage && !isRecentDuplicate) {
       sink.appendMessage(sessionId, {
         ...(messageId ? { id: messageId } : {}),
-        role: 'user',
+        role: data?.role === 'assistant' ? 'assistant' : 'user',
         content,
         metadata: { source: 'h5' } as any,
       })
