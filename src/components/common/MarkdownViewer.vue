@@ -49,7 +49,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Eye, Code2, FileText } from 'lucide-vue-next'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/common'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { registerSelectionHost } from '@/composables/useSelectionActions'
 

@@ -79,7 +79,6 @@ import {
 import type { SuperAgentService } from './superAgent/service'
 import { defaultSuperAgentEngineBridge } from './superAgent/engineBridge'
 import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
-import { H5Server } from './h5/h5Server'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
 const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
@@ -376,6 +375,7 @@ app.whenReady().then(async () => {
       const h5Settings = getH5AuthService().getSettings()
       if (h5Settings.enabled && h5Settings.token) {
         if (!getH5Server()) {
+          const { H5Server } = await import('./h5/h5Server')
           setH5Server(new H5Server(getH5AuthService()))
         }
         await getH5Server()!.start(h5Settings.fixedPort ?? undefined)

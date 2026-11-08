@@ -8,13 +8,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
-import { messages as localeMessages } from '@/i18n'
+import zhCN from '@/i18n/locales/zh-CN/index'
+import enUS from '@/i18n/locales/en-US/index'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { GENUI_SANDBOX_PROTOCOL_VERSION } from '@/shared/genuiSandbox'
 import type { GenuiCardRecord } from '@/types/genui'
 import { createGenuiCardSubmissionHost } from '../cardSubmission'
 
 const SESSION = 'sess-card-submit'
+
+const localeMessages = { 'zh-CN': zhCN, 'en-US': enUS }
 
 const i18n = createI18n({
   legacy: false,

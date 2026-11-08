@@ -7,7 +7,7 @@ import { ipcMain } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { info } from '../infra/logger'
-import { H5Server } from '../h5/h5Server'
+import type { H5Server } from '../h5/h5Server'
 import { H5AuthService } from '../h5/h5AuthService'
 import type { H5ServerStatus, H5AccessSettings } from '../h5/h5Types'
 
@@ -40,6 +40,7 @@ export function registerH5AccessIPCHandlers(): void {
   ipcMain.handle('h5:enable', async (): Promise<{ status: H5ServerStatus; token: string }> => {
     const { settings, token } = h5AuthService.enable()
     if (!h5Server) {
+      const { H5Server } = await import('../h5/h5Server')
       h5Server = new H5Server(h5AuthService)
     }
     applyProjectRoot(h5Server)
@@ -60,6 +61,7 @@ export function registerH5AccessIPCHandlers(): void {
     const { settings, token } = h5AuthService.regenerateToken()
     if (h5Server) {
       h5Server.stop()
+      const { H5Server } = await import('../h5/h5Server')
       h5Server = new H5Server(h5AuthService)
       applyProjectRoot(h5Server)
       const status = await h5Server.start(settings.fixedPort ?? undefined)

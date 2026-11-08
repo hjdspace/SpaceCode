@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 
 import { errorHandler } from '../errorHandler.ts'
 import { extractErrorCode } from '@/composables/useAutoRetry'
-import { i18n } from '@/i18n'
+import { i18n, loadLocale } from '@/i18n'
 import { ErrorCategory } from '@/types'
 
 const GATEWAY_400 = 'API Error: 400 {"error":{"message":"Can only get item pairs from a mapping.",'
@@ -248,7 +248,8 @@ describe('classifyError 引擎拦截原因 (issue #55)', () => {
     assert.match(classified.technicalDetail, /loaded=false/)
   })
 
-  it('英文界面给英文提示，同样不含实现字段名', () => {
+  it('英文界面给英文提示，同样不含实现字段名', async () => {
+    await loadLocale('en-US')
     i18n.global.locale.value = 'en-US'
 
     const classified = errorHandler.classifyError(blocked(

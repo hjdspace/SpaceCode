@@ -1,15 +1,16 @@
 import { createI18n } from 'vue-i18n'
 import zhCN from './locales/zh-CN/index'
-import enUS from './locales/en-US/index'
 
 export type Locale = 'zh-CN' | 'en-US'
 
-export const messages = {
-  'zh-CN': zhCN,
-  'en-US': enUS,
-}
-
 export const defaultLocale: Locale = 'zh-CN'
+
+/** 入口只同步打包默认语言；另一语言在首次切换（或启动时检测为 en-US）才动态拉取。 */
+const loadedLocales = new Set<Locale>([defaultLocale])
+
+const initialMessages: Partial<Record<Locale, typeof zhCN>> = {
+  'zh-CN': zhCN,
+}
 
 export function detectSystemLanguage(): Locale {
   const lang = navigator.language.toLowerCase()
@@ -24,7 +25,7 @@ export function createI18nInstance(locale: Locale = defaultLocale) {
     legacy: false,
     locale,
     fallbackLocale: 'en-US',
-    messages,
+    messages: initialMessages,
     globalInjection: true,
   })
 }
@@ -32,8 +33,21 @@ export function createI18nInstance(locale: Locale = defaultLocale) {
 /** Global i18n instance for use outside Vue components */
 export const i18n = createI18nInstance()
 
+/** 按需加载语言包并注册到 i18n（已加载的语言为 no-op）。 */
+export async function loadLocale(locale: Locale): Promise<void> {
+  if (loadedLocales.has(locale)) return
+  if (locale === 'en-US') {
+    const { default: enUS } = await import('./locales/en-US/index')
+    // 测试里常见只 mock `t` 的轻量 i18n stub，没有 setLocaleMessage；此时保持默认语言即可。
+    if (typeof i18n.global.setLocaleMessage !== 'function') return
+    i18n.global.setLocaleMessage('en-US', enUS)
+  }
+  loadedLocales.add(locale)
+}
+
 /** Apply a locale to the running app: messages + <html lang>. */
-export function applyLocale(locale: Locale): void {
+export async function applyLocale(locale: Locale): Promise<void> {
+  await loadLocale(locale)
   i18n.global.locale.value = locale
   if (typeof document !== 'undefined') {
     document.documentElement.lang = locale

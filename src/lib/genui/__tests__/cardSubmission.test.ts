@@ -7,7 +7,8 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
-import { messages } from '@/i18n'
+import zhCN from '@/i18n/locales/zh-CN/index'
+import enUS from '@/i18n/locales/en-US/index'
 import { GENUI_SANDBOX_PROTOCOL_VERSION } from '@/shared/genuiSandbox'
 import type { GenuiCardRecord } from '@/types/genui'
 import type { Message } from '@/types'
@@ -18,6 +19,8 @@ import {
   resolveUserMessageDisplay,
   type GenuiSubmissionTurnPort,
 } from '../cardSubmission'
+
+const messages = { 'zh-CN': zhCN, 'en-US': enUS }
 
 const i18n = createI18n({
   legacy: false,

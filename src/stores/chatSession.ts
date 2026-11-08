@@ -3,7 +3,9 @@ import { ref, computed, readonly, watch } from 'vue'
 import type { Session, SessionType, Message, ToolCall, AgentInfo, SessionEngineType, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus, ArtifactSummaryEntry, MessageMetadata } from '@/types'
 import { ErrorCategory } from '@/types'
 import type { RewindOption } from '@/types/rewind'
-import { messages, i18n } from '@/i18n'
+import { i18n } from '@/i18n'
+import zhCommon from '@/i18n/locales/zh-CN/common'
+import enCommon from '@/i18n/locales/en-US/common'
 import { useRewindDialog } from '@/composables/useRewindDialog'
 import { useSettingsStore } from './settings'
 import { useAppStore } from './app'
@@ -52,10 +54,9 @@ const taskManager = useTaskManager()
 // 会话占位标题集合：收集所有 locale 下 common.newChat 的取值。
 // 自动命名只应对占位标题生效；若只比对硬编码 'New Chat'，中文界面创建的
 // 会话标题是「新对话」，条件永远不匹配，首条消息后标题不会更新。
+// 直接读各语言 common 小模块，避免为两个词把整包 locale 拖进本 store chunk。
 const PLACEHOLDER_SESSION_TITLES = new Set<string>(
-  Object.values(messages)
-    .map((m) => (m as { common?: { newChat?: string } }).common?.newChat)
-    .filter((v): v is string => !!v),
+  [zhCommon.newChat, enCommon.newChat].filter((v): v is string => !!v),
 )
 PLACEHOLDER_SESSION_TITLES.add('New Chat')
 

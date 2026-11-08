@@ -174,7 +174,7 @@ import { computed, ref, watch, nextTick, markRaw, onMounted, onBeforeUnmount } f
 import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { FileCode, Eye, FileText, Search, ChevronUp, ChevronDown, X, Pencil, Save, Copy, Check, Minimize2, Maximize2 } from 'lucide-vue-next'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/common'
 import { registerSelectionHost } from '@/composables/useSelectionActions'
 import { useDialog } from '@/composables/useDialog'
 import { errorHandler } from '@/services/errorHandler'
