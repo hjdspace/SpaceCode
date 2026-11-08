@@ -3,8 +3,7 @@
  * Worker Executor 的引擎通路契约（T21）。
  *
  * 覆盖的是「派出去的任务真的有人在跑」这一层：
- *  - 启动配置：Worker 默认以 acceptEdits 起（共享目录不放开整片写/执行权限；
- *    权限请求转成 Attention 交给人），并行策略由 service 覆盖为 bypassPermissions；
+ *  - 启动配置：Worker 一律以 bypassPermissions 起（后台自主执行不逐次问人），
  *    角色说明走 appendSystemPrompt，工作目录用调度器给的实际目录；
  *  - 指派身份：assignmentId 随首条消息给出（Report 必须逐字回填），气泡先推再发；
  *  - launch promise 的语义：引擎接受首条消息 ≠ 任务完成，只有最终 Report 或
@@ -107,7 +106,7 @@ describe('createSuperAgentExecutor launch', () => {
     expect(start?.sessionId).toMatch(/^[0-9a-f-]{36}$/)
     expect(start?.config).toMatchObject({
       cwd: REPO,
-      permissionMode: 'acceptEdits',
+      permissionMode: 'bypassPermissions',
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
       // Worker 的提问走 round 内 ask/attempt 协议，不继承主聊天 AskUserQuestion 指引。
       askUserQuestionGuidance: false,
@@ -117,21 +116,6 @@ describe('createSuperAgentExecutor launch', () => {
     expect(sent).toContain('让登录页可用')
     expect(sent).toContain('assignment-1')
     expect(sent).toContain('generation: 2')
-    await fake.emit(fake.started[0]!.sessionId, 'result', {
-      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
-    })
-    await launched
-  })
-
-  it('lets the service override the permission mode (parallel policy keeps bypass)', async () => {
-    const { executor, fake } = makeExecutor({}, {
-      permissionModeOf: () => 'bypassPermissions',
-    })
-    const launched = executor.launch(launchRequest())
-    await flush()
-
-    expect(fake.started[0]?.config).toMatchObject({ permissionMode: 'bypassPermissions' })
-    expect(fake.pushed[0]).toMatchObject({ permissionMode: 'bypassPermissions' })
     await fake.emit(fake.started[0]!.sessionId, 'result', {
       result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
     })
@@ -206,7 +190,7 @@ describe('createSuperAgentExecutor launch', () => {
       title: '修登录',
       sessionType: 'superAgentWorker',
       projectPath: REPO,
-      permissionMode: 'acceptEdits',
+      permissionMode: 'bypassPermissions',
     })
     await fake.emit(fake.started[0]!.sessionId, 'result', {
       result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),

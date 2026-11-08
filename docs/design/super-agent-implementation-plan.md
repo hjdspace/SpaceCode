@@ -34,7 +34,7 @@ Super Agent 不是新的 `EngineType`，也不是渲染层的多会话 DAG。它
 | 默认工作区 | `worktree='none'`，Worker 在项目根目录执行；共享目录的后续工单继承前序改动 |
 | 默认调度 | `serial`、`maxWorkers=1`；人工续接优先拿下一个槽，不抢占正在运行的 turn |
 | 显式并行 | 仅允许 2–6 个 Worker，且所有并行 Ticket 必须使用 per-ticket worktree；运行中不热切换 |
-| Worker 权限 | 共享目录默认 `acceptEdits` + Attention；显式隔离后才允许 `bypassPermissions`，且全程审计 |
+| Worker 权限 | 一律 `bypassPermissions`（完全信任）：后台自主执行不逐次问人；漏出的权限请求仍落 Attention 并全程审计 |
 | Report | MVP 使用严格 JSON 块；后续用宿主结构化工具替代 |
 | 状态位置 | `<userData>/super-agent/projects/<projectKey>/`，不写仓库、不写 localStorage |
 | 停止与重试 | 停止保留现场；重试新建 Assignment，默认续用同一 Worker Session 与工作区 |
@@ -390,7 +390,7 @@ MVP Worker 不得在最终 Report 前遗留不可见的写入型后台任务；�
 - 禁止自动 `git reset --hard`、自动 stash 或覆盖用户改动；停止/失败后默认保留现场。
 - `worktree='per-ticket'`：复用 Factory worktree；重试复用同一目录，停止后保留并标记 abandoned，只有人工显式清理才删除。
 - 权限请求转成持久 Attention，记录 session/request/ticket/assignment ID。允许操作必须先重新获得 Scheduler 槽位，再向原请求应答；不能由一张无人查看的普通权限卡长期挂起。
-- Router 使用 `default/plan` 且禁用执行工具；Worker 在共享目录使用 `acceptEdits`，只有显式隔离时才允许 bypass。
+- Router 使用 `default/plan` 且禁用执行工具；Worker 无论串行共享目录还是并行 worktree，一律以 bypass 起 —— `acceptEdits` 下每条 Bash 都要人点，工单在后台跑不动。
 
 ### 7.4 Report、停止、重试与重启
 

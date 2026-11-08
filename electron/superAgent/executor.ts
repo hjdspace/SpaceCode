@@ -10,9 +10,8 @@
  * turn store —— 渲染端关掉也不能影响工单推进（设计 §3.2 第 1 条）。
  *
  * Worker 会话 id 由 ticketId 稳定派生（sessionId.ts），跨代次与重启同一个 id，
- * 引擎按已有 transcript 自动 `--resume`。权限档由 service 按执行策略给出：
- * 共享目录（串行/默认）用 acceptEdits，权限请求落成 Attention 交给人；只有
- * per-ticket worktree 的并行执行才放开 bypassPermissions（脏区彼此隔离）。
+ * 引擎按已有 transcript 自动 `--resume`。Worker 一律以 bypassPermissions 起：它是
+ * 后台自主执行，逐次权限请求会把人钉在审批卡上；权限 Attention 通路仍保留兜底。
  */
 import {
   SUPER_AGENT_WORKER_ROLE_PROMPT,
@@ -98,8 +97,6 @@ export interface SuperAgentExecutorOptions {
   titleOf?(ticketId: string): string
   modelOf?(ticketId: string): string | undefined
   humanInputIds?(ticketId: string): string[]
-  /** Worker 权限档：service 按当前执行策略给出；缺省 acceptEdits（共享目录）。 */
-  permissionModeOf?(): 'acceptEdits' | 'bypassPermissions'
 }
 
 export interface SuperAgentWorkerRun {
@@ -118,6 +115,12 @@ export interface SuperAgentWorkerRun {
   resolve: () => void
   promise: Promise<void>
 }
+
+/**
+ * Worker 权限档：完全信任。bypass 只能由 spawn 参数打开（见 sessionProcess.buildArgs），
+ * 引擎于是不再为写文件/执行命令发 permission_request。
+ */
+const WORKER_PERMISSION_MODE = 'bypassPermissions' as const
 
 /** handoff 类 Report 才释放槽位；progress 只是进展。 */
 const HANDOFF_KINDS = new Set<SuperAgentReportKind>([
@@ -193,14 +196,12 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
   const byTicket = new Map<string, SuperAgentWorkerRun>()
   const repairedQuestions = new WeakSet<SuperAgentWorkerRun>()
 
-  const permissionMode = () => options.permissionModeOf?.() ?? 'acceptEdits'
-
   const workerConfig = (repoRoot: string, model?: string) => {
     const base = bridge.loadConfig(repoRoot)
     return {
       ...base,
       cwd: repoRoot,
-      permissionMode: permissionMode(),
+      permissionMode: WORKER_PERMISSION_MODE,
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
       // Worker 用 round 内的 ask/attempt 协议向 Router 汇报，不该再走主聊天的
       // AskUserQuestion 指引（那会把提问推给人而不是回给 Router，设计 §3.2 第 3 条）。
@@ -366,7 +367,7 @@ export function createSuperAgentExecutor(options: SuperAgentExecutorOptions): Su
         title: options.titleOf?.(request.ticketId) ?? request.ticketId,
         sessionType: 'superAgentWorker',
         projectPath: request.repoRoot,
-        permissionMode: permissionMode(),
+        permissionMode: WORKER_PERMISSION_MODE,
         model: request.model,
       })
 

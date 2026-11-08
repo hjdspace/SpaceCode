@@ -98,7 +98,7 @@ import {
   type EnqueueOutboxInput,
   type SuperAgentDomain,
 } from './domain'
-import type { SuperAgentAttention, SuperAgentExecutionPolicy, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxReplyPayload, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
+import type { SuperAgentAttention, SuperAgentOutboxKind, SuperAgentOutboxMessage, SuperAgentOutboxReplyPayload, SuperAgentOutboxStatus, SuperAgentReportKind, SuperAgentTicket } from './model'
 import {
   SuperAgentDomainError,
   isSuperAgentDomainError,
@@ -366,15 +366,6 @@ export interface SuperAgentServiceOptions {
     config: SuperAgentSourcesConfig,
     context: { repoRoot: string },
   ) => ExternalSource[]
-}
-
-/** T23 #94：只有显式并行 + per-ticket worktree 才放开 bypass；共享目录一律 acceptEdits。 */
-export function workerPermissionMode(
-  policy: Pick<SuperAgentExecutionPolicy, 'mode' | 'worktree'>,
-): 'acceptEdits' | 'bypassPermissions' {
-  return policy.mode === 'parallel' && policy.worktree === 'per-ticket'
-    ? 'bypassPermissions'
-    : 'acceptEdits'
 }
 
 /** T09 #79：workerMessage 的投递请求（Executor 接入前接缝为 null）。 */
@@ -1380,9 +1371,6 @@ export function createSuperAgentService(options: SuperAgentServiceOptions = {}):
         humanInputIds: (ticketId) =>
           (project.domain.state.tickets[ticketId]?.inputIds ?? [])
             .filter((id) => project.domain.state.inputs[id]?.human === true),
-        // 共享目录（串行/默认）只自动接受编辑类操作，其余走 Attention 让人决定；
-        // 并行执行强制 per-ticket worktree，脏区彼此隔离后才放开 bypass。
-        permissionModeOf: () => workerPermissionMode(project.domain.state.executionPolicy),
         hooks: {
           ingest: (text) => {
             const report = applyWorkerReport(repoRoot, project, { text })

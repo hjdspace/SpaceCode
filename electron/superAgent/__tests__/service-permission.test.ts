@@ -3,14 +3,14 @@
  * Worker 权限档 + 权限 Attention（T23 #94）。
  *
  * 覆盖验收：
- *  - 共享目录（串行/默认策略）Worker 以 acceptEdits 起；
+ *  - Worker 一律以 bypassPermissions 起（不再逐次向人要权限）；
  *  - 引擎 permission_request 落成持久 Attention（带 sessionId/requestId 审计），
  *    同一请求幂等，等待期间释放调度槽位；
  *  - 回答先重新取得槽位再向原 request 应答（allow/deny），Worker 随后继续；
  *  - 请求被取消/工单停止时 Attention 撤回，不留下永久气泡。
  */
 import { describe, expect, it } from 'vitest'
-import { createSuperAgentService, workerPermissionMode } from '../service'
+import { createSuperAgentService } from '../service'
 import { superAgentWorkerEngineSessionId } from '../sessionId'
 import { createFakeBridge, reportFence } from './fakeBridge'
 
@@ -25,7 +25,7 @@ function makeService(repoRoot: string) {
 }
 
 describe('worker permission mode', () => {
-  it('starts a shared-directory worker with acceptEdits', async () => {
+  it('starts the worker in bypass permissions regardless of the policy', async () => {
     const { service, fake, repoRoot } = makeService('/repo/permission-serial')
     service.dispatch(repoRoot, { requestId: 'req-1', title: '修复登录', text: '让登录页可提交' })
     await flush()
@@ -34,20 +34,11 @@ describe('worker permission mode', () => {
       service.tickets(repoRoot).tickets[0]!.ticketId,
     )
     expect(fake.started.find((call) => call.sessionId === workerSession)?.config).toMatchObject({
-      permissionMode: 'acceptEdits',
+      permissionMode: 'bypassPermissions',
     })
     expect(fake.pushed.find((call) => call.sessionId === workerSession)?.permissionMode).toBe(
-      'acceptEdits',
-    )
-  })
-
-  it('uses bypass only under the explicit parallel + per-ticket worktree policy', () => {
-    expect(workerPermissionMode({ mode: 'serial', worktree: 'none' })).toBe('acceptEdits')
-    expect(workerPermissionMode({ mode: 'parallel', worktree: 'per-ticket' })).toBe(
       'bypassPermissions',
     )
-    // 防御：策略组合不规范时按共享目录处理，绝不默认放开 bypass
-    expect(workerPermissionMode({ mode: 'parallel', worktree: 'none' })).toBe('acceptEdits')
   })
 })
 
