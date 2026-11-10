@@ -16,7 +16,6 @@ export class ProxyServer {
   private requestsProcessed = 0
   private errorsCount = 0
   private lastError: string | undefined
-  private startTime: number | undefined
 
   constructor(config: ProxyConfig) {
     this.config = config
@@ -31,7 +30,6 @@ export class ProxyServer {
 
     return new Promise((resolve, reject) => {
       this.server!.listen(this.config.port, this.config.host, () => {
-        this.startTime = Date.now()
         resolve()
       })
       this.server!.on('error', reject)

@@ -983,7 +983,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // language 是渲染语言的唯一写入源。gui-settings.json / .env 是异步读进来的，
   // 若只改 store 不改 i18n，首屏引导会停在启动时那份旧语言上。
-  watch(language, (next) => applyLocale(next), { immediate: true })
+  // 不用 immediate：初始语言已由 main.ts 在 mount 前 await applyLocale(getSavedLanguage()) 应用，
+  // 这里只需响应后续变更（异步加载配置读到语言、用户手动切换）。
+  watch(language, (next) => { void applyLocale(next) })
 
   // Priority: gui-settings.json (highest) > localStorage > .env (fallback) > defaults
   loadFromGuiSettingsFile()

@@ -281,7 +281,7 @@ function pendingOf(
 }
 
 /** Drive one inbound WhatsApp message through the handler the adapter registered. */
-async function sendMsg(adapter: WhatsappAdapter, bot: BotDouble, msg: WhatsappMessage): Promise<void> {
+async function sendMsg(_adapter: WhatsappAdapter, bot: BotDouble, msg: WhatsappMessage): Promise<void> {
   const handler = bot.onMessage.mock.calls[0]?.[0] as ((m: WhatsappMessage) => Promise<void>) | undefined
   if (!handler) throw new Error('bot.onMessage was not registered by the adapter constructor')
   await handler(msg)
@@ -482,7 +482,7 @@ describe('WhatsappAdapter — command routing', () => {
 
   it('/clear deletes the binding, resets the bridge and clears the accumulators', async () => {
     const bot = makeBot()
-    const { adapter, handler } = await setupSession(bot)
+    const { adapter } = await setupSession(bot)
 
     fullTextsOf(adapter).set(CHAT_ID, 'stale answer')
     pendingOf(adapter).set(CHAT_ID, [{ requestId: 'perm-x', toolName: 'Bash' }])

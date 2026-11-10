@@ -89,6 +89,7 @@ function workerMirror(overrides: Partial<SuperAgentWorkerMirror> = {}): SuperAge
     title: '修复登录',
     sessionId: 'superagent-worker-ticket-1',
     running: false,
+    ticketState: 'queued',
     takenOver: false,
     segments: [
       {
@@ -139,6 +140,36 @@ beforeEach(() => {
 })
 
 describe('WorkerLivePanel readonly mirror（T07 #77）', () => {
+  it('shows pending acceptance and stops the real timeline loading prop while the ready assignment stays reusable', async () => {
+    const segment = workerMirror().segments[0]!
+    probe.mirror = workerMirror({
+      running: false,
+      ticketState: 'review',
+      segments: [{ ...segment, state: 'running', reportKind: 'ready', reportSummary: '已完成' }],
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.findComponent(AgentTimeline).props('loading')).toBe(false)
+    expect(wrapper.get('[data-testid="worker-state"]').text()).toBe('superAgent.worker.pendingAcceptance')
+    expect(wrapper.get('[data-testid="worker-segment-1"]').text()).toContain('superAgent.worker.pendingAcceptance')
+    expect(probe.mirror.segments[0]?.state).toBe('running')
+    wrapper.unmount()
+  })
+
+  it('shows running again for a same-generation follow-up despite the preceding ready report', async () => {
+    probe.mirror = workerMirror({
+      running: true,
+      ticketState: 'working',
+      segments: [{ ...workerMirror().segments[0]!, state: 'running', reportKind: 'ready' }],
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.findComponent(AgentTimeline).props('loading')).toBe(true)
+    expect(wrapper.get('[data-testid="worker-state"]').text()).toBe('superAgent.worker.running')
+    expect(wrapper.get('[data-testid="worker-segment-1"]').text()).toContain('superAgent.worker.states.running')
+    wrapper.unmount()
+  })
+
   it('镜像缺失时挂载即幂等挂 workerBind，已有快照则不重复挂', async () => {
     const wrapper = mountPanel()
     await flushPromises()
@@ -220,6 +251,8 @@ describe('WorkerLivePanel readonly mirror（T07 #77）', () => {
     expect(wrapper.find('[data-testid="worker-readonly-hint"]').text()).toBe(
       'superAgent.worker.readonlyHint',
     )
+    // 任务进度胶囊随输入框一起只在接管后出现
+    expect(wrapper.findComponent(ChatInput).exists()).toBe(false)
     const head = wrapper.find('[data-testid="worker-state"]')
     expect(head.text()).toBe('superAgent.worker.running')
     expect(head.classes()).toContain('running')
@@ -238,6 +271,28 @@ describe('WorkerLivePanel readonly mirror（T07 #77）', () => {
 })
 
 describe('WorkerLivePanel takeover & giveback（T09 #79）', () => {
+  it('接管入口悬浮在时间线底部，不再占用顶部标题栏', async () => {
+    probe.mirror = workerMirror()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const dock = wrapper.get('[data-testid="worker-takeover-dock"]')
+    expect(dock.find('[data-testid="worker-takeover-button"]').exists()).toBe(true)
+    expect(wrapper.find('.worker-head [data-testid="worker-takeover-button"]').exists()).toBe(false)
+    expect(wrapper.get('.worker-timeline').classes()).toContain('with-dock')
+    wrapper.unmount()
+  })
+
+  it('标签缺少项目根时不渲染接管入口（寻址不全宁可不给按钮）', async () => {
+    probe.tabRepoRoot = ''
+    probe.mirror = workerMirror()
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="worker-takeover-dock"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('默认只读展示接管按钮：点击走 takeoverWorker(repoRoot, ticketId)，不自动接管', async () => {
     probe.mirror = workerMirror()
     const wrapper = mountPanel()
@@ -276,6 +331,8 @@ describe('WorkerLivePanel takeover & giveback（T09 #79）', () => {
     expect(composer.exists()).toBe(true)
     expect(composer.props('sessionId')).toBe('superagent-worker-ticket-1')
     expect(composer.props('compact')).toBe(true)
+    // 任务进度胶囊只在接管后出现（默认只读时不渲染 ChatInput）
+    expect(composer.props('showStatusBar')).toBe(true)
 
     await button.trigger('click')
     expect(probe.releaseWorker).toHaveBeenCalledWith('D:/repo', 'ticket-1')

@@ -114,7 +114,6 @@ vi.mock('../../infra/logger', () => ({
   error: vi.fn(),
 }))
 
-const HOME = path.join(process.cwd(), 'home')
 const ORIGINAL_PLATFORM = process.platform
 const ORIGINAL_RESOURCES = (process as { resourcesPath?: string }).resourcesPath
 const ENV_KEYS = ['CUA_DRIVER_CMD', 'LOCALAPPDATA', 'APPDATA'] as const

@@ -64,6 +64,23 @@ describe('listSuperAgentSessionTypes', () => {
     expect(types.size).toBe(3)
   })
 
+  it('lists the inherited worker session instead of deriving a fresh one for the new ticket', () => {
+    const dir = projectDir('p1')
+    writeProject(dir, REPO)
+    const inheritedSession = superAgentWorkerEngineSessionId(TICKET)
+    writeState(dir, {
+      [TICKET]: { ticketId: TICKET },
+      'ticket-resumed': {
+        ticketId: 'ticket-resumed',
+        execution: { sessionId: inheritedSession },
+      },
+    })
+
+    const types = listSuperAgentSessionTypes(root!)
+    expect(types.get(inheritedSession)).toBe('superAgentWorker')
+    expect(types.has(superAgentWorkerEngineSessionId('ticket-resumed'))).toBe(false)
+  })
+
   it('leaves ordinary chat sessions out of the list', () => {
     const dir = projectDir('p1')
     writeProject(dir, REPO)
@@ -77,7 +94,7 @@ describe('listSuperAgentSessionTypes', () => {
     writeProject(first, 'D:/repo/one')
     const second = projectDir('p2')
     writeProject(second, 'D:/repo/two')
-    writeState(second, { 'ticket-a': {} })
+    writeState(second, { 'ticket-a': { ticketId: 'ticket-a' } })
 
     const types = listSuperAgentSessionTypes(root!)
     expect(types.get(superAgentRouterEngineSessionId('D:/repo/one'))).toBe('superAgent')

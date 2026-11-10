@@ -7,16 +7,8 @@
         data-testid="worker-state"
         class="worker-state"
         :class="{ running: mirror.running }"
-      >{{ mirror.running ? t('superAgent.worker.running') : t('superAgent.worker.idle') }}</span>
+      >{{ statusLabel }}</span>
       <span v-if="!isTakenOver" class="readonly-hint" data-testid="worker-readonly-hint">{{ t('superAgent.worker.readonlyHint') }}</span>
-      <button
-        v-if="ticketId && repoRoot"
-        type="button"
-        class="take-action"
-        :class="{ active: isTakenOver }"
-        data-testid="worker-takeover-button"
-        @click="toggleTakeover"
-      >{{ isTakenOver ? t('superAgent.worker.giveback') : t('superAgent.worker.takeover') }}</button>
     </header>
 
     <!-- 接管横幅：只切面板态，自动推进语义不变，提示人此刻由人接管 -->
@@ -24,31 +16,50 @@
       {{ t('superAgent.worker.takeoverBanner') }}
     </div>
 
-    <!-- 代次分段：时间线上方薄层区块（复用不新分段、重试新分段） -->
-    <ul v-if="mirror.segments.length" class="worker-segments">
-      <li
-        v-for="segment in mirror.segments"
-        :key="segment.assignmentId"
-        :data-testid="`worker-segment-${segment.generation}`"
-        class="segment"
-        :class="[`state-${segment.state}`, { current: segment === latestSegment }]"
-      >
-        <span class="generation">{{ t('superAgent.worker.generation', { n: segment.generation }) }}</span>
-        <span class="segment-state">{{ t(`superAgent.worker.states.${segment.state}`) }}</span>
-        <span v-if="segment.reportSummary" class="report" :title="segment.reportSummary">{{ segment.reportSummary }}</span>
-      </li>
-    </ul>
+    <div class="worker-timeline" :class="{ 'with-dock': canTakeOver }">
+      <div class="worker-timeline-scroll">
+        <!-- 代次分段：时间线上方薄层区块（复用不新分段、重试新分段） -->
+        <ul v-if="mirror.segments.length" class="worker-segments">
+          <li
+            v-for="segment in mirror.segments"
+            :key="segment.assignmentId"
+            :data-testid="`worker-segment-${segment.generation}`"
+            class="segment"
+            :class="[`state-${segment === latestSegment && !mirror.running ? 'idle' : segment.state}`, { current: segment === latestSegment }]"
+          >
+            <span class="generation">{{ t('superAgent.worker.generation', { n: segment.generation }) }}</span>
+            <span class="segment-state">{{ segment === latestSegment && segment.state === 'running' && !mirror.running ? statusLabel : t(`superAgent.worker.states.${segment.state}`) }}</span>
+            <span v-if="segment.reportSummary" class="report" :title="segment.reportSummary">{{ segment.reportSummary }}</span>
+          </li>
+        </ul>
 
-    <!-- Worker 稳定会话的时间线：默认只读；接管后交互可用，
-         授权确认结果作为领域输入经 sendWorkerMessage 投递，不直连引擎 -->
-    <AgentTimeline
-      :messages="messages"
-      :session-id="mirror.sessionId"
-      :loading="mirror.running"
-      :readonly="!isTakenOver"
-      @tool-submit="handleToolSubmit"
-      @tool-skip="handleToolSkip"
-    />
+        <!-- Worker 稳定会话的时间线：默认只读；接管后交互可用，
+             授权确认结果作为领域输入经 sendWorkerMessage 投递，不直连引擎 -->
+        <AgentTimeline
+          :messages="messages"
+          :session-id="mirror.sessionId"
+          :loading="mirror.running"
+          :readonly="!isTakenOver"
+          @tool-submit="handleToolSubmit"
+          @tool-skip="handleToolSkip"
+        />
+      </div>
+
+      <!-- 接管/交还悬浮在时间线底部：读长转录时不必滚回顶部 -->
+      <div v-if="canTakeOver" class="worker-dock" data-testid="worker-takeover-dock">
+        <button
+          type="button"
+          class="dock-action"
+          :class="{ active: isTakenOver }"
+          :aria-pressed="isTakenOver"
+          data-testid="worker-takeover-button"
+          @click="toggleTakeover"
+        >
+          <component :is="isTakenOver ? Undo2 : Hand" :size="14" class="dock-icon" />
+          <span>{{ isTakenOver ? t('superAgent.worker.giveback') : t('superAgent.worker.takeover') }}</span>
+        </button>
+      </div>
+    </div>
 
     <!-- 接管输入（T09 #79）：复用主聊天输入组件，绑定 Worker 会话；
          草稿域按 sessionId 隔离（Worker 稳定会话 id ≠ 普通会话 id） -->
@@ -56,6 +67,7 @@
       v-if="isTakenOver"
       class="worker-composer"
       compact
+      show-status-bar
       :session-id="mirror.sessionId"
       :placeholder="t('superAgent.worker.composerPlaceholder')"
       :show-work-gallery-action="false"
@@ -81,12 +93,14 @@
  *   作为领域输入投递。交还后回到只读，草稿域按 Worker 会话 id 隔离。
  * - 代次分段：workerBind 快照里的 segments 按 generation 升序，作为时间线上方
  *   薄层区块叠加；最新代次高亮。
+ * - 任务进度胶囊：只随接管后的紧凑输入框出现（默认隐藏），按 Worker 会话
+ *   自己的消息取数，不读全局 sessionContext。
  * - 生命周期：标签打开时若快照缺失则幂等 bindWorker；关闭标签由 app store
  *   负责停镜像（unbindWorker），本面板不监听关闭事件，切标签不解绑。
  */
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HardHat } from 'lucide-vue-next'
+import { HardHat, Hand, Undo2 } from 'lucide-vue-next'
 import AgentTimeline from '@/components/chat/AgentTimeline.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import { useAppStore, workerTabData } from '@/stores/app'
@@ -115,6 +129,15 @@ const mirror = computed(() => {
   return id ? superAgentStore.workerMirrors[id] : undefined
 })
 
+/** 运行真值优先；ready 仍保留 running Assignment，但界面应显示待验收。 */
+const statusLabel = computed(() => {
+  if (mirror.value?.running) return t('superAgent.worker.running')
+  const state = mirror.value?.ticketState
+  if (state === 'review') return t('superAgent.worker.pendingAcceptance')
+  if (!state || state === 'working' || state === 'idle') return t('superAgent.worker.idle')
+  return t(`superAgent.ticket.states.${state}`)
+})
+
 const messages = computed(() =>
   mirror.value ? chatStore.getDisplayMessages(mirror.value.sessionId) : [],
 )
@@ -123,6 +146,9 @@ const messages = computed(() =>
 const isTakenOver = computed(
   () => ticketId.value !== null && superAgentStore.takeoverTicketId === ticketId.value,
 )
+
+/** 接管入口只在标签自带 ticketId + repoRoot 时出现（寻址不全会打到别的项目）。 */
+const canTakeOver = computed(() => Boolean(ticketId.value && repoRoot.value))
 
 /** 最新一代 Assignment：分段薄层中高亮当前执行代次。 */
 const latestSegment = computed(() =>
@@ -199,6 +225,7 @@ function sendPermissionAnswer(text: string): void {
 <style scoped lang="scss">
 .worker-live-panel {
   display: flex;
+  flex: 1;
   flex-direction: column;
   height: 100%;
   min-height: 0;
@@ -209,7 +236,7 @@ function sendPermissionAnswer(text: string): void {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--surface-border);
   background: var(--bg-primary);
 
   .worker-icon {
@@ -227,43 +254,115 @@ function sendPermissionAnswer(text: string): void {
 
   .worker-state {
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     padding: 2px 8px;
     border-radius: 10px;
     color: var(--text-muted);
     background: var(--surface-hover);
 
     &.running {
-      color: var(--success-color, #16a34a);
+      color: var(--success);
     }
   }
 
   .readonly-hint {
     margin-left: auto;
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
   }
+}
 
-  // 接管后 readonly-hint 隐藏，由按钮占住行尾
-  .take-action {
-    margin-left: auto;
+// 时间线自身滚动，接管按钮悬浮在滚动区底部；滚动由面板持有，头部因此不会滚走
+.worker-timeline {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+
+  &.with-dock .worker-timeline-scroll {
+    // 给悬浮胶囊让位，最后一条消息不会被压住
+    padding-bottom: 52px;
+  }
+}
+
+.worker-timeline-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  @include scrollbar-overlay;
+}
+
+.worker-dock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px 12px;
+  pointer-events: none;
+}
+
+// 悬浮接管胶囊：主色渐变取「人接手」的分量，交还态转警示色描边
+.dock-action {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-on-accent, #fff);
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  box-shadow:
+    var(--shadow-md),
+    0 8px 20px var(--accent-primary-glow);
+  transition:
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast),
+    filter var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+
+  .dock-icon {
     flex-shrink: 0;
-    font-size: 12px;
-    padding: 3px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    background: var(--bg-elevated, var(--bg-primary));
-    color: var(--text-secondary);
-    cursor: pointer;
+  }
+
+  &:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow:
+      var(--shadow-lg),
+      0 10px 26px var(--accent-primary-glow);
+  }
+
+  &:active {
+    transform: translateY(0);
+    filter: brightness(0.98);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
+
+  &.active {
+    color: var(--warning);
+    background: var(--bg-elevated);
+    border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+    box-shadow: var(--shadow-md);
 
     &:hover {
+      filter: none;
       background: var(--surface-hover);
-    }
-
-    &.active {
-      border-color: var(--warning-color, #d97706);
-      color: var(--warning-color, #d97706);
+      box-shadow: var(--shadow-lg);
     }
   }
 }
@@ -271,16 +370,22 @@ function sendPermissionAnswer(text: string): void {
 // 接管横幅（T09 #79）：提示自动推进已暂停、此刻由人接管
 .takeover-banner {
   padding: 6px 12px;
-  font-size: 12px;
-  color: var(--warning-color, #d97706);
-  background: color-mix(in srgb, var(--warning-color, #d97706) 10%, transparent);
-  border-bottom: 1px solid var(--border-color);
+  font-size: var(--text-sm);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border-bottom: 1px solid var(--surface-border);
 }
 
 // 紧凑接管输入框：跟随面板宽度，草稿域由 sessionId 隔离
 .worker-composer {
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--surface-border);
   background: var(--bg-primary);
+}
+
+// 接管态下时间线底部永远有「交还」悬浮胶囊（占高约 46px）。
+// 任务进度胶囊默认贴着输入框顶部，会和它叠在一起，这里抬高一个胶囊位。
+.worker-composer :deep(.composer-status-bar) {
+  bottom: calc(100% + 52px);
 }
 
 .worker-segments {
@@ -290,7 +395,7 @@ function sendPermissionAnswer(text: string): void {
   list-style: none;
   margin: 0;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--surface-border);
   background: var(--bg-elevated, var(--bg-primary));
 
   .segment {
@@ -299,7 +404,7 @@ function sendPermissionAnswer(text: string): void {
     gap: 8px;
     padding: 3px 8px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-secondary);
 
     &.current {
@@ -317,7 +422,7 @@ function sendPermissionAnswer(text: string): void {
       color: var(--text-muted);
 
       .state-running & {
-        color: var(--success-color, #16a34a);
+        color: var(--success);
       }
     }
 

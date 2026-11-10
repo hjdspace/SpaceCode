@@ -20,7 +20,7 @@ import RouterWorkBadge from '../RouterWorkBadge.vue'
 import { useSuperAgentStore } from '@/stores/superAgent'
 
 const mocks = vi.hoisted(() => ({
-  policy: vi.fn(),
+  executionPolicy: vi.fn(),
   checkpoint: vi.fn(),
 }))
 
@@ -35,7 +35,7 @@ vi.mock('vue-i18n', () => ({
 vi.mock('@/services/electronAPI', () => ({
   api: {
     superAgent: {
-      policy: mocks.policy,
+      executionPolicy: mocks.executionPolicy,
       checkpoint: mocks.checkpoint,
     },
   },
@@ -60,7 +60,7 @@ function mountBadge() {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  mocks.policy.mockReset().mockResolvedValue({
+  mocks.executionPolicy.mockReset().mockResolvedValue({
     repoRoot: 'D:/doc/AI/SpaceCode',
     policy: { mode: 'serial', maxWorkers: 1, worktree: 'none' },
   } as SuperAgentExecutionPolicyView)
@@ -84,7 +84,7 @@ describe('RouterWorkBadge', () => {
     expect(wrapper.find('.name').text()).toBe('SpaceCode')
     expect(wrapper.find('[data-testid="super-agent-badge-toggle"]').attributes('aria-expanded'))
       .toBe('false')
-    expect(mocks.policy).not.toHaveBeenCalled()
+    expect(mocks.executionPolicy).not.toHaveBeenCalled()
     expect(mocks.checkpoint).not.toHaveBeenCalled()
   })
 
@@ -99,12 +99,25 @@ describe('RouterWorkBadge', () => {
 
     expect(wrapper.find('[data-testid="super-agent-badge-toggle"]').attributes('aria-expanded'))
       .toBe('true')
-    expect(mocks.policy).toHaveBeenCalledWith('D:/doc/AI/SpaceCode')
+    expect(mocks.executionPolicy).toHaveBeenCalledWith('D:/doc/AI/SpaceCode')
     expect(mocks.checkpoint).toHaveBeenCalledWith('D:/doc/AI/SpaceCode')
     // 展开态的工作目录独立成行，而不是只藏在标题里
     expect(wrapper.find('.field .path').text()).toBe('D:/doc/AI/SpaceCode')
     // 串行 = 共享项目根；这一行必须说清 worktree 归属，不让人误读成可改
     expect(wrapper.text()).toContain('superAgent.badge.serialValue')
+  })
+
+  it('卡号随条码印在卡底，工号不再单独占一行', async () => {
+    const superAgent = useSuperAgentStore()
+    superAgent.snapshot = snapshot()
+    superAgent.boundSessionId = 'router-1'
+
+    const wrapper = mountBadge()
+    await wrapper.find('[data-testid="super-agent-badge-toggle"]').trigger('click')
+
+    // 岗位/状态/工作目录/执行方式/检查点/工单/等人处理 —— 工号让位给条码下方
+    expect(wrapper.findAll('.field')).toHaveLength(7)
+    expect(wrapper.find('.card-no').text()).toBe('superAgent.badge.employeeId router-1-er-1')
   })
 
   it('Router 在跑时挂上岗标记', () => {
@@ -131,7 +144,7 @@ describe('RouterWorkBadge', () => {
     superAgent.snapshot = snapshot()
     superAgent.executionPolicy = null
     superAgent.checkpointInfo = null
-    mocks.policy.mockRejectedValue(new Error('no state'))
+    mocks.executionPolicy.mockRejectedValue(new Error('no state'))
     mocks.checkpoint.mockRejectedValue(new Error('no state'))
 
     const wrapper = mountBadge()

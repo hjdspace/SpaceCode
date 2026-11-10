@@ -168,7 +168,9 @@ describe('重启恢复（跨实例模拟）', () => {
     expect(busySegments).toHaveLength(2)
     expect(busySegments[0]).toMatchObject({ generation: 1, state: 'interrupted' })
     expect(busySegments[1]).toMatchObject({ generation: 2, state: 'running' })
-    expect(serviceB.workerBind(REPO, busy.ticketId).running).toBe(true)
+    // running 是执行真值（本用例走 fake launcher，没有活着的引擎轮次）；
+    // 恢复代次在跑这件事由卡片状态表达。
+    expect(serviceB.workerBind(REPO, busy.ticketId).ticketState).toBe('working')
 
     // review：原代次保持（仅标 interrupted），报告事实仍在
     const mirror = serviceB.workerBind(REPO, review.ticketId)
@@ -262,7 +264,7 @@ describe('显式 shutdown', () => {
       shutdownTimeoutMs: 30,
     })
     const ticket = dispatchOf(service, 'r-1', '标题')
-    await waitUntil(() => service.workerBind(REPO, ticket.ticketId).running === true)
+    await waitUntil(() => service.workerBind(REPO, ticket.ticketId).segments[0].state === 'running')
 
     const result = await service.shutdown(REPO)
     expect(result.settledWithinBound).toBe(false)

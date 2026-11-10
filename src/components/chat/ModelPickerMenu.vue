@@ -121,7 +121,6 @@ const props = defineProps<{ selector: ModelSelector }>()
 const {
   selectedModel, selectedMode, showModelDropdown, showModelSubmenu,
   highlightedModel, isLoadingModels, modelLoadError,
-  modelSelectorRef, modelListRef, modelSubmenuRef,
   mainDropdownRef, modelTriggerRowRef,
   availableModes, hasConfiguredModels, availableModels, canRefreshModels, selectedModelLabel,
   selectModel, selectMode, closeModelDropdown, toggleModelDropdown,

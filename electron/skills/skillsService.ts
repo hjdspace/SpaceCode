@@ -31,7 +31,6 @@ export interface MarketplaceSkill {
 
 // Constants
 const MARKETPLACE_API_URL = 'https://skills.sh/api/search'
-const SKILL_MARKETPLACE_CACHE_KEY = 'skill_marketplace_cache'
 const SKILL_MARKETPLACE_CACHE_TIME = 1000 * 60 * 60 // 1 hour
 
 // Cache for marketplace skills
@@ -895,7 +894,6 @@ export function registerSkillsIPCHandlers(): void {
           throw new Error(`Could not find skill file for ${skillId} in ${source}`)
         }
         
-        const scope = global ? 'global' : 'project'
         const dirPath = global ? getGlobalSkillsDirs()[1] : getProjectSkillsDirs(cwd || process.cwd())[1]
         
         logs.push(`Target directory: ${dirPath}`)
@@ -932,7 +930,6 @@ export function registerSkillsIPCHandlers(): void {
 
       // Use skillId as the file name
       const skillName = skillId || source.split('/').pop()?.replace('.md', '') || 'unknown'
-      const scope = global ? 'global' : 'project'
       const dirPath = global ? getGlobalSkillsDirs()[1] : getProjectSkillsDirs(cwd || process.cwd())[1]
       
       logs.push(`Target directory: ${dirPath}`)
@@ -1016,7 +1013,7 @@ export function registerSkillsIPCHandlers(): void {
   ipcMain.handle('skills:discoverDynamicSkills', async (_event, filePaths: string[], cwd: string) => {
     try {
       const { dirname, join: pathJoin } = require('path')
-      const { existsSync: exSync, readdirSync: rdSync } = require('fs')
+      const { existsSync: exSync } = require('fs')
       const discoveredSkills: Skill[] = []
       const seenDirs = new Set<string>()
 
@@ -1144,7 +1141,6 @@ interface LocalSkillBundle {
   installedScope?: 'global' | 'project' | 'mixed'
 }
 
-const CUSTOM_DIRS_STORAGE_KEY = 'local_skill_custom_dirs'
 const getCustomDirsFile = () => join(app.getPath('userData'), 'custom-skill-dirs.json')
 
 function loadCustomDirsFromFile(): string[] {

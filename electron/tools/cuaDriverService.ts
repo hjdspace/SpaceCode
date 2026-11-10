@@ -623,7 +623,6 @@ export async function installCuaDriver(): Promise<{ success: boolean; error?: st
   // 例如: CUA_DRIVER_GITHUB_MIRROR=https://ghfast.top
   const mirror = process.env.CUA_DRIVER_GITHUB_MIRROR || ''
   const rawGithubBase = 'https://raw.githubusercontent.com'
-  const githubBase = 'https://github.com'
   const scriptPath = '/trycua/cua/main/libs/cua-driver/scripts/install'
 
   return new Promise((resolve) => {

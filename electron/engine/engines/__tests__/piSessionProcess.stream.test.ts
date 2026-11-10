@@ -403,7 +403,7 @@ describe('PiSessionProcess state machine — agent and tool frames', () => {
 
 describe('PiSessionProcess stderr side-channel', () => {
   it('logs every non-empty stderr line, trimmed', async () => {
-    const { proc, child } = await startedSession()
+    const { child } = await startedSession()
 
     child.stderr.emit('data', Buffer.from('warn one\n\n   warn two   \n\n', 'utf8'))
 

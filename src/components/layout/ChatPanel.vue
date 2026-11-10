@@ -333,10 +333,10 @@ import { resolveModelAliasForEngine } from '@/utils/engineModel'
 import { useChatCommands } from '@/composables/useChatCommands'
 import { useWorkRouter } from '@/composables/useWorkRouter'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { useRewindFlow } from '@/composables/useRewindFlow'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
-import type { Message } from '@/types'
 
 const WorkAssistantPicker = defineAsyncComponent(() => import('../work/WorkAssistantPicker.vue'))
 const TerminalPanel = defineAsyncComponent(() => import('../terminal/TerminalPanel.vue'))
@@ -711,150 +711,27 @@ watch(
   { deep: true }
 )
 
-// Rewind state
-const showMessageSelector = ref(false)
-
-const rewindSelectedMessageContent = computed(() => {
-  const messageId = sessionStore.rewindState.selectedMessageId
-  if (!messageId) return ''
-  const message = paneSession.value?.messages.find(m => m.id === messageId)
-  return message?.content || ''
+const {
+  showMessageSelector,
+  rewindSelectedMessageContent,
+  userMessages,
+  handleRewindConfirm,
+  handleCodeRewindConfirm,
+  handleCodeRewindCancel,
+  handleRewindCancel,
+  handleMessageSelect,
+  handleOpenRewind,
+  handleMessageRewind,
+  handleEditResend,
+} = useRewindFlow({
+  paneSessionId,
+  paneSession,
+  paneWorkingDirectory,
+  paneIsLoading,
+  handleSend,
 })
 
-const userMessages = computed(() =>
-  paneSession.value?.messages
-    .filter(m => m.role === 'user')
-    .map(m => ({
-      id: m.id,
-      role: m.role as 'user' | 'assistant',
-      content: m.content || '',
-      timestamp: m.timestamp || Date.now()
-    })) || []
-)
-
-async function handleRewindConfirm() {
-  const option = sessionStore.rewindState.selectedOption
-  const messageId = sessionStore.rewindState.selectedMessageId
-
-  if (!messageId) return
-
-  if (option === 'summarize') {
-    sessionStore.summarizeTurn(
-      paneSessionId.value || '',
-      messageId,
-      sessionStore.rewindState.summarizeFeedback
-    )
-    sessionStore.setShowRewindDialog(false)
-    sessionStore.resetRewindState()
-  } else if (option === 'cancel') {
-    sessionStore.setShowRewindDialog(false)
-    sessionStore.resetRewindState()
-  } else if (option === 'both' || option === 'code') {
-    // Show code rewind confirmation dialog for code-related modes
-    await openCodeRewindConfirm()
-  } else {
-    // conversation mode - no code changes, proceed directly
-    executeRewind()
-  }
-}
-
-async function openCodeRewindConfirm() {
-  if (!sessionStore.rewindState.selectedMessageId || !paneSessionId.value) return
-
-  if (sessionStore.turnChangeCards.length === 0) {
-    await sessionStore.loadTurnCheckpoints(
-      paneSessionId.value,
-      paneWorkingDirectory.value || undefined
-    )
-  }
-
-  const files = await sessionStore.loadFilesToRewind(
-    paneSessionId.value,
-    sessionStore.rewindState.selectedMessageId
-  )
-
-  if (files.length > 0) {
-    sessionStore.setFilesToRewind(files)
-    sessionStore.setShowCodeConfirm(true)
-  } else {
-    // No files to rollback, proceed directly
-    executeRewind()
-  }
-}
-
-function handleCodeRewindConfirm() {
-  sessionStore.setShowCodeConfirm(false)
-  executeRewind()
-}
-
-function handleCodeRewindCancel() {
-  sessionStore.setShowCodeConfirm(false)
-  // Return to main rewind dialog, don't close it
-}
-
-async function executeRewind() {
-  const option = sessionStore.rewindState.selectedOption
-  const messageId = sessionStore.rewindState.selectedMessageId
-
-  if (!messageId) return
-
-  try {
-    await sessionStore.rewindSession(
-      paneSessionId.value || '',
-      messageId,
-      option as 'both' | 'conversation' | 'code'
-    )
-    sessionStore.setShowRewindDialog(false)
-    sessionStore.resetRewindState()
-  } catch (err: any) {
-    console.error('[ChatPanel] Rewind failed:', err)
-  }
-}
-
-function handleRewindCancel() {
-  sessionStore.resetRewindState()
-}
-
-function handleMessageSelect(messageId: string) {
-  showMessageSelector.value = false
-  sessionStore.setRewindSelectedMessage(messageId)
-  sessionStore.setShowRewindDialog(true)
-}
-
-function handleOpenRewind() {
-  showMessageSelector.value = true
-}
-
-function handleMessageRewind(message: Message) {
-  sessionStore.setRewindSelectedMessage(message.id)
-  sessionStore.setShowRewindDialog(true)
-}
-
-async function handleEditResend(messageId: string, newContent: string) {
-  const sid = paneSessionId.value
-  if (!sid) return
-
-  // 中断当前正在进行的请求（如果有）
-  if (paneIsLoading.value) {
-    await turnStore.abort()
-  }
-
-  // 裁剪会话消息到目标用户消息之前（仅裁剪对话，不回退代码）
-  // 直接操作 session.messages 避免 rewindSession 的 pendingInputText 副作用
-  const session = sessionStore.getSession(sid)
-  if (session) {
-    const targetIndex = session.messages.findIndex(m => m.id === messageId)
-    if (targetIndex >= 0) {
-      session.messages = session.messages.slice(0, targetIndex)
-      sessionStore.saveToStorage()
-    }
-  }
-
-  // 用修改后的文本重新发送
-  await handleSend(newContent, { files: [], images: [] })
-}
-
-const chatCommands = useChatCommands({
+useChatCommands({
   sessionId: paneSessionId.value,
   messages: paneRawMessages.value,
   onOpenSkills: () => {
@@ -1302,7 +1179,7 @@ async function handleSend(content: string, attachments: AllAttachments, options?
     if (outcome.kind === 'cancel') return
     if (outcome.kind === 'routed' && outcome.assistant) {
       try {
-        const session = await sessionStore.startWorkAssistantSession({
+        await sessionStore.startWorkAssistantSession({
           name: outcome.assistant.name,
           skills: outcome.assistant.skills,
           permission: outcome.assistant.permission,
@@ -1495,9 +1372,6 @@ async function executeGoalCommand(args: string): Promise<string> {
 
 // 执行斜杠命令
 async function executeSlashCommand(command: string, args: string): Promise<string> {
-  const workingDir = paneWorkingDirectory.value
-  const cmd = findCommand(command)
-
   // 使用新的命令系统处理
   switch (command.toLowerCase()) {
     case 'help':
@@ -1630,31 +1504,6 @@ function generateCostMessage(): string {
   return generateCostMessageText(paneRawMessages.value, t)
 }
 
-// 生成上下文信息
-function generateContextMessage(): string {
-  const session = paneSession.value
-  if (!session) return t('chatPanel.commandNoSession')
-
-  const messageCount = session.messages.length
-  const userMessages = session.messages.filter((m) => m.role === 'user').length
-  const assistantMessages = session.messages.filter((m) => m.role === 'assistant').length
-
-  let context = `## ${t('chatPanel.contextTitle')}
-
-| ${t('chatPanel.contextMetric')} | ${t('chatPanel.contextValue')} |
-|--------|-------|
-| ${t('chatPanel.contextTotalMessages')} | ${messageCount} |
-| ${t('chatPanel.contextUserMessages')} | ${userMessages} |
-| ${t('chatPanel.contextAssistantMessages')} | ${assistantMessages} |
-`
-
-  if (session.workingDirectory) {
-    context += `| ${t('chatPanel.contextWorkingDirectory')} | \`${session.workingDirectory}\` |`
-  }
-
-  return context
-}
-
 function generateKeybindingsMessage(): string {
   return generateKeybindingsMessageText(t)
 }
@@ -1695,19 +1544,6 @@ async function handleToolSkip(messageId: string, toolId: string) {
   }
   // Fallback for legacy path
   await turnStore.skipToolAnswer(paneSessionId.value, messageId, toolId)
-}
-
-async function handleNewSession() {
-  if (props.paneId) {
-    // ── 分屏模式：在当前 pane 中创建新会话 ──
-    const session = sessionStore.createSession(t('common.newChat'))
-    const tabId = `session-${session.id}`
-    splitLayout.setPaneContent(props.paneId, { kind: 'session', tabId })
-    splitLayout.setActivePane(props.paneId)
-    return
-  }
-  // ── 非分屏模式：仅创建会话，由左侧 Sidebar 统一管理会话列表 ──
-  sessionStore.createSession(t('common.newChat'))
 }
 
 async function handleRestoreHistorySession(session: any) {

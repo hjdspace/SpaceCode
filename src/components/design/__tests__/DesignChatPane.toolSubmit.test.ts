@@ -3,7 +3,7 @@
 // 于是"点了提交没有任何反应"。这里钉住两条通道的选择。
 import { defineComponent, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia, type Pinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { permissionService } from '@/services/permissionService'
 

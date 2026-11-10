@@ -233,7 +233,7 @@ describe('retryTicket 重试出口', () => {
   })
 
   it('clears the permanent delivery failure so the stage leaves person/delivery', () => {
-    const { domain, ticketId, assignmentId } = failedDomain()
+    const { domain, ticketId } = failedDomain()
     const added = domain.addInput({
       ticketId,
       requestId: nextId('req'),
@@ -345,7 +345,7 @@ describe('markReviewReminded review 超时提醒水位', () => {
   })
 
   it('refuses to remind outside review (notReady)', () => {
-    const { domain, ticketId, assignmentId } = readyDomain()
+    const { domain, ticketId } = readyDomain()
     // 继续追问离开 review 后不再提醒
     domain.ticketMessage({ ticketId, requestId: nextId('req'), text: '再改一版' })
     try {

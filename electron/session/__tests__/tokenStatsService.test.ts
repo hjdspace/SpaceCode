@@ -52,7 +52,6 @@ function usageEntry(
   const outputTokens = tokens.output ?? 0
   const cacheCreationInputTokens = tokens.cacheCreation ?? 0
   const cacheReadInputTokens = tokens.cacheRead ?? 0
-  const totalTokens = inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens
   return {
     type: 'assistant',
     timestamp,

@@ -50,7 +50,11 @@
 
     <div class="input-wrapper" :class="{ 'has-content': hasContent, 'is-sending': isSending, 'is-optimizing': isOptimizing, 'is-voice-active': voiceActive }">
       <!-- 悬浮任务/改动状态栏 -->
-      <ComposerStatusBar v-if="!compact" :session-id="sessionId" />
+      <ComposerStatusBar
+        v-if="!compact || showStatusBar"
+        :session-id="sessionId"
+        :open-task-panel="!compact"
+      />
 
       <!-- 引用文本附件条（选中文本浮条"添加到对话"） -->
       <QuoteAttachmentsBar :quotes="attachedQuotes" @remove="removeQuoteAttachment" />
@@ -67,7 +71,7 @@
       </div>
 
       <!-- 文本输入区域 — contenteditable 支持内联 chip -->
-      <div class="textarea-wrapper" @click="focusEditor">
+      <div class="textarea-wrapper" :class="{ 'has-optimize-btn': showActions }" @click="focusEditor">
         <div
           ref="editorRef"
           class="inline-editor"
@@ -112,6 +116,18 @@
             <span>{{ thinkingHint.text }}</span>
           </div>
         </Transition>
+        <!-- 提示词优化按钮 — 悬浮在输入区右上角 -->
+        <button
+          v-if="showActions"
+          class="optimize-btn"
+          :class="{ 'is-optimizing': isOptimizing }"
+          :disabled="isOptimizing || props.isSending || !hasContent"
+          :title="t('chatInput.optimizePrompt')"
+          @click.stop.prevent="handleOptimizePrompt"
+        >
+          <Loader2 v-if="isOptimizing" :size="16" class="spin" />
+          <Sparkles v-else :size="16" />
+        </button>
       </div>
 
       <!-- 语音输入提示：权限指引 / 无语音 / 安装进度与失败 -->
@@ -194,21 +210,8 @@
           <slot name="toolbar-extra"></slot>
         </div>
 
-        <!-- 右侧按钮组：优化提示词 + 语音输入 + 发送/停止 -->
+        <!-- 右侧按钮组：语音输入 + 发送/停止 -->
         <div class="toolbar-right">
-          <!-- 优化提示词按钮（位于发送按钮左侧） -->
-          <button
-            v-if="showActions"
-            class="optimize-btn"
-            :class="{ 'is-optimizing': isOptimizing }"
-            :disabled="isOptimizing || props.isSending || !hasContent"
-            :title="t('chatInput.optimizePrompt')"
-            @click.stop.prevent="handleOptimizePrompt"
-          >
-            <Loader2 v-if="isOptimizing" :size="16" class="spin" />
-            <Sparkles v-else :size="16" />
-          </button>
-
           <!-- 语音输入：录音中显示电平波形与停止方块 -->
           <template v-if="voiceSupported">
             <VoiceWaveform v-if="voiceActive" :level="voiceLevel" class="voice-waveform-slot" />
@@ -329,10 +332,10 @@ import FileAttachmentCard from './FileAttachmentCard.vue'
 import { useAppStore, type InputInjectPayload } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
-import type { PendingMessage } from '@/stores/turn/types'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
+import { usePendingMessages } from '@/composables/usePendingMessages'
 import { useFileToChat } from '@/composables/useFileToChat'
 import PermissionModeSelector from './PermissionModeSelector.vue'
 import ComposerStatusBar from './ComposerStatusBar.vue'
@@ -367,7 +370,7 @@ import type { VoiceInputTarget } from '@/lib/voice/voiceTargetRegistry'
 import { buildDictationAppend } from '@/lib/voice/mergeDictation'
 import type { VoiceComposerTarget, VoiceSnapshot } from '@/lib/voice/voiceDictation'
 import type { VoiceModelInstallInfo } from '@/shared/channels/voice'
-import type { ImageAttachment, Attachment, AllAttachments, SendOptions, TextQuoteAttachment } from '@/composables/types'
+import type { ImageAttachment, AllAttachments, SendOptions } from '@/composables/types'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
@@ -401,8 +404,10 @@ const props = withDefaults(defineProps<{
   showOpenProjectAction?: boolean
   /** 本输入框绑定的会话 id；未传时回退全局 currentSessionId */
   sessionId?: string
-  /** 紧凑模式（侧边任务）：隐藏依赖全局 sessionContext 单例的悬浮状态栏 */
+  /** 紧凑模式（侧边任务）：默认不渲染悬浮状态栏，需要时由 showStatusBar 打开 */
   compact?: boolean
+  /** true = 紧凑模式下也渲染悬浮状态栏（Worker 接管态用；宿主自己负责显隐时机） */
+  showStatusBar?: boolean
   /** 'none' = 不读也不写会话草稿。弹窗等临时宿主用它可避免把宿主会话的草稿冲掉 */
   draftScope?: 'session' | 'none'
   /** 受控权限模式：传入时选择器只 emit，不再读写本会话的权限模式 */
@@ -474,11 +479,11 @@ const editor = useContentEditor({
 })
 const {
   editorRef, containerRef, inputText,
-  getEditorPlainText, getTextBeforeCursor, getCursorOffset,
+  getEditorPlainText, getTextBeforeCursor,
   setCursorToEnd, focusEditor,
   insertMentionChip, insertCommandChip, insertImageChip,
   removeTriggerText, setEditorContent, clearEditor,
-  collectMentions, collectAllAttachments, autoResize,
+  collectAllAttachments, autoResize,
   insertPastedTextWithMarkers,
   hasContent: editorHasContent, handleBackspaceChip,
 } = editor
@@ -532,7 +537,7 @@ const {
   addFile: addFileAttachment,
   addUploadedFilesFromDialog,
   removeFile: removeAttachment,
-  clearFiles, handleAddClick, closeAttachmentMenu,
+  handleAddClick, closeAttachmentMenu,
   handleBrowseFiles: handleBrowseFilesBase,
 } = fileAttachments
 
@@ -771,7 +776,7 @@ const draftPersistence = useDraftPersistence({
   attachedQuotes,
   draftScope: () => props.draftScope,
 })
-const { editorSessionId, saveDraftForSession, loadDraftForSession, restoreStashData } = draftPersistence
+const { editorSessionId, saveDraftForSession, loadDraftForSession } = draftPersistence
 
 // ── Local state (not extracted) ──────────────────────────────────
 const showSteerHint = ref(false)
@@ -791,50 +796,24 @@ function closeImagePreview() {
 // ── Computed ─────────────────────────────────────────────────────
 const hasContent = computed(() => editorHasContent(attachedFiles.value, attachedImages.value) || attachedQuotes.value.length > 0)
 
-const currentPendingMessages = computed(() => {
-  const sid = editorSessionId.value
-  if (!sid) return []
-  return turnStore.getPendingMessages(sid)
-})
-
 // ── Pending Messages ─────────────────────────────────────────────
-// 全部按 editorSessionId（本输入框绑定的会话）寻址，而非全局 currentSessionId：
-// 分屏与侧边任务会同时存在多个 ChatInput 实例，用全局 id 会串到别的会话。
-
-/** 排队消息摊回编辑器：召回按钮与空输入框按 ↑ 共用这一份恢复逻辑 */
-function applyPendingSnapshot(msg: PendingMessage) {
-  inputText.value = msg.content
-  if (editorRef.value) {
-    editorRef.value.innerText = msg.content
-  }
-  attachedFiles.value = msg.attachments.map(f => ({ ...f }))
-  attachedImages.value = msg.images.map(img => ({ ...img }))
-  nextTick(() => focusEditor())
-}
-
-function recallPendingMsg(msgId: string) {
-  const sid = editorSessionId.value
-  if (!sid) return
-  const recalled = turnStore.recallPendingMessage(sid, msgId)
-  if (recalled) applyPendingSnapshot(recalled)
-}
-
-function removePendingMsg(msgId: string) {
-  const sid = editorSessionId.value
-  if (sid) turnStore.removePendingMessage(sid, msgId)
-}
-
-function sendPendingNow(msgId: string) {
-  const sid = editorSessionId.value
-  if (!sid) return
-  const recalled = turnStore.recallPendingMessage(sid, msgId)
-  if (!recalled) return
-  const allAttachments = collectAllAttachments(
-    recalled.attachments.map(f => ({ ...f })),
-    recalled.images.map(img => ({ ...img })),
-  )
-  emit('send', recalled.content, allAttachments)
-}
+// 排队消息按本输入框绑定的会话寻址，逻辑见 usePendingMessages。
+const {
+  currentPendingMessages,
+  applyPendingSnapshot,
+  recallPendingMsg,
+  removePendingMsg,
+  sendPendingNow,
+} = usePendingMessages({
+  sessionId: editorSessionId,
+  inputText,
+  editorRef,
+  attachedFiles,
+  attachedImages,
+  collectAllAttachments,
+  focusEditor,
+  onSend: (content, attachments) => emit('send', content, attachments),
+})
 
 // ── Thinking toggle ──────────────────────────────────────────────
 let thinkingHintTimer: ReturnType<typeof setTimeout> | undefined
@@ -1471,7 +1450,7 @@ function handleDrop(e: DragEvent) {
   }
 
   if (data.type === 'image-files') {
-    for (const file of data.files) {
+    data.files.forEach(() => {
       // Convert the plain object back to a File for handleImageFile
       // Since drag events give us real File objects, we need to get them from the original event
       const realFiles = Array.from(e.dataTransfer?.files || [])
@@ -1480,7 +1459,7 @@ function handleDrop(e: DragEvent) {
           handleImageFileFromComposable(realFile, (image) => insertImageChip(image))
         }
       }
-    }
+    })
   }
 }
 
@@ -1924,6 +1903,11 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   margin-bottom: 12px;
   cursor: text;
 
+  // 右上角悬浮优化按钮，文字为它让出横向空间，避免首行被遮住
+  &.has-optimize-btn {
+    padding-right: 36px;
+  }
+
   .inline-editor {
     width: 100%;
     min-height: 24px;
@@ -2170,7 +2154,14 @@ defineExpose({ getContent, setContent, focus: focusEditor })
   }
 }
 
-// 优化提示词按钮
+// 优化提示词按钮（悬浮在输入区右上角）
+.textarea-wrapper > .optimize-btn {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  z-index: 2;
+}
+
 .toolbar-right {
   display: flex;
   align-items: center;

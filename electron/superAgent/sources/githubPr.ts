@@ -34,6 +34,23 @@ export function githubPrThreadId(pr: string): string {
   return `github:pr:${pr.replace('#', ':')}`
 }
 
+const PR_REFERENCE_PATTERN = /[\w.-]+\/[\w.-]+#\d+/g
+
+/**
+ * T25 #97：从派工/工单消息里提取显式 PR 引用（`owner/repo#42`），
+ * 保持出现顺序并去重。只有完整引用才算数，裸 `#42` 或 `owner/repo` 忽略。
+ */
+export function extractPrReferences(text: string): string[] {
+  const references: string[] = []
+  const seen = new Set<string>()
+  for (const match of text.match(PR_REFERENCE_PATTERN) ?? []) {
+    if (!PR_PATTERN.test(match) || seen.has(match)) continue
+    seen.add(match)
+    references.push(match)
+  }
+  return references
+}
+
 export type GithubPrReviewState = 'approved' | 'changes_requested' | 'commented'
 
 /** PR 评审（一轮提交 = 一条 item；actorRound 为该作者在此 PR 的第几轮）。 */

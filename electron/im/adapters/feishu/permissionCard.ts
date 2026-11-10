@@ -249,7 +249,7 @@ export class FeishuPermissionCard {
 
   /** Check if the tool writes outside the working directory. */
   private checkPathSafety(
-    toolName: string,
+    _toolName: string,
     input: Record<string, unknown>,
     workDir?: string
   ): boolean {

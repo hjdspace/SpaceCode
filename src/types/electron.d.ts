@@ -601,6 +601,13 @@ export interface ElectronAPI {
 
   design: {
     listSystems: () => Promise<DesignSystemSummary[]>
+    createSystem: (input: {
+      title: string
+      category?: string
+      summary?: string
+      accentColor?: string
+    }) => Promise<DesignSystemSummary>
+    deleteSystem: (systemId: string) => Promise<void>
     getSystemPreview: (systemId: string, pagePath: string) => Promise<string>
     getSystemFile: (systemId: string, filePath: string) => Promise<string>
     getSystemShowcase: (systemId: string) => Promise<string>

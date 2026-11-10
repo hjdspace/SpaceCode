@@ -126,10 +126,10 @@ describe('引导卡', () => {
     expect(toggles.map(el => el.text())).toEqual(['中文', 'EN'])
 
     await toggles[1].trigger('click')
+    await vi.waitFor(() => expect(i18n.global.locale.value).toBe('en-US'))
     await tick()
 
     expect(settings.language).toBe('en-US')
-    expect(i18n.global.locale.value).toBe('en-US')
     expect(wrapper.text()).toContain('Welcome to SpaceCode')
     expect(wrapper.find('.ob-intro-lang .is-active').text()).toBe('EN')
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}').language).toBe('en-US')
@@ -140,10 +140,10 @@ describe('引导卡', () => {
     await wrapper.find('.ob-btn--primary').trigger('click')
     const english = wrapper.findAll('.ob-opt')[1]
     await english.trigger('click')
+    await vi.waitFor(() => expect(i18n.global.locale.value).toBe('en-US'))
     await tick()
 
     expect(settings.language).toBe('en-US')
-    expect(i18n.global.locale.value).toBe('en-US')
     expect(wrapper.find('.ob-head h1').text()).toBe('Which language?')
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}').language).toBe('en-US')
   })

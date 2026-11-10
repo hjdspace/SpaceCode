@@ -15,7 +15,6 @@ import { useSkillManagerStore } from '@/stores/skillManagerStore'
 import type {
   AddCenterSkillInput,
   AddCenterSkillPreview,
-  AddCenterSkillCandidate,
   AddCenterSkillDecision,
 } from '@/types/skillManagerV2'
 
@@ -39,7 +38,6 @@ const blockerDecisions = ref<Map<string, { resolution: 'update' | 'create' | 'sk
 
 // ── Computed ───────────────────────────────────────────────────────
 
-const hasPreview = computed(() => preview.value !== null)
 const hasCandidates = computed(() => (preview.value?.candidates.length ?? 0) > 0)
 const hasBlockers = computed(() => (preview.value?.blockers.length ?? 0) > 0)
 const hasUnchanged = computed(() => (preview.value?.unchangedCount ?? 0) > 0)

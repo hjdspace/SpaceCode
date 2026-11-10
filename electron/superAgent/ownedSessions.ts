@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import type { SuperAgentSessionKind } from '@/shared/channels/superAgent'
 import { SUPER_AGENT_PROJECTS_DIR } from './store'
-import { superAgentRouterEngineSessionId, superAgentWorkerEngineSessionId } from './sessionId'
+import { superAgentRouterEngineSessionId, superAgentTicketWorkerSessionId } from './sessionId'
 
 function readJson(filePath: string): unknown {
   try {
@@ -25,11 +25,17 @@ function readJson(filePath: string): unknown {
   }
 }
 
-/** state.json 的 tickets 键集合，即全部 ticketId（只读快照，不重放 WAL）。 */
-function ticketIdsOf(raw: unknown): string[] {
+/** state.json 的 Worker 归属快照（只读，不重放 WAL）。 */
+function ticketsOf(raw: unknown): { ticketId: string; execution?: { sessionId?: string } }[] {
   const state = (raw as { state?: { tickets?: Record<string, unknown> } } | null)?.state
   const tickets = state?.tickets
-  return tickets && typeof tickets === 'object' ? Object.keys(tickets) : []
+  if (!tickets || typeof tickets !== 'object') return []
+  return Object.values(tickets).flatMap((value) => {
+    const ticket = value as { ticketId?: unknown; execution?: { sessionId?: string } } | null
+    return typeof ticket?.ticketId === 'string'
+      ? [{ ticketId: ticket.ticketId, execution: ticket.execution }]
+      : []
+  })
 }
 
 function repoRootOf(raw: unknown): string | null {
@@ -61,8 +67,8 @@ export function listSuperAgentSessionTypes(
     const dir = join(projectsDir, projectKey)
     const repoRoot = repoRootOf(readJson(join(dir, 'project.json')))
     if (repoRoot) types.set(superAgentRouterEngineSessionId(repoRoot), 'superAgent')
-    for (const ticketId of ticketIdsOf(readJson(join(dir, 'state.json')))) {
-      types.set(superAgentWorkerEngineSessionId(ticketId), 'superAgentWorker')
+    for (const ticket of ticketsOf(readJson(join(dir, 'state.json')))) {
+      types.set(superAgentTicketWorkerSessionId(ticket), 'superAgentWorker')
     }
   }
   return types

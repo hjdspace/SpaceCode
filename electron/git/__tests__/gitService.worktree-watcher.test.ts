@@ -31,7 +31,7 @@ class FakeWorker {
   opts: { eval?: boolean; workerData?: { root?: string } }
   handlers: Record<string, (payload: unknown) => void> = {}
   terminated = false
-  constructor(source: string, opts: { eval?: boolean; workerData?: { root?: string } }) {
+  constructor(_source: string, opts: { eval?: boolean; workerData?: { root?: string } }) {
     if (probe.throwOnConstruct) throw new Error('worker spawn failed')
     this.opts = opts
     const self = this
@@ -62,7 +62,7 @@ vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>()
   return {
     ...actual,
-    watch: (path: string, optionsOrListener: unknown, maybeListener?: unknown) => {
+    watch: (path: string, optionsOrListener: unknown, _maybeListener?: unknown) => {
       const recursive =
         typeof optionsOrListener === 'object' && optionsOrListener !== null
           ? Boolean((optionsOrListener as { recursive?: boolean }).recursive)

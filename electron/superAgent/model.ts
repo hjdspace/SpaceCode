@@ -191,6 +191,8 @@ export interface SuperAgentTicket {
     directory: string
     assignmentId: string | null
     model?: string
+    /** 显式续聊时继承的 Worker session；缺省按 ticketId 派生。 */
+    sessionId?: string
   }
   /** 跟随的 Thread（如 PR），只补上下文。 */
   follows: string[]
@@ -440,6 +442,8 @@ export interface SuperAgentEvalDecision {
   matchedRules: string[]
   /** accept 建单时对应工单；observe/ignore/stop/unavailable 为 null。 */
   ticketId: string | null
+  /** 模型给出的判断依据（#99 协议必填）；超时路径等宿主自行落档时不写。 */
+  reason?: string
 }
 
 /** T16 #86：按 Thread 串行的语义评估批次。 */
@@ -462,6 +466,22 @@ export interface SuperAgentEval {
   decision: SuperAgentEvalDecision | null
   /** T20 #90：unavailable 后的人工处置事实；未处置为 null。 */
   disposal: SuperAgentEvalDisposal | null
+}
+
+/**
+ * #100：Worker 指令的审计事实。
+ *
+ * handback 记 trigger/input 与原因；threadUnrelated/threadFollow 记 threadId。
+ * 只追加不改写，供工单详情折叠展示与 Eval 回灌引用。
+ */
+export interface SuperAgentWorkerActionAudit {
+  kind: 'handback' | 'threadUnrelated' | 'threadFollow'
+  ticketId: string
+  at: string
+  triggerId: string | null
+  inputId: string | null
+  threadId: string | null
+  reason: string | null
 }
 
 /** 单写者持有的全部领域事实。 */
@@ -505,4 +525,6 @@ export interface SuperAgentDomainState {
    * pending 续做、sent 不重复投递；messageId 为永久去重幂等键。
    */
   outbox: Record<string, SuperAgentOutboxMessage>
+  /** #100：Worker 交回/退订/上下文订阅的审计事实（只追加）。 */
+  workerActions: SuperAgentWorkerActionAudit[]
 }

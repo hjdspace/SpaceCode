@@ -63,7 +63,7 @@
 
 <script setup lang="ts">
 import type { ToolCall } from '@/types'
-import { Globe, ChevronDown, ExternalLink, Loader2, Check, X } from 'lucide-vue-next'
+import { Globe, ChevronDown, Loader2, Check, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

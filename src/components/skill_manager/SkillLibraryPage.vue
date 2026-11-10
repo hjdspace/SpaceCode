@@ -25,7 +25,6 @@ const distributeVisible = ref(false)
 const deletePreviewVisible = computed(() => store.busyAction === 'preview-delete')
 const deleteBusy = computed(() => store.busyAction === 'delete-skill')
 const allSelected = computed(() => store.filteredSkills.length > 0 && store.filteredSkills.every((skill) => selectedSkillIds.value.includes(skill.id)))
-const selectedSkills = computed(() => store.skills.filter((skill) => selectedSkillIds.value.includes(skill.id)))
 
 function handleSearchInput(event: Event): void {
   store.setSearchQuery((event.target as HTMLInputElement).value)

@@ -21,6 +21,10 @@ describe('healthCategoryI18nKey', () => {
   it('falls back to the generic category key for an unknown category', () => {
     expect(healthCategoryI18nKey('effect:telemetry')).toBe('superAgent.health.unknownCategory')
   })
+
+  it('maps per-source categories to the source category key', () => {
+    expect(healthCategoryI18nKey('source:feishu-im')).toBe('superAgent.health.categories.source')
+  })
 })
 
 describe('health locale skeleton', () => {

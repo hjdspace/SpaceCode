@@ -457,7 +457,7 @@ watch(() => appStore.webviewUrl, () => {
 
 <style lang="scss" scoped>
 .info-panel {
-  width: 400px;
+  width: 560px;
   min-width: 300px;
   max-width: 90vw;
   height: 100%;
@@ -497,6 +497,11 @@ watch(() => appStore.webviewUrl, () => {
 
 // 侧边任务内嵌 ChatPanel，滚动由其内部消息流接管，外层再滚会出现双滚动条
 .info-panel.side-task .panel-content {
+  overflow: hidden;
+}
+
+// Worker 镜像面板：时间线自己滚动，外层不滚 —— 底部悬浮的接管按钮才能固定在可见区域
+.info-panel.worker .panel-content {
   overflow: hidden;
 }
 

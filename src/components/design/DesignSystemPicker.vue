@@ -34,8 +34,9 @@
         <button
           type="button"
           class="ds-picker-action ds-picker-action--primary"
-          disabled
-          :title="t('design.designSystemPicker.createDisabled')"
+          :title="t('design.designSystemCreate.title')"
+          data-testid="ds-picker-create"
+          @click="openCreateModal"
         >
           <Plus :size="13" stroke-width="2" />
           <span>{{ t('common.create') }}</span>
@@ -59,10 +60,10 @@
             <Check v-if="modelValue == null" :size="14" stroke-width="2" />
           </button>
 
-          <template v-if="filtered.length">
-            <div class="ds-picker-group-label">{{ t('design.designSystemPicker.officialPresets') }}</div>
+          <template v-for="group in groups" :key="group.key">
+            <div class="ds-picker-group-label">{{ group.label }}</div>
             <button
-              v-for="system in filtered"
+              v-for="system in group.systems"
               :key="system.id"
               type="button"
               class="ds-picker-option"
@@ -75,10 +76,13 @@
               @mousedown.prevent="pick(system.id)"
             >
               <span class="ds-picker-option-title">{{ system.name }}</span>
+              <span v-if="system.source === 'user'" class="ds-picker-option-badge">
+                {{ t('design.designSystemPicker.userBadge') }}
+              </span>
               <Check v-if="modelValue === system.id" :size="14" stroke-width="2" />
             </button>
           </template>
-          <div v-else class="ds-picker-empty">{{ t('design.designSystemPicker.noMatches') }}</div>
+          <div v-if="!filtered.length" class="ds-picker-empty">{{ t('design.designSystemPicker.noMatches') }}</div>
         </div>
 
         <div class="ds-picker-preview" data-testid="ds-picker-preview">
@@ -132,6 +136,17 @@
               <Eye :size="14" stroke-width="1.9" />
               <span>{{ t('design.designSystemPicker.openPreview') }}</span>
             </button>
+            <button
+              v-if="previewSystem.source === 'user'"
+              type="button"
+              class="ds-preview-open ds-preview-open--danger"
+              :disabled="deleting"
+              data-testid="ds-preview-delete"
+              @click="removeSystem(previewSystem)"
+            >
+              <Trash2 :size="14" stroke-width="1.9" />
+              <span>{{ t('common.delete') }}</span>
+            </button>
           </template>
           <template v-else>
             <div class="ds-preview-none" data-testid="ds-picker-preview-none">
@@ -151,26 +166,41 @@
       :system="previewModalSystem"
       :on-close="closePreviewModal"
     />
+
+    <DesignSystemCreateModal
+      v-if="createModalOpen"
+      @created="onSystemCreated"
+      @cancel="createModalOpen = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Palette, ChevronDown, Search, Plus, Check, Eye } from 'lucide-vue-next'
+import { Palette, ChevronDown, Search, Plus, Check, Eye, Trash2 } from 'lucide-vue-next'
 import type { DesignSystemSummary } from '@/services/electronAPI'
 import { api } from '@/services/electronAPI'
 import { useAnchoredMenu } from '@/composables/useAnchoredMenu'
+import { useDialog } from '@/composables/useDialog'
 import DesignSystemPreviewModal from './DesignSystemPreviewModal.vue'
+import DesignSystemCreateModal from './DesignSystemCreateModal.vue'
 
 const props = defineProps<{
   systems: DesignSystemSummary[]
   modelValue: string | null
 }>()
-const emit = defineEmits<{ (e: 'update:modelValue', id: string | null): void }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', id: string | null): void
+  (e: 'created', system: DesignSystemSummary): void
+  (e: 'removed', systemId: string): void
+}>()
 
 const { t } = useI18n()
+const { showConfirm, showAlert } = useDialog()
 const open = ref(false)
+const createModalOpen = ref(false)
+const deleting = ref(false)
 const query = ref('')
 const wrapRef = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -235,6 +265,16 @@ const filtered = computed(() => {
   )
 })
 
+// 自建项单独成组排在前面：主进程按目录 mtime 倒序返回，刚建完的那套就在最上面
+const groups = computed(() => {
+  const user = filtered.value.filter((s) => s.source === 'user')
+  const builtIn = filtered.value.filter((s) => s.source !== 'user')
+  return [
+    { key: 'user', label: t('design.designSystemPicker.userSystems'), systems: user },
+    { key: 'built-in', label: t('design.designSystemPicker.officialPresets'), systems: builtIn },
+  ].filter((group) => group.systems.length > 0)
+})
+
 async function loadPreview(system: DesignSystemSummary) {
   const requestId = ++previewRequestId
   previewLoading.value = true
@@ -280,6 +320,35 @@ function openPreviewModal() {
 
 function closePreviewModal() {
   previewModalSystem.value = null
+}
+
+function openCreateModal() {
+  open.value = false
+  createModalOpen.value = true
+}
+
+function onSystemCreated(system: DesignSystemSummary) {
+  createModalOpen.value = false
+  emit('created', system)
+}
+
+async function removeSystem(system: DesignSystemSummary) {
+  const confirmed = await showConfirm(
+    t('design.designSystemPicker.deleteConfirm', { name: system.name }),
+    { title: t('design.designSystemPicker.delete'), variant: 'danger' },
+  )
+  if (!confirmed) return
+  deleting.value = true
+  try {
+    await api.design.deleteSystem(system.id)
+    // 浮层预览还指着刚删掉的那套，先收干净再让上层重取列表
+    hoverNone()
+    emit('removed', system.id)
+  } catch {
+    showAlert(t('design.designSystemPicker.deleteFailed'))
+  } finally {
+    deleting.value = false
+  }
 }
 
 function onPointer(event: MouseEvent) {
@@ -432,8 +501,6 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
-.ds-picker-action:disabled { opacity: 0.55; cursor: not-allowed; }
-
 .ds-picker-body {
   display: grid;
   grid-template-columns: minmax(190px, 0.9fr) minmax(260px, 1.1fr);
@@ -492,6 +559,16 @@ onUnmounted(() => {
   white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
+}
+
+.ds-picker-option-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--surface-border-strong);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .ds-picker-empty {
@@ -631,6 +708,16 @@ onUnmounted(() => {
 .ds-preview-open:hover {
   background: var(--surface-hover);
   border-color: var(--surface-border-strong);
+}
+
+.ds-preview-open--danger {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 36%, transparent);
+}
+
+.ds-preview-open:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 @keyframes scaleIn {

@@ -57,6 +57,11 @@ export interface SourceIngestorOptions {
   quarantine: SourceQuarantine
   /** 建单候选回调；重复重放不重复回调，但跨重启仍可能重发，下游须按事件键幂等。 */
   onCandidate?: (candidate: SourceCandidate) => void
+  /**
+   * T24 #93：每次轮询成功/失败后的状态快照回调。Service 据此把读取失败
+   * 计入 health 的 `source:<id>` 类别（不额外引入事件总线）。
+   */
+  onStatus?: (status: SourceStatus) => void
   /** 成功轮询之间的最小间隔。 */
   pollIntervalMs?: number
   /** 失败退避基数，指数递增直到 backoffCapMs。 */
@@ -94,6 +99,7 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
   const cursorStore = options.cursorStore
   const quarantine = options.quarantine
   const onCandidate = options.onCandidate
+  const onStatus = options.onStatus
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
   const backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS
   const backoffCapMs = options.backoffCapMs ?? DEFAULT_BACKOFF_CAP_MS
@@ -166,7 +172,25 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
       if (!thread) continue
       for (const subscription of thread.subscriptions) {
         const ticket = domain.state.tickets[subscription.ticketId]
-        if (!ticket || ticket.state !== 'open') continue
+        if (!ticket) continue
+        if (ticket.state !== 'open') {
+          // T25 #98：已结束但未停止的工单被人消息按原 Mandate 恢复。
+          // bot/CI 与 contextOnly 订阅永不恢复；revalidate 不通过时消息
+          // 继续落到 Gate / Eval 候选路径，不被静默吞掉。
+          if (!trigger.human || subscription.contextOnly) continue
+          if (
+            trigger.disposition.ticketIds.includes(ticket.ticketId) ||
+            trigger.disposition.contextTicketIds.includes(ticket.ticketId)
+          ) {
+            continue
+          }
+          domain.wakeTicket({
+            ticketId: ticket.ticketId,
+            triggerId: trigger.triggerId,
+            requestId: `source:${trigger.key}:${ticket.ticketId}:resumed`,
+          })
+          continue
+        }
         // 已被建单消费的 Trigger 不再投递，避免来源事件与 fan-out 双写。
         if (
           trigger.disposition.ticketIds.includes(ticket.ticketId) ||
@@ -269,10 +293,15 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
     state.cursor = cursor
   }
 
+  function notifyStatus(sourceId: string): void {
+    onStatus?.({ sourceId, ...stateOf(sourceId) })
+  }
+
   function trackSuccess(sourceId: string): number {
     const state = stateOf(sourceId)
     state.consecutiveFailures = 0
     state.lastError = null
+    notifyStatus(sourceId)
     return pollIntervalMs
   }
 
@@ -280,6 +309,7 @@ export function createSourceIngestor(options: SourceIngestorOptions): SourceInge
     const state = stateOf(sourceId)
     state.consecutiveFailures += 1
     state.lastError = err instanceof Error ? err.message : String(err)
+    notifyStatus(sourceId)
     return Math.min(backoffBaseMs * 2 ** (state.consecutiveFailures - 1), backoffCapMs)
   }
 

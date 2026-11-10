@@ -99,6 +99,14 @@ const progressLabel = computed(() => {
 const followupOpen = ref(false)
 const followupText = ref('')
 
+/** Worker 指令审计默认折叠，点开才展示原因，避免小卡常年占高度。 */
+const auditOpen = ref(false)
+
+function formatActionTime(at: string): string {
+  const date = new Date(at)
+  return Number.isNaN(date.valueOf()) ? at : date.toLocaleString()
+}
+
 watch(
   () => props.card.state,
   (state) => {
@@ -216,6 +224,27 @@ function closeFollowup(): void {
         <template v-else>{{ t('superAgent.ticket.retry') }}</template>
       </button>
     </div>
+    <div v-if="card.workerActions?.length" class="audit" @click.stop>
+      <button
+        class="audit-toggle"
+        data-testid="worker-task-card-audit-toggle"
+        :aria-expanded="auditOpen"
+        @click.stop="auditOpen = !auditOpen"
+      >
+        {{ t('superAgent.ticket.workerActions', { count: card.workerActions?.length ?? 0 }) }}
+      </button>
+      <div v-if="auditOpen" class="audit-list" data-testid="worker-task-card-audit">
+        <div
+          v-for="(action, index) in card.workerActions"
+          :key="`${action.kind}-${action.at}-${index}`"
+          class="audit-item"
+        >
+          <span class="audit-kind">{{ t(`superAgent.ticket.workerActionKinds.${action.kind}`) }}</span>
+          <span class="audit-time">{{ formatActionTime(action.at) }}</span>
+          <span class="audit-reason">{{ action.reason ?? t('superAgent.ticket.workerActionNoReason') }}</span>
+        </div>
+      </div>
+    </div>
     <div
       v-if="followupOpen"
       class="followup"
@@ -249,7 +278,7 @@ function closeFollowup(): void {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--bg-elevated);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-primary);
   // 整行是"打开这张工单的右侧工作态"的入口（§10.3），不是只读文本
   cursor: pointer;
@@ -312,12 +341,12 @@ function closeFollowup(): void {
 .worker-task-card[data-state='failed'] .state-icon,
 .worker-task-card[data-state='blocked'] .state-icon,
 .worker-task-card[data-state='delivery'] .state-icon {
-  color: var(--status-error, #d4564d);
+  color: var(--error);
 }
 
 .worker-task-card[data-state='completed'] .state-icon,
 .worker-task-card[data-state='review'] .state-icon {
-  color: var(--status-success, #3f9e6b);
+  color: var(--success);
 }
 
 .title {
@@ -351,9 +380,9 @@ function closeFollowup(): void {
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  border: 1px solid var(--status-warning, #c99a2e);
+  border: 1px solid var(--warning);
   border-radius: 10px;
-  color: var(--status-warning, #c99a2e);
+  color: var(--warning);
   white-space: nowrap;
 }
 
@@ -388,7 +417,7 @@ function closeFollowup(): void {
   border-radius: 6px;
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
   white-space: nowrap;
 
@@ -397,18 +426,62 @@ function closeFollowup(): void {
   }
 
   &.accept {
-    border-color: var(--status-success, #3f9e6b);
-    color: var(--status-success, #3f9e6b);
+    border-color: var(--success);
+    color: var(--success);
   }
 
   &.stop {
-    border-color: var(--status-error, #d4564d);
-    color: var(--status-error, #d4564d);
+    border-color: var(--error);
+    color: var(--error);
   }
 
   &.ghost {
     border-color: transparent;
   }
+}
+
+.audit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 22px;
+}
+
+.audit-toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { color: var(--text-secondary); }
+}
+
+.audit-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+
+.audit-kind {
+  flex: none;
+  color: var(--text-primary);
+}
+
+.audit-time {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.audit-reason {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .followup {
@@ -426,7 +499,7 @@ function closeFollowup(): void {
   border-radius: 6px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
 
   &::placeholder {
     color: var(--text-muted);
@@ -447,16 +520,16 @@ function closeFollowup(): void {
 .worker-task-card[data-state='blocked'] .dot,
 .worker-task-card[data-state='failed'] .dot,
 .worker-task-card[data-state='dropped'] .dot {
-  background: var(--status-error, #d4564d);
+  background: var(--error);
 }
 
 .worker-task-card[data-state='completed'] .dot,
 .worker-task-card[data-state='review'] .dot {
-  background: var(--status-success, #3f9e6b);
+  background: var(--success);
 }
 
 .worker-task-card[data-state='answer'] .dot,
 .worker-task-card[data-state='stopped'] .dot {
-  background: var(--status-warning, #c99a2e);
+  background: var(--warning);
 }
 </style>

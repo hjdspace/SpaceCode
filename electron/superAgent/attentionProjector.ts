@@ -53,6 +53,8 @@ export function createSuperAgentAttentionProjector(
       status: attention.status,
       answers: [...attention.answers],
       answeredAt: attention.answeredAt,
+      sessionId: attention.sessionId ?? null,
+      requestId: attention.requestId ?? null,
     }
   }
 

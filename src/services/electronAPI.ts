@@ -11,25 +11,6 @@
 import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
-import type {
-  CuaDriverStatus,
-  CuaDriverUpdateInfo,
-  CuaDriverPermissions,
-  HealthCheck,
-  McpToolResult,
-} from '@/types/computerUse'
-
-import type {
-  BrowserUseStatus,
-  BrowserUseUpdateInfo,
-  BrowserUseHealthCheck,
-  BrowserUseInstallProgress,
-  BrowserUseInstallOptions,
-  BrowserUseToolResult,
-  BrowserUseLiveSnapshot,
-  BrowserUseAgentConfig,
-} from '@/types/browserUse'
-
 export type {
   CuaDriverStatus,
   CuaDriverUpdateInfo,
@@ -81,6 +62,8 @@ export interface DesignSystemSummary {
   previewPages: PreviewPage[]
   swatches?: DesignSystemSwatch[]
   officialUrl?: string
+  /** 缺失即 built-in：随包只读库里的一律不可删改。 */
+  source?: 'built-in' | 'user'
 }
 
 export interface FileStat {

@@ -31,8 +31,6 @@ import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './tools/bro
 import { registerClaudeCodeIPC } from './engine/claudeCodeIPC'
 import { checkCliUpdate, getCliUpdateState, invalidateCliUpdateState } from './engine/cliDetector'
 import { initAutoUpdater, registerAutoUpdaterIPC, destroyAutoUpdater, installUpdateOnQuit } from './infra/autoUpdaterService'
-import { engineGateway } from './engine/engineGateway'
-import { EngineFactory } from './engine/engines/EngineFactory'
 import { registerPromptOptimizerIPC } from './skills/promptOptimizerIPC'
 import { registerDesignIPCHandlers } from './design/designService'
 import { registerNotificationIPCHandlers } from './infra/notificationService'
@@ -68,7 +66,7 @@ import { registerH5AccessIPCHandlers, getH5Server, setH5Server, getH5AuthService
 import { registerImIPCHandlers } from './ipc/imIpcHandlers'
 import { registerRtkIPCHandlers } from './ipc/rtkIpcHandlers'
 import { registerMobileIPCHandlers, getMobileServer, setMobileServer, getMobileUnsubscribe, setMobileUnsubscribe } from './ipc/mobileIpcHandlers'
-import { registerSettingsIPCHandlers, loadGuiSettings, reconcileProxyWithSettings } from './ipc/settingsIpc'
+import { registerSettingsIPCHandlers, loadGuiSettings } from './ipc/settingsIpc'
 import { registerTraceIPCHandlers } from './ipc/traceIpc'
 import { registerVoiceIPCHandlers } from './voice/voiceIpcHandlers'
 import { registerFactoryIPCHandlers } from './factory/factoryService'
@@ -79,7 +77,6 @@ import {
 import type { SuperAgentService } from './superAgent/service'
 import { defaultSuperAgentEngineBridge } from './superAgent/engineBridge'
 import { registerVoiceShortcut, unregisterVoiceShortcut } from './voice/voiceShortcut'
-import { H5Server } from './h5/h5Server'
 
 // claudeCode handler channel 名从表派生 — main.ts 侧仅 engineSourceChanged 一个 handler
 const CLAUDE_CODE_CHANNELS = channelNames(claudeCodeNamespace.channels, 'claude-code:')
@@ -376,6 +373,7 @@ app.whenReady().then(async () => {
       const h5Settings = getH5AuthService().getSettings()
       if (h5Settings.enabled && h5Settings.token) {
         if (!getH5Server()) {
+          const { H5Server } = await import('./h5/h5Server')
           setH5Server(new H5Server(getH5AuthService()))
         }
         await getH5Server()!.start(h5Settings.fixedPort ?? undefined)
@@ -391,7 +389,7 @@ app.whenReady().then(async () => {
   const designResourcesPath = app.isPackaged
     ? process.resourcesPath
     : resolve(__dirname, '..', 'resources')
-  registerDesignIPCHandlers(getMainWindow()!, designResourcesPath)
+  registerDesignIPCHandlers(getMainWindow()!, designResourcesPath, app.getPath('userData'))
   info('Startup', 'Design IPC handlers registered')
 
   // ── Notifications ─────────────────────────────────────────────

@@ -14,7 +14,6 @@ import { info, warn, error, debug } from '../../infra/logger'
 import { redactArgsForLog } from '../../infra/redactArgs'
 import {
   killTree as engineKillTree,
-  isProbableBunExecutable as engineIsProbableBunExecutable,
 } from '../../session/engineChildProcess'
 import { toBase64ImagePayload } from '../../session/imageContentBlock'
 import { engineBlockedError } from '@/shared/engineErrors'
@@ -239,7 +238,10 @@ export class PiSessionProcess extends EventEmitter {
       // 面板里的 MCP 配置要落到 pi 读得到的地方。pi 没有 `--mcp-config`，用户级
       // mcp.json 是唯一入口，所以这份投影必须在这台进程 spawn 之前完成 ——
       // 和下面 models.json 同理：进程实际加载的就是磁盘上这一刻的内容 (#53)。
-      this.projectMcpConfig()
+      //
+      // #95：disableMcp 的会话不投影 —— 不写盘，并在 buildArgs 里传 --no-mcp，
+      // 即使磁盘上已有别的会话投影过的 mcp.json，本进程也不加载 MCP。
+      if (!this.config.disableMcp) this.projectMcpConfig()
 
       // 重试预算也要在 spawn 前落到磁盘：pi 只在启动时读一次 settings.json，
       // 429 等限速的内部退避（auto_retry_* 事件）全靠这份预算撑住 (#69)。
@@ -947,68 +949,6 @@ export class PiSessionProcess extends EventEmitter {
   }
 
   /**
-   * Resolve the path to a usable bun binary for running the Pi CLI.
-   * Checks: bundled bun in engine/bin → platform-specific bundled bun → global bun.
-   * Returns null if no usable bun is found (caller should fall back to ELECTRON_RUN_AS_NODE).
-   */
-  private resolveBunPath(): string | null {
-    const platform = process.platform
-    const arch = process.arch
-
-    // 1. Bundled bun in engine/bin (same location as Claude Code engine)
-    const bunName = platform === 'win32' ? 'bun.exe' : 'bun'
-    const resourcesDir = process.resourcesPath || ''
-    const bundledBun = path.join(resourcesDir, 'engine', 'bin', bunName)
-    if (this.isProbableBunExecutable(bundledBun)) {
-      return bundledBun
-    }
-
-    // 2. Platform-specific bundled bun
-    const platformSuffix = platform === 'win32' ? 'windows-x64'
-      : platform === 'darwin' ? (arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
-      : 'linux-x64'
-    const platformSpecificBun = path.join(resourcesDir, 'engine', 'bin', `bun-${platformSuffix}`)
-    if (this.isProbableBunExecutable(platformSpecificBun)) {
-      return platformSpecificBun
-    }
-    if (platform === 'win32') {
-      const exe = `${platformSpecificBun}.exe`
-      if (this.isProbableBunExecutable(exe)) {
-        return exe
-      }
-    }
-
-    // 3. Dev mode: check relative to __dirname
-    const devBun = path.resolve(__dirname, '../../engine/bin', bunName)
-    if (this.isProbableBunExecutable(devBun)) {
-      return devBun
-    }
-
-    // 4. Global bun
-    try {
-      const { execSync } = require('child_process')
-      const cmd = platform === 'win32' ? 'where bun' : 'which bun'
-      const output = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim()
-      const globalBun = output.split(/\r?\n/)[0]?.trim()
-      if (globalBun && this.isProbableBunExecutable(globalBun)) {
-        return globalBun
-      }
-    } catch {
-      // bun not available globally
-    }
-
-    return null
-  }
-
-  /**
-   * Check if a file exists and looks like a real bun executable (not a placeholder or LFS pointer).
-   * Delegates to EngineChildProcess.isProbableBunExecutable for the shared implementation.
-   */
-  private isProbableBunExecutable(absPath: string): boolean {
-    return engineIsProbableBunExecutable(absPath)
-  }
-
-  /**
    * Map well-known OpenAI-compatible base URLs to their canonical pi-ai provider id.
    * SpaceCode's UI commonly sets `provider=openai` together with a custom baseUrl when
    * the user is actually talking to OpenRouter / DeepSeek / Groq / etc. The pi CLI
@@ -1383,7 +1323,10 @@ export class PiSessionProcess extends EventEmitter {
         args.push('--extension', extensionPath)
         // 旧会话的 transcript 里没有 plan 的两个 helper；不补回去，pi 恢复工具集后
         // 扩展会拒绝 /plan start，宿主只能等到一次超时 (#45)。
-        args.push('--tools', PLAN_MODE_HELPER_TOOL_MODIFIERS)
+        // 调用方显式指定工具面时以调用方为准（避免两个 --tools 相互覆盖）。
+        if (this.config.allowedTools === undefined) {
+          args.push('--tools', PLAN_MODE_HELPER_TOOL_MODIFIERS)
+        }
         this.planModeExtensionLoaded = true
       } else {
         warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] Plan mode extension not loadable | plan cannot be enforced for this process`)
@@ -1391,6 +1334,24 @@ export class PiSessionProcess extends EventEmitter {
     }
 
     this.applySelectedAgent(args)
+
+    // #95 per-session 工具面与 MCP 投影。
+    //
+    // pi 的 --tools 有两种形态（docs/cli.md）：
+    //  - `--tools a,b`：只保留列出的内置/扩展工具（不列 MCP 时它们也被移除）；
+    //  - `--no-tools`：全部工具（内置/扩展/自定义/MCP）都关掉。
+    // 所以 `allowedTools: []` 映射为 --no-tools，非空映射为逗号列表；undefined
+    // 表示不裁剪，保持既有行为。
+    if (this.config.allowedTools !== undefined) {
+      if (this.config.allowedTools.length === 0) {
+        args.push('--no-tools')
+      } else {
+        args.push('--tools', this.config.allowedTools.join(','))
+      }
+    }
+    if (this.config.disableMcp) {
+      args.push('--no-mcp')
+    }
 
     return args
   }

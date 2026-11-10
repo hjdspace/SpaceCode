@@ -138,7 +138,7 @@ import { vClickOutside } from '@/components/common/vClickOutside'
 import { vHint } from '@/components/common/vHint'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
-import { useScmStore, type ScmBranch } from '@/stores/scm'
+import { useScmStore } from '@/stores/scm'
 import { useSessionContext } from '@/stores/sessionContext'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useDesignStore } from '@/stores/design'
@@ -228,7 +228,6 @@ const projectTriggerHint = computed(() => {
 // --- Project Selector ---
 const showProjectDropdown = ref(false)
 const projectSearch = ref('')
-const projectSelectorRef = ref<HTMLElement | null>(null)
 const projectSearchInput = ref<HTMLInputElement | null>(null)
 
 const projectName = computed(() => {
@@ -341,7 +340,6 @@ function clearProject() {
 // --- Branch Selector ---
 const showBranchDropdown = ref(false)
 const branchSearch = ref('')
-const branchSelectorRef = ref<HTMLElement | null>(null)
 const branchSearchInput = ref<HTMLInputElement | null>(null)
 const localBranches = ref<GitBranchInfo[]>([])
 

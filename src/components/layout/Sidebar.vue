@@ -411,7 +411,6 @@ import {
   Zap,
   Plug,
   Activity,
-  History,
   Cpu,
   Clock,
   FolderOpen,
@@ -686,7 +685,6 @@ async function handleFileSelect(node: TreeNode) {
       const content = await api.readFile(node.path)
       if (content !== null) {
         const language = appStore.getLanguageFromPath(node.path)
-        const isMarkdown = language === 'markdown'
 
         appStore.currentLine = 0
         appStore.currentEndLine = 0

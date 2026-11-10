@@ -82,8 +82,6 @@ export interface WechatQrStatusResult {
 // ──────────────────────────────────────────────────────────────────────────
 
 const HEALTH_CHECK_INTERVAL_MS = 30_000
-const PORT_RANGE_START = 40000
-const PORT_RANGE_END = 41000
 
 const WECHAT_DEFAULT_BASE_URL = 'https://ilinkai.weixin.qq.com'
 

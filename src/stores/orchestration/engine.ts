@@ -12,9 +12,6 @@ import type {
   RunState,
   TurnOutcome,
   CycleDetectionResult,
-  SessionLauncher,
-  TurnOutcomeSource,
-  SessionAborter,
 } from './types'
 
 const DEFAULT_MAX_CONCURRENCY = 20

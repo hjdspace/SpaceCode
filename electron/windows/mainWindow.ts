@@ -8,7 +8,7 @@
 import { BrowserWindow, app, net } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { info, warn, error, debug, isDebugMode } from '../infra/logger'
+import { info, warn, error, isDebugMode } from '../infra/logger'
 import { isQuitting, shouldHideOnWindowClose } from '../infra/appLifecycle'
 import { getWindowIconPath, loadIconImage } from './iconUtils'
 import { setMainWindow } from '../engine/claudeCodeIPC'
@@ -335,7 +335,7 @@ export function createWindow(
     }
   )
 
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+  mainWindow.webContents.on('will-navigate', (_event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl)
     if (parsedUrl.protocol === 'file:' || parsedUrl.origin === 'http://localhost:5173') {
       return

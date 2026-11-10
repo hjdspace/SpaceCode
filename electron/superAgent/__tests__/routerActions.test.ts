@@ -48,6 +48,33 @@ describe('parseSuperAgentRouteText', () => {
     expect(parsed.raw).toContain('收口校验')
   })
 
+  it('carries the external source triggerId on attach and rejects a blank one', () => {
+    expect(
+      parseSuperAgentRouteText(
+        fence({ version: 2, routes: [{ kind: 'attach', ticketId: 'ticket-1', triggerId: ' trigger-9 ' }] }),
+      ).routes,
+    ).toEqual([{ kind: 'attach', ticketId: 'ticket-1', note: null, triggerId: 'trigger-9' }])
+
+    expect(() =>
+      parseSuperAgentRouteText(
+        fence({ version: 2, routes: [{ kind: 'attach', ticketId: 'ticket-1', triggerId: '  ' }] }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'routeInvalid' }))
+  })
+
+  it('carries the ended ticket whose worker session an accept should resume', () => {
+    expect(
+      parseSuperAgentRouteText(
+        fence({
+          version: 2,
+          routes: [{ kind: 'accept', title: '补充低覆盖模块', resumeTicketId: ' ticket-old ' }],
+        }),
+      ).routes,
+    ).toEqual([
+      { kind: 'accept', title: '补充低覆盖模块', note: null, resumeTicketId: 'ticket-old' },
+    ])
+  })
+
   it('omits the note when the router gives none', () => {
     expect(parseSuperAgentRouteText(fence({ version: 2, routes: [{ kind: 'accept', title: 'a' }] })))
       .toMatchObject({ routes: [{ kind: 'accept', title: 'a', note: null }] })

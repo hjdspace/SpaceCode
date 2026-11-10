@@ -10,7 +10,7 @@
  * 「本轮跑完才生效」以引擎的答复为准，不再由界面自己猜会话忙不忙。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { defineComponent } from 'vue'

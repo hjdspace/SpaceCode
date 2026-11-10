@@ -363,10 +363,6 @@ async function switchMode(mode: 'html' | 'screenshots' | 'watch') {
   else if (mode === 'watch') await startWatch()
 }
 
-function getLocalImageUrl(imgPath: string): string {
-  return pathToFileURL(imgPath)
-}
-
 /** Cross-platform file:// URL */
 function pathToFileURL(p: string): string {
   const normalized = p.replace(/\\/g, '/')

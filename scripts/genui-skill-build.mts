@@ -176,7 +176,7 @@ ${GENUI_CARD_ACTIONS.map((name) => `   - ${ACTION_DOCS[name]}`).join('\n')}
 
 \`css\` 里能且只能引用这些变量 —— 沙箱按宿主当前主题切换它们的值，硬编码色值在另一套主题下就会看不见：
 
-${CARD_THEME_TOKENS.map(([name, purpose]) => '- \`${name}\` —— ${purpose}').join('\n')}
+${CARD_THEME_TOKENS.map(() => '- \`${name}\` —— ${purpose}').join('\n')}
 
 字号与间距建议以 4px 为步长（4 / 8 / 12 / 16 / 24），一屏最多两档字号差；卡片整体已经由宿主给了
 内边距与圆角，\`css\` 只管卡片内部的排布。

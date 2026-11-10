@@ -6,6 +6,8 @@
  * 低于最低支持版本或高于本版本的文件都拒绝启动，交给上层报成可见错误。
  */
 
+import type { SuperAgentSourcesConfig } from './sources/config'
+
 export const SUPER_AGENT_SCHEMA_VERSION = 2
 export const SUPER_AGENT_MIN_SCHEMA_VERSION = 1
 
@@ -32,6 +34,8 @@ export interface SuperAgentProjectConfig {
   executionPolicy: SuperAgentExecutionPolicy
   reviewReminderHours: number
   lastOpenedAt: string
+  /** T24 #93：项目级 Source 接入配置（未知字段保留，无需提升 schemaVersion）。 */
+  sources?: SuperAgentSourcesConfig
   [key: string]: unknown
 }
 

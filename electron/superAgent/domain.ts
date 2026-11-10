@@ -12,6 +12,7 @@
 import { randomUUID } from 'crypto'
 import { superAgentError } from './errors'
 import { idempotencyKey } from './idempotency'
+import { superAgentTicketWorkerSessionId } from './sessionId'
 export { idempotencyKey } from './idempotency'
 import {
   clonePolicyAdmissions,
@@ -50,7 +51,6 @@ import type {
   SuperAgentOutboxPayload,
   SuperAgentPolicy,
   SuperAgentPolicyRule,
-  SuperAgentReplyType,
   SuperAgentReport,
   SuperAgentReportKind,
   SuperAgentSourceAdmission,
@@ -60,6 +60,7 @@ import type {
   SuperAgentTicketStage,
   SuperAgentTrigger,
   SuperAgentTriggerAddress,
+  SuperAgentWorkerActionAudit,
   SuperAgentWorktreeMode,
 } from './model'
 
@@ -143,6 +144,8 @@ export interface DispatchInput {
    */
   note?: string
   model?: string
+  /** 人明确要求续聊的已结束工单；新工单继承它的 Worker session。 */
+  resumeTicketId?: string
   actor: string
   /** 派工时携带的 @ 上下文（相对路径），注入 Worker 首轮消息。 */
   contextPaths?: string[]
@@ -214,6 +217,38 @@ export interface AnswerAttentionResult {
   gated: boolean
   delivered: boolean
   duplicate: boolean
+}
+
+/** T23 #94：Worker 引擎权限请求 —— 落成持久 Attention，按 sessionId+requestId 幂等。 */
+export interface RequestPermissionCommand {
+  ticketId: string
+  assignmentId: string
+  sessionId: string
+  requestId: string
+  question: string
+  at?: string
+}
+
+export interface RequestPermissionResult {
+  attention: SuperAgentAttention
+  duplicate: boolean
+}
+
+/** T23 #94：权限回答已经投递给原引擎请求，关闭对应 Attention。 */
+export interface AnswerPermissionCommand {
+  attentionId: string
+  at?: string
+}
+
+export interface AnswerPermissionResult {
+  attention: SuperAgentAttention
+  duplicate: boolean
+}
+
+/** T23 #94：引擎撤回权限请求（中止/退出），对应 Attention 撤回。 */
+export interface WithdrawPermissionInput {
+  sessionId: string
+  requestId: string
 }
 
 /** T09 #79：可证明未接受才允许重投 —— 把已投未读的 Input 退回 pending。 */
@@ -427,6 +462,8 @@ export interface SubmitEvalDecisionInput {
   repoRoot?: string
   /** 命中的 Policy 规则名；提交时校验必须存在于当前 Policy。 */
   matchedRules?: string[]
+  /** 模型给出的判断依据（#99 协议必填，用于审计）。 */
+  reason?: string
   at?: string
 }
 
@@ -469,6 +506,8 @@ export interface RevalidateTicketResult {
 export interface HandbackInputInput {
   ticketId: string
   inputId: string
+  /** #100：交回原因（Worker 必须给出，落审计）。 */
+  reason?: string
   at?: string
 }
 
@@ -484,6 +523,8 @@ export interface HandbackInputResult {
 export interface MarkUnrelatedInput {
   ticketId: string
   threadId: string
+  /** #100：退订原因（Worker 必须给出，落审计）。 */
+  reason?: string
   at?: string
 }
 
@@ -494,6 +535,22 @@ export interface MarkUnrelatedResult {
   releasedInputIds: string[]
   /** 其中已回流 Eval 的（最后一个 owner 交回）。 */
   requeuedInputIds: string[]
+}
+
+/** #100：Worker 参考相关 Issue/PR —— 只登记为上下文订阅（不授权、不唤醒）。 */
+export interface FollowForContextInput {
+  ticketId: string
+  /** 已存在的 Thread（Worker 只能引用它见过的/attach 进来的 Thread）。 */
+  threadId: string
+  reason?: string
+  at?: string
+}
+
+export interface FollowForContextResult {
+  ticket: SuperAgentTicket
+  thread: SuperAgentThread
+  /** 本次是否新建了仅上下文订阅；已是 contextOnly / 已有可裁决订阅时为 false。 */
+  subscriptionCreated: boolean
 }
 
 /** T17 #87：Router attach —— 显式引用的消息挂接工单并订阅整条 Thread。 */
@@ -509,6 +566,47 @@ export interface AttachTicketResult {
   /** 新增的工单输入；重复 attach（已消费）为 null。 */
   input: SuperAgentInput | null
   duplicate: boolean
+}
+
+/**
+ * T25 #98：人消息唤醒已结束（非人工停止）工单 —— 按原 Mandate 重开并落
+ * `resumed` Input，不新建 Eval / Assignment。
+ */
+export interface WakeTicketInput {
+  ticketId: string
+  triggerId: string
+  /** fan-out 幂等键。 */
+  requestId: string
+  at?: string
+}
+
+export interface WakeTicketResult {
+  /** 是否重开并落恢复事实。 */
+  woken: boolean
+  /** 未重开原因（`stopped` / `not-human` / `open` / `handedBack` / Gate 原因码等）。 */
+  reason: string | null
+  ticket: SuperAgentTicket
+  /** 恢复产生的 Input；未恢复为 null。 */
+  input: SuperAgentInput | null
+  duplicate: boolean
+}
+
+/**
+ * T25 #97：显式 PR 引用 —— 让工单跟随一个外部 Thread（follows）并订阅它，
+ * 后续评审/评论会经 Ingestor fan-out 唤醒该工单；幂等，重复引用不重复绑定。
+ */
+export interface FollowThreadInput {
+  ticketId: string
+  /** 外部 Thread（如 `github:pr:owner/repo:42`）。 */
+  threadId: string
+  /** Thread 所属 Source id（如 github-pr）；首次建立 Thread 时使用。 */
+  source: string
+  at?: string
+}
+
+export interface FollowThreadResult {
+  ticket: SuperAgentTicket
+  thread: SuperAgentThread
 }
 
 /**
@@ -579,6 +677,12 @@ export interface SuperAgentDomain {
   addInput(command: AddInputCommand): AddInputResult
   /** T08 #78：就地回答 Attention，回答作为领域 Input 投递给对应 Worker。 */
   answerAttention(command: AnswerAttentionCommand): AnswerAttentionResult
+  /** T23 #94：引擎权限请求落成持久 Attention（同一 sessionId+requestId 只建一条）。 */
+  requestPermission(command: RequestPermissionCommand): RequestPermissionResult
+  /** T23 #94：权限应答已送到引擎后关闭 Attention（重复关闭幂等）。 */
+  answerPermission(command: AnswerPermissionCommand): AnswerPermissionResult
+  /** T23 #94：引擎撤回权限请求时撤回对应 Attention。 */
+  withdrawPermission(input: WithdrawPermissionInput): SuperAgentAttention | null
   requeueInput(input: RequeueInputInput): SuperAgentInput
   deliverInput(input: DeliverInputInput): SuperAgentInput
   markInputUncertain(input: MarkInputUncertainInput): MarkInputUncertainResult
@@ -667,10 +771,25 @@ export interface SuperAgentDomain {
    */
   markUnrelated(input: MarkUnrelatedInput): MarkUnrelatedResult
   /**
+   * #100：Worker 引用相关 Issue/PR 的 Thread —— 只登记上下文订阅（消息到达
+   * 但不授权、不唤醒、不产生 follow-up 归属）；幂等，不把可裁决订阅降级。
+   */
+  followForContext(input: FollowForContextInput): FollowForContextResult
+  /**
    * T17 #87：Router attach —— 订阅 Trigger 的全部 Thread 并把消息挂接为工单
    * 输入；人消息归存活 owner 期间被代码拒绝（只能 stop）。
    */
   attachTicket(input: AttachTicketInput): AttachTicketResult
+  /**
+   * T25 #98：人消息唤醒已结束（非人工停止）工单 —— revalidate 原 Mandate，
+   * 通过后重开并落 `resumed` Input；不新建 Eval / Assignment。
+   */
+  wakeTicket(input: WakeTicketInput): WakeTicketResult
+  /**
+   * T25 #97：显式 PR 引用 —— 工单跟随外部 Thread（follows）并加入可裁决订阅，
+   * 后续 PR 评审/评论可唤醒；重复引用幂等。
+   */
+  followThread(input: FollowThreadInput): FollowThreadResult
   /**
    * T17 #87：清理过期订阅 —— stopped 立即失效，已结束工单最多保留
    * subscriptionTtlMs（缺省两周）；之后 Source 不再为该 Thread 轮询。
@@ -772,6 +891,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     policy: cloneSuperAgentPolicy(DEFAULT_SUPER_AGENT_POLICY),
     evals: {},
     outbox: {},
+    workerActions: [],
   })
   const state: SuperAgentDomainState = options.initialState
     ? // 重水化：缺失字段补默认，已有事实原样保留；未知字段透传（前向兼容）。
@@ -782,12 +902,22 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
   for (const evalRecord of Object.values(state.evals)) {
     if (evalRecord.disposal === undefined) evalRecord.disposal = null
   }
+  // #100：旧快照没有 Worker 指令审计列表时补空数组。
+  if (!Array.isArray(state.workerActions)) state.workerActions = []
 
   const atNow = (at?: string): string => at ?? now().toISOString()
 
   function nextOrdinal(): number {
     state.seq += 1
     return state.seq
+  }
+
+  /** #100：Worker 指令审计只追加；原因为空时落 null，避免空串混入展示。 */
+  function recordWorkerAction(
+    entry: Omit<SuperAgentWorkerActionAudit, 'reason'> & { reason?: string | null },
+  ): void {
+    const reason = typeof entry.reason === 'string' && entry.reason.trim() !== '' ? entry.reason.trim() : null
+    state.workerActions.push({ ...entry, reason })
   }
 
   function ensureThread(threadId: string, source: string): SuperAgentThread {
@@ -1002,6 +1132,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     const fingerprint = canonical({
       kind: 'dispatch',
       ...(input.model ? { model: input.model } : {}),
+      ...(input.resumeTicketId ? { resumeTicketId: input.resumeTicketId } : {}),
       title: input.title,
       repoRoot: input.repoRoot,
       text: input.text,
@@ -1020,6 +1151,22 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
         mandate: state.mandates[ticket.mandateId],
         assignment,
         duplicate: true,
+      }
+    }
+
+    let resumeSessionId: string | null = null
+    if (input.resumeTicketId !== undefined) {
+      const source = state.tickets[input.resumeTicketId]
+      if (!source) throw superAgentError('ticketNotFound', { ticketId: input.resumeTicketId })
+      if (source.state !== 'ended') {
+        throw superAgentError('invalidDispatch', { requestId: input.requestId, resumeTicketId: input.resumeTicketId })
+      }
+      resumeSessionId = superAgentTicketWorkerSessionId(source)
+      const shared = Object.values(state.tickets).some(
+        (ticket) => ticket.state === 'open' && superAgentTicketWorkerSessionId(ticket) === resumeSessionId,
+      )
+      if (shared) {
+        throw superAgentError('invalidDispatch', { requestId: input.requestId, resumeTicketId: input.resumeTicketId })
       }
     }
 
@@ -1062,6 +1209,7 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     }
     state.decisions[created.ticket.ticketId] = decision
     if (input.model) created.ticket.execution.model = input.model
+    if (resumeSessionId) created.ticket.execution.sessionId = resumeSessionId
 
     const assignment = newAssignmentForTicket(created.ticket, at, 'pending')
 
@@ -1272,6 +1420,83 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       gated: added.gated,
       duplicate: added.duplicate,
     }
+  }
+
+  /**
+   * T23 #94：Worker 权限请求落成持久 Attention，按 sessionId+requestId 幂等。
+   * 权限等待不是一轮结束：这里只记领域事实，槽位释放由 Scheduler 的
+   * holdForPermission 负责，回答路径也先经 Scheduler 重新取得槽位。
+   */
+  function requestPermission(command: RequestPermissionCommand): RequestPermissionResult {
+    const ticket = requireTicket(command.ticketId)
+    if (ticket.state === 'ended') throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+
+    const existing = Object.values(state.attentions).find(
+      (candidate) =>
+        candidate.kind === 'permission' &&
+        candidate.sessionId === command.sessionId &&
+        candidate.requestId === command.requestId,
+    )
+    if (existing) return { attention: existing, duplicate: true }
+
+    const assignment = state.assignments[command.assignmentId]
+    if (!assignment || assignment.ticketId !== ticket.ticketId) {
+      throw superAgentError('assignmentNotFound', { assignmentId: command.assignmentId })
+    }
+
+    const attention: SuperAgentAttention = {
+      attentionId: newId('attention'),
+      ticketId: ticket.ticketId,
+      assignmentId: command.assignmentId,
+      kind: 'permission',
+      question: command.question,
+      askedBy: command.assignmentId,
+      askedAt: atNow(command.at),
+      status: 'open',
+      answers: [],
+      answeredAt: null,
+      sessionId: command.sessionId,
+      requestId: command.requestId,
+    }
+    state.attentions[attention.attentionId] = attention
+    ticket.attentionId = ticket.attentionId ?? attention.attentionId
+    return { attention, duplicate: false }
+  }
+
+  /** T23 #94：权限应答已送达引擎 —— 关闭对应 Attention，重复关闭幂等。 */
+  function answerPermission(command: AnswerPermissionCommand): AnswerPermissionResult {
+    const attention = state.attentions[command.attentionId]
+    if (!attention) throw superAgentError('notAttention', { attentionId: command.attentionId })
+    if (attention.kind !== 'permission') {
+      throw superAgentError('notPermission', { attentionId: command.attentionId })
+    }
+    if (attention.status === 'answered') return { attention, duplicate: true }
+    if (attention.status !== 'open') {
+      throw superAgentError('notAttention', { attentionId: command.attentionId })
+    }
+
+    attention.status = 'answered'
+    attention.answeredAt = atNow(command.at)
+    const ticket = state.tickets[attention.ticketId]
+    if (ticket && ticket.attentionId === attention.attentionId) ticket.attentionId = null
+    return { attention, duplicate: false }
+  }
+
+  /** T23 #94：引擎撤回权限请求（中止/退出）—— 只撤回仍未关闭的那一条。 */
+  function withdrawPermission(input: WithdrawPermissionInput): SuperAgentAttention | null {
+    const attention = Object.values(state.attentions).find(
+      (candidate) =>
+        candidate.kind === 'permission' &&
+        candidate.status === 'open' &&
+        candidate.sessionId === input.sessionId &&
+        candidate.requestId === input.requestId,
+    )
+    if (!attention) return null
+
+    attention.status = 'withdrawn'
+    const ticket = state.tickets[attention.ticketId]
+    if (ticket && ticket.attentionId === attention.attentionId) ticket.attentionId = null
+    return attention
   }
 
   /** T09 #79：requestId 对账可证明未接受（已投未读退回 pending）时才允许重投。 */
@@ -2119,7 +2344,13 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     }
 
     evalRecord.state = action === 'unavailable' ? 'unavailable' : 'decided'
-    evalRecord.decision = { action, at, matchedRules, ticketId: ticket?.ticketId ?? null }
+    evalRecord.decision = {
+      action,
+      at,
+      matchedRules,
+      ticketId: ticket?.ticketId ?? null,
+      ...(input.reason ? { reason: input.reason } : {}),
+    }
     thread.evaluating = false
     // Router 真实响应（含模型自报 unavailable）打断连续超时序列，计数清零；
     // 超时路径（expireEval）保持计数作为升级护栏。
@@ -2233,8 +2464,18 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       throw superAgentError('notHandbackable', { inputId: target.inputId })
     }
 
-    const requeued = releaseHumanInput(ticket, target, atNow(input.at))
+    const at = atNow(input.at)
+    const requeued = releaseHumanInput(ticket, target, at)
     nextOrdinal()
+    recordWorkerAction({
+      kind: 'handback',
+      ticketId: ticket.ticketId,
+      at,
+      triggerId: target.triggerId,
+      inputId: target.inputId,
+      threadId: null,
+      reason: input.reason,
+    })
     return { input: target, ownersRemaining: followupOwners(target.triggerId), requeued }
   }
 
@@ -2281,7 +2522,54 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       releasedInputIds.push(inputId)
     }
     nextOrdinal()
+    recordWorkerAction({
+      kind: 'threadUnrelated',
+      ticketId: ticket.ticketId,
+      at,
+      triggerId: null,
+      inputId: null,
+      threadId: thread.threadId,
+      reason: input.reason,
+    })
     return { ticket, thread, releasedInputIds, requeuedInputIds }
+  }
+
+  function followForContext(input: FollowForContextInput): FollowForContextResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') {
+      throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    }
+    // 协议只带 threadId：必须引用已存在的 Thread，宿主不替 Worker 凭空造一条。
+    const thread = state.threads[input.threadId]
+    if (!thread) throw superAgentError('threadNotFound', { threadId: input.threadId })
+
+    const at = atNow(input.at)
+    const existing = thread.subscriptions.find(
+      (subscription) => subscription.ticketId === ticket.ticketId,
+    )
+    let subscriptionCreated = false
+    if (!existing) {
+      thread.subscriptions.push({
+        ticketId: ticket.ticketId,
+        attachedAt: at,
+        contextOnly: true,
+      })
+      subscriptionCreated = true
+    }
+    // 已有可裁决订阅时不降级：Worker 本来就能看这条 Thread 的上下文。
+    if (subscriptionCreated) {
+      nextOrdinal()
+      recordWorkerAction({
+        kind: 'threadFollow',
+        ticketId: ticket.ticketId,
+        at,
+        triggerId: null,
+        inputId: null,
+        threadId: thread.threadId,
+        reason: input.reason,
+      })
+    }
+    return { ticket, thread, subscriptionCreated }
   }
 
   function attachTicket(input: AttachTicketInput): AttachTicketResult {
@@ -2320,6 +2608,20 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       return { ticket, trigger, input: existing, duplicate: true }
     }
 
+    // 已被该工单交回的消息不得再 attach 回原工单（handback 回流 Eval 语义）。
+    const handedBackHere =
+      ticket.inputIds
+        .map((inputId) => state.inputs[inputId])
+        .find(
+          (record) =>
+            record !== undefined &&
+            record.triggerId === trigger.triggerId &&
+            record.releasedAt !== null,
+        ) ?? null
+    if (handedBackHere) {
+      throw superAgentError('handedBack', { inputId: handedBackHere.inputId })
+    }
+
     // 人消息归存活 owner 期间，Router 只能 stop —— attach 被代码拒绝
     // （显式引用的语义判断在 Router，域层拦机械约束）。
     const owners = followupOwners(trigger.triggerId)
@@ -2339,6 +2641,76 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
       at,
     })
     return { ticket, trigger, input: added.input, duplicate: added.duplicate }
+  }
+
+  /**
+   * T25 #98：已结束（非人工停止）工单被人消息唤醒。只把工单状态回 open 并落
+   * `resumed` Input —— 不新建 Eval / Assignment，投递仍走 addInput 既有闸门。
+   * 以下情况不唤醒：已停止（含 stopped）、非人消息、原 Mandate 已失效、
+   * 该工单已消费或交回过这条消息。
+   */
+  function wakeTicket(input: WakeTicketInput): WakeTicketResult {
+    const ticket = requireTicket(input.ticketId)
+    const trigger = state.triggers[input.triggerId]
+    if (!trigger) throw superAgentError('triggerNotFound', { triggerId: input.triggerId })
+
+    if (ticket.state === 'open') {
+      return { woken: false, reason: 'open', ticket, input: null, duplicate: false }
+    }
+    if (ticket.ended?.outcome === 'stopped') {
+      return { woken: false, reason: 'stopped', ticket, input: null, duplicate: false }
+    }
+    // bot / CI 消息永不恢复已结束工单，只能进 Eval 候选。
+    if (!trigger.human) {
+      return { woken: false, reason: 'not-human', ticket, input: null, duplicate: false }
+    }
+    // 恢复不重复消费该工单已交回（或已消费）的消息。
+    const previous =
+      ticket.inputIds
+        .map((inputId) => state.inputs[inputId])
+        .find((record) => record !== undefined && record.triggerId === trigger.triggerId) ?? null
+    if (previous) {
+      return {
+        woken: false,
+        reason: previous.releasedAt !== null ? 'handedBack' : 'consumed',
+        ticket,
+        input: null,
+        duplicate: true,
+      }
+    }
+    const check = revalidateTicket(ticket.ticketId)
+    if (!check.valid) {
+      return {
+        woken: false,
+        reason: check.reason ?? 'revoked',
+        ticket,
+        input: null,
+        duplicate: false,
+      }
+    }
+
+    const previousEnd = ticket.ended
+    const at = atNow(input.at)
+    ticket.state = 'open'
+    ticket.ended = null
+    try {
+      const added = addInput({
+        ticketId: ticket.ticketId,
+        requestId: input.requestId,
+        kind: 'resumed',
+        human: true,
+        context: false,
+        text: trigger.text,
+        triggerId: trigger.triggerId,
+        at,
+      })
+      return { woken: true, reason: null, ticket, input: added.input, duplicate: added.duplicate }
+    } catch (err) {
+      // addInput 落库失败时保持「已结束」，避免工单悬空。
+      ticket.state = 'ended'
+      ticket.ended = previousEnd
+      throw err
+    }
   }
 
   function pruneExpiredSubscriptions(input: { at?: string } = {}): string[] {
@@ -2363,6 +2735,37 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     }
     if (pruned.length > 0) nextOrdinal()
     return pruned
+  }
+
+  // ── T25 #97：显式 PR 引用建立 follows 订阅 ────────────────────────────
+
+  /**
+   * 工单跟随外部 Thread：记录 follows（终止信号按它结束工单）并加入可裁决
+   * 订阅（后续评审/评论经 Ingestor fan-out 唤醒）。幂等：重复引用只补缺，
+   * 不重复追加、不重复递增序号。
+   */
+  function followThread(input: FollowThreadInput): FollowThreadResult {
+    const ticket = requireTicket(input.ticketId)
+    if (ticket.state === 'ended') {
+      throw superAgentError('ticketEnded', { ticketId: ticket.ticketId })
+    }
+    const at = atNow(input.at)
+    const thread = ensureThread(input.threadId, input.source)
+    let changed = false
+    if (!ticket.follows.includes(input.threadId)) {
+      ticket.follows.push(input.threadId)
+      changed = true
+    }
+    if (!thread.subscriptions.some((subscription) => subscription.ticketId === ticket.ticketId)) {
+      thread.subscriptions.push({
+        ticketId: ticket.ticketId,
+        attachedAt: at,
+        contextOnly: false,
+      })
+      changed = true
+    }
+    if (changed) nextOrdinal()
+    return { ticket, thread }
   }
 
   // ── T19 #89：PR 合并/关闭按 Thread 结束（followsDone） ────────────────
@@ -2781,6 +3184,9 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     endAssignment,
     addInput,
     answerAttention,
+    requestPermission,
+    answerPermission,
+    withdrawPermission,
     requeueInput,
     deliverInput,
     markInputUncertain,
@@ -2810,8 +3216,11 @@ export function createSuperAgentDomain(options: SuperAgentDomainOptions = {}): S
     fastPathConsumed,
     handbackInput,
     markUnrelated,
+    followForContext,
     attachTicket,
+    wakeTicket,
     pruneExpiredSubscriptions,
+    followThread,
     followsDone,
     enqueueOutboxMessage,
     settleOutboxMessage,

@@ -42,7 +42,7 @@ import {
   superAgentRouterEngineSessionId,
   superAgentWorkerEngineSessionId,
 } from '../sessionId'
-import { createFakeBridge, routeFence } from './fakeBridge'
+import { createFakeBridge, reportFence, routeFence } from './fakeBridge'
 import { SUPER_AGENT_PREFIX } from '@/shared/channels/superAgent'
 
 const HEALTH_CHANGED_CHANNEL = `${SUPER_AGENT_PREFIX}health-changed`
@@ -65,6 +65,21 @@ beforeEach(() => {
 })
 
 describe('registerSuperAgentIPCHandlers', () => {
+  it('broadcasts worker-updated with authoritative status on the generated event channel', async () => {
+    const fake = createFakeBridge()
+    const service = createBroadcastingSuperAgentService({ bridge: fake.bridge })
+    const repoRoot = '/repo/worker-status'
+    const { ticketId, assignmentId } = service.dispatch(repoRoot, { requestId: 'worker-status', title: '检查', text: '检查' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const mirror = service.workerBind(repoRoot, ticketId)
+    fake.emit(mirror.sessionId, 'result', {
+      result: reportFence({ assignmentId, reportId: 'ready', kind: 'ready', summary: '完成' }),
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(probe.send).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}worker-updated`, repoRoot,
+      expect.objectContaining({ ticketId, running: false, ticketState: 'review' }))
+  })
+
   it('registers state, routerBind and health on the shared wire prefix', () => {
     registerSuperAgentIPCHandlers()
 
@@ -488,13 +503,16 @@ describe('registerSuperAgentIPCHandlers pause & resume（T11 #81）', () => {
   })
 })
 
-describe('registerSuperAgentIPCHandlers policy & checkpoint（T12 #82）', () => {
-  it('registers policy / policySet / checkpoint / checkpointRollback on the shared wire prefix', () => {
+describe('registerSuperAgentIPCHandlers executionPolicy & checkpoint（T12 #82、#92）', () => {
+  it('registers executionPolicy / executionPolicySet / checkpoint / checkpointRollback on the shared wire prefix', () => {
     registerSuperAgentIPCHandlers()
 
-    expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}policy`, expect.any(Function))
     expect(probe.handle).toHaveBeenCalledWith(
-      `${SUPER_AGENT_PREFIX}policySet`,
+      `${SUPER_AGENT_PREFIX}executionPolicy`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}executionPolicySet`,
       expect.any(Function),
     )
     expect(probe.handle).toHaveBeenCalledWith(`${SUPER_AGENT_PREFIX}checkpoint`, expect.any(Function))
@@ -507,22 +525,26 @@ describe('registerSuperAgentIPCHandlers policy & checkpoint（T12 #82）', () =>
   it('serves the default serial policy and rejects unconfirmed parallel at the entry', async () => {
     registerSuperAgentIPCHandlers()
 
-    const policy = await invoke('policy', '/repo/a')
+    const policy = await invoke('executionPolicy', '/repo/a')
     expect(policy.policy).toEqual({ mode: 'serial', maxWorkers: 1, worktree: 'none' })
 
     // 开启并行必须 UI 二次确认（confirmed）
     await expect(
-      invokeDispatch('policySet', '/repo/a', { mode: 'parallel', maxWorkers: 2 }),
+      invokeDispatch('executionPolicySet', '/repo/a', { mode: 'parallel', maxWorkers: 2 }),
     ).rejects.toThrow(/policyConfirmRequired/)
     // 结构校验在领域层完成：上限越界稳定报错
     await expect(
-      invokeDispatch('policySet', '/repo/a', { mode: 'parallel', maxWorkers: 9, confirmed: true }),
+      invokeDispatch('executionPolicySet', '/repo/a', {
+        mode: 'parallel',
+        maxWorkers: 9,
+        confirmed: true,
+      }),
     ).rejects.toThrow()
     // 非法命令入口拒绝
-    await expect(invokeDispatch('policySet', '/repo/a', null)).rejects.toThrow(/policy set/)
-    await expect(invokeDispatch('policySet', '/repo/a', { mode: 'boost' })).rejects.toThrow(
-      /policy set/,
-    )
+    await expect(invokeDispatch('executionPolicySet', '/repo/a', null)).rejects.toThrow(/policy set/)
+    await expect(
+      invokeDispatch('executionPolicySet', '/repo/a', { mode: 'boost' }),
+    ).rejects.toThrow(/policy set/)
   })
 
   it('serves checkpoint info and rejects malformed rollback commands at the entry', async () => {
@@ -722,5 +744,73 @@ describe('registerSuperAgentIPCHandlers router conversation（T21）', () => {
     await expect(
       invokeDispatch('routerMessage', '/repo/a', { requestId: 'r1', text: '干活' }),
     ).rejects.toThrow(/engineLaunchFailed/)
+  })
+})
+
+describe('registerSuperAgentIPCHandlers authorizationPolicy（T25 #96）', () => {
+  it('registers authorizationPolicy / authorizationPolicySet on the shared wire prefix', () => {
+    registerSuperAgentIPCHandlers()
+
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}authorizationPolicy`,
+      expect.any(Function),
+    )
+    expect(probe.handle).toHaveBeenCalledWith(
+      `${SUPER_AGENT_PREFIX}authorizationPolicySet`,
+      expect.any(Function),
+    )
+  })
+
+  it('serves the conservative default and round-trips a change', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const view = await invoke('authorizationPolicy', '/repo/a')
+    expect(view.policy).toEqual({ version: 1, acceptMode: 'off', rules: [], admissions: [] })
+
+    const saved = await invokeDispatch('authorizationPolicySet', '/repo/a', {
+      acceptMode: 'auto',
+      rules: [{ name: 'Guard', instruction: 'Never touch secrets' }],
+      admissions: [{ source: 'feishu:ops', channels: [], allowlist: ['alice'], bots: [] }],
+    })
+    expect(saved.changed).toBe(true)
+    expect(saved.policy.version).toBe(2)
+    expect(saved.policy.acceptMode).toBe('auto')
+    expect(saved.policy.rules).toEqual([{ name: 'Guard', instruction: 'Never touch secrets' }])
+    expect(saved.discardedEvalIds).toEqual([])
+
+    // 读通道回读同一份策略（持久化生效）
+    expect((await invoke('authorizationPolicy', '/repo/a')).policy.version).toBe(2)
+  })
+
+  it('rejects missing repoRoot before touching the domain', async () => {
+    registerSuperAgentIPCHandlers()
+
+    await expect(invoke('authorizationPolicy', '')).rejects.toThrow(/repoRoot/)
+    await expect(invokeDispatch('authorizationPolicySet', ' ', { acceptMode: 'off' })).rejects.toThrow(
+      /repoRoot/,
+    )
+  })
+
+  it('rejects malformed commands at the entry with the stable invalidPolicy code', async () => {
+    registerSuperAgentIPCHandlers()
+
+    const malformed: unknown[] = [
+      null,
+      { acceptMode: 'always' },
+      { rules: 'nope' },
+      { rules: [{ name: '', instruction: 'x' }] },
+      { rules: [{ name: 'ok' }] },
+      { admissions: [{}] },
+      { admissions: [{ source: 'feishu:ops', channels: 'c1' }] },
+      { admissions: [{ source: '', channels: [], allowlist: [], bots: [] }] },
+    ]
+    for (const command of malformed) {
+      await expect(
+        invokeDispatch('authorizationPolicySet', '/repo/a', command),
+      ).rejects.toMatchObject({ code: 'invalidPolicy' })
+    }
+
+    // 入口拒绝不落库
+    expect((await invoke('authorizationPolicy', '/repo/a')).policy.version).toBe(1)
   })
 })

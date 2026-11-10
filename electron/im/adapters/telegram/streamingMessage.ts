@@ -16,7 +16,7 @@
 
 import type { TelegramBot } from './telegramBot'
 import { MessageBuffer } from '../common/message-buffer'
-import { splitMessage, convertMarkdownTablesToBullets } from '../common/format'
+import { convertMarkdownTablesToBullets } from '../common/format'
 import { createLogger } from '../common/logger'
 
 const log = createLogger('StreamingMessage')
@@ -85,7 +85,7 @@ export class StreamingMessage {
   // Private
   // ────────────────────────────────────────────────────────────────────────
 
-  private async handleFlush(text: string, isComplete: boolean): Promise<void> {
+  private async handleFlush(_text: string, isComplete: boolean): Promise<void> {
     // Create placeholder message on first content
     if (this.messageId === null && this.fullText) {
       try {

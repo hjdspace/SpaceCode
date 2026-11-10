@@ -3,7 +3,7 @@
  * Worker Executor 的引擎通路契约（T21）。
  *
  * 覆盖的是「派出去的任务真的有人在跑」这一层：
- *  - 启动配置：Worker 以 bypassPermissions 起（人工逐次点授权会把后台执行变成陪跑），
+ *  - 启动配置：Worker 一律以 bypassPermissions 起（后台自主执行不逐次问人），
  *    角色说明走 appendSystemPrompt，工作目录用调度器给的实际目录；
  *  - 指派身份：assignmentId 随首条消息给出（Report 必须逐字回填），气泡先推再发；
  *  - launch promise 的语义：引擎接受首条消息 ≠ 任务完成，只有最终 Report 或
@@ -18,6 +18,7 @@ import type { WorkerLaunchRequest } from '../scheduler'
 import type { SuperAgentReportKind } from '../model'
 import { createFakeBridge, reportFence } from './fakeBridge'
 import { parseEngineUserPrompt, wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
+import { superAgentWorkerEngineSessionId } from '../sessionId'
 
 const REPO = '/repo/a'
 
@@ -30,6 +31,7 @@ function launchRequest(overrides: Partial<WorkerLaunchRequest> = {}): WorkerLaun
   return {
     ticketId: 'ticket-1',
     assignmentId: 'assignment-1',
+    sessionId: superAgentWorkerEngineSessionId('ticket-1'),
     repoRoot: REPO,
     firstMessage: '# 工单指派：修登录\n\n## 目标\n\n让登录页可用',
     workspace: {
@@ -43,12 +45,17 @@ function launchRequest(overrides: Partial<WorkerLaunchRequest> = {}): WorkerLaun
   }
 }
 
-function makeExecutor(hookOverrides: Partial<SuperAgentExecutorHooks> = {}) {
+function makeExecutor(
+  hookOverrides: Partial<SuperAgentExecutorHooks> = {},
+  executorOverrides: Partial<Parameters<typeof createSuperAgentExecutor>[0]> = {},
+) {
   const fake = createFakeBridge()
   const ingests: string[] = []
   const failures: Parameters<SuperAgentExecutorHooks['onProtocolFailure']>[0][] = []
   const interruptions: Parameters<SuperAgentExecutorHooks['onInterrupted']>[0][] = []
   const relays: Parameters<NonNullable<SuperAgentExecutorHooks['relay']>>[0][] = []
+  const permissionRequests: Parameters<NonNullable<SuperAgentExecutorHooks['onPermissionRequest']>>[0][] = []
+  const permissionCancels: Parameters<NonNullable<SuperAgentExecutorHooks['onPermissionCancelled']>>[0][] = []
 
   const hooks: SuperAgentExecutorHooks = {
     ingest: (text) => {
@@ -66,6 +73,8 @@ function makeExecutor(hookOverrides: Partial<SuperAgentExecutorHooks> = {}) {
     onProtocolFailure: (context) => failures.push(context),
     onInterrupted: (context) => interruptions.push(context),
     relay: (info) => relays.push(info),
+    onPermissionRequest: (context) => permissionRequests.push(context),
+    onPermissionCancelled: (context) => permissionCancels.push(context),
     ...hookOverrides,
   }
 
@@ -74,8 +83,18 @@ function makeExecutor(hookOverrides: Partial<SuperAgentExecutorHooks> = {}) {
     resolveGeneration: () => 2,
     titleOf: () => '修登录',
     hooks,
+    ...executorOverrides,
   })
-  return { executor, fake, ingests, failures, interruptions, relays }
+  return {
+    executor,
+    fake,
+    ingests,
+    failures,
+    interruptions,
+    relays,
+    permissionRequests,
+    permissionCancels,
+  }
 }
 
 describe('createSuperAgentExecutor launch', () => {
@@ -91,6 +110,8 @@ describe('createSuperAgentExecutor launch', () => {
       cwd: REPO,
       permissionMode: 'bypassPermissions',
       appendSystemPrompt: SUPER_AGENT_WORKER_ROLE_PROMPT,
+      // Worker 的提问走 round 内 ask/attempt 协议，不继承主聊天 AskUserQuestion 指引。
+      askUserQuestionGuidance: false,
     })
     // 首条消息 = 调度器组装的指派 + 本次执行身份（assignmentId 要逐字回填）
     const sent = fake.sent[0]?.content ?? ''
@@ -99,6 +120,63 @@ describe('createSuperAgentExecutor launch', () => {
     expect(sent).toContain('generation: 2')
     await fake.emit(fake.started[0]!.sessionId, 'result', {
       result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
+    })
+    await launched
+  })
+
+  it('forwards permission requests and cancellations without ending the run', async () => {
+    const { executor, fake, permissionRequests, permissionCancels } = makeExecutor()
+    const launched = executor.launch(launchRequest())
+    await flush()
+    const sessionId = fake.started[0]!.sessionId
+
+    fake.emit(sessionId, 'permission_request', {
+      requestId: 'permission-1',
+      toolName: 'Edit',
+      description: '修改 src/a.ts',
+    })
+    fake.emit(sessionId, 'permission_request_cancelled', {
+      requestId: 'permission-1',
+      reason: 'aborted',
+    })
+
+    expect(permissionRequests).toEqual([
+      {
+        ticketId: 'ticket-1',
+        assignmentId: 'assignment-1',
+        sessionId,
+        requestId: 'permission-1',
+        question: '权限请求：Edit（修改 src/a.ts）',
+      },
+    ])
+    expect(permissionCancels).toEqual([
+      {
+        ticketId: 'ticket-1',
+        assignmentId: 'assignment-1',
+        sessionId,
+        requestId: 'permission-1',
+        reason: 'aborted',
+      },
+    ])
+    // 权限等待不是一轮结束：launch promise 仍在飞，槽位由 Scheduler 另行 hold
+    expect(executor.isRunning('ticket-1')).toBe(true)
+
+    await fake.emit(sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),
+    })
+    await launched
+  })
+
+  it('ignores permission frames without a requestId', async () => {
+    const { executor, fake, permissionRequests } = makeExecutor()
+    const launched = executor.launch(launchRequest())
+    await flush()
+
+    fake.emit(fake.started[0]!.sessionId, 'permission_request', { toolName: 'Edit' })
+    expect(permissionRequests).toHaveLength(0)
+
+    await fake.emit(fake.started[0]!.sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'waiting', summary: '等' }),
     })
     await launched
   })
@@ -323,6 +401,63 @@ describe('createSuperAgentExecutor stop and settle', () => {
     executor.dispose()
     fake.emit(fake.started[0]!.sessionId, 'result', { result: 'whatever' })
     expect(ingests).toHaveLength(0)
+    await launched
+  })
+})
+
+describe('createSuperAgentExecutor background work (#104)', () => {
+  it('keeps the launch promise (slot) until the background hold is released', async () => {
+    const handoffs: string[] = []
+    const { executor, fake } = makeExecutor({
+      hasBackgroundWork: () => true,
+      onBackgroundHandoff: (ticketId) => handoffs.push(ticketId),
+    })
+    const launched = executor.launch(launchRequest())
+    await flush()
+    const sessionId = fake.started[0]!.sessionId
+
+    fake.emit(sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
+    })
+    await flush()
+    // turn 已结束，但后台作业还占槽：run 仍 active，launch 未落定。
+    expect(executor.isRunning('ticket-1')).toBe(true)
+    expect(handoffs).toEqual([])
+
+    expect(executor.releaseBackgroundHold('ticket-1')).toBe(true)
+    expect(handoffs).toEqual(['ticket-1'])
+    await launched
+    expect(executor.isRunning('ticket-1')).toBe(false)
+    // 幂等：再释放不会重复 handoff。
+    expect(executor.releaseBackgroundHold('ticket-1')).toBe(false)
+  })
+
+  it('forwards background job events from the engine before turn-end handling', async () => {
+    const jobs: Parameters<NonNullable<SuperAgentExecutorHooks['onBackgroundJob']>>[0][] = []
+    const { executor, fake } = makeExecutor({ onBackgroundJob: (context) => jobs.push(context) })
+    const launched = executor.launch(launchRequest())
+    await flush()
+    const sessionId = fake.started[0]!.sessionId
+
+    fake.emit(sessionId, 'tool_use', { id: 'toolu_1', name: 'Bash', input: { run_in_background: true } })
+    fake.emit(sessionId, 'tool_result', {
+      tool_use_id: 'toolu_1',
+      content: 'Command running in background with ID: bash_1',
+    })
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]).toMatchObject({
+      ticketId: 'ticket-1',
+      assignmentId: 'assignment-1',
+      sessionId,
+      event: { action: 'register', jobId: 'bash_1', kind: 'shell' },
+    })
+
+    fake.emit(sessionId, 'system', { subtype: 'task_notification', task_id: 'bash_1', output: 'done' })
+    expect(jobs[1]).toMatchObject({ event: { action: 'complete', jobId: 'bash_1', kind: 'shell' } })
+
+    fake.emit(sessionId, 'result', {
+      result: reportFence({ assignmentId: 'assignment-1', reportId: 'r1', kind: 'ready', summary: 'done' }),
+    })
     await launched
   })
 })

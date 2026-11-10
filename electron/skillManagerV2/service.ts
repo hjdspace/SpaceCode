@@ -30,7 +30,6 @@ import {
   inspectPath,
   isSymlink,
   pathExists,
-  createLink,
 } from './fsutil'
 import { scanCenterLibrary } from './scanner'
 import { SkillInstaller } from './skillInstaller'
@@ -43,7 +42,6 @@ import {
 } from './bundledSkills'
 import {
   classifyTarget,
-  type ClassifyInput,
 } from '@/lib/targetClassifier'
 import {
   agentSkillDirs,
@@ -74,7 +72,6 @@ import type {
   SkillTarget,
   SkillTargetClaim,
   DeleteCenterSkillPreview,
-  FileTreeNode,
   AddCenterSkillInput,
   AddCenterSkillCandidate,
   AddCenterSkillPreview,
@@ -1926,7 +1923,6 @@ export class SkillManagerService {
       throw new Error(`Agent not found: ${agentId}`)
     }
 
-    const agentSkillsDir = agentRow.skills_dir ?? ''
     const sourcePath = row.path
     const inferredSkillId = row.inferred_skill_id ?? path.basename(sourcePath)
     const targetSkillId = renamedId ?? inferredSkillId

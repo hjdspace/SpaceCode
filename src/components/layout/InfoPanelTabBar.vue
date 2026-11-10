@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useAppStore, type InfoPanelTab } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { X, LayoutGrid, Maximize2, Minimize2 } from 'lucide-vue-next'
@@ -49,7 +49,6 @@ import { useDialog } from '@/composables/useDialog'
 const appStore = useAppStore()
 const { t } = useI18n()
 const { showConfirm } = useDialog()
-const scrollContainer = ref<HTMLElement | null>(null)
 
 const tabs = computed<InfoPanelTab[]>(() => appStore.infoPanelTabs)
 const activeTabId = computed(() => appStore.activeInfoTabId)

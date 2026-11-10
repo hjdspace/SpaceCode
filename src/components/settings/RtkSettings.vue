@@ -176,7 +176,7 @@ const dailyChartData = computed(() => {
   const daily = stats.value.daily.slice(-7)
   const maxTokens = Math.max(1, ...daily.map(d => d.savedTokens))
   const weekdayLabels = [t('rtk.mon'), t('rtk.tue'), t('rtk.wed'), t('rtk.thu'), t('rtk.fri'), t('rtk.sat'), t('rtk.sun')]
-  return daily.map((d, i) => {
+  return daily.map((d, _i) => {
     const date = new Date(d.date)
     const dayIdx = (date.getDay() + 6) % 7 // 周一=0
     return {

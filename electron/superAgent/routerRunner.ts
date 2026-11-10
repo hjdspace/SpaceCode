@@ -31,7 +31,9 @@ import {
   type SuperAgentRouteAction,
 } from './routerActions'
 import { superAgentError } from './errors'
+import { inspectRouterToolCall } from './routerGuard'
 import { wrapSuperAgentHostContext } from '@/shared/promptEnvelope'
+import type { SuperAgentEvalRouterTurn } from './evalDriver'
 import type { SuperAgentEngineBridge } from './engineBridge'
 
 export interface SuperAgentRouterDispatchInput {
@@ -42,6 +44,8 @@ export interface SuperAgentRouterDispatchInput {
   /** Router 的路由说明（≤30 字，见 MAX_ROUTE_NOTE_CHARS）。 */
   note: string | null
   model?: string
+  /** 人明确要求续聊的已结束工单；新工单继承它的 Worker session。 */
+  resumeTicketId?: string
 }
 
 export interface SuperAgentRouterSource {
@@ -54,6 +58,8 @@ export interface SuperAgentRouterAttachInput {
   ticketId: string
   /** 挂接给该工单正文：本轮人的原话（含旁注标注）。 */
   text: string
+  /** 外部 Source Trigger：宿主据此绑定 Trigger 并订阅整条 Thread；桌面消息缺省。 */
+  triggerId?: string
 }
 
 export interface SuperAgentRouterStopInput {
@@ -134,6 +140,11 @@ export interface SuperAgentRouterRunner {
   message(input: SuperAgentRouterInput): Promise<void>
   /** 工单事件中继：不推气泡（它不是人说的话）。 */
   relay(text: string): void
+  /**
+   * 候选评估轮（#99）：与中继轮共用串行队列、不推气泡，但结果直接交回
+   * evalDriver 解析 `super-agent:eval`，不进入 route 派发。
+   */
+  evaluate(turn: SuperAgentEvalRouterTurn): void
   /** 中止当前 Router 轮次；不影响任何 Worker。 */
   abortTurn(): Promise<void>
   isRunning(): boolean
@@ -158,8 +169,14 @@ export function createSuperAgentRouterRunner(
    * 待投递输入（人的消息与工单事件按到达顺序串行投递）。
    * `human` 决定这一轮要不要配活跃工单索引 —— 只有人在问话时才需要。
    */
-  const queue: { input: SuperAgentRouterInput; human: boolean }[] = []
+  const queue: {
+    input: SuperAgentRouterInput
+    human: boolean
+    evalTurn?: SuperAgentEvalRouterTurn
+  }[] = []
   let turnInFlight = false
+  /** 当前在途的评估轮；结果事件优先交回它，不走 route 解析。 */
+  let turnEval: SuperAgentEvalRouterTurn | null = null
   let started = false
   /** 轮次序号：与 route 下标一起构成幂等键。 */
   let turnSeq = 0
@@ -183,8 +200,14 @@ export function createSuperAgentRouterRunner(
       cwd: repoRoot,
       permissionMode: 'default' as const,
       appendSystemPrompt: SUPER_AGENT_ROUTER_ROLE_PROMPT,
-      // 全部工具移除：Router 只说话不出手（见文件头第 1 条）。引擎收到 --tools ""。
+      // 全部工具移除：Router 只说话不出手（见文件头第 1 条）。claude-code 收
+      // `--tools ""`，pi 收 `--no-tools`（见 PiSessionProcess 的映射）。
       allowedTools: [],
+      // 不继承全局启用的 MCP：Router 看不到浏览器/电脑等外部工具（#95）。
+      disableMcp: true,
+      // 主聊天追加的 AskUserQuestion 指引在这里不适用：Router 不向人提问，
+      // 需要澄清时由 Worker/人消息走既有通路。
+      askUserQuestionGuidance: false,
       // 输入框的选择优先于设置页槽位；按引擎解析（claude-code 要槽位别名，pi 要真名），
       // 否则指定的模型会被代理静默丢弃 —— 见 src/utils/engineModel。
       ...(selectedModel
@@ -257,6 +280,7 @@ export function createSuperAgentRouterRunner(
             text: goal,
             note: route.note,
             model: selectedModel ?? undefined,
+            ...(route.resumeTicketId !== undefined ? { resumeTicketId: route.resumeTicketId } : {}),
           })
         } else if (route.kind === 'attach') {
           // attach 的全部内容就是"这条人消息属于那张单"；本轮没有人的原话可带时
@@ -268,6 +292,7 @@ export function createSuperAgentRouterRunner(
             requestId,
             ticketId: route.ticketId,
             text: renderSuperAgentAttachedMessage({ note: route.note, sourceText }),
+            ...(route.triggerId !== undefined ? { triggerId: route.triggerId } : {}),
           })
         } else if (route.kind === 'retry') {
           hooks.retry({ requestId, ticketId: route.ticketId })
@@ -308,6 +333,16 @@ export function createSuperAgentRouterRunner(
     if (sid !== sessionId) return
     if (eventType === 'result') {
       const text = resultText(data)
+      if (turnEval) {
+        // 评估轮：结果只回给 evalDriver，不按 route 解析，也不触发补正。
+        const evalTurn = turnEval
+        turnEval = null
+        turnInFlight = false
+        hooks.onStatusChanged(false)
+        evalTurn.onResult(text)
+        void pump()
+        return
+      }
       const missingRoute = turnSourceText !== null && findSuperAgentRouteBlocks(text).length === 0
       if (missingRoute && !routeRepairSent) {
         routeRepairSent = true
@@ -321,16 +356,34 @@ export function createSuperAgentRouterRunner(
       void pump()
     } else if (eventType === 'error') {
       turnInFlight = false
+      // 评估轮没有拿到结果：留在 delivered，交给 deadline 重排，不在这里猜。
+      turnEval = null
       hooks.onFailure('engineLaunchFailed')
       hooks.onStatusChanged(false)
       void pump()
     } else if (eventType === 'exit') {
       // 进程退场：下一轮按稳定 id 重新拉起（引擎自己 --resume 历史）。
       turnInFlight = false
+      turnEval = null
       started = false
       appliedModel = null
       hooks.onStatusChanged(false)
       void pump()
+    } else if (eventType === 'permission_request') {
+      // 第二道防线（#95）：`allowedTools: []` 已经清空工具池，但引擎能力边界不同
+      // （见 PiSessionProcess 的映射说明），万一仍漏出工具请求，就在这里代码拒绝。
+      // noWait 单独计一个健康码：睡着等结果会拖住所有新候选，必须能被看见。
+      const record = data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+      const requestId = typeof record.requestId === 'string' ? record.requestId : ''
+      const toolName = typeof record.toolName === 'string' ? record.toolName : ''
+      const violation = inspectRouterToolCall(toolName, record.input)
+      hooks.onFailure(violation ? 'routerNoWait' : 'routerToolNotAllowed')
+      if (requestId) {
+        const message = violation
+          ? `Router 不等待：${violation.detail}。请把等待改成路由说明，结果会作为新输入自动到达。`
+          : `Router 会话不执行工具（工具池已清空），${toolName || '该工具'} 请求已拒绝；请改用路由指令交 Worker 执行。`
+        void bridge.denyPermission(sessionId, requestId, message, { interrupt: false })
+      }
     }
   })
 
@@ -362,9 +415,12 @@ export function createSuperAgentRouterRunner(
 
   async function pump(): Promise<void> {
     if (turnInFlight || queue.length === 0) return
-    const next = queue.shift()
+    let next = queue.shift()
+    // 已被策略变更/过期处置的评估批次不占一轮：丢弃后继续找下一条可投递项。
+    while (next !== undefined && next.evalTurn?.isStale?.()) next = queue.shift()
     if (next === undefined) return
     turnInFlight = true
+    turnEval = next.evalTurn ?? null
     turnSeq += 1
     routeRepairSent = false
     // 这一轮的目标正文只可能在"人在问话"时存在；中继轮带的是工单事实，不是需求。
@@ -377,11 +433,15 @@ export function createSuperAgentRouterRunner(
     try {
       await applyModelSelection()
       await ensureStarted()
+      // 评估 deadline 从"真正开轮、模型即将看到卡片"起算：这里才记送达。
+      turnEval?.onDeliver?.()
       await bridge.sendMessage(sessionId, engineText(next.input, next.human), next.input.images)
     } catch (err) {
       // 投递失败：这一轮不算开始，输入留在队首等下一次泵送（不丢消息）。
+      // 评估已记送达的话，重试时 onDeliver 幂等；deadline 照常走。
       queue.unshift(next)
       turnInFlight = false
+      turnEval = null
       hooks.onFailure(errorCode(err, 'engineLaunchFailed'))
       hooks.onStatusChanged(false)
     }
@@ -406,6 +466,11 @@ export function createSuperAgentRouterRunner(
       void pump()
     },
 
+    evaluate(turn: SuperAgentEvalRouterTurn): void {
+      queue.push({ input: { text: turn.text }, human: false, evalTurn: turn })
+      void pump()
+    },
+
     async abortTurn(): Promise<void> {
       if (!turnInFlight) return
       try {
@@ -414,6 +479,8 @@ export function createSuperAgentRouterRunner(
         // abort 失败仍按中止处理：状态收敛比细节重要，Worker 不受影响
       }
       turnInFlight = false
+      // 中止的评估轮没有结果；留在 delivered，交给 deadline 重排。
+      turnEval = null
       hooks.onStatusChanged(false)
       void pump()
     },
@@ -435,6 +502,7 @@ export function createSuperAgentRouterRunner(
       unsubscribe()
       queue.length = 0
       turnInFlight = false
+      turnEval = null
     },
   }
 }

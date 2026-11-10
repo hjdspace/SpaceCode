@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Check, Copy } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/common'
 import { useAppStore } from '@/stores/app'
 
 /**

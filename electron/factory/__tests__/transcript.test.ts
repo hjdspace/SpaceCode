@@ -66,7 +66,6 @@ describe('readTranscript', () => {
   })
 
   it('skips re-parsing while the transcript mtime is unchanged', async () => {
-    const impl = factorySessionId(`fac-${RUN}-${TASK}-impl`)
     const read = vi.fn(async () => ({ messages: [{ type: 'assistant' }] }))
     const deps = { stat: () => 42, read }
     await readTranscript(input({ ...deps }))

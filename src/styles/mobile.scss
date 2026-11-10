@@ -138,6 +138,11 @@ body.h5-mode {
     display: none !important;
   }
 
+  // 优化按钮隐藏后，文字不再需要为它让位
+  .textarea-wrapper.has-optimize-btn {
+    padding-right: 0 !important;
+  }
+
   // 权限模式选择器 — 移动端仅显示图标
   .permission-mode-selector {
     .mode-trigger {

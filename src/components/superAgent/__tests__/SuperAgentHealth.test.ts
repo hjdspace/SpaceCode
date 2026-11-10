@@ -43,20 +43,31 @@ function find(wrapper: ReturnType<typeof mount>, testid: string) {
   return wrapper.find(`[data-testid="${testid}"]`)
 }
 
+/** 弹窗外壳 Teleport 到 body：stub 掉才留在 wrapper 子树里。 */
+function mountPanel(props: {
+  problems: SuperAgentHealthItem[]
+  visible?: boolean
+  hint?: string
+  hintFailed?: boolean
+}) {
+  return mount(SuperAgentHealth, {
+    global: { stubs: { teleport: true } },
+    props: { visible: true, ...props },
+  })
+}
+
 describe('SuperAgentHealth actionable panel（T20 #90）', () => {
   it('renders each problem with its category text, localized error text and related ticket', () => {
-    const wrapper = mount(SuperAgentHealth, {
-      props: {
-        problems: [
-          item(),
-          item({
-            category: 'effect:reply',
-            code: 'assignmentEnded',
-            codeI18nKey: 'superAgent.errors.assignmentEnded',
-            ticketId: 'ticket-1',
-          }),
-        ],
-      },
+    const wrapper = mountPanel({
+      problems: [
+        item(),
+        item({
+          category: 'effect:reply',
+          code: 'assignmentEnded',
+          codeI18nKey: 'superAgent.errors.assignmentEnded',
+          ticketId: 'ticket-1',
+        }),
+      ],
     })
 
     const text = wrapper.text()
@@ -69,21 +80,22 @@ describe('SuperAgentHealth actionable panel（T20 #90）', () => {
   })
 
   it('falls back to the generic category key for an unknown category', () => {
-    const wrapper = mount(SuperAgentHealth, { props: { problems: [item({ category: 'effect:telemetry' })] } })
+    const wrapper = mountPanel({ problems: [item({ category: 'effect:telemetry' })] })
 
     expect(wrapper.text()).toContain('superAgent.health.unknownCategory')
   })
 
   it('shows the empty state when there are no problems', () => {
-    const wrapper = mount(SuperAgentHealth, { props: { problems: [] } })
+    const wrapper = mountPanel({ problems: [] })
 
     expect(wrapper.text()).toContain('superAgent.health.empty')
     expect(wrapper.find('.super-agent-health').classes()).not.toContain('actionable')
-    expect(wrapper.findAll('button')).toHaveLength(0)
+    // 弹窗自身的关闭键不算处置动作：问题处置按钮必须为零。
+    expect(wrapper.findAll('.action')).toHaveLength(0)
   })
 
   it('marks the panel actionable and renders retry/dismiss for system-level problems', async () => {
-    const wrapper = mount(SuperAgentHealth, { props: { problems: [item()] } })
+    const wrapper = mountPanel({ problems: [item()] })
 
     expect(wrapper.find('.super-agent-health').classes()).toContain('actionable')
     expect(find(wrapper, 'super-agent-health-retry-engine').exists()).toBe(true)
@@ -95,17 +107,15 @@ describe('SuperAgentHealth actionable panel（T20 #90）', () => {
   })
 
   it('renders reevaluate/dismiss (not retry) for an unavailable eval subject', async () => {
-    const wrapper = mount(SuperAgentHealth, {
-      props: {
-        problems: [
-          item({
-            category: 'eval',
-            code: 'evalUnavailable',
-            codeI18nKey: 'superAgent.errors.evalUnavailable',
-            subjectId: 'eval-1',
-          }),
-        ],
-      },
+    const wrapper = mountPanel({
+      problems: [
+        item({
+          category: 'eval',
+          code: 'evalUnavailable',
+          codeI18nKey: 'superAgent.errors.evalUnavailable',
+          subjectId: 'eval-1',
+        }),
+      ],
     })
 
     expect(find(wrapper, 'super-agent-health-reevaluate-eval-eval-1').exists()).toBe(true)
@@ -117,7 +127,7 @@ describe('SuperAgentHealth actionable panel（T20 #90）', () => {
   })
 
   it('requires a two-step confirmation before dismissing', async () => {
-    const wrapper = mount(SuperAgentHealth, { props: { problems: [item()] } })
+    const wrapper = mountPanel({ problems: [item()] })
 
     // 第一步：忽略 → 出现确认/取消，不 emit
     await find(wrapper, 'super-agent-health-dismiss-engine').trigger('click')
@@ -137,21 +147,44 @@ describe('SuperAgentHealth actionable panel（T20 #90）', () => {
   })
 
   it('dismisses an eval subject with its subjectId', async () => {
-    const wrapper = mount(SuperAgentHealth, {
-      props: {
-        problems: [
-          item({
-            category: 'eval',
-            code: 'evalUnavailable',
-            codeI18nKey: 'superAgent.errors.evalUnavailable',
-            subjectId: 'eval-1',
-          }),
-        ],
-      },
+    const wrapper = mountPanel({
+      problems: [
+        item({
+          category: 'eval',
+          code: 'evalUnavailable',
+          codeI18nKey: 'superAgent.errors.evalUnavailable',
+          subjectId: 'eval-1',
+        }),
+      ],
     })
 
     await find(wrapper, 'super-agent-health-dismiss-eval-eval-1').trigger('click')
     await find(wrapper, 'super-agent-health-dismiss-confirm-eval-eval-1').trigger('click')
     expect(wrapper.emitted('dismiss')).toEqual([['eval', 'eval-1']])
+  })
+
+  it('hidden 时不渲染内容，避免收起后仍留着处置入口', () => {
+    const wrapper = mount(SuperAgentHealth, {
+      global: { stubs: { teleport: true } },
+      props: { visible: false, problems: [item()] },
+    })
+
+    expect(find(wrapper, 'super-agent-health').exists()).toBe(false)
+  })
+
+  it('底栏关闭键与 Esc 都上抛 close，由父级收口面板状态', async () => {
+    const wrapper = mountPanel({ problems: [item()] })
+
+    await find(wrapper, 'super-agent-health-close').trigger('click')
+    await wrapper.find('.sa-dialog').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.emitted('close')).toHaveLength(2)
+  })
+
+  it('处置回显进底栏，失败态用错误色文案呈现', () => {
+    const wrapper = mountPanel({ problems: [item()], hint: 'done', hintFailed: false })
+    expect(find(wrapper, 'super-agent-health-action-hint').text()).toBe('done')
+
+    const failed = mountPanel({ problems: [item()], hint: 'boom', hintFailed: true })
+    expect(find(failed, 'super-agent-health-action-hint').classes()).toContain('failed')
   })
 })

@@ -6,7 +6,7 @@
  * 这里钉住四条：打包形态优先、开发期两种 appPath 布局都能回推、两者都缺时不静默换目录。
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'

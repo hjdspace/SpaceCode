@@ -15,8 +15,6 @@
  * - Testability: injected fs operations → link-fail path testable.
  */
 
-import * as path from 'path'
-
 import {
   copyDirRecursive,
   createLink,
@@ -93,9 +91,6 @@ export class SkillInstaller {
     if (this.fs.pathExists(destPath)) {
       this.fs.removePath(destPath)
     }
-
-    // Ensure parent directory exists
-    const parent = path.dirname(destPath)
 
     if (mode === 'link') {
       // The fs.createLink already handles mkdir for parent,

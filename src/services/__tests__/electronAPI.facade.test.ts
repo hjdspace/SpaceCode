@@ -12,7 +12,6 @@
  * 被测模块。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { initH5Connection } from '@/services/h5ApiClient'
 
 const H = vi.hoisted(() => ({
   h5Flag: false,

@@ -11,6 +11,8 @@
  *   workerMessage    — 接管输入：先落 Domain Input 再按调度投递，requestId 对账（T09 #79）
  *   attentions       — Attention 气泡全量看板（T08 #78）
  *   attentionAnswer  — 就地回答：先落 Domain Input 再投递给对应 Worker（T08 #78）
+ *   authorizationPolicy     — 只读当前授权策略（版本化 Policy）（T25 #96）
+ *   authorizationPolicySet  — 授权策略写入：任一子项变化 version+1 并丢弃重排 Eval（T25 #96）
  * 事件：
  *   health-changed — 健康项变化时广播（repoRoot, report）
  *   takeover-changed — 接管/交还广播（repoRoot, event），takeover=null 表示已交还（T09 #79）
@@ -29,6 +31,14 @@ export const SUPER_AGENT_PREFIX = 'super-agent:'
  * 内容，IM 展示模式按此 info string 过滤（与 Worker 的 super-agent:report 同一做法）。
  */
 export const SUPER_AGENT_ROUTE_FENCE = 'super-agent:route'
+
+/**
+ * Router ↔ 宿主的候选评估协议围栏（#99）。
+ *
+ * Eval 轮是宿主发起的内部准入评估，不是人的消息：它和 route 协议分开，回复里
+ * 只应出现一个 eval 块，宿主据此落 Decision；不会被当成建单指令解析。
+ */
+export const SUPER_AGENT_EVAL_FENCE = 'super-agent:eval'
 
 /**
  * Super Agent 自己拥有的会话种类。
@@ -146,6 +156,15 @@ export const SUPER_AGENT_TICKET_CARD_STATES = [
   'dropped',
 ] as const
 
+/** #100：Worker 交回/退订/仅上下文订阅的折叠审计项（原因由 Worker 给出）。 */
+export interface SuperAgentTicketPostAction {
+  kind: 'handback' | 'threadUnrelated' | 'threadFollow'
+  at: string
+  reason: string | null
+  triggerId: string | null
+  threadId: string | null
+}
+
 /** 单行工单卡片投影；Report 只更新同 ticketId 的卡片，不重复发气泡。 */
 export interface SuperAgentTicketCard {
   ticketId: string
@@ -157,11 +176,15 @@ export interface SuperAgentTicketCard {
   generation: number
   /** Mandate scope 相对路径；空数组 = 整个仓库。 */
   scopePaths: string[]
+  /** Worker 报告中的产物与文档，按执行目录解析后的绝对路径。 */
+  artifacts?: string[]
   createdAt: string
   updatedAt: string
   ended: { outcome: string; by: string; reason: string; at: string } | null
   /** T10 #80：review 超时提醒水位；null 表示尚未提醒。 */
   reviewRemindedAt: string | null
+  /** #100：最近 20 条 Worker 指令审计，工单详情折叠展示（旧快照缺省）。 */
+  workerActions?: SuperAgentTicketPostAction[]
   /** T10 #80：是否允许人工重试（仅 open 的 delivery/blocked/failed）。 */
   canRetry: boolean
   /**
@@ -318,8 +341,10 @@ export interface SuperAgentWorkerMirror {
   title: string
   /** Worker 稳定会话 id；渲染层据此登记只读会话并复用既有 route event。 */
   sessionId: string
-  /** 最新 Assignment 是否在执行中（不含排队）。 */
+  /** Executor 是否仍在活动（含占槽后台工作），不是 Assignment 的领域生命周期。 */
   running: boolean
+  /** 工单投影状态：运行结束后区分待验收、等待与终态，不结束可复用的 Assignment。 */
+  ticketState: SuperAgentTicketCard['state']
   /** 该工单当前是否处于接管态（T09 #79）：面板据此切换只读/可写。 */
   takenOver: boolean
   /** 代次分段，按 generation 升序。 */
@@ -376,6 +401,9 @@ export interface SuperAgentAttentionView {
   /** 已提交（含已认领）的回答 inputId，按提交顺序。 */
   answers: string[]
   answeredAt: string | null
+  /** 权限类 Attention 的审计锚点（来自引擎 permission_request 的会话与请求 id）。 */
+  sessionId?: string | null
+  requestId?: string | null
 }
 
 /** attentions 通道返回的完整 Attention 看板。 */
@@ -399,18 +427,22 @@ export interface SuperAgentAttentionEvent {
   pendingTickets: number
 }
 
-/** 就地回答命令：回答作为领域 Input 投递给对应 Worker；requestId 为幂等键。 */
+/** 就地回答命令：回答作为领域 Input 投递给对应 Worker；requestId 为幂等键。
+ *  权限类 Attention 不落 Input，改用 decision 直接应答原 permission request；
+ *  text 此时仅作拒绝理由。 */
 export interface SuperAgentAttentionAnswerCommand {
   requestId: string
   attentionId: string
-  text: string
+  text?: string
+  decision?: 'allow' | 'deny'
 }
 
 export interface SuperAgentAttentionAnswerResult {
   attentionId: string
   ticketId: string
-  inputId: string
-  status: 'pending' | 'delivered' | 'read' | 'failed' | 'uncertain'
+  /** 问题类回答落库后的 Input id；权限类直接应答原请求，没有 Input。 */
+  inputId: string | null
+  status: 'pending' | 'delivered' | 'read' | 'failed' | 'uncertain' | null
   delivered: boolean
   /** 被 blocked/failed 闸门拦下：只落库，不投递。 */
   gated: boolean
@@ -460,6 +492,7 @@ export const SUPER_AGENT_HEALTH_CATEGORIES = [
   'effect:reviewReminder',
   'source',
   'eval',
+  'workerAction',
   'engine',
   'projectLock',
   'migration',
@@ -512,6 +545,53 @@ export interface SuperAgentHealthReport {
   updatedAt: string
 }
 
+// ── Source 接入只读视图（T24 #93）────────────────────────────────────
+
+/** 单个 Source 的运行时状态（游标、连续失败、隔离计数）。 */
+export interface SuperAgentSourceStatus {
+  sourceId: string
+  running: boolean
+  cursor: string | null
+  consecutiveFailures: number
+  lastError: string | null
+  quarantined: number
+  lastPolledAt: string | null
+}
+
+/**
+ * 建单候选登记：经程序层 Gate 准入、且尚未被订阅消费的 Trigger。
+ * 只登记候选事实，不在此建单 —— 语义 Eval / Policy 接管后续流程。
+ */
+export interface SuperAgentSourceCandidate {
+  triggerId: string
+  key: string
+  /** 触发方式（addressed 类型）；名单/bot 的未 @ 候选为 null。 */
+  reason: 'mention' | 'direct' | null
+  strength: 'explicit' | 'inferred'
+  basis: 'addressed' | 'followup' | 'admission' | 'bot'
+  bot: boolean
+  threadIds: string[]
+  channel: string | null
+  text: string
+  at: string
+}
+
+/** 隔离的坏事件（结构性无法解析的原始负载），供只读排查。 */
+export interface SuperAgentSourceQuarantineEntry {
+  sourceId: string
+  reason: string
+  raw: string
+  at: string
+}
+
+/** Source 只读视图：状态 + 候选登记 + 隔离报告。 */
+export interface SuperAgentSourcesView {
+  repoRoot: string
+  sources: SuperAgentSourceStatus[]
+  candidates: SuperAgentSourceCandidate[]
+  quarantine: SuperAgentSourceQuarantineEntry[]
+}
+
 /**
  * 稳定错误码的一等 DTO（T13 #83）：Domain/IPC 共用。
  * 未知 code 时 known 为 false、i18nKey 回退通用文案，不得把英文异常直接显示给用户。
@@ -541,6 +621,11 @@ export const superAgentNamespace = defineNamespace({
     health: {
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentHealthReport,
+    },
+    // T24 #93：Source 只读视图（运行状态 / 候选登记 / 隔离报告）。
+    sources: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentSourcesView,
     },
     dispatch: {
       req: [] as unknown as [repoRoot: string, command: SuperAgentDispatchCommand],
@@ -626,13 +711,25 @@ export const superAgentNamespace = defineNamespace({
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as true,
     },
+    // 授权策略（T25 #96）：T16 的版本化 Policy —— acceptMode 默认 off，
+    // 外部候选默认不建单，需要人显式在设置区开启；写入后 version 递增并
+    // 重排运行中 Eval。命名刻意避开 executionPolicy（#92 已把 policy 留给授权）。
+    authorizationPolicy: {
+      req: [] as unknown as [repoRoot: string],
+      res: null as unknown as SuperAgentAuthorizationPolicyView,
+    },
+    authorizationPolicySet: {
+      req: [] as unknown as [repoRoot: string, command: SuperAgentAuthorizationPolicySetCommand],
+      res: null as unknown as SuperAgentAuthorizationPolicySetResult,
+    },
     // 执行策略与检查点（T12 #82）：串行（默认）与并行（强制 per-ticket worktree）
     // 策略变更即时生效且运行中不热切换；检查点只支持人工按文件显式回退。
-    policy: {
+    // 命名用 executionPolicy（#92），与领域层授权策略 setPolicy 区分开。
+    executionPolicy: {
       req: [] as unknown as [repoRoot: string],
       res: null as unknown as SuperAgentExecutionPolicyView,
     },
-    policySet: {
+    executionPolicySet: {
       req: [] as unknown as [repoRoot: string, command: SuperAgentPolicySetCommand],
       res: null as unknown as SuperAgentExecutionPolicyView,
     },
@@ -654,6 +751,10 @@ export const superAgentNamespace = defineNamespace({
     onRouterStatus: {
       channel: 'router-status',
       args: [] as unknown as [repoRoot: string, router: SuperAgentRouterState],
+    },
+    onWorkerUpdated: {
+      channel: 'worker-updated',
+      args: [] as unknown as [repoRoot: string, mirror: SuperAgentWorkerMirror],
     },
     onQueueChanged: {
       channel: 'queue-changed',
@@ -687,6 +788,59 @@ export const superAgentNamespace = defineNamespace({
     },
   },
 })
+
+// ── 授权策略（T25 #96）───────────────────────────────────────────
+
+/**
+ * 自动接受模式（T16 #86）：off 不进入语义 Eval（默认，外部事件只落库）；
+ * observe 完整评估但只记录「本会接受」，不建单；auto 接受即建单。
+ * Desktop 显式派工不依赖 acceptMode。
+ */
+export type SuperAgentAcceptMode = 'off' | 'observe' | 'auto'
+
+/** 语义 Eval 命中后写入 Mandate 并下发给 Worker 的规则。 */
+export interface SuperAgentPolicyRule {
+  name: string
+  instruction: string
+}
+
+/** 每 Source 准入表：channels 空 = 整个 Source；bots 最多产生 inferred 候选。 */
+export interface SuperAgentSourceAdmission {
+  source: string
+  channels: string[]
+  allowlist: string[]
+  bots: string[]
+}
+
+/** 版本化授权策略（领域事实的只读副本）。 */
+export interface SuperAgentAuthorizationPolicy {
+  /** 任一子项变化即 +1；旧版本 Eval 被丢弃重排。 */
+  version: number
+  acceptMode: SuperAgentAcceptMode
+  rules: SuperAgentPolicyRule[]
+  admissions: SuperAgentSourceAdmission[]
+}
+
+/** authorizationPolicy 通道返回的当前策略。 */
+export interface SuperAgentAuthorizationPolicyView {
+  repoRoot: string
+  policy: SuperAgentAuthorizationPolicy
+}
+
+/** 策略变更命令：缺省子项保持原值（与领域 setPolicy 同语义）。 */
+export interface SuperAgentAuthorizationPolicySetCommand {
+  acceptMode?: SuperAgentAcceptMode
+  rules?: SuperAgentPolicyRule[]
+  admissions?: SuperAgentSourceAdmission[]
+}
+
+/** 写入结果：带上变化标记与被丢弃重排的 Eval，供 UI 提示。 */
+export interface SuperAgentAuthorizationPolicySetResult extends SuperAgentAuthorizationPolicyView {
+  /** 无变化时幂等：不推进 version，也不丢弃 Eval。 */
+  changed: boolean
+  /** 因版本变化被丢弃并重排回队的运行中 Eval。 */
+  discardedEvalIds: string[]
+}
 
 // ── 执行策略与检查点（T12 #82）────────────────────────────────────
 

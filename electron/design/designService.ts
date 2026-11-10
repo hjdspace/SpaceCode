@@ -14,12 +14,13 @@ let mainWindow: BrowserWindow | null = null;
  */
 export function registerDesignIPCHandlers(
   window: BrowserWindow,
-  extraResourcesPath: string
+  extraResourcesPath: string,
+  userDataPath: string
 ): void {
   mainWindow = window;
 
-  // 提示词栈与设计系统扫描
-  registerPromptStackHandlers(extraResourcesPath);
+  // 提示词栈与设计系统扫描（用户自建项落在 userData，与只读的随包库分开）
+  registerPromptStackHandlers(extraResourcesPath, path.join(userDataPath, 'design-systems'));
 
   // 文件监听：实时追踪设计工作区产物变化
   ipcMain.handle(

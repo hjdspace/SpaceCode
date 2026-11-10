@@ -236,6 +236,61 @@ describe('checkpoint before each launch', () => {
   })
 })
 
+describe('permission slot release semantics', () => {
+  it('releases the slot while a permission prompt waits, then reacquires it before the answer', async () => {
+    const h = makeHarness()
+    dispatch(h, 1)
+    await waitForLaunches(h, 1)
+    const first = h.launches[0].ticketId
+
+    expect(h.scheduler.holdForPermission(first)).toBe(true)
+    expect(h.scheduler.queue().running).toHaveLength(0)
+    // 已释放后重复 hold 幂等，不二次扣减
+    expect(h.scheduler.holdForPermission(first)).toBe(false)
+
+    expect(await h.scheduler.acquireForPermissionAnswer(first)).toBe(true)
+    expect(h.scheduler.queue().running.map((entry) => entry.ticketId)).toEqual([first])
+
+    h.launcherDeferreds.get(first)?.[0]?.resolve()
+    await flush()
+    expect(h.scheduler.queue().running).toHaveLength(0)
+  })
+
+  it('waits for a free slot before answering, without self-locking the serial queue', async () => {
+    const h = makeHarness()
+    dispatch(h, 3)
+    await waitForLaunches(h, 1)
+    const first = h.launches[0].ticketId
+
+    h.scheduler.holdForPermission(first)
+    // 释放的槽位让第二张立即占槽 —— 回答必须等它 handoff，而不是自己死等
+    await waitForLaunches(h, 2)
+    const second = h.launches[1].ticketId
+    expect(h.scheduler.queue().running.map((entry) => entry.ticketId)).toEqual([second])
+
+    const answerSlot = h.scheduler.acquireForPermissionAnswer(first)
+    await flush()
+    expect(h.scheduler.queue().running.map((entry) => entry.ticketId)).toEqual([second])
+
+    h.launcherDeferreds.get(second)?.[0]?.resolve()
+    await flush()
+    expect(await answerSlot).toBe(true)
+    expect(h.scheduler.queue().running.map((entry) => entry.ticketId)).toEqual([first])
+
+    // 回答后的这一轮最终落定：槽位照常释放（不会因为重新预留而泄漏）
+    h.launcherDeferreds.get(first)?.[0]?.resolve()
+    await flush()
+    expect(h.scheduler.queue().running.map((entry) => entry.ticketId)).toEqual([h.launches[2]!.ticketId])
+  })
+
+  it('returns false when the ticket has no live assignment to reacquire for', async () => {
+    const h = makeHarness()
+    dispatch(h, 1)
+    await waitForLaunches(h, 1)
+    expect(await h.scheduler.acquireForPermissionAnswer('ticket-missing')).toBe(false)
+  })
+})
+
 describe('handoff slot release semantics', () => {
   function report(h: Harness, ticketId: string, kind: 'waiting' | 'progress' = 'waiting') {
     const assignment = Object.values(h.domain.state.assignments).find(

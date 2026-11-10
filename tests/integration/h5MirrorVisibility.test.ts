@@ -168,7 +168,7 @@ describe('H5 mirror visibility', () => {
     })
     await flushPromises()
 
-    const appStore = useAppStore()
+    useAppStore()
     const sessionStore = useChatSessionStore()
     const splitLayout = useSplitLayoutStore()
 

@@ -2,7 +2,7 @@
 // H5 Token 管理（生成、验证、持久化）与局域网 IP 发现
 
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { app } from 'electron'
 import os from 'os'

@@ -23,10 +23,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { useTerminalStore } from '@/stores/terminal'
 import { useSplitLayoutStore, collectLeaves } from '@/stores/splitLayout'
-import TerminalContainer from '../terminal/TerminalContainer.vue'
+
+/**
+ * xterm 及 addon 随本组件首次挂载才拉取：TerminalHost 由 SplitContainer 静态引入并常驻，
+ * 若此处静态 import TerminalContainer，xterm（~475 KB）会被直接拖进首屏 main chunk。
+ * 异步组件只在 terminal tab 实际出现时解析，挂载后常驻，保活语义不变。
+ */
+const TerminalContainer = defineAsyncComponent(() => import('../terminal/TerminalContainer.vue'))
 
 const terminalStore = useTerminalStore()
 const splitLayout = useSplitLayoutStore()

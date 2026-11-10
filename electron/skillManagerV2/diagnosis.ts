@@ -13,9 +13,6 @@ import * as path from 'path'
 import type { Db } from './db'
 import type {
   DiagnosisIssue,
-  DiagnosisSeverity,
-  FixKind,
-  EntityType,
 } from '@/types/skillManagerV2'
 import { nowIso, isSkillDir, isIgnoredEntry, pathExists, hashDir } from './fsutil'
 
@@ -421,7 +418,7 @@ export class DiagnosisEngine {
 
   // ── Fix appliers ───────────────────────────────────────────────
 
-  private applyFix(issueType: string, entityId: string | null, payloadJson: string): boolean {
+  private applyFix(issueType: string, _entityId: string | null, payloadJson: string): boolean {
     const payload = JSON.parse(payloadJson) as Record<string, unknown>
 
     switch (issueType) {

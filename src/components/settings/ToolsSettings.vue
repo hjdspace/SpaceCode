@@ -88,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, shallowRef, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AlertTriangle } from 'lucide-vue-next'
 import {
@@ -105,7 +105,7 @@ import {
   CircleDot, Pencil, List, Octagon, FileOutput
 } from 'lucide-vue-next'
 import { useConfigStore } from '@/stores/config'
-import { TOOL_CATEGORIES, TOOL_REGISTRY, type ToolDefinition, type ToolCategory } from '@/lib/tool-registry'
+import { TOOL_CATEGORIES, TOOL_REGISTRY } from '@/lib/tool-registry'
 import { debounce } from '@/utils/debounce'
 import { useDialog } from '@/composables/useDialog'
 

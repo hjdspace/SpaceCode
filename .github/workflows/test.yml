@@ -15,6 +15,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` 的 postinstall 会调用 bun 做 `engine:install`，与 vitest job 同款前置。
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        # vue-tsc 在 CI runner 的默认堆上会 OOM（build-release.yml 有同样的经验记录），
+        # 类型检查范围随模块增长，这里显式抬高堆上限。
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm run typecheck
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        # 故意用 build 而不是 build:all：proxy 是独立的 esbuild 产物，与体积门禁无关。
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm run build
+
+      # 预算基线在 scripts/perf-budget.json（只允许随产物减重下调）。
+      - name: Check build performance budget
+        run: npm run check:performance
+
   vitest:
     name: vitest
     runs-on: ubuntu-latest

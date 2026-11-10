@@ -11,6 +11,7 @@ import { createSuperAgentDomain, type SuperAgentDomain } from './domain'
 import { ProjectStoreError, openProjectStore, type ProjectStore, type ProjectStoreDeps } from './store'
 import { superAgentError } from './errors'
 import type { SuperAgentDomainState } from './model'
+import type { SuperAgentSourcesConfig } from './sources/config'
 
 export interface PersistedSuperAgentProject {
   /** 包装后的 Domain：命令变化自动 commit 到 WAL；对外与普通 Domain 同构。 */
@@ -55,6 +56,9 @@ function persistingDomain(
     endAssignment: (input) => tracked(() => domain.endAssignment(input)),
     addInput: (command) => tracked(() => domain.addInput(command)),
     answerAttention: (command) => tracked(() => domain.answerAttention(command)),
+    requestPermission: (command) => tracked(() => domain.requestPermission(command)),
+    answerPermission: (command) => tracked(() => domain.answerPermission(command)),
+    withdrawPermission: (input) => tracked(() => domain.withdrawPermission(input)),
     requeueInput: (input) => tracked(() => domain.requeueInput(input)),
     deliverInput: (input) => tracked(() => domain.deliverInput(input)),
     markInputUncertain: (input) => tracked(() => domain.markInputUncertain(input)),
@@ -84,8 +88,11 @@ function persistingDomain(
     fastPathConsumed: (triggerId) => domain.fastPathConsumed(triggerId),
     handbackInput: (input) => tracked(() => domain.handbackInput(input)),
     markUnrelated: (input) => tracked(() => domain.markUnrelated(input)),
+    followForContext: (input) => tracked(() => domain.followForContext(input)),
     attachTicket: (input) => tracked(() => domain.attachTicket(input)),
+    wakeTicket: (input) => tracked(() => domain.wakeTicket(input)),
     pruneExpiredSubscriptions: (input) => tracked(() => domain.pruneExpiredSubscriptions(input)),
+    followThread: (input) => tracked(() => domain.followThread(input)),
     followsDone: (input) => tracked(() => domain.followsDone(input)),
     enqueueOutboxMessage: (input) => tracked(() => domain.enqueueOutboxMessage(input)),
     settleOutboxMessage: (input) => tracked(() => domain.settleOutboxMessage(input)),
@@ -101,6 +108,8 @@ export function openPersistedSuperAgentProject(input: {
   userDataDir: string
   repoRoot: string
   deps?: ProjectStoreDeps
+  /** T24 #93：显式传入的项目级 Source 配置；缺省原样保留 project.json 已有值。 */
+  sources?: SuperAgentSourcesConfig
 }): PersistedSuperAgentProject {
   let opened: ProjectStore<SuperAgentDomainState>
   try {
@@ -113,6 +122,7 @@ export function openPersistedSuperAgentProject(input: {
           ? (tx.events[0] as SuperAgentDomainState)
           : state,
       deps: input.deps,
+      sources: input.sources,
     })
   } catch (err) {
     if (err instanceof ProjectStoreError) {

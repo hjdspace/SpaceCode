@@ -369,6 +369,10 @@ function handleRewind(_message: Message) {
     height: 26px;
   }
 
+  :deep(.textarea-wrapper.has-optimize-btn) {
+    padding-right: 30px;
+  }
+
   :deep(.context-toolbar-row) {
     display: none;
   }

@@ -36,7 +36,7 @@
     <div v-else-if="scmStore.log.length === 0 && scmStore.isRepo" class="no-commits">{{ t('scm.noCommits') }}</div>
     <div v-else class="commit-graph-list">
       <div
-        v-for="(row, idx) in graphRows"
+        v-for="row in graphRows"
         :key="row.entry.hash"
         class="commit-row"
         :class="{ selected: scmStore.selectedCommit?.hash === row.entry.hash }"

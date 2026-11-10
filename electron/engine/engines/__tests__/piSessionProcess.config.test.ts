@@ -4,7 +4,7 @@ import * as path from 'path'
 import { PiSessionProcess } from '../PiSessionProcess'
 import { MIN_PI_VERSION, resetPiCliProbeCache } from '../piCliResolver'
 import type { EngineSessionConfig } from '../types'
-import { info as loggerInfo, warn as loggerWarn } from '../../../infra/logger'
+import { warn as loggerWarn } from '../../../infra/logger'
 
 /**
  * Engine launch configuration: which cli.js to run, which flags and env vars the
@@ -66,9 +66,7 @@ const SRC_DIR = path.resolve(__dirname, '..')
 const DEV_CLI_1 = path.resolve(SRC_DIR, '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const DEV_CLI_2 = path.resolve(SRC_DIR, '..', '..', '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
 const APP_CLI = path.join(APP_ROOT, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
-const APP_MONOREPO_CLI = path.join(APP_ROOT, 'pi-engine', 'packages', 'coding-agent', 'dist', 'cli.js')
 const RES_CLI = path.join(RESOURCES, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js')
-const RES_PI_ENGINE_CLI = path.join(RESOURCES, 'pi-engine', 'dist', 'cli.js')
 /** #52 之后 packaged 分支唯一的落点：extraResources 搬出去的自包含 bundle */
 const BUNDLED_CLI = path.join(RESOURCES, 'pi', 'dist', 'bundle', 'cli.js')
 const BUNDLED_PKG_JSON = path.join(RESOURCES, 'pi', 'package.json')
@@ -373,6 +371,36 @@ describe('buildArgs — provider and model selection', () => {
     const proc = newProc({ provider: '   ', model: 'm' })
 
     expect(privates(proc).buildArgs()).toEqual(['--model', 'm'])
+  })
+})
+
+/**
+ * #95：pi 没有 claude-code 那套 --allowedTools/--mcp-config，但 `--tools` /
+ * `--no-tools` / `--no-mcp` 提供了等价的会话级语义（见 pi docs/cli.md）。
+ * 映射错了就等于 Router 静默拿回工具，所以逐条钉住。
+ */
+describe('per-session tool face and MCP (#95)', () => {
+  it('maps an empty allowedTools to --no-tools', () => {
+    const args = privates(newProc({ allowedTools: [] })).buildArgs()
+    expect(args).toContain('--no-tools')
+    expect(args).not.toContain('--tools')
+  })
+
+  it('maps a non-empty allowedTools to a comma-separated --tools value', () => {
+    const args = privates(newProc({ allowedTools: ['read', 'grep'] })).buildArgs()
+    const index = args.indexOf('--tools')
+    expect(args.slice(index, index + 2)).toEqual(['--tools', 'read,grep'])
+  })
+
+  it('leaves the tool face untouched when allowedTools is undefined', () => {
+    const args = privates(newProc()).buildArgs()
+    expect(args).not.toContain('--tools')
+    expect(args).not.toContain('--no-tools')
+  })
+
+  it('adds --no-mcp only when the session disabled MCP', () => {
+    expect(privates(newProc({ disableMcp: true })).buildArgs()).toContain('--no-mcp')
+    expect(privates(newProc()).buildArgs()).not.toContain('--no-mcp')
   })
 })
 

@@ -5,7 +5,6 @@ import * as path from 'path'
 import * as os from 'os'
 import { SkillManagerService } from '../service'
 import { setHomeOverride } from '../fsutil'
-import type { DiagnosisIssue } from '@/types/skillManagerV2'
 
 // 版本探测会真实 spawn npm/CLI 进程，测试里固定返回值保持确定性
 vi.mock('../agentVersions', () => ({
@@ -637,7 +636,6 @@ describe('SkillManagerService — Agent Detail', () => {
     })
 
     it('updates lastScannedAt timestamp', async () => {
-      const before = service.getAgentDetail('claude-code')!.lastScannedAt ?? ''
       // Wait a tiny bit to ensure timestamp changes
       const detail = await service.scanAgentDetail('claude-code')
       // lastScannedAt should be set (non-null)

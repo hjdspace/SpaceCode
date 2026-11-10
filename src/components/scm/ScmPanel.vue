@@ -43,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GitBranch, AlertCircle } from 'lucide-vue-next'
 import { useScmStore } from '@/stores/scm'

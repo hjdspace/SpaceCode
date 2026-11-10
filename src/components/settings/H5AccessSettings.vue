@@ -133,13 +133,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { AlertTriangle, RefreshCw } from 'lucide-vue-next'
 import QRCode from 'qrcode'
 import { api } from '@/services/electronAPI'
 import type { H5ServerStatus } from '../../../electron/h5/h5Types'
-
-const { t } = useI18n()
 
 const enabled = ref(false)
 const status = ref<H5ServerStatus>({

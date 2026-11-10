@@ -6,6 +6,8 @@
     点击可展开查看问题与认领数量，撤回的气泡由父级直接过滤不渲染。
   - 回答经 store.answerAttention 走主进程领域接缝（requestId 幂等），
     blocked/failed 闸门期间只落库不投递，由主进程决定何时补投。
+  - permission 类（T23 #94）由 Worker 引擎权限请求转化而来：就地允许/拒绝，
+    主进程会先重新取得调度槽位再向原 request 应答，Worker 随后继续。
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
@@ -25,8 +27,9 @@ const submitting = ref(false)
 const failed = ref(false)
 const auditOpen = ref(false)
 
-/** 只有 question 类 Attention 可就地回答；permission/delivery 仅展示。 */
-const answerable = computed(() => props.attention.kind === 'question')
+/** question 类就地输入文字；permission 类就地允许/拒绝；delivery 仅展示。 */
+const questionAnswerable = computed(() => props.attention.kind === 'question')
+const permissionAnswerable = computed(() => props.attention.kind === 'permission')
 /** 认领后折叠为一行审计，点击展开。 */
 const collapsed = computed(() => props.attention.status === 'answered')
 
@@ -43,6 +46,24 @@ async function submitAnswer(): Promise<void> {
       text,
     })
     answerText.value = ''
+  } catch {
+    failed.value = true
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function submitDecision(decision: 'allow' | 'deny'): Promise<void> {
+  const repoRoot = superAgentStore.snapshot?.repoRoot ?? ''
+  if (submitting.value) return
+  submitting.value = true
+  failed.value = false
+  try {
+    await superAgentStore.answerAttention(repoRoot, {
+      requestId: createUuid(),
+      attentionId: props.attention.attentionId,
+      decision,
+    })
   } catch {
     failed.value = true
   } finally {
@@ -86,7 +107,7 @@ async function submitAnswer(): Promise<void> {
     >
       {{ t('superAgent.attention.submittedHint', { count: attention.answers.length }) }}
     </p>
-    <form v-if="answerable" class="answer-form" @submit.prevent="submitAnswer">
+    <form v-if="questionAnswerable" class="answer-form" @submit.prevent="submitAnswer">
       <textarea
         v-model="answerText"
         rows="2"
@@ -102,6 +123,29 @@ async function submitAnswer(): Promise<void> {
         {{ submitting ? t('superAgent.attention.answering') : t('superAgent.attention.answerSubmit') }}
       </button>
     </form>
+    <div v-else-if="permissionAnswerable" class="permission-answer">
+      <p class="permission-hint">{{ t('superAgent.attention.permissionHint') }}</p>
+      <div class="permission-actions">
+        <button
+          type="button"
+          class="permission-btn allow"
+          data-testid="attention-bubble-allow"
+          :disabled="submitting"
+          @click="submitDecision('allow')"
+        >
+          {{ t('superAgent.attention.permissionAllow') }}
+        </button>
+        <button
+          type="button"
+          class="permission-btn deny"
+          data-testid="attention-bubble-deny"
+          :disabled="submitting"
+          @click="submitDecision('deny')"
+        >
+          {{ t('superAgent.attention.permissionDeny') }}
+        </button>
+      </div>
+    </div>
     <p v-else class="delivery-hint">{{ t('superAgent.attention.deliveryHint') }}</p>
     <p v-if="failed" class="failed-hint" data-testid="attention-bubble-error">
       {{ t('superAgent.attention.answerFailedHint') }}
@@ -115,7 +159,7 @@ async function submitAnswer(): Promise<void> {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid var(--border-normal);
+  border: 1px solid var(--border-default);
   border-left: 3px solid var(--accent-primary);
   border-radius: 8px;
   background: var(--bg-elevated);
@@ -125,7 +169,7 @@ async function submitAnswer(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 
   .icon-ask {
@@ -146,13 +190,13 @@ async function submitAnswer(): Promise<void> {
   border-radius: 999px;
   background: var(--accent-primary);
   color: var(--bg-elevated);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   white-space: nowrap;
 }
 
 .question {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
@@ -161,7 +205,7 @@ async function submitAnswer(): Promise<void> {
 .submitted-hint,
 .delivery-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
@@ -174,11 +218,11 @@ async function submitAnswer(): Promise<void> {
     resize: vertical;
     min-height: 44px;
     padding: 6px 8px;
-    border: 1px solid var(--border-normal);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-family: inherit;
   }
 
@@ -189,11 +233,11 @@ async function submitAnswer(): Promise<void> {
     border-radius: 6px;
     background: var(--accent-primary);
     color: var(--bg-elevated);
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
 
     &:hover:not(:disabled) {
-      background: var(--bg-primary-hover);
+      background: var(--bg-hover);
     }
 
     &:disabled {
@@ -203,14 +247,59 @@ async function submitAnswer(): Promise<void> {
   }
 }
 
+.permission-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  .permission-hint {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .permission-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .permission-btn {
+    padding: 4px 14px;
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: var(--surface-hover);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+
+  .permission-btn.allow {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+
+  .permission-btn.deny {
+    color: var(--error);
+  }
+}
+
 .failed-hint {
   margin: 0;
-  font-size: 12px;
-  color: var(--danger, #e5484d);
+  font-size: var(--text-sm);
+  color: var(--error);
 }
 
 .is-collapsed {
-  border-left-color: var(--border-normal);
+  border-left-color: var(--border-default);
 
   .collapsed-row {
     display: flex;
@@ -221,7 +310,7 @@ async function submitAnswer(): Promise<void> {
     border: none;
     background: none;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
 
@@ -254,8 +343,8 @@ async function submitAnswer(): Promise<void> {
     flex-direction: column;
     gap: 4px;
     padding-top: 6px;
-    border-top: 1px dashed var(--border-normal);
-    font-size: 12px;
+    border-top: 1px dashed var(--border-default);
+    font-size: var(--text-sm);
 
     .question-full {
       margin: 0;

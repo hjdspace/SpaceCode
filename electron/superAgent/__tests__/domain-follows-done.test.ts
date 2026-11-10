@@ -65,6 +65,46 @@ function makeDomain(subscriptionTtlMs?: number): Harness {
   return { domain, setNow: (ms: number) => (nowMs = ms), intake, ticket }
 }
 
+describe('followThread：显式 PR 引用建立 follows 订阅', () => {
+  it('records follows, subscribes the ticket to the PR thread and is idempotent', () => {
+    const h = makeDomain()
+    const desktop = h.ticket('desktop', 'desktop:thread:1')
+
+    const first = h.domain.followThread({
+      ticketId: desktop.ticketId,
+      threadId: PR_THREAD,
+      source: 'github-pr',
+    })
+    expect(first.ticket.follows).toEqual([PR_THREAD])
+    expect(
+      h.domain.state.threads[PR_THREAD].subscriptions.map((entry) => entry.ticketId),
+    ).toEqual([desktop.ticketId])
+
+    // 重复引用（重复派工/多次提及）不重复追加。
+    h.domain.followThread({ ticketId: desktop.ticketId, threadId: PR_THREAD, source: 'github-pr' })
+    expect(desktop.follows).toEqual([PR_THREAD])
+    expect(h.domain.state.threads[PR_THREAD].subscriptions).toHaveLength(1)
+  })
+
+  it('rejects following from an ended ticket', () => {
+    const h = makeDomain()
+    const owner = h.ticket('owner', 'desktop:thread:1')
+    h.domain.followThread({
+      ticketId: owner.ticketId,
+      threadId: PR_THREAD,
+      source: 'github-pr',
+    })
+    h.domain.followsDone({ threadId: PR_THREAD, outcome: 'merged' })
+    expect(() =>
+      h.domain.followThread({
+        ticketId: owner.ticketId,
+        threadId: 'github:pr:acme/app:43',
+        source: 'github-pr',
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'ticketEnded' }))
+  })
+})
+
 describe('followsDone：PR 合并/关闭结束工单', () => {
   it('ends open tickets on or following the thread with the raw outcome', () => {
     const h = makeDomain()

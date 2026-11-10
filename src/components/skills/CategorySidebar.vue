@@ -76,7 +76,7 @@ import {
   Folder,
   X
 } from 'lucide-vue-next'
-import { CATEGORIES, type Category } from '../../stores/localSkills'
+import { type Category } from '../../stores/localSkills'
 
 const props = defineProps<{
   modelValue: string

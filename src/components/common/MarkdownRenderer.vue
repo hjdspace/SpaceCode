@@ -12,7 +12,7 @@
 import { ref, shallowRef, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { marked, type RendererObject, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/common'
 import { useAppStore } from '@/stores/app'
 import { i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'

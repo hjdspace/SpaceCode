@@ -84,12 +84,12 @@
 
 <script setup lang="ts">
 import { computed, watch, ref as vueRef } from 'vue'
-import { useAppStore, type ToolDiffData } from '@/stores/app'
+import { useAppStore } from '@/stores/app'
 import { useI18n } from 'vue-i18n'
 import { FileDiff, Check, Undo2, Columns3 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import MarkdownViewer from './MarkdownViewer.vue'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/common'
 import { api } from '@/services/electronAPI'
 import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
 import { generateDiffFile } from '@git-diff-view/file'

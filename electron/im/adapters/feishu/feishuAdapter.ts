@@ -383,8 +383,8 @@ export class FeishuAdapter {
     imageKey: string | null,
     fileKey: string | null,
     fileName: string | null,
-    userId: string,
-    displayName: string
+    _userId: string,
+    _displayName: string
   ): Promise<void> {
     // Check for permission quick-reply
     if (this.permissionCard.getPendingCount(receiveId) > 0) {
@@ -451,7 +451,7 @@ export class FeishuAdapter {
   // Session management
   // ────────────────────────────────────────────────────────────────────────
 
-  private async startNewSession(receiveId: string, userId: string): Promise<void> {
+  private async startNewSession(receiveId: string, _userId: string): Promise<void> {
     this.bridge.resetSession(receiveId)
     this.clearStreamingCard(receiveId)
     this.permissionCard.clear(receiveId)

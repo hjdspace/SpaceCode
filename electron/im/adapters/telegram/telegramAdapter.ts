@@ -392,8 +392,8 @@ export class TelegramAdapter {
     chatId: number,
     text: string,
     msg: NonNullable<TelegramUpdate['message']>,
-    userId: string,
-    displayName: string
+    _userId: string,
+    _displayName: string
   ): Promise<void> {
     // Check for permission quick-reply
     if (this.permissionCard.getPendingCount(chatId) > 0) {
@@ -461,7 +461,7 @@ export class TelegramAdapter {
   // Session management
   // ────────────────────────────────────────────────────────────────────────
 
-  private async startNewSession(chatId: number, userId: string): Promise<void> {
+  private async startNewSession(chatId: number, _userId: string): Promise<void> {
     // Reset existing session
     this.bridge.resetSession(String(chatId))
     this.clearStreamingMessage(chatId)
@@ -724,7 +724,6 @@ export class TelegramAdapter {
 
   private createRecoveryStore() {
     const store = this.sessionStore
-    const chatIdMap: Map<string, string> = new Map() // Not needed — store is global
 
     return {
       get(chatId: string): SessionBinding | null {

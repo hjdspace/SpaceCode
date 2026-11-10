@@ -81,6 +81,23 @@ const probe = vi.hoisted(() => ({
   rollbackCheckpointFiles: vi.fn().mockResolvedValue({ rolled: [], skipped: [] }),
   executionPolicy: null as { repoRoot: string; policy: { mode: 'serial' | 'parallel'; maxWorkers: number; worktree: 'none' | 'per-ticket' } } | null,
   checkpointInfo: null as { repoRoot: string; checkpoint: { savedAt: string; head: string | null; entries: string[] } | null; changedFiles: string[] } | null,
+  // ── 授权策略（T25 #96）──
+  loadAuthorizationPolicy: vi.fn().mockResolvedValue(undefined),
+  setAuthorizationPolicy: vi.fn().mockResolvedValue({
+    repoRoot: 'D:/repo',
+    policy: { version: 2, acceptMode: 'observe', rules: [], admissions: [] },
+    changed: true,
+    discardedEvalIds: [] as string[],
+  }),
+  authorizationPolicy: null as {
+    repoRoot: string
+    policy: {
+      version: number
+      acceptMode: 'off' | 'observe' | 'auto'
+      rules: Array<{ name: string; instruction: string }>
+      admissions: Array<{ source: string; channels: string[]; allowlist: string[]; bots: string[] }>
+    }
+  } | null,
   // ── Attention 气泡（T08 #78，并发会话维护）：仅补桩保证挂载流程可跑 ──
   loadAttentions: vi.fn().mockResolvedValue(undefined),
   watchAttentions: vi.fn().mockReturnValue(() => {}),
@@ -211,6 +228,10 @@ vi.mock('@/stores/superAgent', () => ({
     rollbackCheckpointFiles: probe.rollbackCheckpointFiles,
     get executionPolicy() { return probe.executionPolicy },
     get checkpointInfo() { return probe.checkpointInfo },
+    // ── 授权策略（T25 #96）──
+    loadAuthorizationPolicy: probe.loadAuthorizationPolicy,
+    setAuthorizationPolicy: probe.setAuthorizationPolicy,
+    get authorizationPolicy() { return probe.authorizationPolicy },
     loadTickets: probe.loadTickets,
     watchTickets: probe.watchTickets,
     get ticketBoard() { return probe.ticketBoard },
@@ -229,6 +250,7 @@ vi.mock('@/stores/superAgent', () => ({
 }))
 
 import SuperAgentView from '../SuperAgentView.vue'
+import AuthorizationPolicyPanel from '../AuthorizationPolicyPanel.vue'
 import ChatInput from '../../chat/ChatInput.vue'
 import MessageList from '../../chat/MessageList.vue'
 import WorkerTaskCard from '../WorkerTaskCard.vue'
@@ -246,11 +268,13 @@ function mountView() {
     global: {
       // 真实 MessageList 与 WorkerTaskCard：不能由测试桩发明宿主不存在的 slot。
       stubs: {
+        // 系统问题/授权策略走弹窗：Teleport 就地渲染才查得到里面的控件。
+        teleport: true,
         ChatInput: true,
         MessageItem: true,
         AgentTimeline: {
           props: ['messages'],
-          template: '<div class="assistant-reply">{{ messages.map(m => m.content).join(" ") }}</div>',
+          template: '<div><div v-for="(message, index) in messages" :key="index" class="assistant-reply">{{ message.content }}</div></div>',
         },
         DesignBlocks: true,
         GenuiCardGroup: true,
@@ -345,6 +369,9 @@ beforeEach(() => {
   probe.reviewRemindedCount = 0
   probe.attentionBubbles = []
   probe.attentionCount = 0
+  probe.loadAuthorizationPolicy.mockClear()
+  probe.setAuthorizationPolicy.mockClear()
+  probe.authorizationPolicy = null
 })
 
 function reviewBoard(): SuperAgentTicketBoard {
@@ -642,13 +669,23 @@ describe('SuperAgentView health entry（T13 #83）', () => {
     wrapper.unmount()
   })
 
-  it('系统健康时：入口无徽章、面板默认收起', async () => {
+  it('系统健康时：问题入口不出现、面板默认收起', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="super-agent-health-entry"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="super-agent-health"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('面板展开期间问题清零也保留入口：否则没人能把面板收起来', async () => {
+    probe.healthPanelOpen = true
+    probe.healthProblemCount = 0
     const wrapper = mountView()
     await flushPromises()
 
     expect(wrapper.find('[data-testid="super-agent-health-entry"]').exists()).toBe(true)
     expect(wrapper.find('.count').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="super-agent-health"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -727,6 +764,92 @@ describe('SuperAgentView health entry（T13 #83）', () => {
 
     expect(probe.reevaluateEval).toHaveBeenCalledWith('D:/repo', 'eval-1')
     expect(wrapper.find('[data-testid="super-agent-health-action-hint"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+})
+
+describe('SuperAgentView authorization policy（T25 #96）', () => {
+  it('opens the settings panel, lazily loads the policy and shows the version', async () => {
+    probe.authorizationPolicy = {
+      repoRoot: 'D:/repo',
+      policy: { version: 3, acceptMode: 'off', rules: [], admissions: [] },
+    }
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 默认收起，不预拉策略
+    expect(wrapper.find('[data-testid="super-agent-authorization-entry"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="super-agent-authorization-policy"]').exists()).toBe(false)
+    expect(probe.loadAuthorizationPolicy).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(probe.loadAuthorizationPolicy).toHaveBeenCalledWith('D:/repo')
+    expect(wrapper.find('[data-testid="super-agent-authorization-policy"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="authorization-version"]').text()).toContain(
+      'superAgent.authorization.version',
+    )
+    wrapper.unmount()
+  })
+
+  it('delegates the save to the store and echoes version + discarded evals', async () => {
+    probe.authorizationPolicy = {
+      repoRoot: 'D:/repo',
+      policy: { version: 3, acceptMode: 'off', rules: [], admissions: [] },
+    }
+    probe.setAuthorizationPolicy.mockResolvedValue({
+      repoRoot: 'D:/repo',
+      policy: { version: 4, acceptMode: 'auto', rules: [], admissions: [] },
+      changed: true,
+      discardedEvalIds: ['eval-1'],
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    const panel = wrapper.findComponent(AuthorizationPolicyPanel)
+    panel.vm.$emit('save', { acceptMode: 'auto' })
+    await flushPromises()
+
+    expect(probe.setAuthorizationPolicy).toHaveBeenCalledWith('D:/repo', { acceptMode: 'auto' })
+    const hint = wrapper.find('[data-testid="authorization-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('superAgent.authorization.savedChanged')
+    expect(hint.classes()).not.toContain('failed')
+    wrapper.unmount()
+  })
+
+  it('shows a failed hint when the save is rejected', async () => {
+    probe.authorizationPolicy = {
+      repoRoot: 'D:/repo',
+      policy: { version: 3, acceptMode: 'off', rules: [], admissions: [] },
+    }
+    probe.setAuthorizationPolicy.mockRejectedValue(new Error('invalidPolicy'))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    wrapper.findComponent(AuthorizationPolicyPanel).vm.$emit('save', { acceptMode: 'auto' })
+    await flushPromises()
+
+    const hint = wrapper.find('[data-testid="authorization-hint"]')
+    expect(hint.text()).toBe('superAgent.authorization.saveFailed')
+    expect(hint.classes()).toContain('failed')
+    wrapper.unmount()
+  })
+
+  it('does not touch IPC without a bound project', async () => {
+    probe.boundRepoRoot = null
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="super-agent-authorization-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(probe.loadAuthorizationPolicy).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })
@@ -829,7 +952,67 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     wrapper.unmount()
   })
 
-  it('卡片归属最近的之前 assistant group，更新及新闲聊不移位、不重复；早于对话的旧单钳到最早回复，历史全缺时才 append', async () => {
+  it.each([false, true])('keeps dispatch → card → permission → summaries with stable DOM (duplicate IDs: %s)', async (duplicateIds) => {
+    const history = reactive<{ messages: Message[] }>({ messages: [
+      { id: 'dispatch', role: 'assistant', content: '已派 Worker 执行', timestamp: Date.parse('2026-01-01T00:00:01Z') },
+    ] })
+    const board = reactive(reviewBoard())
+    board.tickets.splice(1)
+    board.tickets[0].createdAt = '2026-01-01T00:00:02Z'
+    probe.ticketBoard = board
+    probe.getDisplayMessages.mockImplementation(() => history.messages)
+    probe.attentionBubbles = [{
+      attentionId: 'permission-1',
+      ticketId: 'ticket-1',
+      ticketTitle: '修复登录',
+      assignmentId: 'assignment-1',
+      kind: 'permission',
+      question: '允许执行验证命令？',
+      askedAt: '2026-01-01T00:00:03Z',
+      status: 'open',
+      answers: [],
+      answeredAt: null,
+    }]
+    const wrapper = mountView()
+    await flushPromises()
+    try {
+      const list = wrapper.getComponent(MessageList)
+      const card = list.get('[data-testid="worker-task-card"]').element
+      const permission = list.get('[data-testid="attention-bubble"]').element
+      expect(list.find('[data-testid="attention-bubble-allow"]').exists()).toBe(true)
+      const order = () => list.findAll(
+        '.assistant-reply, [data-testid="worker-task-card"], [data-testid="attention-bubble-question"]',
+      ).map(node => node.attributes('data-testid') === 'worker-task-card' ? 'card' : node.text())
+      expect(order()).toEqual(['已派 Worker 执行', 'card', '允许执行验证命令？'])
+
+      history.messages.push(
+        { id: duplicateIds ? 'dispatch' : 'summary-1', role: 'assistant', content: '修复完成', timestamp: Date.parse('2026-01-01T00:00:10Z') },
+        { id: duplicateIds ? 'dispatch' : 'summary-2', role: 'assistant', content: '验证中', timestamp: Date.parse('2026-01-01T00:00:11Z') },
+      )
+      await nextTick()
+      expect(order()).toEqual(['已派 Worker 执行', 'card', '允许执行验证命令？', '修复完成', '验证中'])
+      expect(list.findAll('[data-testid="worker-task-card"]')).toHaveLength(1)
+      expect(list.get('[data-testid="worker-task-card"]').element).toBe(card)
+      expect(list.get('[data-testid="attention-bubble"]').element).toBe(permission)
+
+      // Store-style streaming replaces the array and message objects; updatedAt is not an anchor.
+      history.messages = history.messages.map((message, index) => ({
+        ...message,
+        content: index === 2 ? '验证通过' : message.content,
+      }))
+      board.tickets[0] = { ...board.tickets[0], state: 'completed', canStop: false, updatedAt: '2026-01-01T00:00:30Z' }
+      await nextTick()
+      expect(order()).toEqual(['已派 Worker 执行', 'card', '允许执行验证命令？', '修复完成', '验证通过'])
+      expect(list.findAll('[data-testid="worker-task-card"]')).toHaveLength(1)
+      expect(list.get('[data-testid="worker-task-card"]').element).toBe(card)
+      expect(card.getAttribute('data-state')).toBe('completed')
+      expect(list.get('[data-testid="attention-bubble"]').element).toBe(permission)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('卡片归属最近的之前 assistant 消息，更新及新闲聊不移位、不重复；早于对话的旧单钳到最早回复，历史全缺时才 append', async () => {
     const history = reactive<Message[]>([
       { id: 'u1', role: 'user', content: '修复登录', timestamp: Date.parse('2026-01-01T00:00:00Z') },
       { id: 'a1', role: 'assistant', content: '正在派工', timestamp: Date.parse('2026-01-01T00:00:01Z') },
@@ -853,7 +1036,8 @@ describe('SuperAgentView review outlets & reminders（T10 #80）', () => {
     // 两条：属于这一轮的「修复登录」，加上钳到最早回复的那张历史工单
     expect(firstReply.findAll('[data-testid="worker-task-card"]')).toHaveLength(2)
     expect(wrapper.get('[data-minimap-id="a2"]').get('[data-testid="worker-task-card"]').text()).toContain('修复注册')
-    expect(firstReply.element.lastElementChild?.textContent).toContain('修复登录')
+    const laterReply = wrapper.findAll('.assistant-reply').find(reply => reply.text() === '已派 Worker')!
+    expect(firstCard.element.compareDocumentPosition(laterReply.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
     board.tickets[0] = { ...board.tickets[0], state: 'completed', canStop: false, updatedAt: '2026-01-01T00:00:30Z' }
     history.push(

@@ -42,6 +42,21 @@ export interface SuperAgentUserPush {
    */
   permissionMode?: PermissionMode
   model?: string
+  /**
+   * 稳定气泡 id（Outbox 受控 reply 的幂等回执落点）。缺省 null 时渲染端按
+   * 「最近 10 秒内相同内容的用户消息」去重。
+   */
+  messageId?: string
+  /**
+   * false = 只落气泡，不启渲染端轮次。宿主代发的 outbound reply 用它：
+   * 这条消息不是人在说话，也不该等主进程回一帧事件来收尾。
+   */
+  startTurn?: boolean
+  /**
+   * 气泡落在哪一侧，缺省 'user'. Outbox 的受控 reply 由宿主代发，要显式给
+   * 'assistant' —— 只靠 startTurn:false 分不出「宿主说的话」和「没启轮次的人消息」。
+   */
+  role?: 'user' | 'assistant'
 }
 
 export type SuperAgentRouteListener = (
@@ -57,6 +72,26 @@ export interface SuperAgentEngineBridge {
   abort(sessionId: string): Promise<void>
   stop(sessionId: string): Promise<void>
   /**
+   * 拒绝一次权限请求（Router 工具面守卫，#95）。
+   *
+   * 与 `allowedTools: []` 互补：即使引擎没按启动参数裁剪工具池，Router 轮次里的
+   * 写/执行请求也会在这里被代码拒绝，理由随 message 回给模型。
+   */
+  denyPermission(
+    sessionId: string,
+    requestId: string,
+    message: string,
+    options?: { interrupt?: boolean },
+  ): Promise<void>
+  /**
+   * 放行一次权限请求（Worker 权限 Attention，#94）。
+   *
+   * 不传 updatedInput：保持模型原始工具入参，避免空对象覆盖原请求。
+   */
+  allowPermission(sessionId: string, requestId: string): Promise<void>
+  /** #104：中止一个后台作业（shell 超时 / Assignment 结束清理）。 */
+  stopEngineTask(sessionId: string, taskId: string): Promise<void>
+  /**
    * 把输入框选的模型名解析成该引擎认的值。
    *
    * 与主聊天同一套规则（src/utils/engineModel）：claude-code 要 haiku/sonnet/opus
@@ -70,7 +105,7 @@ export interface SuperAgentEngineBridge {
 function pushUserMessageToRenderer(push: SuperAgentUserPush): void {
   const payload: H5RemoteUserMessagePayload = {
     __h5RemoteUserMessage: true,
-    messageId: null,
+    messageId: push.messageId ?? null,
     content: push.content,
     projectPath: push.projectPath,
     title: push.title,
@@ -79,6 +114,8 @@ function pushUserMessageToRenderer(push: SuperAgentUserPush): void {
     // Super Agent 的 Router/Worker 会话不由这条通路抢视图：中置聊天区与右侧
     // 面板都按 sessionId 直接寻址，切换由 app store 负责。
     activate: false,
+    ...(push.startTurn === false ? { startTurn: false } : {}),
+    ...(push.role ? { role: push.role } : {}),
     ...(push.permissionMode ? { permissionMode: push.permissionMode } : {}),
     ...(push.model ? { model: push.model } : {}),
   }
@@ -99,6 +136,11 @@ export const defaultSuperAgentEngineBridge: SuperAgentEngineBridge = {
     engineGateway.sendMessage(sessionId, content, images as never),
   abort: (sessionId) => engineGateway.abort(sessionId),
   stop: (sessionId) => engineGateway.stop(sessionId),
+  denyPermission: (sessionId, requestId, message, options) =>
+    engineGateway.denyPermission(sessionId, requestId, message, options),
+  allowPermission: (sessionId, requestId) =>
+    engineGateway.allowPermission(sessionId, requestId),
+  stopEngineTask: (sessionId, taskId) => engineGateway.stopEngineTask(sessionId, taskId),
   resolveModelAlias: (modelValue, engineType) => resolveEngineModelAlias(modelValue, engineType),
   onRouteEvent: (listener) => EngineFactory.onRouteEvent(listener),
   pushUserMessage: pushUserMessageToRenderer,

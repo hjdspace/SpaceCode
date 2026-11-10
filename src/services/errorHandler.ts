@@ -120,7 +120,7 @@ function readLegacyBlocked(msg: string): EngineBlockedPayload | null {
   return null
 }
 
-function classifyError(error: unknown, context?: ErrorContext): ClassifiedError {
+function classifyError(error: unknown, _context?: ErrorContext): ClassifiedError {
   const msg = error instanceof Error ? error.message : String(error)
   const lowerMsg = msg.toLowerCase()
   const timestamp = Date.now()

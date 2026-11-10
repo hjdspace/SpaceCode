@@ -225,7 +225,7 @@ const summaryText = computed(() => {
 const displayToolCalls = computed(() => {
   // 显式访问 specialComponents，建立响应式依赖
   // 这样当特殊组件异步加载完成后，computed 会自动重新计算
-  const _componentDeps = Object.keys(specialComponents).join(',')
+  Object.keys(specialComponents).join(',')
 
   return props.toolCalls.filter(tool => !TASK_LIST_ONLY_TOOL_NAMES.has(tool.name))
 })

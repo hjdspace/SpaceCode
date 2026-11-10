@@ -14,8 +14,8 @@ import { app, ipcMain, BrowserWindow } from 'electron'
 import { existsSync, readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { spawn, execFile, execFileSync } from 'child_process'
-import { info, warn, error as logError } from '../infra/logger'
+import { spawn, execFileSync } from 'child_process'
+import { info, warn } from '../infra/logger'
 import { BrowserUseMcpClient } from './browserUseMcpClient'
 import type {
   BrowserUseStatus,
@@ -331,8 +331,6 @@ function sendLiveSnapshot(snapshot: BrowserUseLiveSnapshot): void {
 
 // ── Installation ──────────────────────────────────────────────
 
-const maxBuffer = 1024 * 1024 // 1MB
-
 /**
  * 安装 browser-use + Playwright Chromium。
  *
@@ -585,7 +583,6 @@ function runChromiumInstall(
     })
 
     let stderr = ''
-    let lastPercent = 55
 
     const parseLine = (line: string): void => {
       const trimmed = line.trim()
@@ -594,12 +591,10 @@ function runChromiumInstall(
 
       if (trimmed.startsWith('Downloading') && trimmed.includes('Chromium')) {
         // "Downloading Chromium 131.0.6778.87 from ..."
-        lastPercent = 60
         const match = trimmed.match(/Chromium\s+([\d.]+)/)
         const ver = match ? match[1] : ''
         onProgress(60, `正在下载 Chromium ${ver}...`)
       } else if (trimmed.includes('downloaded')) {
-        lastPercent = 85
         onProgress(85, 'Chromium 下载完成，正在解压...')
       } else if (trimmed.includes('Validating')) {
         onProgress(90, '正在验证安装...')

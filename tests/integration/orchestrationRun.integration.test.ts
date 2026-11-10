@@ -25,7 +25,7 @@ function makeFakeApi() {
       onError: (cb: any) => { handlers.onError = cb; return () => {} },
       onPermissionRequest: (cb: any) => { handlers.onPermissionRequest = cb; return () => {} },
       onPermissionRequestCancelled: (cb: any) => { handlers.onPermissionRequestCancelled = cb; return () => {} },
-      sendMessage: vi.fn().mockImplementation((sid: string) => {
+      sendMessage: vi.fn().mockImplementation((_sid: string) => {
         // 不自动触发 onResult — 测试手动控制
         return Promise.resolve(undefined)
       }),

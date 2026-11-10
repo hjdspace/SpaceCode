@@ -40,6 +40,15 @@ export type SuperAgentErrorCode =
   | 'routeNotUnique'
   | 'routeUnparsable'
   | 'routeInvalid'
+  // refused：Eval 协议失败（严格 JSON 块校验，#99）
+  | 'evalMissing'
+  | 'evalNotUnique'
+  | 'evalUnparsable'
+  | 'evalInvalid'
+  // refused：Worker 指令协议失败（严格 JSON 块校验，#100）
+  | 'workerActionNotUnique'
+  | 'workerActionUnparsable'
+  | 'workerActionInvalid'
   // refused：attach 落在中继轮 —— 本轮没有人的原话可带给工单
   | 'attachWithoutSource'
   // refused：Router 对话入参非法（T21）
@@ -49,6 +58,7 @@ export type SuperAgentErrorCode =
   | 'notReady'
   | 'notAttention'
   | 'notQuestion'
+  | 'notPermission'
   | 'ackEnded'
   | 'mandateRevoked'
   // conflict：重复或并发冲突
@@ -98,6 +108,12 @@ export type SuperAgentErrorCode =
   | 'subscriptionProtected'
   // missing：T17 #87 工单没有订阅该 Thread，无从退订
   | 'notSubscribed'
+  // refused：#102 资源引用非法（不认识的 superagent_read 资源形态）
+  | 'resourceInvalid'
+  // T24 #93 Source 接入：配置非法 / 凭据缺失 / 轮询读取失败
+  | 'sourceConfigInvalid'
+  | 'sourceCredentialsMissing'
+  | 'sourceReadFailed'
 
 export type SuperAgentErrorParams = Record<string, string | number>
 
@@ -127,6 +143,13 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   routeNotUnique: 'refused',
   routeUnparsable: 'refused',
   routeInvalid: 'refused',
+  evalMissing: 'refused',
+  evalNotUnique: 'refused',
+  evalUnparsable: 'refused',
+  evalInvalid: 'refused',
+  workerActionNotUnique: 'refused',
+  workerActionUnparsable: 'refused',
+  workerActionInvalid: 'refused',
   attachWithoutSource: 'refused',
   invalidRouterMessage: 'refused',
   workerDecides: 'refused',
@@ -134,6 +157,7 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   notReady: 'refused',
   notAttention: 'refused',
   notQuestion: 'refused',
+  notPermission: 'refused',
   ackEnded: 'refused',
   mandateRevoked: 'refused',
   conflict: 'conflict',
@@ -165,6 +189,10 @@ const ERROR_CATEGORIES: Record<SuperAgentErrorCode, SuperAgentErrorCategory> = {
   notHandbackable: 'refused',
   subscriptionProtected: 'refused',
   notSubscribed: 'missing',
+  resourceInvalid: 'refused',
+  sourceConfigInvalid: 'refused',
+  sourceCredentialsMissing: 'missing',
+  sourceReadFailed: 'unavailable',
 }
 
 export const SUPER_AGENT_ERROR_CODES = Object.keys(ERROR_CATEGORIES) as SuperAgentErrorCode[]

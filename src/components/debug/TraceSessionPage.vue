@@ -173,14 +173,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, reactive, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/electronAPI'
 import { buildTraceViewModel, type TraceViewModel, type TraceTurn, type TraceSpan } from '@/lib/traceViewModel'
 import { formatDurationMs } from '@/lib/trace/formatters'
 import {
   ArrowLeft, ArrowRight, RefreshCw, Loader2, AlertCircle, AlertTriangle, Clock,
-  ChevronRight, Search, Zap, Wrench, Bot, GitBranch, Inbox, MousePointerClick
+  ChevronRight, Search, Wrench, Bot, GitBranch, Inbox, MousePointerClick
 } from 'lucide-vue-next'
 import TypeIcon from './trace/TypeIcon.vue'
 import StatusPill from './trace/StatusPill.vue'
@@ -325,7 +325,6 @@ function handleTreeKeydown(e: KeyboardEvent) {
 }
 
 // Resize
-const splitContainer = ref<HTMLElement | null>(null)
 let resizeStartX = 0
 let resizeStartWidth = 0
 

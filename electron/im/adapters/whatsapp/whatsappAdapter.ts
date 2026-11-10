@@ -40,7 +40,6 @@ import {
   formatPermissionRequest,
   splitMessage,
 } from '../common/format'
-import { parsePermissionCommand } from '../common/permission'
 import type { ServerMessage, SessionBinding } from '../common/types'
 import { createLogger } from '../common/logger'
 

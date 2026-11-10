@@ -6,7 +6,7 @@
  * - Context item search and navigation
  * - File/folder selection
  */
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
 
 export interface ContextItem {

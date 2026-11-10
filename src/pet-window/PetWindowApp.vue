@@ -95,7 +95,6 @@ let dragGesture: PetDragGesture | null = null
 
 // ── DOM 引用 ──
 
-const stackRef = ref<HTMLDivElement | null>(null)
 const mascotRef = ref<HTMLButtonElement | null>(null)
 const taskBadgeRef = ref<HTMLButtonElement | null>(null)
 const activityCardRef = ref<HTMLElement | null>(null)

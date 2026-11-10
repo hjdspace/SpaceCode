@@ -45,6 +45,7 @@ import {
   superAgentNamespace,
   type SuperAgentAttentionAnswerCommand,
   type SuperAgentAttentionEvent,
+  type SuperAgentAuthorizationPolicySetCommand,
   type SuperAgentDispatchCommand,
   type SuperAgentCheckpointRollbackCommand,
   type SuperAgentEvalReevaluateCommand,
@@ -60,9 +61,11 @@ import {
   type SuperAgentTicketProgress,
   type SuperAgentTicketUpdateEvent,
   type SuperAgentWorkerMessageCommand,
+  type SuperAgentWorkerMirror,
 } from '@/shared/channels/superAgent'
 import { createSuperAgentService, type SuperAgentService } from './service'
 import type { SuperAgentEngineBridge } from './engineBridge'
+import { superAgentError } from './errors'
 
 const SUPER_AGENT_EVENTS = eventChannels(superAgentNamespace.events, SUPER_AGENT_PREFIX)
 
@@ -142,21 +145,25 @@ function requireWorkerMessageCommand(input: unknown): SuperAgentWorkerMessageCom
 }
 
 /**
- * 就地回答命令入口校验（T08 #78）：requestId/attentionId 必须是非空字符串；
- * text 必须是非空字符串（领域层 invalidAnswer 兜底同样校验）。
+ * 就地回答命令入口校验（T08 #78 / T23 #94）：requestId/attentionId 必须是非空字符串；
+ * 问题类要求非空 text；权限类要求 decision=allow|deny，text 仅作拒绝理由。
+ * 具体类型的缺省校验由 service 抛 invalidAnswer。
  */
 function requireAttentionAnswerCommand(input: unknown): SuperAgentAttentionAnswerCommand {
   if (typeof input !== 'object' || input === null) {
     throw new Error('attention answer command is required')
   }
   const command = input as Record<string, unknown>
+  const hasText = typeof command.text === 'string' && command.text.trim() !== ''
+  const hasDecision = command.decision === 'allow' || command.decision === 'deny'
   if (
     typeof command.requestId !== 'string' ||
     command.requestId.trim() === '' ||
     typeof command.attentionId !== 'string' ||
     command.attentionId.trim() === '' ||
-    typeof command.text !== 'string' ||
-    command.text.trim() === ''
+    (!hasText && !hasDecision) ||
+    (command.decision !== undefined && !hasDecision) ||
+    (command.text !== undefined && typeof command.text !== 'string')
   ) {
     throw new Error('invalid attention answer command')
   }
@@ -237,6 +244,70 @@ function requireEvalReevaluateCommand(input: unknown): SuperAgentEvalReevaluateC
     throw new Error('invalid eval reevaluate command: evalId is required')
   }
   return input as SuperAgentEvalReevaluateCommand
+}
+
+/**
+ * T25 #96：授权策略写入命令入口校验。
+ *
+ * 形状非法统一抛稳定错误码 invalidPolicy（领域层再做语义校验：重名规则/
+ * 空准入项）。acceptMode 三档、rules 每项 name/instruction 非空、
+ * admissions 每项 source 非空且 channels/allowlist/bots 都是字符串数组。
+ */
+function requireAuthorizationPolicySetCommand(
+  input: unknown,
+): SuperAgentAuthorizationPolicySetCommand {
+  const invalid = (field: string) => superAgentError('invalidPolicy', { field })
+  if (typeof input !== 'object' || input === null) throw invalid('command')
+
+  const command = input as Record<string, unknown>
+  if (
+    command.acceptMode !== undefined &&
+    command.acceptMode !== 'off' &&
+    command.acceptMode !== 'observe' &&
+    command.acceptMode !== 'auto'
+  ) {
+    throw invalid('acceptMode')
+  }
+
+  if (command.rules !== undefined) {
+    if (!Array.isArray(command.rules)) throw invalid('rules')
+    for (const rule of command.rules) {
+      const entry = rule as Record<string, unknown> | null
+      if (
+        typeof entry !== 'object' ||
+        entry === null ||
+        typeof entry.name !== 'string' ||
+        entry.name.trim() === '' ||
+        typeof entry.instruction !== 'string' ||
+        entry.instruction.trim() === ''
+      ) {
+        throw invalid('rules')
+      }
+    }
+  }
+
+  if (command.admissions !== undefined) {
+    if (!Array.isArray(command.admissions)) throw invalid('admissions')
+    for (const admission of command.admissions) {
+      const entry = admission as Record<string, unknown> | null
+      if (
+        typeof entry !== 'object' ||
+        entry === null ||
+        typeof entry.source !== 'string' ||
+        entry.source.trim() === ''
+      ) {
+        throw invalid('admissions')
+      }
+      for (const key of ['channels', 'allowlist', 'bots'] as const) {
+        const list = entry[key]
+        if (!Array.isArray(list) || list.some((id) => typeof id !== 'string')) {
+          throw invalid('admissions')
+        }
+      }
+    }
+  }
+
+  return input as SuperAgentAuthorizationPolicySetCommand
 }
 
 /**
@@ -330,6 +401,14 @@ function broadcastAttentionEvent(repoRoot: string, event: SuperAgentAttentionEve
  * Router 轮次起止广播（T21）：载荷就是快照里的 router 投影，所有窗口直接应用
  * 即幂等 —— IM 视图的 typing/计时与 Composer 停止按钮都跟着它，不看本地 turn。
  */
+function broadcastWorkerUpdated(repoRoot: string, mirror: SuperAgentWorkerMirror): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(SUPER_AGENT_EVENTS.onWorkerUpdated, repoRoot, mirror)
+    }
+  }
+}
+
 function broadcastRouterStatus(repoRoot: string, router: SuperAgentRouterState): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
@@ -355,11 +434,15 @@ export function createBroadcastingSuperAgentService(
     bridge: options.bridge,
     onHealthChanged: broadcastHealthChanged,
     onRouterStatusChanged: broadcastRouterStatus,
+    onWorkerUpdated: broadcastWorkerUpdated,
     onQueueChanged: broadcastQueueChanged,
     onTicketUpdated: broadcastTicketUpdated,
     onTicketProgress: broadcastTicketProgress,
     onTakeoverChanged: broadcastTakeoverChanged,
     onAttentionEvent: broadcastAttentionEvent,
+    // #101：受控 reply 的 desktop 通道 —— 作为 IM 气泡推回 Router 会话
+    // #103：外部来源工单的 reply 走飞书 / GitHub，凭据复用既有边界
+    outbox: { desktop: true, external: true },
   })
 }
 
@@ -400,6 +483,10 @@ export function registerSuperAgentIPCHandlers(
     health: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.health(root))
+    },
+    sources: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.sources(root))
     },
     evalReevaluate: (repoRoot: unknown, command: unknown) => {
       const root = requireRepoRoot(repoRoot)
@@ -497,11 +584,20 @@ export function registerSuperAgentIPCHandlers(
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.resume(root))
     },
-    policy: (repoRoot: unknown) => {
+    authorizationPolicy: (repoRoot: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      return runNoted(service, root, () => service.authorizationPolicy(root))
+    },
+    authorizationPolicySet: (repoRoot: unknown, command: unknown) => {
+      const root = requireRepoRoot(repoRoot)
+      const req = requireAuthorizationPolicySetCommand(command)
+      return runNoted(service, root, () => service.authorizationPolicySet(root, req))
+    },
+    executionPolicy: (repoRoot: unknown) => {
       const root = requireRepoRoot(repoRoot)
       return runNoted(service, root, () => service.executionPolicy(root))
     },
-    policySet: (repoRoot: unknown, command: unknown) => {
+    executionPolicySet: (repoRoot: unknown, command: unknown) => {
       const root = requireRepoRoot(repoRoot)
       const req = requirePolicySetCommand(command)
       return runNoted(service, root, () => service.setExecutionPolicy(root, req))

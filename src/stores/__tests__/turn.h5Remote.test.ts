@@ -163,6 +163,45 @@ describe('turn H5 remote user events', () => {
     expect(sessionStore.currentSessionId).toBe(main.id)
   })
 
+  it('宿主代发的受控 reply 落在助手侧而不是用户气泡', async () => {
+    const { useTurnStore } = await import('../turn')
+    const turnStore = useTurnStore()
+    const sessionStore = useChatSessionStore()
+    sessionStore.createSession('Super Agent', 'D:/repo', 'router-reply-session')
+
+    const replyPush = {
+      sessionId: 'router-reply-session',
+      data: {
+        __h5RemoteUserMessage: true,
+        messageId: 'outbox-reply-1',
+        content: '收到：修登录页。已交给 Worker 处理。',
+        projectPath: 'D:/repo',
+        title: 'Super Agent',
+        sessionType: 'superAgent',
+        startTurn: false,
+        role: 'assistant',
+        timestamp: Date.now(),
+        activate: false,
+      },
+    }
+
+    mockState.handlers.onUser(replyPush)
+
+    const session = sessionStore.getSession('router-reply-session')
+    expect(session?.messages[0]).toMatchObject({
+      id: 'outbox-reply-1',
+      role: 'assistant',
+      content: '收到：修登录页。已交给 Worker 处理。',
+    })
+    // 不是人在说话：既不启轮次，也不会被 retryLastMessage 当成上一次提问重发
+    expect(turnStore.getIsLoading('router-reply-session')).toBe(false)
+    expect(session?.messages.filter(m => m.role === 'user')).toHaveLength(0)
+
+    // 崩溃在「已推送、回执未写回」窗口重投：按稳定 messageId 去重，只有一条气泡
+    mockState.handlers.onUser(replyPush)
+    expect(session?.messages.filter(m => m.id === 'outbox-reply-1')).toHaveLength(1)
+  })
+
   it('手机端消息仍会请求把会话切到前台', async () => {
     const { useTurnStore } = await import('../turn')
     useTurnStore()

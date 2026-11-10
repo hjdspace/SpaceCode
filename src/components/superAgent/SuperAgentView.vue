@@ -1,14 +1,20 @@
 <template>
   <div class="super-agent-view">
-    <!-- 顶部操作区（T13 #83）：系统问题汇总入口（只读面板，MVP 不可操作）。
+    <!-- 顶部操作区：只放"此刻需要人处理"的东西。
          派工不再有独立入口 —— Router 已能按对话建单（super-agent:route），
-         两个入口并存只会让人纠结"该在这儿填还是跟它说"。 -->
+         两个入口并存只会让人纠结"该在这儿填还是跟它说"。
+         系统问题平时不占位：计数为 0 就没有可做的事；面板展开期间保留入口，
+         否则忽略掉最后一条问题后没人能把面板收起来。
+         授权策略是低频设置，收进右侧齿轮，不与运维入口并排挂在主区。 -->
     <header class="health-entry">
       <div class="entry-group">
         <button
+          v-if="superAgentStore.healthProblemCount > 0 || superAgentStore.healthPanelOpen"
           class="health-chip"
           :class="{ open: superAgentStore.healthPanelOpen }"
           type="button"
+          aria-haspopup="dialog"
+          :aria-expanded="superAgentStore.healthPanelOpen"
           data-testid="super-agent-health-entry"
           @click="superAgentStore.toggleHealthPanel()"
         >
@@ -19,6 +25,19 @@
           </span>
         </button>
       </div>
+      <button
+        class="settings-chip"
+        :class="{ open: authorizationPanelOpen }"
+        type="button"
+        :title="t('superAgent.authorization.entry')"
+        :aria-label="t('superAgent.authorization.entry')"
+        aria-haspopup="dialog"
+        :aria-expanded="authorizationPanelOpen"
+        data-testid="super-agent-authorization-entry"
+        @click="toggleAuthorizationPanel"
+      >
+        <Settings :size="14" />
+      </button>
     </header>
 
     <!-- Router 工卡：夹在消息区上沿，折叠态只报「这些话落在哪个目录」 -->
@@ -53,23 +72,32 @@
       </div>
     </div>
 
-    <!-- 健康面板（T13 #83，T20 #90 升级为可操作）：重试/忽略/重新评估。 -->
-    <template v-if="superAgentStore.healthPanelOpen">
-      <SuperAgentHealth
-        :problems="superAgentStore.healthProblems"
-        @retry="handleHealthRetry"
-        @dismiss="handleHealthDismiss"
-        @reevaluate="handleHealthReevaluate"
-      />
-      <p
-        v-if="healthActionHint"
-        class="health-action-hint"
-        :class="{ failed: healthActionFailed }"
-        data-testid="super-agent-health-action-hint"
-      >
-        {{ healthActionHint }}
-      </p>
-    </template>
+    <!-- 系统问题弹窗（T13 #83，T20 #90 升级为可操作）：处置回显随 hint 进底栏。
+         不再内联展开 —— 顶部那条带里有 z-index 30 的悬浮工卡。 -->
+    <SuperAgentHealth
+      :visible="superAgentStore.healthPanelOpen"
+      :problems="superAgentStore.healthProblems"
+      :hint="healthActionHint"
+      :hint-failed="healthActionFailed"
+      @close="superAgentStore.toggleHealthPanel()"
+      @retry="handleHealthRetry"
+      @dismiss="handleHealthDismiss"
+      @reevaluate="handleHealthReevaluate"
+    />
+
+    <!-- 授权策略弹窗（T25 #96）：acceptMode 默认 off（外部候选默认不建单），
+         保存后 version 递增；发生变化时回显被丢弃重排的运行中 Eval。 -->
+    <AuthorizationPolicyPanel
+      :visible="authorizationPanelOpen"
+      :policy="superAgentStore.authorizationPolicy?.policy ?? null"
+      :repo-root="superAgentStore.authorizationPolicy?.repoRoot ?? ''"
+      :loading="authorizationLoading"
+      :saving="authorizationSaving"
+      :hint="authorizationHint"
+      :hint-failed="authorizationHintFailed"
+      @save="handleAuthorizationSave"
+      @close="closeAuthorizationPanel"
+    />
 
     <!-- Router 已绑定：复用主聊天时间线 + Composer。Router 是唯一对话者，
          loading/中止都按 routerSessionId 寻址 —— 不会触碰任何 Worker。
@@ -86,10 +114,10 @@
           @tool-submit="handleToolSubmit"
           @tool-skip="handleToolSkip"
         >
-          <template #assistant-group="{ group }">
-            <div v-if="cardsForGroup(group.messages).length" class="ticket-cards" data-testid="super-agent-tickets">
+          <template #assistant-message="{ message }">
+            <div v-if="cardsForMessage(message).length" class="ticket-cards" data-testid="super-agent-tickets">
               <TicketTimelineEntry
-                v-for="card in cardsForGroup(group.messages)"
+                v-for="card in cardsForMessage(message)"
                 :key="card.ticketId"
                 :card="card"
                 :progress="superAgentStore.ticketProgress[card.ticketId] ?? null"
@@ -171,7 +199,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { HeartPulse, Sparkles } from 'lucide-vue-next'
+import { HeartPulse, Settings, Sparkles } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatSessionStore } from '@/stores/chatSession'
@@ -180,6 +208,7 @@ import { useSuperAgentStore } from '@/stores/superAgent'
 import { createUuid } from '@/utils/uuid'
 import type {
   SuperAgentAttentionView,
+  SuperAgentAuthorizationPolicySetCommand,
   SuperAgentQueueEntry,
   SuperAgentTicketCard,
 } from '@/shared/channels/superAgent'
@@ -187,6 +216,7 @@ import type { SuperAgentReviewReminderItem } from '@/stores/superAgent'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
+import AuthorizationPolicyPanel from './AuthorizationPolicyPanel.vue'
 import AttentionBubble from './AttentionBubble.vue'
 import TicketTimelineEntry from './TicketTimelineEntry.vue'
 import RouterWorkBadge from './RouterWorkBadge.vue'
@@ -273,6 +303,8 @@ async function followProjectRoot(repoRoot: string): Promise<void> {
     superAgentStore.loadTickets(repoRoot),
     superAgentStore.loadAttentions(repoRoot),
   ])
+  // 设置组已展开时跟随换项目重读授权策略；收起时不浪费一次 IPC。
+  if (authorizationPanelOpen.value) void loadAuthorizationPolicy()
 }
 
 onMounted(() => followProjectRoot(appStore.projectRoot))
@@ -320,12 +352,8 @@ const ticketAnchors = computed(() => {
   return anchors
 })
 
-function cardsForGroup(groupMessages: Message[]): SuperAgentTicketCard[] {
-  const members = new Set(groupMessages.map(message => toRaw(message)))
-  return ticketCards.value.filter(card => {
-    const anchor = ticketAnchors.value.get(card.ticketId)
-    return anchor !== undefined && members.has(anchor)
-  })
+function cardsForMessage(message: Message): SuperAgentTicketCard[] {
+  return ticketCards.value.filter(card => ticketAnchors.value.get(card.ticketId) === toRaw(message))
 }
 
 const unanchoredCards = computed(() =>
@@ -458,6 +486,72 @@ function handleHealthReevaluate(evalId: string): void {
     () => superAgentStore.reevaluateEval(repoRoot, evalId),
     'superAgent.health.reevaluateDone',
   )
+}
+
+// ── 授权策略（T25 #96）：设置组按需展开并懒加载；保存回显版本与丢弃评估。
+//    acceptMode 默认 off —— 外部候选默认不建单，必须由人显式打开。 ──
+const authorizationPanelOpen = ref(false)
+const authorizationLoading = ref(false)
+const authorizationSaving = ref(false)
+const authorizationHint = ref('')
+const authorizationHintFailed = ref(false)
+
+function toggleAuthorizationPanel(): void {
+  authorizationPanelOpen.value = !authorizationPanelOpen.value
+  authorizationHint.value = ''
+  authorizationHintFailed.value = false
+  if (authorizationPanelOpen.value) void loadAuthorizationPolicy()
+}
+
+function closeAuthorizationPanel(): void {
+  authorizationPanelOpen.value = false
+  authorizationHint.value = ''
+  authorizationHintFailed.value = false
+}
+
+async function loadAuthorizationPolicy(): Promise<void> {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  authorizationLoading.value = true
+  try {
+    await superAgentStore.loadAuthorizationPolicy(repoRoot)
+  } catch (error) {
+    console.error('[SuperAgentView] load authorization policy failed:', error)
+    authorizationHintFailed.value = true
+    authorizationHint.value = t('superAgent.authorization.loadFailed', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  } finally {
+    authorizationLoading.value = false
+  }
+}
+
+async function handleAuthorizationSave(
+  command: SuperAgentAuthorizationPolicySetCommand,
+): Promise<void> {
+  const repoRoot = superAgentStore.boundRepoRoot
+  if (!repoRoot) return
+  authorizationSaving.value = true
+  authorizationHint.value = ''
+  authorizationHintFailed.value = false
+  try {
+    const result = await superAgentStore.setAuthorizationPolicy(repoRoot, command)
+    // 只有真正推进 version 才提示丢弃；幂等保存不吓唬人。
+    authorizationHint.value = result.changed
+      ? t('superAgent.authorization.savedChanged', {
+          version: result.policy.version,
+          count: result.discardedEvalIds.length,
+        })
+      : t('superAgent.authorization.saved', { version: result.policy.version })
+  } catch (error) {
+    console.error('[SuperAgentView] save authorization policy failed:', error)
+    authorizationHintFailed.value = true
+    authorizationHint.value = t('superAgent.authorization.saveFailed', {
+      message: error instanceof Error ? error.message : String(error),
+    })
+  } finally {
+    authorizationSaving.value = false
+  }
 }
 
 // ── 执行队列（T05）：running + 排队位，广播驱动；派工本身只由对话驱动 ──
@@ -698,7 +792,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
   border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
 
   &:hover {
@@ -723,6 +817,29 @@ async function handleToolSkip(messageId: string, toolId: string) {
   text-align: center;
 }
 
+// ── 齿轮入口（T25 #96 授权策略）：只有图标, 语义靠 title/aria-label ──
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  &.open {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+}
+
 // ── 执行队列（T05）：串行调度现状（执行中/排队位置/脏区提示）──
 .dispatch-queue {
   display: flex;
@@ -733,7 +850,7 @@ async function handleToolSkip(messageId: string, toolId: string) {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 8px);
   background: var(--bg-elevated);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .queue-heading {
@@ -768,10 +885,6 @@ async function handleToolSkip(messageId: string, toolId: string) {
   color: var(--text-secondary);
 }
 
-.super-agent-health {
-  margin: 6px 12px 0;
-}
-
 // ── 工单单位（卡片 + 提问 + 超时提醒）：挂在所属助手回复下方，缺历史的在末尾兜底，随时间线滚动 ──
 .ticket-cards {
   display: flex;
@@ -783,19 +896,8 @@ async function handleToolSkip(messageId: string, toolId: string) {
 // T10 #80：出口动作失败的非模态提示（同在时间线末尾）
 .ticket-action-hint {
   margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--status-error, #d4564d);
-}
-
-// ── T20 #90：健康处置回显 —— 成功为中性提示，失败为错误色 ──
-.health-action-hint {
-  margin: 4px 12px 0;
-  font-size: 12px;
-  color: var(--text-muted);
-
-  &.failed {
-    color: var(--status-error, #d4564d);
-  }
+  font-size: var(--text-sm);
+  color: var(--error);
 }
 
 .super-agent-empty {
@@ -823,14 +925,14 @@ async function handleToolSkip(messageId: string, toolId: string) {
 
 h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-lg-plus);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1.6;
   color: var(--text-secondary);
 }

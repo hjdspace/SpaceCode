@@ -5,7 +5,7 @@ import { Tray, Menu, nativeImage, app } from 'electron'
 import { debug, warn, error } from '../infra/logger'
 import { existsSync } from 'fs'
 import { getIconPath, loadIconImage } from './iconUtils'
-import { getMainWindow, showMainWindow } from './mainWindow'
+import { showMainWindow } from './mainWindow'
 
 let tray: Tray | null = null
 

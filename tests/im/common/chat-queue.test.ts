@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { ChatQueue } from '@electron/im/adapters/common/chat-queue'
 
 describe('ChatQueue', () => {

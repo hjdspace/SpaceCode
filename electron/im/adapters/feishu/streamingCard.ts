@@ -126,7 +126,7 @@ export class StreamingCard {
   // Private
   // ────────────────────────────────────────────────────────────────────────
 
-  private async handleFlush(text: string, isComplete: boolean): Promise<void> {
+  private async handleFlush(_text: string, isComplete: boolean): Promise<void> {
     if (this.state === 'completed') return
 
     // Step 1 & 2: Create card and send as message (on first content)

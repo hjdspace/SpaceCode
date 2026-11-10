@@ -17,6 +17,7 @@ import type {
   EngineType,
   ThinkingUpdateTiming,
   EffortLevel,
+  EngineSessionJobsSnapshot,
 } from './engines/types'
 import { info, warn, error, debug } from '../infra/logger'
 import { engineBlockedError } from '@/shared/engineErrors'
@@ -319,6 +320,18 @@ export const engineGateway = {
     const engine = findEngineForSession(sessionId)
     const fn = requireAction<(sid: string, tid: string) => Promise<void>>(engine, 'stopEngineTask')
     await fn(sessionId, taskId)
+  }),
+
+  /**
+   * #104：会话级后台作业查询。引擎没有枚举能力时如实答 `available: false`（未知），
+   * 不得把「没实现」写成「0 个作业」—— 宿主侧注册表会标明自己的能力边界。
+   */
+  getSessionJobs: withLogging('getSessionJobs', (sessionId: string): EngineSessionJobsSnapshot => {
+    const engine = findEngineForSession(sessionId)
+    if (typeof engine.getSessionJobs === 'function') {
+      return engine.getSessionJobs(sessionId)
+    }
+    return { available: false, jobs: [] }
   }),
 
   getPendingPermissionRequestIds: withLogging('getPendingPermissionRequestIds', (sessionId: string): string[] => {

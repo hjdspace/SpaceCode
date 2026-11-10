@@ -30,7 +30,6 @@ import { parseEngineBlockedError } from '@/shared/engineErrors'
 import type { EngineSessionConfig, ImageAttachment } from '../types'
 import { MAX_PROCESSES, PiProcessPool } from '../PiProcessPool'
 import { PiSessionProcess } from '../PiSessionProcess'
-import { mapPiEvent } from '../PiEventMapper'
 import { warn as loggerWarn } from '../../../infra/logger'
 
 const CHANNEL_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.events, 'claude-code:')

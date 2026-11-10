@@ -5,8 +5,9 @@
  * 的 `--session-id` / `--resume` 只接受 UUID，否则以 `Invalid session ID` 退出。
  * 这里用 UUIDv5（固定命名空间 + SHA-1）把可读标签映射成稳定 UUID —— 与流水线
  * 同一做法（electron/factory/sessionId.ts）：
- *   - Worker：按 ticketId 派生，跨 Assignment、重试与主进程重启都稳定，
- *     SessionProcess 按已有 transcript 自动切 `--resume`；
+ *   - Worker：默认按 ticketId 派生，跨 Assignment、重试与主进程重启都稳定；
+ *     人明确续聊已结束工单时可持久化继承其 session，SessionProcess 按已有
+ *     transcript 自动切 `--resume`；
  *   - Router：按项目根派生，重启后仍是同一条会话，IM 历史不会每次从零开始。
  *
  * 可读标签本身仍是领域身份（ticketId / assignmentId），UUID 只是引擎会话载体，
@@ -36,4 +37,14 @@ export function superAgentRouterEngineSessionId(repoRoot: string): string {
 
 export function superAgentWorkerEngineSessionId(ticketId: string): string {
   return deriveUuid(`sa-worker:${ticketId}`)
+}
+
+export function superAgentTicketWorkerSessionId(ticket: {
+  ticketId: string
+  execution?: { sessionId?: string }
+}): string {
+  const inherited = ticket.execution?.sessionId
+  return typeof inherited === 'string' && inherited !== ''
+    ? inherited
+    : superAgentWorkerEngineSessionId(ticket.ticketId)
 }

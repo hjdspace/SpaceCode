@@ -74,7 +74,7 @@ function makeFakeApi() {
   return api
 }
 
-async function setup({ allow = {} }: { allow?: Record<string, unknown> } = {}) {
+async function setup(_options: { allow?: Record<string, unknown> } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const fake = makeFakeApi()

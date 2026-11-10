@@ -106,6 +106,55 @@ describe('dispatch', () => {
     ).toThrowError(expect.objectContaining({ code: 'invalidDispatch' }))
   })
 
+  it('refuses to resume the worker session of a ticket that is still active', () => {
+    const domain = makeDomain()
+    const source = dispatchTicket(domain, 'source')
+
+    expect(() =>
+      domain.dispatch({
+        requestId: 'resume-active',
+        title: '新任务',
+        repoRoot: '/repo',
+        text: '在旧会话上继续新任务',
+        actor: 'alice',
+        resumeTicketId: source.ticket.ticketId,
+      } as Parameters<SuperAgentDomain['dispatch']>[0]),
+    ).toThrowError(expect.objectContaining({ code: 'invalidDispatch' }))
+  })
+
+  it('refuses to share one ended worker session with another open ticket', () => {
+    const domain = makeDomain()
+    const source = dispatchTicket(domain, 'source')
+    domain.launchAssignment({ assignmentId: source.assignment.assignmentId })
+    domain.report({
+      ticketId: source.ticket.ticketId,
+      assignmentId: source.assignment.assignmentId,
+      reportId: 'source-ready',
+      kind: 'ready',
+      summary: '待验收',
+    })
+    domain.ticketAccept({ ticketId: source.ticket.ticketId })
+    domain.dispatch({
+      requestId: 'resume-first',
+      title: '第一张续聊工单',
+      repoRoot: '/repo',
+      text: '第一张新任务',
+      actor: 'alice',
+      resumeTicketId: source.ticket.ticketId,
+    } as Parameters<SuperAgentDomain['dispatch']>[0])
+
+    expect(() =>
+      domain.dispatch({
+        requestId: 'resume-second',
+        title: '第二张续聊工单',
+        repoRoot: '/repo',
+        text: '第二张新任务',
+        actor: 'alice',
+        resumeTicketId: source.ticket.ticketId,
+      } as Parameters<SuperAgentDomain['dispatch']>[0]),
+    ).toThrowError(expect.objectContaining({ code: 'invalidDispatch' }))
+  })
+
   it('keeps dispatched FIFO order by createdOrdinal', () => {
     const domain = makeDomain()
     const first = dispatchTicket(domain, 'd1')

@@ -57,28 +57,6 @@ watch(() => [props.path, props.value], () => {
   showAllLines.value = false
 })
 
-function getFileExtension(name: string): string {
-  const cleanName = name.split('/').pop() ?? name
-  const lastDot = cleanName.lastIndexOf('.')
-  if (lastDot <= 0 || lastDot === cleanName.length - 1) return ''
-  return cleanName.slice(lastDot + 1).toLowerCase()
-}
-
-function normalizeLanguage(language: string): string {
-  const lower = language.toLowerCase()
-  const map: Record<string, string> = {
-    text: 'text', typescript: 'typescript', ts: 'typescript', tsx: 'tsx',
-    javascript: 'javascript', js: 'javascript', jsx: 'jsx',
-    markdown: 'markdown', md: 'markdown', html: 'markup', xml: 'markup',
-    shell: 'bash', sh: 'bash', zsh: 'bash', diff: 'diff',
-  }
-  return map[lower] ?? lower
-}
-
-function getLanguageFromPath(path: string): string {
-  return normalizeLanguage(getFileExtension(path) || 'text')
-}
-
 function getLineClass(line: string): string {
   const isAdded = line.startsWith('+') && !line.startsWith('+++')
   const isRemoved = line.startsWith('-') && !line.startsWith('---')

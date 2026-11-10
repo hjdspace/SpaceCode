@@ -58,7 +58,7 @@ function flushStreaming() {
   vi.advanceTimersByTime(60)
 }
 
-function assistant(fake: Fake): Message | undefined {
+function assistant(_fake: Fake): Message | undefined {
   return useChatSessionStore()
     .getSessionMessages(SESSION)
     .find(m => m.role === 'assistant')

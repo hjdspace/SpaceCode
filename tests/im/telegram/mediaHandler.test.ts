@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MediaHandler } from '@electron/im/adapters/telegram/mediaHandler'
 import type { TelegramBot, TelegramPhotoSize, TelegramDocument } from '@electron/im/adapters/telegram/telegramBot'
-import * as fs from 'fs'
-import * as path from 'path'
 
 function createMockBot(): TelegramBot {
   return {

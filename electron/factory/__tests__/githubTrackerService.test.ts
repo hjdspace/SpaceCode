@@ -4,7 +4,7 @@
  * 合并回写失败只标记待重试，以及 gh 不可用时回退 REST。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { buildFactoryConfig, writeFactoryConfigAtomic } from '../config'

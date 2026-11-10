@@ -7,13 +7,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { StderrTailBuffer, killTree, isProbableBunExecutable, _resetBunCacheForTesting } from '../session/engineChildProcess'
-import type { ChildProcess } from 'child_process'
 
 // Mock electron
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getPath: vi.fn((name: string) => '/tmp'),
+    getPath: vi.fn((_name: string) => '/tmp'),
   },
 }))
 

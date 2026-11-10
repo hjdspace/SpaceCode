@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { SuperAgentSnapshot } from '@/shared/channels/superAgent'
+import type { SuperAgentSnapshot, SuperAgentWorkerMirror } from '@/shared/channels/superAgent'
 import { useSuperAgentStore } from '../index'
 
 const mocks = vi.hoisted(() => ({
@@ -28,6 +28,7 @@ vi.mock('@/services/electronAPI', () => ({
       state: mocks.state,
       workerBind: mocks.workerBind,
       workerUnbind: mocks.workerUnbind,
+      onWorkerUpdated: vi.fn().mockReturnValue(() => {}),
       workerTakeover: mocks.workerTakeover,
       workerRelease: mocks.workerRelease,
       workerMessage: mocks.workerMessage,
@@ -35,9 +36,12 @@ vi.mock('@/services/electronAPI', () => ({
     },
     claudeCode: {
       stop: mocks.stop,
+      getFullSession: vi.fn().mockResolvedValue(null),
       listAgents: vi.fn().mockResolvedValue([]),
       listAllSessions: vi.fn().mockResolvedValue([]),
     },
+    trace: { event: vi.fn() },
+    terminal: { onExit: vi.fn() },
     agents: { install: vi.fn().mockResolvedValue({ success: true }) },
     skills: { installLocal: vi.fn().mockResolvedValue({ success: true }) },
     getCwd: vi.fn().mockResolvedValue(''),
@@ -59,13 +63,14 @@ function snapshot(repoRoot = 'D:/repo'): SuperAgentSnapshot {
   }
 }
 
-function mirror(ticketId: string, overrides: Record<string, unknown> = {}) {
+function mirror(ticketId: string, overrides: Partial<SuperAgentWorkerMirror> = {}): SuperAgentWorkerMirror {
   return {
     repoRoot: 'D:/repo',
     ticketId,
     title: '修复登录',
     sessionId: `superagent-worker-${ticketId}`,
     running: false,
+    ticketState: 'idle',
     takenOver: false,
     segments: [],
     ...overrides,
@@ -147,7 +152,8 @@ describe('superAgent store takeover（T09 #79）', () => {
       at: '2026-01-01T00:00:00Z',
     })
     await store.takeoverWorker('D:/repo', 'ticket-1')
-    store.workerMirrors = { 'ticket-1': mirror('ticket-1') }
+    mocks.workerBind.mockResolvedValue(mirror('ticket-1'))
+    await store.bindWorker('D:/repo', 'ticket-1')
     mocks.workerUnbind.mockResolvedValue(true as const)
 
     await store.unbindWorker('D:/repo', 'ticket-1')

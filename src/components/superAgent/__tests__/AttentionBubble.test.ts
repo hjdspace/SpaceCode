@@ -5,7 +5,8 @@
  *    已提交回答数量提示；提交走 store.answerAttention（requestId 幂等键生成），
  *    成功清空输入，失败展示错误提示；
  *  - 认领后折叠为一行审计，点击展开可查看问题与认领数量；
- *  - 非 question（delivery）只展示提示，不提供回答入口。
+ *  - 权限类 Attention 就地提供允许/拒绝（回答先拿调度槽位，由主进程保证）；
+ *  - 非 question / permission（delivery）只展示提示，不提供回答入口。
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
@@ -170,6 +171,31 @@ describe('AttentionBubble', () => {
     expect(audit.exists()).toBe(true)
     expect(audit.text()).toContain('superAgent.attention.answeredAudit:1')
     expect(audit.find('.ticket-source').text()).toContain('修复登录')
+  })
+
+  it('offers allow/deny for permission attentions and sends the decision without text', async () => {
+    const allow = mountBubble(view({ kind: 'permission', question: '权限请求：Edit' }))
+
+    expect(allow.find('form').exists()).toBe(false)
+    expect(allow.find('.permission-hint').text()).toBe('superAgent.attention.permissionHint')
+    expect(allow.find('[data-testid="attention-bubble-allow"]').text()).toBe(
+      'superAgent.attention.permissionAllow',
+    )
+    expect(allow.find('[data-testid="attention-bubble-deny"]').text()).toBe(
+      'superAgent.attention.permissionDeny',
+    )
+
+    await allow.find('[data-testid="attention-bubble-allow"]').trigger('click')
+    await vi.waitFor(() => expect(mocks.attentionAnswer).toHaveBeenCalled())
+    const [, command] = mocks.attentionAnswer.mock.calls[0]
+    expect(command).toMatchObject({ attentionId: 'attention-1', decision: 'allow' })
+    expect(command.text).toBeUndefined()
+
+    mocks.attentionAnswer.mockClear()
+    const deny = mountBubble(view({ kind: 'permission', question: '权限请求：Bash' }))
+    await deny.find('[data-testid="attention-bubble-deny"]').trigger('click')
+    await vi.waitFor(() => expect(mocks.attentionAnswer).toHaveBeenCalled())
+    expect(mocks.attentionAnswer.mock.calls[0][1]).toMatchObject({ decision: 'deny' })
   })
 
   it('only offers the answer form for question attentions', () => {

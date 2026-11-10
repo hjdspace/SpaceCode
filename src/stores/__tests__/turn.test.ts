@@ -24,7 +24,7 @@ function makeFakeApi() {
       // 返回 resolved Promise 避免 turn.ts 中 `.catch` 在 undefined 上抛 TypeError；
       // 同时在微任务中触发 onResult 事件 settle turn，使 sendMessage 的
       // `await new Promise` 能正常 resolve（模拟引擎收到完整响应）。
-      sendMessage: vi.fn().mockImplementation((sid: string, ...args: any[]) => {
+      sendMessage: vi.fn().mockImplementation((sid: string, ..._args: any[]) => {
         queueMicrotask(() => handlers.onResult?.({ sessionId: sid, data: {} }))
         return Promise.resolve(undefined)
       }),
@@ -471,7 +471,7 @@ describe('Turn 事件订阅', () => {
   it('合并后台积压的 text_delta 写回，避免恢复窗口时逐条刷新消息', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')
-    const turn = useTurnStore(fake as any)
+    useTurnStore(fake as any)
     const sessionStore = useChatSessionStore()
     sessionStore.createSession('Test', undefined, 'sess-stream-burst')
     sessionStore.addMessage({ role: 'user', content: 'hello' }, 'sess-stream-burst')
@@ -1045,7 +1045,7 @@ describe('Turn 生命周期边界场景', () => {
   it('完成汇总使用本轮流式响应的实际模型，而不是设置中的当前模型', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')
-    const turn = useTurnStore(fake as any)
+    useTurnStore(fake as any)
     const sessionStore = useChatSessionStore()
     sessionStore.createSession('Test', undefined, 'sess-model-meta')
     sessionStore.addMessage({ role: 'user', content: 'which model?' }, 'sess-model-meta')
