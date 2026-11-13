@@ -7,6 +7,8 @@ export default {
   renameConversation: 'Rename Conversation',
   copyConversationId: 'Copy Conversation ID',
   deleteConversation: 'Delete Conversation',
+  archiveConversation: 'Archive Conversation',
+  unarchiveConversation: 'Unarchive',
   loading: 'Loading...',
   noHistory: 'No history sessions',
   noMatchSearch: 'No sessions matching "{query}"',

@@ -196,6 +196,9 @@ const handleOpenMCPManager = () => {
 
 let removeNotificationClickListener: (() => void) | undefined
 
+let autoArchiveTimer: ReturnType<typeof setInterval> | undefined
+let stopAutoArchiveWatch: (() => void) | undefined
+
 // Initialize shortcuts
 useShortcuts({
   'new_chat': () => { sessionStore.createSession(t('common.newChat')) },
@@ -398,7 +401,7 @@ onMounted(() => {
   // Claude's durable JSONL transcripts remain under ~/.claude/projects.
   // Recreate missing sidebar entries from that source on desktop startup.
   if (!isH5Mode()) {
-    void sessionStore.recoverSessionsFromHistory()
+    void sessionStore.recoverSessionsFromHistory().then(() => sessionStore.runAutoArchive())
     // 预热引擎进程：后台拉起 CLI（含 MCP 握手），首次发送免冷启动。
     // 挂在 currentSessionId 上，而不是只在启动时对当时那一个会话预热一次 ——
     // 「新建会话」和「切换会话」同样是用户接下来要在这里发消息的信号，而真正发消息
@@ -413,6 +416,14 @@ onMounted(() => {
       warmupTimer = setTimeout(() => void sessionStore.warmupSession(sessionId), 500)
     }, { immediate: true })
   }
+
+  // 自动归档：等设置 hydration 落定再跑 —— 在那之前 archiveAfterDays 还是默认值。
+  // 之后每 24h 复查一次，长期挂着的应用不用重启也能按天推进。
+  stopAutoArchiveWatch = watch(() => settingsStore.settingsReady, (ready) => {
+    if (!ready || autoArchiveTimer) return
+    sessionStore.runAutoArchive()
+    autoArchiveTimer = setInterval(() => sessionStore.runAutoArchive(), 86_400_000)
+  }, { immediate: true })
 
   // 暴露全局 API 供主进程通过 executeJavaScript 调用，避免直接访问 Vue 内部实现
   ;(window as any).__spacecode_api__ = {
@@ -485,6 +496,8 @@ onUnmounted(() => {
   window.removeEventListener('h5-remote-user-message', revealRemoteChatSession)
   removeNotificationClickListener?.()
   disposeH5SessionChanged?.()
+  stopAutoArchiveWatch?.()
+  if (autoArchiveTimer) clearInterval(autoArchiveTimer)
 })
 </script>
 

@@ -7,6 +7,8 @@ export default {
   renameConversation: '重命名对话',
   copyConversationId: '复制对话 ID',
   deleteConversation: '删除对话',
+  archiveConversation: '归档对话',
+  unarchiveConversation: '取消归档',
   loading: '加载中...',
   noHistory: '暂无历史会话',
   noMatchSearch: '未找到匹配 "{query}" 的会话',

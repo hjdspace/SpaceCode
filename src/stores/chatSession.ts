@@ -19,6 +19,7 @@ import { generateSessionTitle } from '@/services/aiSessionTitle'
 import { createUuid } from '@/utils/uuid'
 import { MAX_MESSAGES_PER_SESSION, hydrateImageAttachments, hydrateSessionsFromJsonl } from './chatSession/hydration'
 import { normalizeAbsolutePath } from '@/utils/normalizePath'
+import { collectAutoArchiveIds, getArchivedAt } from '@/utils/sessionArchive'
 import { buildStartupFingerprint, diffStartupConfig } from '@/utils/sessionStartup'
 import {
   loadSessionsFromStorage,
@@ -330,9 +331,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     sessions.value.find(s => s.id === currentSessionId.value) || null
   )
 
-  /** 普通聊天会话（不含 Super Agent Router）：侧边栏与模式切换只消费这份列表。 */
+  /** 普通聊天会话（不含 Super Agent Router、不含已归档）：侧边栏与模式切换只消费这份列表。 */
   const normalSessions = computed(() =>
-    sessions.value.filter(s => (s.sessionType ?? 'chat') === 'chat')
+    sessions.value.filter(s => (s.sessionType ?? 'chat') === 'chat' && !s.archived)
+  )
+
+  /** 已归档会话：只有设置里的归档管理页消费，按归档时间倒序。 */
+  const archivedSessions = computed(() =>
+    sessions.value
+      .filter(s => s.archived && !s.ephemeral && (s.sessionType ?? 'chat') === 'chat')
+      .sort((a, b) => getArchivedAt(b) - getArchivedAt(a))
   )
 
   const currentMessages = computed(() =>
@@ -1393,6 +1401,13 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         session.messages.splice(0, removeCount)
       }
 
+      // 归档会话又收到用户消息 = 它重新活跃了，必须回到侧栏，
+      // 否则用户会在一个看不见的会话里继续对话。
+      if (session.archived && newMessage.role === 'user') {
+        session.archived = false
+        session.archivedAt = undefined
+      }
+
       session.updatedAt = Date.now()
       session.lastActivityAt = Date.now()
 
@@ -1658,6 +1673,41 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       session.isTabOpen = false
       saveToStorage()
     }
+  }
+
+  /**
+   * 归档：把会话移出侧栏，索引、消息与草稿全部保留 —— 这是导航动作，不是删除。
+   * 刻意不停引擎：正在跑的任务归档后照常跑完，取消归档就能回到原处。
+   */
+  function archiveSession(sessionId: string): boolean {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session || session.archived) return false
+    session.archived = true
+    session.archivedAt = Date.now()
+    session.isTabOpen = false
+    if (currentSessionId.value === sessionId) {
+      currentSessionId.value = normalSessions.value.find(s => !s.ephemeral)?.id || null
+    }
+    saveToStorage()
+    return true
+  }
+
+  /** 取消归档。不动 updatedAt，会话回到归档前的新鲜度位置而不是窜到列表顶部。 */
+  function unarchiveSession(sessionId: string): boolean {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session || !session.archived) return false
+    session.archived = false
+    session.archivedAt = undefined
+    saveToStorage()
+    return true
+  }
+
+  /** 按设置的阈值自动归档；返回本次归档条数。阈值为 0（禁用）时是空操作。 */
+  function runAutoArchive(): number {
+    const ids = collectAutoArchiveIds(sessions.value, settingsStore.archiveAfterDays)
+    if (ids.length === 0) return 0
+    for (const id of ids) archiveSession(id)
+    return ids.length
   }
 
   async function deleteSession(sessionId: string) {
@@ -2447,6 +2497,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     currentSessionId,
     currentSession,
     normalSessions,
+    archivedSessions,
     currentMessages,
     displayMessages,
     currentTeamContext,
@@ -2491,6 +2542,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     selectSession,
     activateSession,
     deactivateSession,
+    archiveSession,
+    unarchiveSession,
+    runAutoArchive,
     deleteSession,
     getCurrentConfig,
     saveToStorage,

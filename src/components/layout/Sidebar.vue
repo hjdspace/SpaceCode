@@ -290,6 +290,7 @@
               :search-query="sessionSearchQuery"
               @select="handleSelectSession"
               @delete="handleDeleteSession"
+              @archive="handleArchiveSession"
               @rename="handleRenameSession"
               @create-session-in-project="handleCreateSessionInProject"
               @remove-project="handleRemoveProject"
@@ -840,6 +841,37 @@ async function handleDeleteSession(e: MouseEvent, sessionId: string) {
 
 function handleRenameSession(sessionId: string, newTitle: string) {
   sessionStore.renameSession(sessionId, newTitle)
+}
+
+/**
+ * 归档不需要二次确认（可在设置里取消归档），但必须把界面从被归档的会话上挪开：
+ * 分屏的每个 pane 各自绑定 tabId，只改全局 activeCenterTab 会让其它 pane 继续
+ * 显示一个已经不在列表里的会话。
+ */
+async function handleArchiveSession(e: MouseEvent, sessionId: string) {
+  e.preventDefault()
+  e.stopPropagation()
+
+  const wasCurrent = sessionStore.currentSessionId === sessionId
+  if (!sessionStore.archiveSession(sessionId)) return
+
+  const tabId = `session-${sessionId}`
+  const splitLayout = useSplitLayoutStore()
+  const fallbackTabId = sessionStore.currentSessionId
+    ? `session-${sessionStore.currentSessionId}`
+    : 'chat'
+  for (const leaf of splitLayout.leaves) {
+    if (leaf.content.tabId === tabId) {
+      splitLayout.setPaneContent(leaf.id, { kind: 'session', tabId: fallbackTabId })
+    }
+  }
+  if (appStore.activeCenterTab === tabId) {
+    appStore.activeCenterTab = fallbackTabId
+  }
+
+  if (wasCurrent && sessionStore.currentSessionId) {
+    await handleSelectSession(sessionStore.currentSessionId)
+  }
 }
 
 function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {

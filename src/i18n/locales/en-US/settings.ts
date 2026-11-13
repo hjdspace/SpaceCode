@@ -62,6 +62,11 @@ export default {
   aiSessionTitleDesc: 'Sends the first message to the model from your current API config to generate a title; until it returns, the title stays truncated from your input. Requires an API key — not available with Claude account or console OAuth login.',
   skillsManagerEntry: 'Skills manager entry',
   skillsManagerEntryDesc: 'Shows the Skills Manager button below New Conversation in the sidebar. When off the button is hidden; /skills still opens the skills manager.',
+  archive: 'Archives',
+  autoArchive: 'Auto-archive',
+  autoArchiveDesc: 'Sessions with no updates for the chosen number of days are archived automatically (running sessions are skipped)',
+  autoArchiveDisabled: 'Disabled',
+  autoArchiveDays: '{count} days',
   saving: 'Saving...',
   confirmClose: 'You have unsaved changes. Are you sure you want to close?',
 }

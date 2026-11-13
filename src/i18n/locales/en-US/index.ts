@@ -73,6 +73,7 @@ import voiceInput from './voiceInput'
 import genui from './genui'
 import factory from './factory'
 import superAgent from './superAgent'
+import archive from './archive'
 
 export default {
   common,
@@ -150,4 +151,5 @@ export default {
   genui,
   factory,
   superAgent,
+  archive,
 }

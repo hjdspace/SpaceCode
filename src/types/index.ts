@@ -316,6 +316,10 @@ export interface Session {
   agentUnapplied?: string
   /** 侧边任务会话：不落盘、不出现在会话列表，关闭应用即消失。 */
   ephemeral?: boolean
+  /** 已归档：退出侧栏会话列表，只在设置的归档管理里可见，可取消归档。 */
+  archived?: boolean
+  /** 归档时刻。刻意不动 updatedAt —— 取消归档后会话要回到原来的新鲜度位置。 */
+  archivedAt?: number
   /**
    * 流水线观察面板挂进来的只读镜像会话：引擎仍由主进程流水线驱动，
    * 这里只消费同一会话的事件做流式渲染。不落盘、不可交互，

@@ -55,6 +55,7 @@
                 @mouseleave="hoveredSession = null"
                 @select="$emit('select', session.id)"
                 @delete="(e) => $emit('delete', e, session.id)"
+                @archive="(e) => $emit('archive', e, session.id)"
                 @rename="(newTitle) => $emit('rename', session.id, newTitle)"
                 @copy-id="handleCopySessionId(session.id)"
                 @split-screen="(sessionId) => $emit('split-screen', sessionId)"
@@ -123,6 +124,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   select: [id: string]
   delete: [e: MouseEvent, sessionId: string]
+  archive: [e: MouseEvent, sessionId: string]
   rename: [sessionId: string, newTitle: string]
   'create-session-in-project': [e: MouseEvent, workingDirectory: string]
   'remove-project': [workingDirectory: string]
