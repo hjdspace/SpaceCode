@@ -77,7 +77,7 @@
             v-if="message.role === 'assistant'"
             :content="message.content"
           />
-          <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy"></p>
+          <p v-else class="user-text" v-html="renderedUserContent" @copy="handleUserCopy" @click="handleUserContentClick"></p>
         </div>
 
         <!-- 用户消息编辑模式 -->
@@ -197,12 +197,17 @@ import ToolCallList from './ToolCallList.vue'
 import MessageMetadata from './MessageMetadata.vue'
 import FileAttachmentCard from './FileAttachmentCard.vue'
 import { renderContentWithAttachments } from '@/utils/mention-chips'
+import { buildTodoMarker } from '@/shared/todoReference'
+import { useTodoStore } from '@/stores/todo'
+import { useTodoActions } from '@/composables/useTodoActions'
 import { resolveUserMessageDisplay } from '@/lib/genui/cardSubmission'
 import { detectWorkbenchTargets, type WorkbenchTarget } from '@/utils/workbench-targets'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const todoStore = useTodoStore()
+const { notify: notifyTodo } = useTodoActions()
 
 const props = defineProps<{
   message: Message
@@ -378,6 +383,13 @@ function serializeNodeForCopy(node: Node): string {
         // Fallback: use visible chip name if attributes are missing.
         out += child.textContent || ''
       }
+    } else if (child instanceof HTMLElement && child.classList.contains('todo-chip')) {
+      const todoId = child.getAttribute('data-todo-id')
+      if (todoId) {
+        out += buildTodoMarker(todoId, child.getAttribute('data-todo-title') || '')
+      } else {
+        out += child.textContent || ''
+      }
     } else if (child instanceof HTMLElement && child.classList.contains('command-chip')) {
       const cmd = child.getAttribute('data-command')
       const kind = child.getAttribute('data-kind')
@@ -395,6 +407,16 @@ function serializeNodeForCopy(node: Node): string {
     }
   }
   return out
+}
+
+/** 点历史消息里的待办引用 → 打开待办面板并定位到那条，等于回到当时的任务现场。 */
+function handleUserContentClick(e: MouseEvent) {
+  const chip = (e.target as HTMLElement | null)?.closest?.('.todo-chip')
+  const id = chip?.getAttribute('data-todo-id')
+  if (!id) return
+  appStore.showTodoManager = true
+  todoStore.openDetail(id)
+  if (!todoStore.findTodo(id)) notifyTodo(t('todo.error.not-found'))
 }
 
 function handleUserCopy(e: ClipboardEvent) {
@@ -418,6 +440,8 @@ function handleUserCopy(e: ClipboardEvent) {
 </script>
 
 <style lang="scss" scoped>
+@use "@/styles/composer-chips" as *;
+
 .message-item.notification {
   padding: 8px 0;
 
@@ -774,6 +798,18 @@ function handleUserCopy(e: ClipboardEvent) {
       color: var(--accent-primary);
     }
   }
+
+  // 点待办引用直接跳到那条待办，历史消息因此成为回到任务的入口。
+  :deep(.todo-chip) {
+    @include todo-reference-chip;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+
+    &:hover {
+      background: color-mix(in srgb, var(--todo-hue-violet) 20%, transparent);
+      border-color: color-mix(in srgb, var(--todo-hue-violet) 48%, transparent);
+    }
+  }
 }
 
 .message-content {
@@ -821,6 +857,17 @@ function handleUserCopy(e: ClipboardEvent) {
       background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
       border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
       color: var(--accent-primary);
+    }
+  }
+
+  :deep(.todo-chip) {
+    @include todo-reference-chip;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+
+    &:hover {
+      background: color-mix(in srgb, var(--todo-hue-violet) 20%, transparent);
+      border-color: color-mix(in srgb, var(--todo-hue-violet) 48%, transparent);
     }
   }
 

@@ -420,6 +420,7 @@ import { shell } from './api/shell'
 import { skills } from './api/skills'
 import { superAgent } from './api/superAgent'
 import { terminal } from './api/terminal'
+import { todo } from './api/todo'
 import { trace } from './api/trace'
 import { update } from './api/update'
 import { voice } from './api/voice'
@@ -838,6 +839,7 @@ export const api = {
   skills,
   superAgent,
   terminal,
+  todo,
   trace,
   update,
   voice,

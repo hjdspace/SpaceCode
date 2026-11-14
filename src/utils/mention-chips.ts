@@ -13,6 +13,7 @@
  */
 
 import type { ImageAttachment } from '@/types'
+import { decodeTodoTitle } from '@/shared/todoReference'
 
 export function escapeHtml(text: string): string {
   return text
@@ -66,6 +67,30 @@ function buildImageChipHtml(image: ImageAttachment): string {
   )
 }
 
+/** Lucide list-todo — shared by the composer chip and the sent-bubble chip so they look identical. */
+export const TODO_CHIP_ICON = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>`
+
+/**
+ * Build the HTML for a todo reference chip. The title travels inside the marker,
+ * so a deleted todo still shows its name in history.
+ */
+function buildTodoChipHtml(id: string, title: string): string {
+  const label = title || id
+  return (
+    `<span class="todo-chip" title="${escapeHtml(label)}" data-todo-id="${escapeHtml(id)}" data-todo-title="${escapeHtml(title)}">` +
+    `<span class="chip-icon">${TODO_CHIP_ICON}</span>` +
+    `<span class="chip-name">${escapeHtml(label)}</span>` +
+    `</span>`
+  )
+}
+
+/** Split a `@todo:"<id>::<encoded title>"` marker value back into its two parts. */
+function todoChipHtmlFromMarker(value: string): string {
+  const split = value.indexOf('::')
+  if (split === -1) return buildTodoChipHtml(value, '')
+  return buildTodoChipHtml(value.slice(0, split), decodeTodoTitle(value.slice(split + 2)))
+}
+
 /** Text glyph icons scale with the chip font and stay aligned with its baseline. */
 const SOURCE_ICONS: Record<string, string> = {
   builtin: '✦',
@@ -102,9 +127,11 @@ function buildCommandChipHtml(name: string, kind: string, source: string): strin
  */
 export function replaceMentionChipMarkers(text: string): string {
   if (!text) return ''
-  return text.replace(/@(file|folder):"([^"]+)"/g, (_match, kind, path) =>
-    buildChipHtml(path, kind === 'folder')
-  )
+  return text
+    .replace(/@(file|folder):"([^"]+)"/g, (_match, kind, path) =>
+      buildChipHtml(path, kind === 'folder')
+    )
+    .replace(/@todo:"([^"]+)"/g, (_match, value) => todoChipHtmlFromMarker(value))
 }
 
 /**
@@ -173,7 +200,7 @@ export function renderContentWithAttachments(text: string, images?: ImageAttachm
 
   const imageMap = new Map(images?.map(img => [img.id, img]) || [])
 
-  const MARKER_RE = /@(file|folder|image):"([^"]+)"|\/cmd:"([^"]+)":(\w+):(\w+)/g
+  const MARKER_RE = /@(file|folder|image|todo):"([^"]+)"|\/cmd:"([^"]+)":(\w+):(\w+)/g
   let result = ''
   let lastIndex = 0
   let match: RegExpExecArray | null
@@ -184,6 +211,8 @@ export function renderContentWithAttachments(text: string, images?: ImageAttachm
     if (match[3] !== undefined) {
       // Command chip marker: /cmd:"name":kind:source
       result += buildCommandChipHtml(match[3], match[4], match[5])
+    } else if (match[1] === 'todo') {
+      result += todoChipHtmlFromMarker(match[2])
     } else if (match[1] === 'image') {
       const img = imageMap.get(match[2])
       if (img) {

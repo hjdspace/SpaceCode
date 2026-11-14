@@ -32,6 +32,8 @@ import { readSideTaskContextFile, discardSideTaskContextFile } from './transcrip
 import { removeTempFiles, writeSessionTempFile } from './tempArtifacts'
 import { getSpawnEnvironment } from './spawnEnvironment'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
+import { getTodoMcpEntry } from '../todo/todoMcpServer'
+import { TODO_AVAILABILITY_HINT, TODO_MCP_SERVER_KEY } from '@/shared/todoReference'
 import { getOfficeCliInstallDir, syncInstalledOfficeCli } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
 
@@ -1573,6 +1575,16 @@ export class SessionProcess extends EventEmitter {
       } catch (err) {
         warn('SessionProcess', `Failed to load MCP config: ${err}`)
       }
+      // 待办 MCP 是应用内的 loopback 服务器，条目只存在于本次 spawn：
+      // 写进 mcp-servers.json 会让端口和凭证落盘，还会在设置面板里冒出一条
+      // 用户删不掉的幽灵条目。URL 带会话 id 与工作区，待办才能反查会话、归对项目。
+      const todoEntry = getTodoMcpEntry(this.sessionId, config.cwd)
+      if (todoEntry) {
+        enabledMcpConfig = {
+          mcpServers: { ...enabledMcpConfig?.mcpServers, [TODO_MCP_SERVER_KEY]: todoEntry },
+          usesPackageManagerLauncher: enabledMcpConfig?.usesPackageManagerLauncher ?? false,
+        }
+      }
     }
 
     // 当内置 sc-computer-use MCP 启用时，向 system prompt 追加可用性提示。
@@ -1588,6 +1600,11 @@ export class SessionProcess extends EventEmitter {
         ? BROWSER_USE_AVAILABILITY_HINT
         : ''
 
+    const todoHint =
+      enabledMcpConfig && TODO_MCP_SERVER_KEY in enabledMcpConfig.mcpServers
+        ? TODO_AVAILABILITY_HINT
+        : ''
+
     const askUserGuidance = [
       'When you need to ask the user clarifying questions, present choices, or gather preferences, you MUST use the AskUserQuestion tool instead of writing questions as plain text.',
       'If AskUserQuestion is not in your available tool list (it may be deferred behind ToolSearch), first call ToolSearch({query: "select:AskUserQuestion"}) to load its schema, then call it.',
@@ -1597,6 +1614,7 @@ export class SessionProcess extends EventEmitter {
       config.appendSystemPrompt,
       computerUseHint,
       browserUseHint,
+      todoHint,
       config.askUserQuestionGuidance === false ? '' : askUserGuidance,
     ].filter(Boolean)
     args.push('--append-system-prompt', appendParts.join('\n\n'))

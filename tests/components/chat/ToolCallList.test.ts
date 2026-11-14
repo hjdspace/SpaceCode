@@ -31,13 +31,83 @@ const toolCalls: ToolCall[] = [
 
 describe('ToolCallList', () => {
   it('does not render task list cards in the chat timeline', () => {
-    const wrapper = mount(ToolCallList, { props: { toolCalls } })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      messages: { 'en-US': enUS, 'zh-CN': zhCN },
+    })
+    const wrapper = mount(ToolCallList, {
+      props: { toolCalls },
+      global: { plugins: [pinia, i18n] },
+    })
 
     expect(wrapper.find('.task-list-card').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Implement the fix')
     expect(wrapper.text()).not.toContain('Run the tests')
     expect(wrapper.text()).toContain('Update tasks')
     expect(wrapper.findAll('.timeline-item')).toHaveLength(1)
+  })
+
+  function mountTools(calls: ToolCall[], locale = 'en-US') {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const i18n = createI18n({
+      legacy: false,
+      locale,
+      messages: { 'en-US': enUS, 'zh-CN': zhCN },
+    })
+    return mount(ToolCallList, {
+      props: { toolCalls: calls },
+      global: { plugins: [pinia, i18n] },
+    })
+  }
+
+  it('renders todo MCP tools with a localized action label and the todo title as target', () => {
+    const wrapper = mountTools([
+      {
+        id: 'todo-create',
+        name: 'mcp__spacecode-todo__create_todo',
+        input: { title: 'Ship the CSV encoding fix', priority: 'high' },
+        status: 'completed',
+      },
+    ])
+
+    expect(wrapper.find('.timeline-tool-name').text()).toBe(enUS.todo.tools.create_todo)
+    expect(wrapper.find('.timeline-target').text()).toBe('Ship the CSV encoding fix')
+  })
+
+  it('follows the active locale for todo tool labels', () => {
+    const wrapper = mountTools([
+      { id: 't', name: 'mcp__spacecode-todo__complete_todo', input: { id: 'abc' }, status: 'completed' },
+    ], 'zh-CN')
+
+    expect(wrapper.find('.timeline-tool-name').text()).toBe(zhCN.todo.tools.complete_todo)
+    expect(wrapper.find('.timeline-target').text()).toBe('abc')
+  })
+
+  it('falls back to the group name for create_group and to no target when nothing identifying is passed', () => {
+    const named = mountTools([
+      { id: 'g', name: 'mcp__spacecode-todo__create_group', input: { name: '工作' }, status: 'completed' },
+    ])
+    expect(named.find('.timeline-tool-name').text()).toBe(enUS.todo.tools.create_group)
+    expect(named.find('.timeline-target').text()).toBe('工作')
+
+    const bare = mountTools([
+      { id: 'l', name: 'mcp__spacecode-todo__list_todos', input: {}, status: 'completed' },
+    ])
+    expect(bare.find('.timeline-tool-name').text()).toBe(enUS.todo.tools.list_todos)
+    expect(bare.find('.timeline-target').exists()).toBe(false)
+  })
+
+  it('leaves unknown todo-prefixed tools on the raw name path', () => {
+    const wrapper = mountTools([
+      { id: 'x', name: 'mcp__spacecode-todo__purge_everything', input: { title: 'nope' }, status: 'completed' },
+    ])
+
+    expect(wrapper.find('.timeline-tool-name').text()).toBe('mcp__spacecode-todo__purge_everything')
+    expect(wrapper.find('.timeline-target').exists()).toBe(false)
   })
 })
 

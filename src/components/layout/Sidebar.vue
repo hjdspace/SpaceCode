@@ -257,6 +257,22 @@
               <Clock :size="13" />
               <span>{{ t('sidebar.cron') }}</span>
             </button>
+            <button
+              class="feature-nav-item"
+              :class="{ active: appStore.showTodoManager }"
+              data-testid="todo-entry"
+              @click="handleOpenTodo"
+            >
+              <ListTodo :size="13" />
+              <span>{{ t('sidebar.todo') }}</span>
+              <span
+                v-if="todoBadgeCount > 0"
+                class="feature-nav-badge"
+                :class="{ 'is-alert': todoStore.overdueCount > 0 }"
+                data-testid="todo-due-badge"
+                :title="t('todo.stats.today', { n: todoBadgeCount })"
+              >{{ todoBadgeCount }}</span>
+            </button>
           </div>
 
           <!-- Separator -->
@@ -399,6 +415,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useScmStore } from '@/stores/scm'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useSuperAgentStore } from '@/stores/superAgent'
+import { useTodoStore } from '@/stores/todo'
 import {
   Plus,
   FolderTree,
@@ -414,6 +431,7 @@ import {
   Activity,
   Cpu,
   Clock,
+  ListTodo,
   FolderOpen,
   Package,
   LayoutGrid,
@@ -460,6 +478,9 @@ const superAgentStore = useSuperAgentStore()
 const superAgentEntryBadgeCount = computed(
   () => superAgentStore.attentionCount + superAgentStore.reviewRemindedCount,
 )
+const todoStore = useTodoStore()
+/** 到期徽章：今天到期的条数（含逾期），逾期时转成告警色。 */
+const todoBadgeCount = computed(() => todoStore.counts.today)
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { addFileToFile } = useFileToChat()
@@ -609,6 +630,10 @@ function handleOpenMcp() {
 
 function handleOpenCron() {
   appStore.showCronManager = true
+}
+
+function handleOpenTodo() {
+  appStore.showTodoManager = true
 }
 
 function handleTerminalClick() {
@@ -981,6 +1006,9 @@ function handleOpenSettings(event: Event) {
 onMounted(() => {
   // Load workspace path if available
   workspacePath.value = appStore.projectRoot || ''
+
+  // 待办徽章与到点提醒要在面板没打开时也是活的，所以订阅在侧栏就接上（load 幂等）
+  void todoStore.load()
 
   // Listen for streaming status updates
   window.addEventListener('session-streaming-start', handleStreamingStart)
@@ -1491,6 +1519,10 @@ onUnmounted(() => {
       align-items: center;
       justify-content: center;
       line-height: 1;
+
+      &.is-alert {
+        background: var(--error);
+      }
     }
   }
 

@@ -10,6 +10,7 @@ import {
   buildContentWithMarkers,
 } from '@/utils/mention-chips'
 import type { ImageAttachment } from '@/types'
+import { buildTodoMarker } from '@/shared/todoReference'
 
 describe('mention-chips — escapeHtml', () => {
   it('转义所有 HTML 特殊字符', () => {
@@ -176,6 +177,61 @@ describe('mention-chips — renderContentWithAttachments', () => {
 
   it('空输入返回空', () => {
     expect(renderContentWithAttachments('')).toBe('')
+  })
+})
+
+describe('mention-chips — todo 引用 chip', () => {
+  it('replaceMentionChipMarkers 把标记还原成 todo chip（标题解码）', () => {
+    const out = replaceMentionChipMarkers(`继续 ${buildTodoMarker('t1', '收尾登录改造')} 吧`)
+    expect(out).toContain('class="todo-chip"')
+    expect(out).toContain('data-todo-id="t1"')
+    expect(out).toContain('data-todo-title="收尾登录改造"')
+    expect(out).toContain('>收尾登录改造</span>')
+    expect(out).toContain('继续 ')
+    expect(out).toContain(' 吧')
+    expect(out).not.toContain('@todo:')
+  })
+
+  it('renderContentWithAttachments 同样渲染 todo chip', () => {
+    const out = renderContentWithAttachments(buildTodoMarker('t2', '写迁移脚本'))
+    expect(out).toContain('class="todo-chip"')
+    expect(out).toContain('data-todo-id="t2"')
+    expect(out).toContain('写迁移脚本')
+  })
+
+  it('标题含引号与尖括号时 chip 属性与文本都被转义', () => {
+    const title = `修 "登录" <script>`
+    const out = renderContentWithAttachments(buildTodoMarker('t3', title))
+    expect(out).toContain('data-todo-title="修 &quot;登录&quot; &lt;script&gt;"')
+    expect(out).toContain('&lt;script&gt;')
+    expect(out).not.toContain('<script>')
+  })
+
+  it('标记只有 id（无 :: 分隔）时用 id 兜底显示', () => {
+    const out = renderContentWithAttachments('@todo:"legacy-id"')
+    expect(out).toContain('data-todo-id="legacy-id"')
+    expect(out).toContain('>legacy-id</span>')
+  })
+
+  it('标题为空时用 id 兜底显示', () => {
+    const out = renderContentWithAttachments(buildTodoMarker('t4', ''))
+    expect(out).toContain('>t4</span>')
+  })
+
+  it('同一内容混合 todo / file / cmd 标记', () => {
+    const out = renderContentWithAttachments(
+      `${buildTodoMarker('t5', '联调')} @file:"a.ts" /cmd:"goal":builtin:builtin`,
+    )
+    expect(out).toContain('data-todo-id="t5"')
+    expect(out).toContain('data-path="a.ts"')
+    expect(out).toContain('data-command="/goal"')
+  })
+
+  it('同一内容出现多个 todo 标记时逐个渲染', () => {
+    const out = renderContentWithAttachments(
+      `${buildTodoMarker('a', '甲')} 与 ${buildTodoMarker('b', '乙')}`,
+    )
+    expect(out.match(/class="todo-chip"/g)).toHaveLength(2)
   })
 })
 

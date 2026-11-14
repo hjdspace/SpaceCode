@@ -91,8 +91,11 @@ import { hasToolComponent, resolveToolComponent } from '@/components/chat/tools/
 import { formatDurationMs } from '@/utils/formatDuration'
 import {
   Loader2, Check, X, ChevronDown, CheckCircle2, XCircle, CircleDot,
-  Terminal, FileText, FileEdit, Search, Globe, Wand2, Bot, Folder, Code, MessageCircleQuestion
+  Terminal, FileText, FileEdit, Search, Globe, Wand2, Bot, Folder, Code, MessageCircleQuestion,
+  ListTodo, Plus, CheckCheck, RotateCcw, Trash2, BellRing, FolderPlus
 } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+import { TODO_MCP_TOOL_PREFIX } from '@/shared/todoReference'
 
 const props = defineProps<{
   toolCalls: ToolCall[]
@@ -111,6 +114,28 @@ const isCollapsed = ref(false)
 const expandedItems = reactive<Record<string, boolean>>({})
 
 const TASK_LIST_ONLY_TOOL_NAMES = new Set(['TaskList', 'TaskCreate', 'TaskUpdate'])
+
+/** 待办 MCP 工具：图标与动作名一一对上，卡片才读得出 Agent 在动哪条待办。 */
+const TODO_TOOL_ICONS: Record<string, Component> = {
+  list_todos: ListTodo,
+  get_todo: ListTodo,
+  create_todo: Plus,
+  update_todo: FileEdit,
+  complete_todo: CheckCheck,
+  reopen_todo: RotateCcw,
+  delete_todo: Trash2,
+  set_reminders: BellRing,
+  list_groups: Folder,
+  create_group: FolderPlus,
+}
+
+const { t } = useI18n()
+
+function todoToolAction(name: string): string | null {
+  if (!name.startsWith(TODO_MCP_TOOL_PREFIX)) return null
+  const action = name.slice(TODO_MCP_TOOL_PREFIX.length)
+  return TODO_TOOL_ICONS[action] ? action : null
+}
 
 const TOOL_ICON_MAP: Record<string, Component> = {
   Bash: Terminal,
@@ -151,15 +176,23 @@ const TOOL_LABEL_MAP: Record<string, string> = {
 }
 
 function getToolIcon(name: string): Component {
+  const action = todoToolAction(name)
+  if (action) return TODO_TOOL_ICONS[action]
   return TOOL_ICON_MAP[name] || Code
 }
 
 function getToolLabel(name: string): string {
+  const action = todoToolAction(name)
+  if (action) return t(`todo.tools.${action}`)
   return TOOL_LABEL_MAP[name] || name
 }
 
 function getToolTarget(tool: ToolCall): string {
   const input = tool.input || {}
+  if (todoToolAction(tool.name)) {
+    const label = input.title || input.name || input.search || input.id
+    return typeof label === 'string' ? label : ''
+  }
   const value = input.file_path || input.path || input.command || input.pattern || input.query
   if (typeof value !== 'string') return ''
   const normalized = value.replace(/\\/g, '/')

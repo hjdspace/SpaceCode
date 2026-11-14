@@ -135,6 +135,11 @@ vi.mock('../../../session/engineChildProcess', () => ({
   isProbableBunExecutable: vi.fn(() => false),
 }))
 
+const todoMcp = vi.hoisted(() => ({ entry: null as { type: 'http'; url: string } | null }))
+vi.mock('../../../todo/todoMcpServer', () => ({
+  getTodoMcpEntry: () => todoMcp.entry,
+}))
+
 // 解析器现在静态 import child_process（不再是函数体里的 require），模块 mock 能拦住它 ——
 // 否则这些用例会真的去 shell out `where pi`，撞上本机装着 pi 的机器就不可复现。
 vi.mock('child_process', () => ({
@@ -401,6 +406,40 @@ describe('per-session tool face and MCP (#95)', () => {
   it('adds --no-mcp only when the session disabled MCP', () => {
     expect(privates(newProc({ disableMcp: true })).buildArgs()).toContain('--no-mcp')
     expect(privates(newProc()).buildArgs()).not.toContain('--no-mcp')
+  })
+})
+
+/**
+ * pi 只认最后一个 --append-system-prompt。待办提示要是单独再 push 一个 flag，
+ * 用户自己的追加提示词就被顶掉了 —— 所以两段必须合成同一个 flag。
+ */
+describe('buildArgs — todo availability hint', () => {
+  const entry = { type: 'http' as const, url: 'http://127.0.0.1:53123/mcp/s1' }
+
+  beforeEach(() => {
+    todoMcp.entry = null
+  })
+
+  it('merges the hint into the caller prompt under one flag', () => {
+    todoMcp.entry = entry
+    const args = privates(newProc({ appendSystemPrompt: 'respond in Chinese' })).buildArgs()
+    expect(args.filter(arg => arg === '--append-system-prompt')).toHaveLength(1)
+    const prompt = args[args.indexOf('--append-system-prompt') + 1]
+    expect(prompt.startsWith('respond in Chinese')).toBe(true)
+    expect(prompt).toContain('mcp__spacecode-todo__')
+  })
+
+  it('sends the hint alone when the caller gave no prompt', () => {
+    todoMcp.entry = entry
+    const args = privates(newProc()).buildArgs()
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('mcp__spacecode-todo__')
+  })
+
+  it('stays out of the prompt when MCP is disabled or the server is down', () => {
+    todoMcp.entry = entry
+    expect(privates(newProc({ disableMcp: true })).buildArgs().join(' ')).not.toContain('mcp__spacecode-todo__')
+    todoMcp.entry = null
+    expect(privates(newProc()).buildArgs()).not.toContain('--append-system-prompt')
   })
 })
 

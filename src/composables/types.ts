@@ -1,6 +1,7 @@
 /**
  * Shared types for ChatInput composables
  */
+import type { TodoReferenceItem } from '@/shared/todoReference'
 
 export interface ImageAttachment {
   id: string
@@ -36,4 +37,6 @@ export interface AllAttachments {
 
 export interface SendOptions {
   displayLabel?: string
+  /** 输入框里 @ 引用的待办快照；发送时展开成 <referenced_todos> 上下文块 */
+  todoReferences?: TodoReferenceItem[]
 }

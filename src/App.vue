@@ -32,6 +32,7 @@
           <AgentManager v-else-if="appStore.showAgentManager" />
           <McpManager v-else-if="appStore.showMCPManager" />
           <CronManager v-else-if="appStore.showCronManager" />
+          <TodoManager v-else-if="appStore.showTodoManager" />
           <WorkAssistantGallery v-else-if="appStore.showWorkGallery" />
           <DesignPage v-else-if="appStore.mode === 'design'" />
           <SplitContainer v-else-if="!appStore.showTraceViewer" />
@@ -152,6 +153,7 @@ const OldSkillsManager = defineAsyncComponent({
 const AgentManager = lazyPage(() => import('./components/agents/AgentManager.vue'))
 const McpManager = lazyPage(() => import('./components/mcp/McpManager.vue'))
 const CronManager = lazyPage(() => import('./components/cron/CronManager.vue'))
+const TodoManager = lazyPage(() => import('./components/todo/TodoManager.vue'))
 const WorkAssistantGallery = lazyPage(() => import('./components/work/WorkAssistantGallery.vue'))
 const WorkspaceOnboarding = lazyPage(() => import('./components/work/WorkspaceOnboarding.vue'))
 const OnboardingWizard = lazyPage(() => import('./components/onboarding/OnboardingWizard.vue'))

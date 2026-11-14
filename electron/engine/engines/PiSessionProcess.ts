@@ -29,6 +29,8 @@ import {
 import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
 import { findAgentDefinition } from './agentDefinitions'
 import { syncPiMcpConfigFromStore } from '../../tools/piMcpProjection'
+import { getTodoMcpEntry } from '../../todo/todoMcpServer'
+import { TODO_AVAILABILITY_HINT, TODO_MCP_SERVER_KEY } from '@/shared/todoReference'
 import { mergeRetrySettings } from './piRetrySettings'
 
 /**
@@ -1252,7 +1254,13 @@ export class PiSessionProcess extends EventEmitter {
    */
   private projectMcpConfig(): void {
     try {
-      const result = syncPiMcpConfigFromStore()
+      // 待办 MCP 是应用内服务器，只投影给这一次 spawn：URL 带本会话 id 与工作区，
+      // Agent 建的待办才能反查到会话、归到正确的项目。
+      const todoEntry = getTodoMcpEntry(this.sessionId, this.config.cwd)
+      const result = syncPiMcpConfigFromStore(
+        undefined,
+        todoEntry ? { [TODO_MCP_SERVER_KEY]: todoEntry } : undefined,
+      )
       if (result.error) {
         warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] MCP projection skipped | ${result.error}`)
         return
@@ -1312,7 +1320,12 @@ export class PiSessionProcess extends EventEmitter {
     // 带上 pi 自己的会话文件，否则新进程起来就是一个没有历史的新会话
     if (this._piSessionFile) args.push('--session', this._piSessionFile)
     if (this.config.systemPrompt) args.push('--system-prompt', this.config.systemPrompt)
-    if (this.config.appendSystemPrompt) args.push('--append-system-prompt', this.config.appendSystemPrompt)
+    // 待办提示与调用方的追加提示合成同一个 flag：pi 只认最后一个
+    // --append-system-prompt，分成两个会把用户的提示词顶掉。
+    const todoHint =
+      !this.config.disableMcp && getTodoMcpEntry(this.sessionId, this.config.cwd) ? TODO_AVAILABILITY_HINT : ''
+    const appendPrompt = [this.config.appendSystemPrompt, todoHint].filter(Boolean).join('\n\n')
+    if (appendPrompt) args.push('--append-system-prompt', appendPrompt)
 
     // plan 的只读语义全靠这个扩展（来路与口径见 piPlanModeExtension）：起进程时不带它，
     // 就等于「界面显示计划模式、工具照写不误」 (#45)。

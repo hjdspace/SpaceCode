@@ -25,6 +25,7 @@ import { registerSkillManagerV2IPCHandlers } from './skillManagerV2'
 import { registerAgentsIPCHandlers } from './skills/agentsService'
 import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './skills/artifactsService'
 import { registerCronIPCHandlers } from './cron/cronService'
+import { registerTodoIPCHandlers } from './todo/todoService'
 import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './tools/officeCliService'
 import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './tools/cuaDriverService'
 import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './tools/browserUseService'
@@ -277,6 +278,9 @@ app.whenReady().then(async () => {
 
   registerCronIPCHandlers()
   info('Startup', 'Cron IPC handlers registered')
+
+  registerTodoIPCHandlers()
+  info('Startup', 'Todo IPC handlers registered')
 
   registerOfficeCliIPCHandlers()
   info('Startup', 'OfficeCLI IPC handlers registered')

@@ -62,6 +62,11 @@ export interface InputInjectPayload {
     id: string
     text: string
   }
+  /** 待办引用: 输入框把它渲染成 todo chip, 发送时展开成 <referenced_todos> 上下文块 */
+  todo?: {
+    id: string
+    title: string
+  }
   /**
    * 注入的目标会话。存在多个 ChatInput 实例(分屏/侧边任务)时只有绑定该会话的
    * 实例消费; 缺省时由最先就绪的实例消费(保持旧行为)。
@@ -207,6 +212,7 @@ export const useAppStore = defineStore('app', () => {
   const showAgentManager = ref(false)
   const showConnectMobile = ref(false)
   const showCronManager = ref(false)
+  const showTodoManager = ref(false)
   // Work 模式：专业助手画廊 / 工作区引导
   const showWorkGallery = ref(false)
   const showWorkOnboarding = ref(false)
@@ -824,6 +830,7 @@ export const useAppStore = defineStore('app', () => {
     showAgentManager.value = false
     showMCPManager.value = false
     showCronManager.value = false
+    showTodoManager.value = false
     showTraceViewer.value = false
 
     const terminalStore = useTerminalStore()
@@ -850,6 +857,7 @@ export const useAppStore = defineStore('app', () => {
     showAgentManager.value = false
     showMCPManager.value = false
     showCronManager.value = false
+    showTodoManager.value = false
     showTraceViewer.value = false
 
     // 如果已有编排 tab，直接激活它（不重复创建）
@@ -877,6 +885,7 @@ export const useAppStore = defineStore('app', () => {
     showAgentManager.value = false
     showMCPManager.value = false
     showCronManager.value = false
+    showTodoManager.value = false
     showTraceViewer.value = false
 
     const existing = centerTabs.value.find(t => t.id.startsWith('factory-'))
@@ -904,6 +913,7 @@ export const useAppStore = defineStore('app', () => {
     showAgentManager.value = false
     showMCPManager.value = false
     showCronManager.value = false
+    showTodoManager.value = false
     showTraceViewer.value = false
 
     const existing = centerTabs.value.find(t => t.id === 'super-agent')
@@ -1264,6 +1274,7 @@ export const useAppStore = defineStore('app', () => {
     showAgentManager,
     showConnectMobile,
     showCronManager,
+    showTodoManager,
     showWorkGallery,
     showWorkOnboarding,
     webviewUrl,

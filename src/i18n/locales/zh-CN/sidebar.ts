@@ -12,6 +12,7 @@ export default {
   addProject: '添加项目',
   integratedTerminal: '集成终端',
   cron: '定时任务',
+  todo: '待办',
   terminalDesc: '在终端中运行命令并直接与 Claude CLI 交互。',
   openTerminal: '打开终端',
   startClaudeCLI: '启动 Claude CLI',

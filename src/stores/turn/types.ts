@@ -3,6 +3,7 @@
 // 从 index.ts 抽出，供 timelineAssembler / turnStateMachine / index 共用。
 
 import type { Attachment } from '@/composables/types'
+import type { TodoReferenceItem } from '@/shared/todoReference'
 
 // 单个会话当前进行中的 turn 状态。turnStates 中无此 sessionId 条目 === 该会话 idle。
 export interface TurnState {
@@ -66,6 +67,8 @@ export interface PendingMessage {
   attachments: Attachment[]
   images: { id: string; name: string; type: 'image'; mimeType: string; previewUrl: string; data: string }[]
   displayLabel?: string
+  /** 入队时抓取的待办快照：出队重放时不再经过输入框，标记只能靠它展开 */
+  todoReferences?: TodoReferenceItem[]
   priority: 'now' | 'later'
   createdAt: number
 }

@@ -355,9 +355,19 @@ export function syncPiMcpConfig(servers: Record<string, PersistedMcpServer>, hom
   return { path, ...merged, wrote: true }
 }
 
-/** 从真相源 `mcp-servers.json` 投影并落盘，pi 会话 spawn 前调用 */
-export function syncPiMcpConfigFromStore(homeDir?: string): PiMcpSyncResult {
-  return syncPiMcpConfig(loadMcpConfig(), homeDir)
+/**
+ * 从真相源 `mcp-servers.json` 投影并落盘，pi 会话 spawn 前调用。
+ *
+ * extraServers 是只存在于本次运行的条目（如应用内的待办 MCP 服务器）：
+ * 它们带端口和凭证，不该持久化，也不该出现在 MCP 设置面板里，
+ * 所以走参数而不是写进 store。
+ */
+export function syncPiMcpConfigFromStore(
+  homeDir?: string,
+  extraServers?: Record<string, PersistedMcpServer>,
+): PiMcpSyncResult {
+  const servers = extraServers ? { ...loadMcpConfig(), ...extraServers } : loadMcpConfig()
+  return syncPiMcpConfig(servers, homeDir)
 }
 
 /** 面板要展示的「别人写的」pi server（本项目管理的条目不在其中） */

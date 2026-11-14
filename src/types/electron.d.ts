@@ -27,6 +27,7 @@ import type { GitRendererApi } from '@/shared/channels/git'
 import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
 import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
 import type { VoiceRendererApi, VoiceEventApi } from '@/shared/channels/voice'
+import type { TodoRendererApi, TodoEventApi } from '@/shared/channels/todo'
 import type { FactoryRendererApi, FactoryEventApi } from '@/shared/channels/factory'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
@@ -427,6 +428,8 @@ export interface ElectronUpdateAPI extends UpdateRendererApi, UpdateEventApi {}
 
 export interface ElectronVoiceAPI extends VoiceRendererApi, VoiceEventApi {}
 
+export interface ElectronTodoAPI extends TodoRendererApi, TodoEventApi {}
+
 export interface ElectronImWechatAPI {
   startQrLogin: () => Promise<{ qrcodeUrl: string; qrcodeId: string }>
   checkQrStatus: (qrcodeId: string) => Promise<{
@@ -568,6 +571,7 @@ export interface ElectronAPI {
   rtk: ElectronRtkAPI
   update: ElectronUpdateAPI
   voice: ElectronVoiceAPI
+  todo: ElectronTodoAPI
   cron: ElectronCronAPI
   factory: ElectronFactoryAPI
   superAgent: ElectronSuperAgentAPI

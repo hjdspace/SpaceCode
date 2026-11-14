@@ -6,6 +6,39 @@
  * MessageItem / MarkdownRenderer 里渲染消息正文中的同名 chip，各自还留着自己的
  * 一份样式，需要时可以 @use 这里复用。
  */
+/* 待办引用 chip 的皮：输入框、用户气泡、助手正文共用一份，violet 与 mention/command 区分。
+ * 单独成 mixin（而不是塞进 composer-chips）是因为消息侧只要外观，不要删除按钮那套。 */
+@mixin todo-reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  margin: 0 2px;
+  background: color-mix(in srgb, var(--todo-hue-violet) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--todo-hue-violet) 32%, transparent);
+  border-radius: var(--radius-xs);
+  color: var(--todo-hue-violet);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  vertical-align: baseline;
+  white-space: nowrap;
+
+  .chip-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+
+  .chip-name {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--font-weight-medium);
+  }
+}
+
 @mixin composer-chips {
 // Shared delete button styles for chips.
 // chip 节点由 useContentEditor 动态创建, 无 scoped 属性, 必须 :deep 才能命中
@@ -99,6 +132,22 @@
     flex-shrink: 0;
     cursor: zoom-in;
     display: block;
+  }
+}
+
+// Inline todo reference chip styles
+:deep(.todo-chip) {
+  @include todo-reference-chip;
+  position: relative;
+  padding-right: 6px;
+  cursor: default;
+  user-select: none;
+
+  &:hover .chip-delete-btn {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1);
+    pointer-events: auto;
   }
 }
 

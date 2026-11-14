@@ -74,6 +74,7 @@ import genui from './genui'
 import factory from './factory'
 import superAgent from './superAgent'
 import archive from './archive'
+import todo from './todo'
 
 export default {
   common,
@@ -152,4 +153,5 @@ export default {
   factory,
   superAgent,
   archive,
+  todo,
 }

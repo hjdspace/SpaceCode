@@ -12,6 +12,7 @@ export default {
   addProject: 'Add Project',
   integratedTerminal: 'Integrated Terminal',
   cron: 'Cron Tasks',
+  todo: 'Todos',
   terminalDesc: 'Run commands and interact with Claude CLI directly in the terminal.',
   openTerminal: 'Open Terminal',
   startClaudeCLI: 'Start Claude CLI',

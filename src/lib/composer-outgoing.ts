@@ -6,6 +6,7 @@
  * 语义在所有宿主逐字一致（零副本）。纯函数，不做 DOM/store 操作。
  */
 import type { AllAttachments, SendOptions } from '@/composables/types'
+import { buildTodoReferenceBlock, replaceTodoMarkersWithTitles } from '@/shared/todoReference'
 
 export interface OutgoingMessage {
   /** 发给引擎的正文（含 @"路径" 引用与附件摘要块） */
@@ -20,7 +21,10 @@ export function buildOutgoingMessage(
   options?: SendOptions,
 ): OutgoingMessage {
   const userTyped = content.trim()
-  let messageContent = userTyped
+  // @todo 引用：引擎正文里标记换成可读标题（id 已在上下文块里，正文再留一串编码只是噪声）；
+  // 气泡正文保留标记，MessageItem 才能把它渲染回 chip。
+  const todoReferences = options?.todoReferences ?? []
+  let messageContent = todoReferences.length > 0 ? replaceTodoMarkersWithTitles(userTyped) : userTyped
 
   // 上传/粘贴的附件用引擎认识的 @"绝对路径" 引用写进正文，模型才能真正读到文件内容；
   // 展示用的气泡正文不包含这些引用（见下方 displayLabel）。
@@ -51,6 +55,12 @@ export function buildOutgoingMessage(
     } else {
       messageContent = `Images: ${imageInfo}`
     }
+  }
+
+  // 引用块最后拼、放最前面：附件引用与摘要块的既有格式不受影响。
+  if (todoReferences.length > 0) {
+    const todoBlock = buildTodoReferenceBlock(todoReferences)
+    messageContent = messageContent ? `${todoBlock}\n\n${messageContent}` : todoBlock
   }
 
   const displayLabel = options?.displayLabel && options.displayLabel !== messageContent
