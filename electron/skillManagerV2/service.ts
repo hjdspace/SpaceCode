@@ -25,12 +25,34 @@ import {
   buildFileTree,
   removePath,
   copyDirRecursive,
+  collectRelativeFiles,
+  discoverAgentSkillPaths,
   expandTilde,
   inferSkillId,
   inspectPath,
   isSymlink,
+  normalizePathKey,
   pathExists,
+  readRelativeFile,
+  sanitizeBasename,
 } from './fsutil'
+import { readMcpServers, readPlugins } from './agentConfigReaders'
+import type {
+  AgentRow,
+  AgentDetailRow,
+  SkillRow,
+  TargetBadgeRow,
+  PackRow,
+  UnmanagedRow,
+  IssueRow,
+  SkillDetailRow,
+  SourceRow,
+  TargetRow,
+  ClaimRow,
+  PackDetailRow,
+  PackMemberRow,
+  TargetSyncRow,
+} from './rows'
 import { scanCenterLibrary } from './scanner'
 import { SkillInstaller } from './skillInstaller'
 import {
@@ -48,7 +70,6 @@ import {
   getBuiltInAgent,
   getBuiltInAgents,
   inheritsSharedAgentsSkills,
-  pathsForAgent,
   pluginCachePathForAgent,
   readOnlyAgentSkillDirs,
   sharedSkillsDir,
@@ -101,8 +122,6 @@ import type {
   CopyTargetDiffFile,
   CopySyncStatus,
   AgentDetail,
-  McpServerStatus,
-  PluginStatus,
   AgentSkillInventoryAgent,
   AgentSkillInventoryItem,
 } from '@/types/skillManagerV2'
@@ -586,7 +605,7 @@ export class SkillManagerService {
    * Re-scan every registered agent's skill directories into the DB.
    * Each agent scan wipes and rewrites its unmanaged rows.
    */
-  scanAllAgentsIntoDb(): void {
+  private scanAllAgentsIntoDb(): void {
     const rows = this.db.conn
       .prepare('SELECT id FROM agents ORDER BY id')
       .all() as Array<{ id: string }>
@@ -2771,401 +2790,4 @@ function uuidShort(): string {
 function unmanagedItemId(agentId: string, itemPath: string): string {
   const digest = crypto.createHash('sha1').update(itemPath).digest('hex').slice(0, 16)
   return `unm-${agentId}-${digest}`
-}
-
-function readMcpServers(agentId: string): McpServerStatus[] {
-  const configPath = pathsForAgent(agentId)?.mcpConfig
-  if (!configPath || !pathExists(configPath)) return []
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  } catch {
-    return []
-  }
-  const servers = (parsed as { mcpServers?: Record<string, unknown> }).mcpServers
-  if (!servers || typeof servers !== 'object') return []
-  return Object.entries(servers).map(([name, raw]) => {
-    const config = raw as { command?: unknown; url?: unknown; args?: unknown }
-    const command = typeof config.command === 'string'
-      ? config.command
-      : typeof config.url === 'string' ? config.url : ''
-    const args = Array.isArray(config.args)
-      ? config.args.filter((arg): arg is string => typeof arg === 'string')
-      : []
-    return {
-      name,
-      command,
-      args,
-      valid: command.length > 0,
-      message: command.length > 0 ? 'configured' : 'missing command',
-    }
-  })
-}
-
-function readPlugins(agentId: string): PluginStatus[] {
-  if (agentId !== 'claude-code') return []
-  const cache = pluginCachePathForAgent(agentId)
-  if (!cache) return []
-  // 设置文件走注册表：那里已经尊重 CLAUDE_CONFIG_DIR，硬编码 ~/.claude 会读错目录
-  const settingsFile = getBuiltInAgent(agentId)?.configPath
-  const enabledPlugins = settingsFile ? readEnabledPlugins(settingsFile) : {}
-  const manifests = collectPluginManifests(cache, 0)
-  const plugins = new Map<string, PluginStatus>()
-
-  for (const manifestPath of manifests) {
-    let manifest: {
-      name?: unknown
-      displayName?: unknown
-      version?: unknown
-      interface?: { displayName?: unknown }
-    }
-    try {
-      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as typeof manifest
-    } catch {
-      continue
-    }
-    const name = typeof manifest.name === 'string' ? manifest.name.trim() : ''
-    if (!name) continue
-    const relative = path.relative(cache, manifestPath)
-    const source = relative.split(path.sep)[0] || null
-    const configKey = source ? `${name}@${source}` : name
-    const enabled = enabledPlugins[configKey] ?? enabledPlugins[name] ?? true
-    const plugin: PluginStatus = {
-      id: configKey,
-      name: typeof manifest.interface?.displayName === 'string'
-        ? manifest.interface.displayName
-        : typeof manifest.displayName === 'string' ? manifest.displayName : name,
-      version: typeof manifest.version === 'string' ? manifest.version : null,
-      enabled,
-      source: source ? `claude-plugin:${source}` : 'claude-plugin',
-    }
-    const existing = plugins.get(plugin.id)
-    if (!existing || (plugin.version ?? '') > (existing.version ?? '')) plugins.set(plugin.id, plugin)
-  }
-  return [...plugins.values()].sort((a, b) => a.name.localeCompare(b.name))
-}
-
-function collectPluginManifests(dir: string, depth: number): string[] {
-  if (depth > 8) return []
-  let entries: fs.Dirent[]
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return []
-  }
-  const result: string[] = []
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const child = path.join(dir, entry.name)
-    const manifest = path.join(child, '.claude-plugin', 'plugin.json')
-    if (pathExists(manifest)) {
-      result.push(manifest)
-      continue
-    }
-    result.push(...collectPluginManifests(child, depth + 1))
-  }
-  return result
-}
-
-function readEnabledPlugins(settingsPath: string): Record<string, boolean> {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { enabledPlugins?: unknown }
-    const enabled = parsed.enabledPlugins
-    if (!enabled || typeof enabled !== 'object') return {}
-    return Object.fromEntries(
-      Object.entries(enabled).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'),
-    )
-  } catch {
-    return {}
-  }
-}
-
-// ── Internal row types ─────────────────────────────────────────────
-
-interface AgentRow {
-  id: string
-  display_name: string
-  skills_dir: string | null
-  config_path: string | null
-  mcp_config_path: string | null
-  plugin_dir: string | null
-  version: string | null
-  latest_version: string | null
-  enabled: number
-  last_scanned_at: string | null
-  managed_count: number
-  unmanaged_count: number
-}
-
-interface AgentDetailRow extends AgentRow {
-  mcp_config_path: string | null
-}
-
-interface SkillRow {
-  id: string
-  name: string
-  description: string
-  skill_type: string
-  center_path: string
-  current_hash: string
-  created_at: string
-  updated_at: string
-  source_type: string | null
-}
-
-interface TargetBadgeRow {
-  agent_id: string
-  actual_mode: string
-  status: string
-  display_name: string
-}
-
-interface PackRow {
-  id: string
-  name: string
-  description: string
-  tags_json: string
-  created_at: string
-  updated_at: string
-  member_count: number
-  applied_agent_count: number
-}
-
-interface UnmanagedRow {
-  id: string
-  item_type: string
-  agent_id: string | null
-  path: string
-  inferred_skill_id: string | null
-  hash: string | null
-  reason: string
-  first_seen_at: string
-  last_seen_at: string
-}
-
-interface IssueRow {
-  id: string
-  issue_type: string
-  severity: string
-  entity_type: string
-  entity_id: string | null
-  title: string
-  detail: string
-  fix_kind: string
-  payload_json: string
-  created_at: string
-  resolved_at: string | null
-}
-
-interface SkillDetailRow {
-  id: string
-  name: string
-  description: string
-  skill_type: string
-  center_path: string
-  current_hash: string
-  frontmatter_json: string
-  created_at: string
-  updated_at: string
-  last_scanned_at: string | null
-}
-
-interface SourceRow {
-  skill_id: string
-  source_type: string
-  source_uri: string | null
-  source_ref: string | null
-  imported_from_agent: string | null
-  imported_from_path: string | null
-  installed_via: string
-  created_at: string
-  updated_at: string
-}
-
-interface TargetRow {
-  id: string
-  skill_id: string
-  agent_id: string
-  target_path: string
-  install_mode: string
-  actual_mode: string
-  source_hash: string
-  current_hash: string | null
-  status: string
-  created_at: string
-  updated_at: string
-}
-
-interface ClaimRow {
-  id: string
-  target_id: string
-  claim_type: string
-  pack_id: string | null
-  created_at: string
-}
-
-interface PackDetailRow {
-  id: string
-  name: string
-  description: string
-  tags_json: string
-  created_at: string
-  updated_at: string
-}
-
-interface PackMemberRow {
-  pack_id: string
-  skill_id: string
-  sort_order: number
-  required: number
-  skill_name: string | null
-}
-
-interface TargetSyncRow {
-  id: string
-  skill_id: string
-  target_path: string
-  source_hash: string
-  current_hash: string | null
-  actual_mode: string
-}
-
-interface AgentDetailRow {
-  id: string
-  display_name: string
-  skills_dir: string | null
-  config_path: string | null
-  version: string | null
-  last_scanned_at: string | null
-}
-
-// ── Copy sync helpers ──────────────────────────────────────────────
-
-/** Collect relative file paths from a directory (non-recursive, flat). */
-function collectRelativeFiles(dir: string): Set<string> {
-  const result = new Set<string>()
-  collectRelativeFilesRecursive(dir, '', result)
-  return result
-}
-
-function collectRelativeFilesRecursive(baseDir: string, relPrefix: string, out: Set<string>): void {
-  let entries: fs.Dirent[]
-  try {
-    entries = fs.readdirSync(baseDir, { withFileTypes: true })
-  } catch {
-    return
-  }
-  for (const entry of entries) {
-    if (isIgnoredEntry(entry.name)) continue
-    const rel = relPrefix ? path.join(relPrefix, entry.name) : entry.name
-    if (entry.isDirectory()) {
-      if (entry.isSymbolicLink()) continue
-      collectRelativeFilesRecursive(path.join(baseDir, entry.name), rel, out)
-    } else if (entry.isFile()) {
-      out.add(rel)
-    }
-  }
-}
-
-/** Read a file relative to a base directory. Returns null if not found. */
-function readRelativeFile(baseDir: string, relPath: string): string | null {
-  const fullPath = path.join(baseDir, relPath)
-  try {
-    return fs.readFileSync(fullPath, 'utf-8')
-  } catch {
-    return null
-  }
-}
-
-/**
- * Discover skill directories beneath an agent scan root.
- * Only recurses when `recursive` (OpenClaw + shared .agents root); skill
- * directories are collected without descending into them. Hidden entries and
- * ignored names are skipped — except `node_modules`, which the shared root may
- * traverse when `includeDependencyDirs` is set. Results are sorted with
- * non-symlinks first, then deduped by canonicalized path.
- * Reference: AgentBro `service.rs` `discover_agent_skill_paths`.
- */
-function discoverAgentSkillPaths(
-  root: string,
-  recursive: boolean,
-  includeDependencyDirs: boolean
-): string[] {
-  const out: string[] = []
-  discoverAgentSkillPathsInner(root, recursive, includeDependencyDirs, 0, out)
-  out.sort((a, b) => {
-    const aIsLink = isSymlink(a)
-    const bIsLink = isSymlink(b)
-    return Number(aIsLink) - Number(bIsLink) || a.localeCompare(b)
-  })
-  const seen = new Set<string>()
-  return out.filter((p) => {
-    let canon = p
-    try {
-      canon = fs.realpathSync(p)
-    } catch {
-      // Keep the lexical path when the target disappears during a scan.
-    }
-    if (seen.has(canon)) return false
-    seen.add(canon)
-    return true
-  })
-}
-
-function discoverAgentSkillPathsInner(
-  dir: string,
-  recursive: boolean,
-  includeDependencyDirs: boolean,
-  depth: number,
-  out: string[]
-): void {
-  if (depth > 8) return
-  let entries: fs.Dirent[]
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return
-  }
-  for (const entry of entries) {
-    const name = entry.name
-    const ignored = isIgnoredEntry(name) && !(includeDependencyDirs && name === 'node_modules')
-    if (ignored || name.startsWith('.')) continue
-    const childPath = path.join(dir, name)
-    let isDir: boolean
-    try {
-      isDir = fs.statSync(childPath).isDirectory()
-    } catch {
-      continue
-    }
-    if (!isDir) continue
-    if (isSkillDir(childPath)) {
-      out.push(childPath)
-      continue
-    }
-    if (recursive) {
-      discoverAgentSkillPathsInner(childPath, recursive, includeDependencyDirs, depth + 1, out)
-    }
-  }
-}
-
-/** Sanitized directory name fallback for unmanaged rows without an inferred id. */
-function sanitizeBasename(p: string): string {
-  const base = path.basename(p)
-  let out = ''
-  let prevDash = false
-  for (const ch of base) {
-    if (/[a-zA-Z0-9]/.test(ch) || ch === '-' || ch === '_') {
-      out += ch
-      prevDash = ch === '-'
-    } else if (!prevDash && out.length > 0) {
-      out += '-'
-      prevDash = true
-    }
-  }
-  return out.replace(/^-+|-+$/g, '') || 'skill'
-}
-
-function normalizePathKey(value: string): string {
-  const normalized = path.normalize(value)
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
