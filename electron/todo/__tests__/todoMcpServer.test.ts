@@ -238,6 +238,8 @@ describe('protocol envelope', () => {
       const result = JSON.parse(res.body).result
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toContain('store exploded')
+      // 外壳抽出去之后这句文案仍须一字不变：本票是 prefactor，模型可见行为零变化。
+      expect(result.content[0].text).toContain('The todo tool failed unexpectedly:')
     } finally {
       await broken.stop()
     }
