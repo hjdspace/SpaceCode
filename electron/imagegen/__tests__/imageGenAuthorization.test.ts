@@ -47,6 +47,44 @@ function harness(overrides: Partial<Parameters<typeof createImageGenAuthorizatio
   }
 }
 
+describe('改图授权卡', () => {
+  it('正文写明这是改图与参考图张数，选项签名不变、仍不被 plan-mode 认走', async () => {
+    const h = harness()
+
+    const decision = h.authorization.authorize({ ...REQUEST, prompt: 'make it warm', referenceCount: 2 })
+
+    const dialog = h.dialogs[0].request
+    expect(dialog.title).toBe('允许这次改图吗？')
+    expect(dialog.options).toEqual(['允许一次', '本会话总是允许', '拒绝'])
+    const body = h.body()
+    expect(body).toContain('参考图：2 张')
+    expect(body).toContain('make it warm')
+    expect(body).toContain('计费')
+    expect(matchPlanActionDialog(dialog)).toBe(false)
+
+    h.authorization.respond(dialog.dialogId, { kind: 'value', value: '允许一次' })
+    await expect(decision).resolves.toBe('allow')
+  })
+
+  it('英文界面下同样是改图口径', () => {
+    const h = harness({ locale: () => 'en-US' })
+
+    void h.authorization.authorize({ ...REQUEST, referenceCount: 3 })
+
+    expect(h.dialogs[0].request.title).toBe('Allow this image edit?')
+    expect(h.body()).toContain('Reference images: 3')
+  })
+
+  it('文生图不带参考图行，标题仍是生图', () => {
+    const h = harness()
+
+    void h.authorization.authorize(REQUEST)
+
+    expect(h.dialogs[0].request.title).toBe('允许这次生图吗？')
+    expect(h.body()).not.toContain('参考图')
+  })
+})
+
 describe('生图宿主授权闸门', () => {
   it('未授权时先问出来：select 形态、宿主自铸 id、正文交代供应商/模型/张数/提示词/计费', async () => {
     const h = harness()

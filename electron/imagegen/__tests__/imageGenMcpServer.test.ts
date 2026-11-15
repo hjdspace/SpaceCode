@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 // 真实的 MCP 客户端来自引擎自带的 SDK：生图工具能不能被 Agent 调起来，
@@ -94,7 +94,7 @@ describe('生图 MCP 服务器', () => {
     )
 
     const tools = await client.listTools()
-    expect(tools.tools.map(tool => tool.name)).toEqual(['generate_image'])
+    expect(tools.tools.map(tool => tool.name)).toEqual(['generate_image', 'edit_image'])
     expect(client.getServerVersion()?.name).toBe('spacecode-imagegen')
     expect(client.getInstructions()).toContain('generate_image')
 
@@ -118,6 +118,47 @@ describe('生图 MCP 服务器', () => {
     const closed = mockState.sent[mockState.sent.length - 1]
     expect(closed.channel).toBe('claude-code:extension_dialog_closed')
     expect(closed.payload.data).toEqual({ dialogId: frame.payload.data.dialogId, method: 'select', reason: 'answered' })
+  })
+
+  it('真实 SDK 客户端能调改图：授权卡写明改图与张数，走 edits 且不覆盖源文件', async () => {
+    const source = join(root, 'src.png')
+    writeFileSync(source, PNG)
+    const fetchImpl = provider()
+    await startImageGenMcpServer({
+      permissionMode: () => 'default',
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      locale: () => 'zh-CN',
+    })
+
+    client = new Client({ name: 'spacecode-test-client', version: '1.0.0' })
+    const entry = getImageGenMcpEntry('session-edit', root)!
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers } }),
+    )
+
+    const calling = client.callTool({
+      name: 'edit_image',
+      arguments: { prompt: 'make it warm', imagePaths: ['src.png'], nameHint: 'warm' },
+    })
+
+    await vi.waitFor(() => expect(mockState.sent).toHaveLength(1))
+    const dialog = mockState.sent[0].payload.data as ExtensionDialogRequest
+    expect(dialog.title).toBe('允许这次改图吗？')
+    expect(dialog.message ?? '').toContain('参考图：1 张')
+    expect(respondImageGenDialog(dialog.dialogId, { kind: 'value', value: '允许一次' })).toBe(true)
+
+    const result = await calling
+    expect(result.isError).toBeFalsy()
+    const body = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(body.referenceCount).toBe(1)
+    expect(body.images[0].path).toBe(join(root, 'outputs', 'imagegen', 'warm.png'))
+    expect(existsSync(body.images[0].path)).toBe(true)
+    expect(readFileSync(source).equals(PNG)).toBe(true)
+
+    const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.test/v1/images/edits')
+    expect((init.body as FormData).getAll('image')).toHaveLength(1)
   })
 
   it('没在监听时不给条目，绝不递一个连不上的地址', async () => {

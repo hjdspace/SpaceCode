@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
-import { IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_TOOL_NAMES } from '@electron/imagegen/imageGenTools'
+import { IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_TOOL_NAMES } from '@electron/imagegen/imageGenTools'
 import { parseFrontmatterText } from '@electron/skillManagerV2/fsutil'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -38,6 +38,15 @@ describe('imagegen 技能正文', () => {
   it('正文与参考文档引用的工具名集合与工具定义完全一致，没有编造的工具', () => {
     const mentioned = new Set([...shipped.matchAll(/mcp__spacecode-imagegen__([a-z_]+)/g)].map(match => match[1]))
     expect([...mentioned].sort()).toEqual([...IMAGEGEN_TOOL_NAMES].sort())
+  })
+
+  it('改图失败不得替换为重新生成，且交代源文件不被覆盖', () => {
+    expect(body).toContain('改图失败不得替换为重新生成')
+    expect(body).toContain('源文件永远不会被覆盖')
+  })
+
+  it('技能正文写的参考图上限与工具面一致', () => {
+    expect(body).toContain(`1–${IMAGEGEN_MAX_INPUT_IMAGES} 张`)
   })
 
   it('不残留外部 CLI 的目录变量、脚本名、他家模型名、抠色指令与环境变量式凭证', () => {

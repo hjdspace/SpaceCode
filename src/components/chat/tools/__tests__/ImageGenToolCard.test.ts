@@ -175,6 +175,61 @@ describe('部分成功', () => {
   })
 })
 
+describe('改图结果', () => {
+  const EDIT = { model: 'gpt-image-1', referenceCount: 2, images: [{ path: PNG_PATH, size: '1024x1024' }] }
+  const EDIT_CALL = { name: 'mcp__spacecode-imagegen__edit_image', input: { prompt: 'make it warm', imagePaths: ['a.png', 'b.png'] } }
+
+  it('标题与徽标写明这是改图与参考图张数，结果图照常渲染', async () => {
+    const wrapper = setup(makeToolCall(EDIT, EDIT_CALL))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('改图')
+    expect(wrapper.find('.ig-references').text()).toBe('参考图 2 张')
+    expect(wrapper.find('img.ig-thumb').attributes('src')).toBe('data:image/png;base64,QUJD')
+  })
+
+  it('文生图不显示改图标题与参考图徽标', async () => {
+    const wrapper = setup(makeToolCall({ model: 'm', images: [{ path: PNG_PATH }] }))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('生图')
+    expect(wrapper.find('.ig-references').exists()).toBe(false)
+  })
+
+  it('英文界面下改图文案跟随语言', async () => {
+    i18n.global.locale.value = 'en-US'
+    const wrapper = setup(makeToolCall(EDIT, EDIT_CALL))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('Image edit')
+    expect(wrapper.find('.ig-references').text()).toBe('References: 2')
+  })
+
+  it('改图整次失败时同样给失败态，不冒充成功', async () => {
+    const wrapper = setup(makeToolCall('The "zhipu" dialect does not support image editing.', { ...EDIT_CALL, status: 'error' }))
+    await flush()
+
+    expect(wrapper.find('.ig-call-error').text()).toContain('does not support image editing')
+    expect(wrapper.find('.ig-grid').exists()).toBe(false)
+  })
+
+  // 失败输出是纯文本、在途时压根没有输出：身份只能来自工具名，不能来自返回值。
+  it('改图失败时标题仍是改图，张数取自入参', async () => {
+    const wrapper = setup(makeToolCall('The "zhipu" dialect does not support image editing.', { ...EDIT_CALL, status: 'error' }))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('改图')
+    expect(wrapper.find('.ig-references').text()).toBe('参考图 2 张')
+  })
+
+  it('改图还没返回时标题就是改图', async () => {
+    const wrapper = setup(makeToolCall('', { ...EDIT_CALL, status: 'running' }))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('改图')
+  })
+})
+
 describe('失败文案与凭证', () => {
   it('稳定错误码渲染成可读文案，不回显供应商原文里的 key', async () => {
     const wrapper = setup(makeToolCall({

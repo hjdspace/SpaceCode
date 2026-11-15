@@ -24,6 +24,8 @@ export interface ImageGenAuthorizationRequest {
   model: string
   count: number
   prompt: string
+  /** 有值即为改图：卡片要让用户看出这次是在改他们那张图，以及送出去几张参考图。 */
+  referenceCount?: number
 }
 
 export interface ImageGenAuthorizationDeps {
@@ -47,17 +49,24 @@ type Locale = 'zh-CN' | 'en-US'
 /** 选项顺序即决议顺序：allow / always / deny。应答按序号认，语言中途换了也不会错位。 */
 const DECISIONS: ImageGenDecision[] = ['allow', 'always', 'deny']
 
-const TEXT: Record<Locale, { title: string; options: string[]; billing: string; labels: [string, string, string, string] }> = {
+const TEXT: Record<
+  Locale,
+  { title: string; editTitle: string; options: string[]; billing: string; reference: string; labels: [string, string, string, string] }
+> = {
   'zh-CN': {
     title: '允许这次生图吗？',
+    editTitle: '允许这次改图吗？',
     options: ['允许一次', '本会话总是允许', '拒绝'],
     billing: '这会向供应商发出一次计费请求，费用计入你自己的账号。',
+    reference: '参考图：{count} 张',
     labels: ['供应商：', '模型：', '张数：', '提示词：'],
   },
   'en-US': {
     title: 'Allow this image generation?',
+    editTitle: 'Allow this image edit?',
     options: ['Allow once', 'Always allow for this session', 'Deny'],
     billing: 'This sends a billable request to the provider; the cost is charged to your own account.',
+    reference: 'Reference images: {count}',
     labels: ['Provider: ', 'Model: ', 'Images: ', 'Prompt: '],
   },
 }
@@ -105,11 +114,14 @@ export function createImageGenAuthorization(deps: ImageGenAuthorizationDeps): Im
       const dialog: ExtensionDialogRequest = {
         dialogId,
         method: 'select',
-        title: text.title,
+        title: request.referenceCount ? text.editTitle : text.title,
         message: [
           `${text.labels[0]}${request.provider}`,
           `${text.labels[1]}${request.model}`,
           `${text.labels[2]}${request.count}`,
+          ...(request.referenceCount
+            ? [text.reference.replace('{count}', String(request.referenceCount))]
+            : []),
           `${text.labels[3]}${promptSummary(request.prompt)}`,
           text.billing,
         ].join('\n'),

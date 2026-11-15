@@ -2,7 +2,8 @@
   <div class="imagegen-card">
     <div class="ig-head">
       <ImageIcon :size="14" class="ig-icon" />
-      <span class="ig-title">{{ t('imageGen.card.title') }}</span>
+      <span class="ig-title">{{ t(isEdit ? 'imageGen.card.editTitle' : 'imageGen.card.title') }}</span>
+      <span v-if="referenceCount" class="ig-references">{{ t('imageGen.card.referenceCount', { count: referenceCount }) }}</span>
       <span v-if="model" class="ig-model">{{ t('imageGen.card.model', { model }) }}</span>
       <span v-if="summary" class="ig-summary">{{ summary }}</span>
     </div>
@@ -84,12 +85,13 @@ const canReveal = api.shell.canShowItemInFolder
 const zoomed = ref<number | null>(null)
 
 /** 工具成功时返回 JSON；整次失败时是纯文本，解析不出来就没有逐图报告。 */
-const payload = computed<{ model?: string; images: ImageItem[] }>(() => {
+const payload = computed<{ model?: string; referenceCount?: number; images: ImageItem[] }>(() => {
   try {
     const parsed = JSON.parse(props.toolCall.output ?? '')
     const images = Array.isArray(parsed?.images) ? parsed.images : []
     return {
       model: typeof parsed?.model === 'string' ? parsed.model : undefined,
+      referenceCount: typeof parsed?.referenceCount === 'number' ? parsed.referenceCount : undefined,
       images: images.filter((i: unknown): i is ImageItem => !!i && typeof i === 'object'),
     }
   } catch {
@@ -99,6 +101,13 @@ const payload = computed<{ model?: string; images: ImageItem[] }>(() => {
 
 const items = computed(() => payload.value.images)
 const model = computed(() => payload.value.model)
+/** 身份取自工具名：整次失败时输出是纯文本、在途时还没有输出，返回值认不出这是改图。 */
+const isEdit = computed(() => props.toolCall.name.endsWith('__edit_image'))
+const referenceCount = computed(() => {
+  if (payload.value.referenceCount) return payload.value.referenceCount
+  const paths: unknown = props.toolCall.input?.imagePaths
+  return isEdit.value && Array.isArray(paths) ? paths.length : undefined
+})
 const isCallError = computed(() => props.toolCall.status === 'error')
 
 /** 早期工具面不带 status：有路径即成功，没路径即失败。 */
@@ -201,6 +210,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .ig-model,
+.ig-references,
 .ig-summary {
   color: var(--text-secondary);
   font-size: var(--text-xs-plus);

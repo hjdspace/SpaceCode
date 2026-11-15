@@ -54,7 +54,7 @@ export function decodeBoundedBase64(b64: string, maxBytes: number = MAX_IMAGE_BY
   return bytes
 }
 
-/** multipart 单图用单数字段名、多图用数组字段名（改图票 #111 会用到）。 */
+/** multipart 单图用单数字段名、多图用数组字段名。 */
 export function imageMultipartFieldName(imageCount: number): string {
   return imageCount > 1 ? 'image[]' : 'image'
 }
@@ -68,37 +68,12 @@ export async function generateImages(
   const images = request.images ?? []
   const editing = images.length > 0
 
-  // 方言不是「兼容协议」：本期只实现 openai，其余明确拒绝，不按 OpenAI 形状乱发请求。
-  // 改图尤其不能降级成重新生成：那会产出一张与用户意图无关的图，而用户以为改图成功了。
-  if (config.dialect !== 'openai') {
-    return {
-      ok: false,
-      error: editing
-        ? `The "${config.dialect}" dialect does not support image editing. Ask the user to pick a provider that does (Settings → Image model); do not retry as a fresh generation.`
-        : `Unsupported image dialect "${config.dialect}".`,
-    }
-  }
-
-  const headers: Record<string, string> = { Authorization: `Bearer ${config.apiKey}` }
-  let body: FormData | string
-  if (editing) {
-    body = editForm(config, request, images)
-  } else {
-    headers['Content-Type'] = 'application/json'
-    const payload: Record<string, unknown> = { model: config.model, prompt: request.prompt }
-    // 不发 response_format：gpt-image 系恒回 b64_json，dall-e 系默认回 url，两种都解。
-    if (request.size) payload.size = request.size
-    body = JSON.stringify(payload)
-  }
+  const built = buildRequest(config, request, images, editing)
+  if ('error' in built) return { ok: false, error: built.error }
 
   const signal = AbortSignal.timeout(IMAGEGEN_TIMEOUT_MS)
   try {
-    const res = await fetchImpl(`${config.baseUrl}/images/${editing ? 'edits' : 'generations'}`, {
-      method: 'POST',
-      headers,
-      body,
-      signal,
-    })
+    const res = await fetchImpl(built.url, { ...built.init, signal })
 
     const payload = await readJsonBounded(res)
     if (!res.ok) return { ok: false, error: providerMessage(payload, res.status, config.apiKey) }
@@ -117,6 +92,88 @@ export async function generateImages(
     }
   } catch (err) {
     return { ok: false, error: redactKey(`Image request failed: ${String(err)}`, config.apiKey) }
+  }
+}
+
+interface BuiltRequest {
+  url: string
+  init: RequestInit
+}
+
+/**
+ * 方言分派：同一份工具契约，请求形态由供应商决定。
+ * 未实现的方言明确拒绝，不按 OpenAI 形状乱发请求；改图绝不能降级成重新生成。
+ */
+function buildRequest(
+  config: ImageGenConfig,
+  request: ImageGenRequest,
+  images: ImageGenInputImage[],
+  editing: boolean,
+): BuiltRequest | { error: string } {
+  switch (config.dialect) {
+    case 'openai':
+      return editing
+        ? {
+            url: `${config.baseUrl}/images/edits`,
+            init: { method: 'POST', headers: authHeaders(config, false), body: editForm(config, request, images) },
+          }
+        : {
+            url: `${config.baseUrl}/images/generations`,
+            init: {
+              method: 'POST',
+              headers: authHeaders(config, true),
+              // 不发 response_format：gpt-image 系恒回 b64_json，dall-e 系默认回 url，两种都解。
+              body: JSON.stringify(openAiPayload(config, request)),
+            },
+          }
+    case 'seedream':
+      return seedreamRequest(config, request, images)
+    default:
+      return {
+        error: editing
+          ? `The "${config.dialect}" dialect does not support image editing. Ask the user to pick a provider that does (Settings → Image model); do not retry as a fresh generation.`
+          : `Unsupported image dialect "${config.dialect}".`,
+      }
+  }
+}
+
+function authHeaders(config: ImageGenConfig, json: boolean): Record<string, string> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${config.apiKey}` }
+  if (json) headers['Content-Type'] = 'application/json'
+  return headers
+}
+
+function openAiPayload(config: ImageGenConfig, request: ImageGenRequest): Record<string, unknown> {
+  const payload: Record<string, unknown> = { model: config.model, prompt: request.prompt }
+  if (request.size) payload.size = request.size
+  return payload
+}
+
+/**
+ * 火山方舟 Seedream：文生图与改图是同一个 generations 端点，请求体都是 JSON。
+ * 改图把参考图编成 data URL 数组，而不是 OpenAI 式的 multipart。
+ */
+function seedreamRequest(
+  config: ImageGenConfig,
+  request: ImageGenRequest,
+  images: ImageGenInputImage[],
+): BuiltRequest {
+  const body: Record<string, unknown> = {
+    model: config.model,
+    prompt: request.prompt,
+    // 直接要 base64：省一次下载，也绕开 url 的 24 小时过期。
+    response_format: 'b64_json',
+  }
+  if (request.size) body.size = request.size
+  // 去水印按该供应商语义传：默认不发（用供应商默认），开启才明确关掉。
+  if (config.disableWatermark) body.watermark = false
+  if (images.length > 0) {
+    body.images = images.map(image => `data:${image.mime};base64,${image.bytes.toString('base64')}`)
+  }
+  // 不传 n / sequential_image_generation：张数由客户端扇出，每次物理请求只要一张。
+  return {
+    url: `${config.baseUrl}/images/generations`,
+    init: { method: 'POST', headers: authHeaders(config, true), body: JSON.stringify(body) },
   }
 }
 

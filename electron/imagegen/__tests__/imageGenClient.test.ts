@@ -12,6 +12,15 @@ const OPENAI: ImageGenConfig = {
   disableWatermark: false,
 }
 
+const ARK: ImageGenConfig = {
+  presetId: 'ark',
+  dialect: 'seedream',
+  baseUrl: 'https://ark.test/api/v3',
+  apiKey: 'ark-key',
+  model: 'doubao-seedream-4-0-250828',
+  disableWatermark: false,
+}
+
 /** 完整签名的最小 PNG（8 字节魔数 + IHDR 首块），独立构造的已知良好字节。 */
 const PNG = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -95,13 +104,11 @@ describe('generateImages — OpenAI 文生图', () => {
     expect(outcome.error).not.toContain('sk-test')
   })
 
-  it('本期只实现 openai 方言：其余方言明确拒绝，不按 OpenAI 形状乱发', async () => {
-    for (const dialect of ['seedream', 'zhipu'] as const) {
-      const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: 'AA==' }] })])
-      const outcome = await generateImages({ ...OPENAI, dialect }, { prompt: 'p' }, fetchImpl)
-      expect(outcome).toEqual({ ok: false, error: expect.stringContaining(dialect) })
-      expect(calls(fetchImpl)).toHaveLength(0)
-    }
+  it('未实现的智谱方言明确拒绝，不按 OpenAI 形状乱发', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: 'AA==' }] })])
+    const outcome = await generateImages({ ...OPENAI, dialect: 'zhipu' }, { prompt: 'p' }, fetchImpl)
+    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('zhipu') })
+    expect(calls(fetchImpl)).toHaveLength(0)
   })
 
   it('拿不到图一律回 ok:false：空 data、既无 url 也无 b64、下载失败、传输抛错', async () => {
@@ -315,26 +322,24 @@ describe('generateImages — OpenAI 改图', () => {
     expect(calls(fetchImpl)[0][0]).toBe('https://api.test/v1/images/edits')
   })
 
-  it('不支持改图的方言明确拒绝，零出站，绝不降级成重新生成', async () => {
-    for (const dialect of ['seedream', 'zhipu'] as const) {
-      const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+  it('不支持改图的智谱方言明确拒绝，零出站，绝不降级成重新生成', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
 
-      const outcome = await generateImages(
-        { ...OPENAI, dialect },
-        { prompt: 'make it warm', images: [{ bytes: PNG, mime: 'image/png' }] },
-        fetchImpl,
-      )
+    const outcome = await generateImages(
+      { ...OPENAI, dialect: 'zhipu' },
+      { prompt: 'make it warm', images: [{ bytes: PNG, mime: 'image/png' }] },
+      fetchImpl,
+    )
 
-      expect(outcome.ok).toBe(false)
-      if (outcome.ok) return
-      expect(outcome.error).toContain('does not support image editing')
-      expect(outcome.error).toContain(dialect)
-      expect(calls(fetchImpl)).toHaveLength(0)
-    }
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).toContain('does not support image editing')
+    expect(outcome.error).toContain('zhipu')
+    expect(calls(fetchImpl)).toHaveLength(0)
   })
 })
 
-describe('imageMultipartFieldName — 单图/多图字段名规则（为改图票铺路）', () => {
+describe('imageMultipartFieldName — 单图/多图字段名规则', () => {
   it('一张用单数字段名 image', () => {
     expect(imageMultipartFieldName(1)).toBe('image')
   })
@@ -343,5 +348,131 @@ describe('imageMultipartFieldName — 单图/多图字段名规则（为改图�
     for (const count of [2, 3, 4]) {
       expect(imageMultipartFieldName(count)).toBe('image[]')
     }
+  })
+})
+
+describe('generateImages — Seedream 方言（火山方舟）', () => {
+  it('文生图走 JSON generations，请求 b64_json 并直接解出字节', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ model: 'doubao-seedream-4-0-250828', data: [{ b64_json: PNG_B64 }] })])
+    const outcome = await generateImages(ARK, { prompt: 'a cat' }, fetchImpl)
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.images[0].bytes.equals(PNG)).toBe(true)
+    expect(outcome.model).toBe('doubao-seedream-4-0-250828')
+
+    const [url, init] = calls(fetchImpl)[0]
+    expect(url).toBe('https://ark.test/api/v3/images/generations')
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer ark-key')
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: 'doubao-seedream-4-0-250828',
+      prompt: 'a cat',
+      response_format: 'b64_json',
+    })
+  })
+
+  it('只回 url 时由主进程下载，下载不带供应商凭证且过签名校验', async () => {
+    const fetchImpl = fakeFetch([
+      jsonResponse({ data: [{ url: 'https://cdn.test/a.jpg' }] }),
+      new Response(JPEG, { status: 200 }),
+    ])
+    const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl, publicLookup)
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.images[0].bytes.equals(JPEG)).toBe(true)
+    const [downloadUrl, downloadInit] = calls(fetchImpl)[1]
+    expect(downloadUrl).toBe('https://cdn.test/a.jpg')
+    expect((downloadInit?.headers ?? {}) as Record<string, string>).not.toHaveProperty('Authorization')
+  })
+
+  it('返回的 base64 不是图片（签名不符）→ 失败项，不冒充成功', async () => {
+    const html = Buffer.from('<!DOCTYPE html><html>502 Bad Gateway</html>').toString('base64')
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: html }] })])
+    expect((await generateImages(ARK, { prompt: 'p' }, fetchImpl)).ok).toBe(false)
+  })
+
+  it('改图走同一个 generations 端点，参考图编成 data URL 数组，不是 multipart', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    const outcome = await generateImages(
+      ARK,
+      {
+        prompt: 'make it warm',
+        size: '2K',
+        images: [{ bytes: PNG, mime: 'image/png' }, { bytes: JPEG, mime: 'image/jpeg' }],
+      },
+      fetchImpl,
+    )
+
+    expect(outcome.ok).toBe(true)
+    const [url, init] = calls(fetchImpl)[0]
+    expect(url).toBe('https://ark.test/api/v3/images/generations')
+    expect(init.body).not.toBeInstanceOf(FormData)
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: 'doubao-seedream-4-0-250828',
+      prompt: 'make it warm',
+      response_format: 'b64_json',
+      size: '2K',
+      images: [`data:image/png;base64,${PNG_B64}`, `data:image/jpeg;base64,${JPEG.toString('base64')}`],
+    })
+  })
+
+  it('张数仍由客户端扇出：每次物理请求只要一张，不发 n / sequential_image_generation', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    await generateImages(ARK, { prompt: 'p' }, fetchImpl)
+
+    expect(calls(fetchImpl)).toHaveLength(1)
+    const body = JSON.parse(calls(fetchImpl)[0][1].body as string)
+    expect(body).not.toHaveProperty('n')
+    expect(body).not.toHaveProperty('sequential_image_generation')
+    expect(body).not.toHaveProperty('sequential_image_generation_options')
+  })
+
+  it('去水印按该供应商语义传：开启才发 watermark:false', async () => {
+    const byDefault = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    await generateImages(ARK, { prompt: 'p' }, byDefault)
+    expect(JSON.parse(calls(byDefault)[0][1].body as string)).not.toHaveProperty('watermark')
+
+    const disabled = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    await generateImages({ ...ARK, disableWatermark: true }, { prompt: 'p' }, disabled)
+    expect(JSON.parse(calls(disabled)[0][1].body as string).watermark).toBe(false)
+  })
+
+  it('HTTP 200 内一成功一逐图 error → 任一成功即成功，失败项不冒充成功', async () => {
+    const fetchImpl = fakeFetch([
+      jsonResponse({
+        data: [
+          { b64_json: PNG_B64 },
+          { error: { code: 'OutputImageSensitiveContentDetected', message: 'content policy' } },
+        ],
+      }),
+    ])
+    const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.images).toHaveLength(1)
+    expect(outcome.images[0].bytes.equals(PNG)).toBe(true)
+  })
+
+  it('HTTP 200 内全部逐图 error → ok:false 且带原因', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ error: { message: 'content policy violation' } }] })])
+    const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl)
+    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('content policy violation') })
+  })
+
+  it('鉴权失败把供应商消息递给模型，不回显 key，且不重试', async () => {
+    const fetchImpl = fakeFetch([
+      jsonResponse({ error: { code: 'AuthenticationError', message: 'invalid api key ark-key' } }, 401),
+    ])
+    const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).toContain('invalid api key')
+    expect(outcome.error).not.toContain('ark-key')
+    expect(calls(fetchImpl)).toHaveLength(1)
   })
 })

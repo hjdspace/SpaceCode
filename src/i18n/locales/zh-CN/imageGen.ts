@@ -46,6 +46,8 @@ export default {
   invalid: '请填写合法的 Base URL（http/https）、API Key 与模型名。',
   card: {
     title: '生图',
+    editTitle: '改图',
+    referenceCount: '参考图 {count} 张',
     model: '模型 {model}',
     openFolder: '打开所在文件夹',
     openFolderUnavailable: '当前环境不支持打开所在文件夹',

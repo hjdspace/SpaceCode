@@ -64,6 +64,21 @@
 | **Card Submission (卡片提交)** | The user completing a GenUI Card and submitting its payload. Produces a chat message carrying a human-readable summary plus the full payload for the model. |
 | **GenUI Skill (生成式 UI 技能)** | The Skill that teaches an Agent the Card Schema protocol and output contract. Its presence is what enables card generation; it is distributed like any other Center Skill. |
 
+## Image Generation (内置生图)
+
+| Term | Definition |
+| --- | --- |
+| **Image Generation (内置生图)** | Producing raster images from a prompt, or from a prompt plus reference images, as a built-in SpaceCode capability. Requires no user installation and is available on every engine. _Avoid_: imagegen plugin, drawing, AI paint. |
+| **Image Model (生图模型)** | The provider-side model that produces images, chosen in Settings independently of the chat model and of any Profile. Its name stays editable even when a preset supplied it. _Avoid_: chat model, vision model. |
+| **Dialect (方言)** | One provider family's actual image wire format: which endpoint edits use, whether batching exists, whether images come back as bytes or as a URL, and where per-image errors appear. Three Dialects exist; "OpenAI-compatible" is not one of them. _Avoid_: protocol, adapter, provider type. |
+| **Image Binding (生图绑定)** | The resolved combination of Dialect, base URL, credential and Image Model that a call is executed against. Lives only in the host process. |
+| **Variant (变体)** | One of several images produced from the *same* prompt. Produced by separate requests, never by a provider-side batch parameter. |
+| **Batch (批量)** | Several images produced from *distinct* prompts in one call. Shares its concurrency cap with Variants. _Avoid_: job, queue. |
+| **Image Artifact (生图产物)** | An image file written into the workspace's image output directory. Never overwrites an existing file; a name collision produces a new version. Appears in the artifacts panel. |
+| **Authorization Gate (授权闸门)** | The host's own decision point that every image call must pass before its first outbound request, because generation is billable. Belongs to the host, not to either engine's permission pipeline. _Avoid_: permission card, tool approval. |
+| **Session Allowance (本会话放行)** | A user's decision to stop asking for the rest of one chat session. Scoped to that session; never global, never surviving an app restart. |
+| **Item Outcome (逐图结果)** | The per-image result of a call: `succeeded`, `failed`, or `cancelled`. Cancellation is never folded into failure. Any success makes the call a success with a per-item report. |
+
 ## Operations
 
 | Term | Definition |

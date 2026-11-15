@@ -12,13 +12,15 @@ import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import type { ExtensionDialogClosedEvent, ExtensionDialogRequest, PermissionMode } from '@/shared/channels/claudeCode'
 import type { ImageGenConfig } from '@/shared/imageGenReference'
 import { createImageGenAuthorization, setImageGenAuthorization } from './imageGenAuthorization'
-import { callImageGenTool, IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_MCP_TOOLS } from './imageGenTools'
+import { callImageGenTool, IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_MCP_TOOLS } from './imageGenTools'
 import { loadImageGenConfig } from './imageGenConfig'
 import { info, warn } from '../infra/logger'
 import { createLoopbackMcpServer, type LoopbackMcpEntry, type LoopbackMcpServer } from '../tools/loopbackMcpServer'
 
 const SERVER_INSTRUCTIONS = [
   'generate_image produces a raster image from a text prompt and saves it into the workspace image output directory.',
+  `edit_image changes existing workspace images (1-${IMAGEGEN_MAX_INPUT_IMAGES} references) and saves the result as a new file; it never overwrites the sources. When the user points at an image they want changed, use edit_image rather than generate_image.`,
+  'If editing is refused because the provider does not support it, report that and stop. Never substitute a fresh generate_image call for a failed edit.',
   'Generation is billable: the host asks the user for authorization before the request goes out. A denial is a final answer for that call — do not retry it without the user asking again.',
   'The tool result carries the absolute file path, the size and the model that actually ran. Report that path to the user; never paste base64 image data.',
   'You cannot see the generated image. Do not claim to have inspected it.',

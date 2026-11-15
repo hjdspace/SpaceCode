@@ -46,6 +46,8 @@ export default {
   invalid: 'Enter a valid Base URL (http/https), an API key and a model name.',
   card: {
     title: 'Image generation',
+    editTitle: 'Image edit',
+    referenceCount: 'References: {count}',
     model: 'Model {model}',
     openFolder: 'Open containing folder',
     openFolderUnavailable: 'Opening the containing folder is not available here',
