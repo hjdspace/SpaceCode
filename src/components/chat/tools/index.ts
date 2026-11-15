@@ -30,6 +30,8 @@ export const TOOL_COMPONENT_MAP: Record<string, () => Promise<any>> = {
   'browser-use': () => import('./BrowserUseToolCard.vue'),
   'SearchExtraTools': () => import('./SearchExtraToolsToolCard.vue'),
   'ExecuteExtraTool': () => import('./ExecuteExtraToolCard.vue'),
+  // 内置生图 MCP：这张表是精确名匹配，必须用完整工具名，裸名 generate_image 命中不了
+  'mcp__spacecode-imagegen__generate_image': () => import('./ImageGenToolCard.vue'),
 }
 
 const componentCache = new Map<string, Component>()

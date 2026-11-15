@@ -167,6 +167,8 @@ export function createCoreApi(ipcRenderer: PreloadIpc) {
         ipcRenderer.invoke('shell:openExternal', url),
       openPath: (path: string): Promise<void> =>
         ipcRenderer.invoke('shell:openPath', path),
+      showItemInFolder: (path: string): Promise<void> =>
+        ipcRenderer.invoke('shell:showItemInFolder', path),
     },
 
     // 卡片复制动作：文本经主进程写入系统剪贴板

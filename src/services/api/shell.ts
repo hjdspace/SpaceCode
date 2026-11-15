@@ -10,4 +10,12 @@ export const shell = {
     }
     return Promise.resolve()
   },
+
+  /** H5 没有主进程 Shell，也没有资源管理器可定位 —— 卡片据此把按钮置灰而不是点了报错。 */
+  canShowItemInFolder: Boolean(electronAPI?.shell?.showItemInFolder),
+
+  showItemInFolder: (path: string): Promise<void> => {
+    if (electronAPI?.shell?.showItemInFolder) return electronAPI.shell.showItemInFolder(path)
+    return Promise.resolve()
+  },
 }

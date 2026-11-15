@@ -34,6 +34,7 @@ const probe = vi.hoisted(() => {
       appGetPath: vi.fn((name: string) => ({ documents: '/documents-dir', home: '/home-dir', userData: '/user-data-dir' }[name] ?? '/fallback')),
       shellOpenExternal: vi.fn(async () => {}),
       shellOpenPath: vi.fn(async () => {}),
+      shellShowItemInFolder: vi.fn(() => {}),
       shellTrashItem: vi.fn(async () => {}),
       showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: ['/picked'] })),
       netFetch: vi.fn(async () => ({ ok: true, status: 200, text: async () => 'body' })),
@@ -100,6 +101,7 @@ vi.mock('electron', () => ({
   shell: {
     openExternal: probe.electron.shellOpenExternal,
     openPath: probe.electron.shellOpenPath,
+    showItemInFolder: probe.electron.shellShowItemInFolder,
     trashItem: probe.electron.shellTrashItem,
   },
   dialog: { showOpenDialog: probe.electron.showOpenDialog },
@@ -434,6 +436,18 @@ describe('env / ui relay / shell / editor', () => {
     await H('shell:openExternal')(ev(), 'http://127.0.0.1:8080/x')
     expect(probe.electron.shellOpenExternal).toHaveBeenCalledTimes(1)
     expect(probe.electron.shellOpenExternal).toHaveBeenCalledWith('http://127.0.0.1:8080/x')
+  })
+
+  it('shell:showItemInFolder 定位到文件所在文件夹；非字符串路径不进系统 Shell', async () => {
+    probe.electron.shellShowItemInFolder.mockClear()
+
+    await H('shell:showItemInFolder')(ev(), 'C:/proj/outputs/imagegen/hero.png')
+    expect(probe.electron.shellShowItemInFolder).toHaveBeenCalledWith('C:/proj/outputs/imagegen/hero.png')
+
+    await H('shell:showItemInFolder')(ev(), 42)
+    await H('shell:showItemInFolder')(ev(), '')
+    await H('shell:showItemInFolder')(ev(), null)
+    expect(probe.electron.shellShowItemInFolder).toHaveBeenCalledTimes(1)
   })
 
   it('clipboard:writeText 只写入字符串，非字符串不落到 Electron 剪贴板', async () => {

@@ -592,6 +592,7 @@ export interface ElectronAPI {
   shell: {
     openExternal: (url: string) => Promise<void>
     openPath: (path: string) => Promise<void>
+    showItemInFolder: (path: string) => Promise<void>
   }
 
   clipboard: {
