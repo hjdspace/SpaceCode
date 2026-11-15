@@ -28,6 +28,8 @@ import {
   saveDeletedSessionIds,
   loadProjectsFromStorage,
   saveProjectsToStorage,
+  loadArchivedWorkspacesFromStorage,
+  saveArchivedWorkspacesToStorage,
   setPersistenceLogger,
 } from '@/services/sessionPersistence'
 import {
@@ -327,13 +329,32 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   const projects = ref<string[]>(loadProjectsFromStorage())
   const currentProjectRoot = ref<string>('')
 
+  const archivedWorkspaces = ref<Record<string, number>>(loadArchivedWorkspacesFromStorage())
+
+  const archivedWorkspaceKeys = computed(() =>
+    new Set(Object.keys(archivedWorkspaces.value).map(k => k.toLowerCase())),
+  )
+
+  function isWorkspaceArchived(path?: string): boolean {
+    if (!path) return false
+    return archivedWorkspaceKeys.value.has(normalizeAbsolutePath(path).toLowerCase())
+  }
+
+  function saveArchivedWorkspaces() {
+    saveArchivedWorkspacesToStorage(archivedWorkspaces.value)
+  }
+
   const currentSession = computed(() =>
     sessions.value.find(s => s.id === currentSessionId.value) || null
   )
 
-  /** 普通聊天会话（不含 Super Agent Router、不含已归档）：侧边栏与模式切换只消费这份列表。 */
+  /** 普通聊天会话（不含 Super Agent Router、不含已归档、不含已归档工作区）：侧边栏与模式切换只消费这份列表。 */
   const normalSessions = computed(() =>
-    sessions.value.filter(s => (s.sessionType ?? 'chat') === 'chat' && !s.archived)
+    sessions.value.filter(s =>
+      (s.sessionType ?? 'chat') === 'chat'
+      && !s.archived
+      && !isWorkspaceArchived(s.workingDirectory),
+    )
   )
 
   /** 已归档会话：只有设置里的归档管理页消费，按归档时间倒序。 */
@@ -342,6 +363,25 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       .filter(s => s.archived && !s.ephemeral && (s.sessionType ?? 'chat') === 'chat')
       .sort((a, b) => getArchivedAt(b) - getArchivedAt(a))
   )
+
+  /** 已归档工作区：设置归档管理页的工作区 tab 消费，按归档时间倒序。 */
+  const archivedWorkspaceList = computed(() => {
+    const entries = Object.entries(archivedWorkspaces.value).map(([path, archivedAt]) => {
+      const key = path.toLowerCase()
+      const sessionCount = sessions.value.filter(s =>
+        !s.ephemeral
+        && !s.observedSession
+        && normalizeAbsolutePath(s.workingDirectory || '').toLowerCase() === key,
+      ).length
+      return {
+        path,
+        displayName: path.split(/[\\/]/).filter(Boolean).pop() || path,
+        sessionCount,
+        archivedAt,
+      }
+    })
+    return entries.sort((a, b) => b.archivedAt - a.archivedAt)
+  })
 
   const currentMessages = computed(() =>
     currentSession.value?.messages || []
@@ -1702,9 +1742,53 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     return true
   }
 
+  /**
+   * 工作区归档：整组移出侧栏，会话本身不动 —— 与会话归档同哲学，导航而非删除。
+   * 刻意不停引擎：正在跑的任务照常跑完，取消归档就能回到原处。
+   */
+  function archiveWorkspace(projectPath: string): boolean {
+    const normalized = normalizeAbsolutePath(projectPath)
+    if (!normalized || isWorkspaceArchived(normalized)) return false
+    archivedWorkspaces.value[normalized] = Date.now()
+    saveArchivedWorkspaces()
+    if (currentProjectRoot.value === normalized) {
+      currentProjectRoot.value = ''
+    }
+    const current = getSession(currentSessionId.value)
+    if (current && isWorkspaceArchived(current.workingDirectory)) {
+      currentSessionId.value = normalSessions.value.find(s => !s.ephemeral)?.id || null
+    }
+    return true
+  }
+
+  /** 取消归档工作区。会话原样回到侧栏，新鲜度位置不变。 */
+  function unarchiveWorkspace(projectPath: string): boolean {
+    const normalized = normalizeAbsolutePath(projectPath).toLowerCase()
+    const key = Object.keys(archivedWorkspaces.value).find(k => k.toLowerCase() === normalized)
+    if (!key) return false
+    delete archivedWorkspaces.value[key]
+    saveArchivedWorkspaces()
+    return true
+  }
+
+  /** 永久删除工作区：删其全部会话（跳过只读镜像）、移除项目、清归档标记。 */
+  async function deleteWorkspace(projectPath: string): Promise<void> {
+    const key = normalizeAbsolutePath(projectPath).toLowerCase()
+    const doomed = sessions.value.filter(s =>
+      !s.observedSession
+      && normalizeAbsolutePath(s.workingDirectory || '').toLowerCase() === key,
+    )
+    for (const session of doomed) {
+      await deleteSession(session.id)
+    }
+    removeProject(normalizeAbsolutePath(projectPath))
+    unarchiveWorkspace(projectPath)
+  }
+
   /** 按设置的阈值自动归档；返回本次归档条数。阈值为 0（禁用）时是空操作。 */
   function runAutoArchive(): number {
     const ids = collectAutoArchiveIds(sessions.value, settingsStore.archiveAfterDays)
+      .filter(id => !isWorkspaceArchived(getSession(id)?.workingDirectory))
     if (ids.length === 0) return 0
     for (const id of ids) archiveSession(id)
     return ids.length
@@ -2545,6 +2629,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     archiveSession,
     unarchiveSession,
     runAutoArchive,
+    archivedWorkspaces,
+    archivedWorkspaceList,
+    isWorkspaceArchived,
+    archiveWorkspace,
+    unarchiveWorkspace,
+    deleteWorkspace,
     deleteSession,
     getCurrentConfig,
     saveToStorage,

@@ -25,6 +25,7 @@
           @mouseleave="hoveredFolder = null"
           @create-session="(e) => $emit('create-session-in-project', e, group.workingDirectory)"
           @remove-project="$emit('remove-project', group.workingDirectory)"
+          @archive-project="(wd) => $emit('archive-project', wd)"
           @open-folder-picker="$emit('open-folder-picker')"
           @click="$emit('switch-project', group.workingDirectory)"
           :show-remove-button="showRemoveButton"
@@ -128,6 +129,7 @@ const emit = defineEmits<{
   rename: [sessionId: string, newTitle: string]
   'create-session-in-project': [e: MouseEvent, workingDirectory: string]
   'remove-project': [workingDirectory: string]
+  'archive-project': [workingDirectory: string]
   'switch-project': [workingDirectory: string]
   'open-folder-picker': []
   'split-screen': [sessionId: string]

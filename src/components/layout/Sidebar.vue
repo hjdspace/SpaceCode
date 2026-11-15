@@ -310,6 +310,7 @@
               @rename="handleRenameSession"
               @create-session-in-project="handleCreateSessionInProject"
               @remove-project="handleRemoveProject"
+              @archive-project="handleArchiveWorkspace"
               @switch-project="sessionStore.switchProject"
               @open-folder-picker="handleOpenFolderPicker"
               @split-screen="handleSplitScreen"
@@ -918,6 +919,53 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
     }
   } catch (error) {
     console.error('Failed to create session in project:', error)
+  }
+}
+
+/**
+ * 工作区归档：整组移出侧栏，可逆。先确认（用户拍板），再把界面从被归档
+ * 工作区的会话上挪开 —— 分屏每个 pane 各自绑定 tabId，只改全局
+ * activeCenterTab 会让其它 pane 继续显示已隐藏的会话。
+ */
+async function handleArchiveWorkspace(workingDirectory: string) {
+  const name = workingDirectory.split(/[\\/]/).filter(Boolean).pop() || workingDirectory
+  const count = sessionStore.sessions.filter(s =>
+    !s.ephemeral
+    && !s.observedSession
+    && !!s.workingDirectory
+    && pathsEqual(s.workingDirectory, workingDirectory),
+  ).length
+  if (!await showConfirm(
+    t('sidebar.confirmArchiveWorkspace', { name, count }),
+    { title: t('sidebar.confirmArchiveWorkspaceTitle') },
+  )) return
+
+  const tabIds = new Set(
+    sessionStore.sessions
+      .filter(s => !!s.workingDirectory && pathsEqual(s.workingDirectory, workingDirectory))
+      .map(s => `session-${s.id}`),
+  )
+  const wasCurrent = !!sessionStore.currentSession?.workingDirectory
+    && pathsEqual(sessionStore.currentSession.workingDirectory, workingDirectory)
+  if (!sessionStore.archiveWorkspace(workingDirectory)) return
+
+  const splitLayout = useSplitLayoutStore()
+  const fallbackTabId = sessionStore.currentSessionId
+    ? `session-${sessionStore.currentSessionId}`
+    : 'chat'
+  for (const leaf of splitLayout.leaves) {
+    if (leaf.content.tabId && tabIds.has(leaf.content.tabId)) {
+      splitLayout.setPaneContent(leaf.id, { kind: 'session', tabId: fallbackTabId })
+    }
+  }
+  if (appStore.activeCenterTab && tabIds.has(appStore.activeCenterTab)) {
+    appStore.activeCenterTab = fallbackTabId
+  }
+  if (pathsEqual(appStore.projectRoot, workingDirectory)) {
+    appStore.closeProject()
+  }
+  if (wasCurrent && sessionStore.currentSessionId) {
+    await handleSelectSession(sessionStore.currentSessionId)
   }
 }
 

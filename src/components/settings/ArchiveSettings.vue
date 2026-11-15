@@ -7,6 +7,33 @@
       <p class="s-masthead-desc">{{ t('archive.desc') }}</p>
     </div>
 
+    <!-- Tabs: sessions / workspaces -->
+    <div class="archive-tabs" role="tablist">
+      <button
+        class="archive-tab"
+        :class="{ active: activeTab === 'sessions' }"
+        data-testid="archive-tab-sessions"
+        role="tab"
+        :aria-selected="activeTab === 'sessions'"
+        @click="activeTab = 'sessions'"
+      >
+        {{ t('archive.sessionsTab') }}
+        <em>{{ archivedSessions.length }}</em>
+      </button>
+      <button
+        class="archive-tab"
+        :class="{ active: activeTab === 'workspaces' }"
+        data-testid="archive-tab-workspaces"
+        role="tab"
+        :aria-selected="activeTab === 'workspaces'"
+        @click="activeTab = 'workspaces'"
+      >
+        {{ t('archive.workspacesTab') }}
+        <em>{{ archivedWorkspaces.length }}</em>
+      </button>
+    </div>
+
+    <template v-if="activeTab === 'sessions'">
     <!-- Toolbar: count chip + bulk delete -->
     <div class="archive-toolbar">
       <span class="archive-chip" data-testid="archive-count">
@@ -111,6 +138,93 @@
         </ul>
       </section>
     </div>
+    </template>
+
+    <template v-else>
+      <div class="archive-toolbar">
+        <span class="archive-chip" data-testid="archive-workspace-count">
+          <Archive :size="14" />
+          {{ t('archive.workspacesTab') }}
+          <em>{{ archivedWorkspaces.length }}</em>
+        </span>
+        <button
+          class="archive-delete-all"
+          data-testid="archive-workspace-delete-all"
+          :disabled="visibleWorkspaces.length === 0 || busy"
+          @click="handleDeleteAllWorkspaces"
+        >
+          <Trash2 :size="14" />
+          {{ t('archive.deleteAll') }}
+        </button>
+      </div>
+
+      <div class="archive-filters">
+        <div class="archive-search">
+          <Search :size="14" class="archive-search-icon" />
+          <input
+            v-model="workspaceQuery"
+            type="text"
+            class="archive-search-input"
+            data-testid="archive-workspace-search"
+            :placeholder="t('archive.workspacesSearchPlaceholder')"
+            :aria-label="t('archive.workspacesSearchPlaceholder')"
+          />
+          <button
+            v-if="workspaceQuery"
+            class="archive-search-clear"
+            :aria-label="t('common.cancel')"
+            @click="workspaceQuery = ''"
+          >
+            <X :size="12" />
+          </button>
+        </div>
+      </div>
+
+      <div v-if="archivedWorkspaces.length === 0" class="archive-empty" data-testid="archive-workspace-empty">
+        <Archive :size="26" />
+        <p>{{ t('archive.workspacesEmpty') }}</p>
+      </div>
+      <div v-else-if="visibleWorkspaces.length === 0" class="archive-empty" data-testid="archive-workspace-no-match">
+        <Search :size="26" />
+        <p>{{ t('archive.workspacesNoMatch') }}</p>
+      </div>
+      <div v-else class="archive-groups">
+        <ul class="archive-rows">
+          <li v-for="ws in visibleWorkspaces" :key="ws.path" class="archive-row" data-testid="archive-workspace-row">
+            <div class="archive-row-main">
+              <span class="archive-row-title with-icon" :title="ws.path">
+                <FolderOpen :size="14" class="archive-row-icon" />
+                <span class="archive-row-text">{{ ws.displayName }}</span>
+              </span>
+              <span class="archive-row-time">
+                {{ t('archive.sessionCount', { count: ws.sessionCount }) }} · {{ formatArchivedAtValue(ws.archivedAt) }}
+              </span>
+            </div>
+            <div class="archive-row-actions">
+              <button
+                class="archive-icon-btn"
+                data-testid="archive-workspace-delete"
+                :disabled="busy"
+                :title="t('archive.delete')"
+                :aria-label="t('archive.delete')"
+                @click="handleDeleteWorkspace(ws)"
+              >
+                <Trash2 :size="15" />
+              </button>
+              <button
+                class="archive-restore-btn"
+                data-testid="archive-workspace-restore"
+                :disabled="busy"
+                @click="handleUnarchiveWorkspace(ws)"
+              >
+                <ArchiveRestore :size="14" />
+                {{ t('archive.unarchive') }}
+              </button>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -137,8 +251,20 @@ const { showAlert, showConfirm } = useDialog()
 const query = ref('')
 const projectFilter = ref<string>(ALL_PROJECTS)
 const busy = ref(false)
+const activeTab = ref<'sessions' | 'workspaces'>('sessions')
+const workspaceQuery = ref('')
 
 const archivedSessions = computed(() => sessionStore.archivedSessions)
+
+const archivedWorkspaces = computed(() => sessionStore.archivedWorkspaceList)
+
+const visibleWorkspaces = computed(() => {
+  const q = workspaceQuery.value.trim().toLowerCase()
+  if (!q) return archivedWorkspaces.value
+  return archivedWorkspaces.value.filter(ws =>
+    ws.displayName.toLowerCase().includes(q) || ws.path.toLowerCase().includes(q),
+  )
+})
 
 const visibleSessions = computed(() =>
   filterArchivedSessions(archivedSessions.value, {
@@ -163,7 +289,10 @@ const projectOptions = computed(() => {
 })
 
 function formatArchivedAt(session: Session): string {
-  const at = getArchivedAt(session)
+  return formatArchivedAtValue(getArchivedAt(session))
+}
+
+function formatArchivedAtValue(at: number): string {
   if (!at) return ''
   return new Date(at).toLocaleString(locale.value, {
     year: 'numeric',
@@ -213,9 +342,102 @@ async function deleteSessions(ids: string[]) {
     busy.value = false
   }
 }
+
+function handleUnarchiveWorkspace(ws: { path: string }) {
+  sessionStore.unarchiveWorkspace(ws.path)
+}
+
+async function handleDeleteWorkspace(ws: { path: string; displayName: string; sessionCount: number }) {
+  const confirmed = await showConfirm(
+    t('archive.confirmDeleteWorkspace', { name: ws.displayName, count: ws.sessionCount }),
+    { title: t('archive.confirmDeleteWorkspaceTitle'), variant: 'danger' },
+  )
+  if (!confirmed) return
+  await deleteWorkspaces([ws.path])
+}
+
+/** 「全部删除」只作用于当前筛选结果，与会话 tab 同契约。 */
+async function handleDeleteAllWorkspaces() {
+  const paths = visibleWorkspaces.value.map(ws => ws.path)
+  if (paths.length === 0) return
+  const confirmed = await showConfirm(
+    t('archive.confirmDeleteAllWorkspaces', { count: paths.length }),
+    { title: t('archive.confirmDeleteAllWorkspacesTitle'), variant: 'danger' },
+  )
+  if (!confirmed) return
+  await deleteWorkspaces(paths)
+}
+
+async function deleteWorkspaces(paths: string[]) {
+  busy.value = true
+  try {
+    for (const path of paths) {
+      await sessionStore.deleteWorkspace(path)
+    }
+  } catch (error) {
+    console.error('[ArchiveSettings] Failed to delete archived workspaces:', error)
+    await showAlert(t('archive.deleteWorkspaceFailed'))
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <style lang="scss" scoped>
+.archive-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1.5px solid var(--border-default);
+}
+
+.archive-tab {
+  @include reset-button;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1.5px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  em {
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent-primary);
+  }
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent-primary);
+  }
+}
+
+.archive-row-title.with-icon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.archive-row-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.archive-row-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .archive-toolbar {
   display: flex;
   align-items: center;
