@@ -2,7 +2,7 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import enUS from '@/i18n/locales/en-US'
 import zhCN from '@/i18n/locales/zh-CN'
 import type { ImageGenConfig } from '@/shared/imageGenReference'
@@ -14,6 +14,7 @@ const apiMocks = vi.hoisted(() => ({
   profilesSave: vi.fn().mockResolvedValue({ success: true }),
   profilesBackupCorrupt: vi.fn().mockResolvedValue({ success: true }),
   getEnv: vi.fn().mockResolvedValue(undefined),
+  listImageGenModels: vi.fn().mockResolvedValue({ success: true, models: [] }),
 }))
 
 vi.mock('@/services/electronAPI', () => ({ api: apiMocks }))
@@ -33,8 +34,12 @@ const ARK_CONFIG: ImageGenConfig = {
   hasApiKey: true,
 }
 
+const mounted: { unmount: () => void }[] = []
+
 function mountPanel() {
-  return mount(ImageGenSettings, { global: { plugins: [i18n] } })
+  const wrapper = mount(ImageGenSettings, { global: { plugins: [i18n] } })
+  mounted.push(wrapper)
+  return wrapper
 }
 
 function value(wrapper: ReturnType<typeof mountPanel>, selector: string): string {
@@ -51,6 +56,11 @@ beforeEach(() => {
   apiMocks.saveGuiSettings.mockResolvedValue({ success: true })
   localStorage.clear()
   setActivePinia(createPinia())
+})
+
+afterEach(() => {
+  // 候选弹层 Teleport 到 body，卸载组件才能把它一起带走。
+  while (mounted.length > 0) mounted.pop()!.unmount()
 })
 
 describe('ImageGenSettings', () => {
@@ -183,5 +193,65 @@ describe('ImageGenSettings', () => {
     await vi.waitFor(() => expect(apiMocks.saveGuiSettings).toHaveBeenCalled())
 
     expect(savedConfig()).toEqual({ ...ARK_CONFIG, model: 'doubao-seedream-4-5' })
+  })
+
+  it('获取模型用表单里的 Base URL 与 Key 探测上游，并展开候选列表', async () => {
+    apiMocks.listImageGenModels.mockResolvedValue({ success: true, models: ['gpt-image-1', 'gpt-image-2'] })
+    const wrapper = mountPanel()
+    await wrapper.find('#imagegen-api-key').setValue('sk-test')
+
+    await wrapper.find('[data-test="fetch-models"]').trigger('click')
+
+    await vi.waitFor(() => expect(apiMocks.listImageGenModels).toHaveBeenCalledWith('https://api.openai.com/v1', 'sk-test'))
+    await vi.waitFor(() => expect([...document.querySelectorAll('.model-option')].map(el => el.textContent?.trim()))
+      .toEqual(['gpt-image-1', 'gpt-image-2']))
+    expect(wrapper.text()).toContain('已从上游获取 2 个模型')
+  })
+
+  it('点候选把模型名填进输入框', async () => {
+    apiMocks.listImageGenModels.mockResolvedValue({ success: true, models: ['gpt-image-1', 'gpt-image-2'] })
+    const wrapper = mountPanel()
+    await wrapper.find('[data-test="fetch-models"]').trigger('click')
+
+    await vi.waitFor(() => expect(document.querySelectorAll('.model-option')).toHaveLength(2))
+    document.querySelectorAll<HTMLElement>('.model-option')[1]!.click()
+
+    await vi.waitFor(() => expect(value(wrapper, '#imagegen-model')).toBe('gpt-image-2'))
+    expect(document.querySelectorAll('.model-option')).toHaveLength(0)
+  })
+
+  it('已配置 Key 时留空也能获取 —— 主进程会用存档那份', async () => {
+    apiMocks.loadGuiSettings.mockResolvedValue({ success: true, data: JSON.stringify({ imageGenConfig: ARK_CONFIG }) })
+    apiMocks.listImageGenModels.mockResolvedValue({ success: true, models: ['doubao-seedream-4-5'] })
+    const settings = useSettingsStore()
+    await vi.waitFor(() => expect(settings.imageGenConfig).toEqual(ARK_CONFIG))
+
+    const wrapper = mountPanel()
+    await wrapper.find('[data-test="fetch-models"]').trigger('click')
+
+    await vi.waitFor(() => expect(apiMocks.listImageGenModels)
+      .toHaveBeenCalledWith('https://ark.cn-beijing.volces.com/api/v3', ''))
+    expect(wrapper.text()).toContain('已从上游获取 1 个模型')
+  })
+
+  it('上游没有可用 Key 时给出可读提示，不改模型名', async () => {
+    apiMocks.listImageGenModels.mockResolvedValue({ success: false, reason: 'no-key' })
+    const wrapper = mountPanel()
+
+    await wrapper.find('[data-test="fetch-models"]').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('请先填写 API Key'))
+    expect(value(wrapper, '#imagegen-model')).toBe('gpt-image-1')
+  })
+
+  it('上游返回非 2xx 时显示状态码，不谎报获取成功', async () => {
+    apiMocks.listImageGenModels.mockResolvedValue({ success: false, reason: 'http', status: 404 })
+    const wrapper = mountPanel()
+    await wrapper.find('#imagegen-api-key').setValue('sk-test')
+
+    await wrapper.find('[data-test="fetch-models"]').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('获取失败（HTTP 404）'))
+    expect(document.querySelectorAll('.model-option')).toHaveLength(0)
   })
 })

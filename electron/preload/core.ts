@@ -127,6 +127,10 @@ export function createCoreApi(ipcRenderer: PreloadIpc) {
     loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
       ipcRenderer.invoke('settings:loadGuiSettings'),
 
+    // 生图模型列表（key 留空时主进程用存档那份探测上游）
+    listImageGenModels: (baseUrl: string, apiKey?: string) =>
+      ipcRenderer.invoke('imagegen:listModels', { baseUrl, apiKey }),
+
     // Profiles persistence (file-based, ~/.spacecode/profiles.json)
     profilesLoad: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
       ipcRenderer.invoke('profiles:load'),

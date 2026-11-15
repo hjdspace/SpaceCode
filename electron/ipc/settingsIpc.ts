@@ -11,7 +11,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'f
 import { debug, info, warn, error } from '../infra/logger'
 import { proxyManager, buildProxyConfigFromSettings, isSameProxyConfig } from '../infra/proxyManager'
 import { aggregateLocalTokenStats } from '../session/tokenStatsService'
-import { redactImageGenApiKey, mergeImageGenApiKey } from '../imagegen/imageGenConfig'
+import { redactImageGenApiKey, mergeImageGenApiKey, loadImageGenConfig } from '../imagegen/imageGenConfig'
+import { listImageModels } from '../imagegen/imageGenModels'
 
 // ── Path helpers ────────────────────────────────────────────────
 
@@ -275,6 +276,21 @@ export function registerSettingsIPCHandlers(): void {
       error('Settings', 'Failed to load GUI settings', err)
       return { success: false, data: null, error: String(err) }
     }
+  })
+
+  /**
+   * 生图模型列表。渲染层手里没有明文 key，所以留空时回落到磁盘上存档的那份；
+   * baseUrl 用表单里当前值 —— 用户可能刚改完、还没保存。
+   */
+  ipcMain.handle('imagegen:listModels', async (_event, payload: { baseUrl?: unknown; apiKey?: unknown } = {}) => {
+    const baseUrl = typeof payload.baseUrl === 'string' ? payload.baseUrl.trim().replace(/\/+$/, '') : ''
+    if (!/^https?:\/\/\S+$/i.test(baseUrl)) return { success: false, reason: 'invalid-base-url' }
+
+    const enteredKey = typeof payload.apiKey === 'string' ? payload.apiKey.trim() : ''
+    const apiKey = enteredKey || loadImageGenConfig()?.apiKey || ''
+    if (!apiKey) return { success: false, reason: 'no-key' }
+
+    return listImageModels(baseUrl, apiKey)
   })
 
   // ── Profiles ──────────────────────────────────────────────────

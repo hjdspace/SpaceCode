@@ -34,6 +34,7 @@ import type { MemoryRendererApi } from '@/shared/channels/memory'
 import type { SuperAgentRendererApi } from '@/shared/channels/superAgent'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
 import type { EffortLevel } from '@/shared/effort'
+import type { ImageModelListResult } from '@/shared/imageGenModels'
 import type {
 SkillManagerOverview,
 SkillManagerSettings,
@@ -528,6 +529,8 @@ export interface ElectronAPI {
     proxy?: { state: 'not-needed' | 'unchanged' | 'aligned' | 'failed'; error?: string }
   }>
   loadGuiSettings: () => Promise<{ success: boolean; data: string | null; error?: string }>
+
+  listImageGenModels: (baseUrl: string, apiKey?: string) => Promise<ImageModelListResult>
 
   profilesLoad: () => Promise<{ success: boolean; data: string | null; error?: string }>
   profilesSave: (data: string) => Promise<{ success: boolean; error?: string }>
