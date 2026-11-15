@@ -9,6 +9,8 @@
 import { describe, it, expect } from 'vitest'
 import { IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_TOOL_NAMES } from '@electron/imagegen/imageGenTools'
 import { TOOL_COMPONENT_MAP, PROMOTED_TOOL_NAMES } from '@/components/chat/tools'
+import { IMAGEGEN_TOOL_FULL_NAMES, unwrapExtraToolCall } from '@/components/chat/tools/unwrapExtraTool'
+import type { ToolCall } from '@/types'
 
 describe('生图工具卡片注册', () => {
   it('每个生图工具都按完整 MCP 工具名注册了卡片', () => {
@@ -34,5 +36,32 @@ describe('生图工具卡片注册', () => {
       .map(name => `mcp__${IMAGEGEN_MCP_SERVER_KEY}__${name}`)
       .filter(fullName => !PROMOTED_TOOL_NAMES.has(fullName))
     expect(missing).toEqual([])
+  })
+})
+
+/**
+ * Claude Code 引擎实测把生图工具包在 ExecuteExtraTool 里（ToolSearch 延迟加载）。
+ * 解包器的名单必须与主进程工具面一致，且每个生图工具都能被还原成真工具名 ——
+ * 否则渲染层认不出包裹里的生图调用，图片仍会被「1 个工具调用」吞掉。
+ */
+describe('ExecuteExtraTool 生图解包契约', () => {
+  it('解包器名单与主进程工具面逐一对应', () => {
+    const expected = IMAGEGEN_TOOL_NAMES.map(name => `mcp__${IMAGEGEN_MCP_SERVER_KEY}__${name}`).sort()
+    expect([...IMAGEGEN_TOOL_FULL_NAMES].sort()).toEqual(expected)
+  })
+
+  it('每个生图工具的包裹调用都能还原成注册名', () => {
+    for (const fullName of IMAGEGEN_TOOL_FULL_NAMES) {
+      const wrapped: ToolCall = {
+        id: 'x',
+        name: 'ExecuteExtraTool',
+        input: { tool_name: fullName, params: { prompt: 'x' } },
+        status: 'completed',
+      }
+      const out = unwrapExtraToolCall(wrapped)
+      expect(out.name).toBe(fullName)
+      expect(out.name in TOOL_COMPONENT_MAP).toBe(true)
+      expect(PROMOTED_TOOL_NAMES.has(out.name)).toBe(true)
+    }
   })
 })

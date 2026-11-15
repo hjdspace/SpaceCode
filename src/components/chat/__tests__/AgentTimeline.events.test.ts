@@ -248,6 +248,60 @@ describe('AgentTimeline timelineEvents 归一化', () => {
     expect(groups[0].find('.imagegen-card').exists()).toBe(false)
     expect(card.find('.ig-grid').exists()).toBe(true)
   })
+
+  /**
+   * 桌面实测的真实形状：Claude Code 引擎把生图工具藏在 ToolSearch 后面，
+   * tool_use 名是 ExecuteExtraTool，真工具名/参数/结果分别包在
+   * input.tool_name / input.params / output.result[].text 里（用户 puppy 截图）。
+   * 渲染层必须还原成生图卡片并独立成行，否则图片又被「1 个工具调用」吞掉。
+   */
+  it('ExecuteExtraTool 包裹的生图调用还原成生图卡片，独立可见且结果已解包', async () => {
+    await resolveToolComponent('mcp__spacecode-imagegen__generate_image')
+    await resolveToolComponent('Write')
+
+    const innerJson = JSON.stringify({
+      model: 'agnes-image-2.5-flash',
+      images: [{ status: 'succeeded', path: 'D:/AI/SpaceCode/outputs/imagegen/puppy.png', size: '1024x1024' }],
+    })
+    const msg: Message = {
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      toolCalls: [
+        {
+          id: 'ig1',
+          name: 'ExecuteExtraTool',
+          input: { tool_name: 'mcp__spacecode-imagegen__generate_image', params: { nameHint: 'puppy', prompt: 'a puppy' } },
+          output: JSON.stringify({ result: [{ type: 'text', text: innerJson }], tool_name: 'mcp__spacecode-imagegen__generate_image' }),
+          status: 'completed',
+        },
+        { id: 'w1', name: 'Write', input: { path: 'a.ts', content: 'a' }, status: 'completed' },
+        { id: 'w2', name: 'Write', input: { path: 'b.ts', content: 'b' }, status: 'completed' },
+      ],
+      timelineEvents: [
+        { id: 'tool-ig1', type: 'tool_call', timestamp: 1, status: 'completed', toolCallId: 'ig1' },
+        { id: 'tool-w1', type: 'tool_call', timestamp: 2, status: 'completed', toolCallId: 'w1' },
+        { id: 'tool-w2', type: 'tool_call', timestamp: 3, status: 'completed', toolCallId: 'w2' },
+      ],
+    }
+
+    const wrapper = mountTimeline([msg])
+    const groups = wrapper.findAll('.tool-group')
+    expect(groups).toHaveLength(1)
+    expect(groups[0].text()).not.toContain('puppy.png')
+
+    for (let i = 0; i < 3; i++) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    await wrapper.vm.$nextTick()
+    const card = wrapper.find('.imagegen-card')
+    expect(card.exists()).toBe(true)
+    expect(groups[0].find('.imagegen-card').exists()).toBe(false)
+    // 单图预览布局 + 结果外壳已剥掉（模型名来自内层 JSON，证明 output 解包成功）
+    expect(card.find('.ig-grid--single').exists()).toBe(true)
+    expect(card.text()).toContain('agnes-image-2.5-flash')
+  })
 })
 
 /**

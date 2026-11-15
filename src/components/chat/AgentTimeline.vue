@@ -397,6 +397,7 @@ import type { Component } from 'vue'
 import { computed, markRaw, onMounted, onUnmounted, reactive, watch, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { hasToolComponent, resolveToolComponent, PROMOTED_TOOL_NAMES } from '@/components/chat/tools/index'
+import { unwrapExtraToolCall } from '@/components/chat/tools/unwrapExtraTool'
 import PermissionRequestCard from './tools/PermissionRequestCard.vue'
 import ExtensionDialogCard from './tools/ExtensionDialogCard.vue'
 import { type ExtensionDialog } from '@/services/extensionDialogService'
@@ -486,6 +487,19 @@ function getPendingPermission(toolUseId: string) {
 }
 
 /**
+ * 生图工具被 Claude Code 引擎包在 ExecuteExtraTool 里（ToolSearch 延迟加载）：
+ * 渲染前统一还原成生图工具本身，折叠分组、卡片解析与卡片入参才能命中。
+ * 只克隆带 toolCalls 的消息，其余消息保持原引用。详见 unwrapExtraTool。
+ */
+const normalizedMessages = computed(() =>
+  props.messages.map(msg =>
+    msg.toolCalls?.length
+      ? { ...msg, toolCalls: msg.toolCalls.map(unwrapExtraToolCall) }
+      : msg,
+  ),
+)
+
+/**
  * toolCall 本体从当前 messages 解析，而不是塞进缓存的 TimelineEvent。
  *
  * turn store 补 input/output 一律是「换对象」，缓存若持有旧引用，键不变的期间卡片
@@ -494,7 +508,7 @@ function getPendingPermission(toolUseId: string) {
  */
 const toolCallsById = computed(() => {
   const map = new Map<string, ToolCall>()
-  for (const msg of props.messages) {
+  for (const msg of normalizedMessages.value) {
     for (const tool of msg.toolCalls || []) map.set(`${msg.id}:${tool.id}`, tool)
   }
   return map
@@ -562,7 +576,7 @@ const specialComponents = reactive<Record<string, Component>>({})
 const loadingSpecialComponents = new Set<string>()
 const specialToolNames = computed(() => {
   const names = new Set<string>()
-  for (const msg of props.messages) {
+  for (const msg of normalizedMessages.value) {
     for (const tool of msg.toolCalls || []) {
       if (hasToolComponent(tool.name)) names.add(tool.name)
     }
@@ -587,7 +601,7 @@ async function loadSpecialComponentByName(toolName: string) {
 }
 
 function loadVisibleSpecialComponents() {
-  for (const msg of props.messages) {
+  for (const msg of normalizedMessages.value) {
     for (const tool of msg.toolCalls || []) {
       loadSpecialComponentByName(tool.name)
     }
@@ -602,7 +616,7 @@ watch(specialToolNames, loadVisibleSpecialComponents)
 
 // ========== 优化2: timelineEvents计算缓存 ==========
 const timelineEventsBuilder = createTimelineEventsBuilder(() => ({
-  messages: props.messages,
+  messages: normalizedMessages.value,
   dialogs: props.dialogs,
   mode: props.mode,
   presentation: props.presentation,

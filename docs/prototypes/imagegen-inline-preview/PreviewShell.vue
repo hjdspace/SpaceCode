@@ -152,6 +152,38 @@ const turns = [
       ],
     ),
   },
+  {
+    // 桌面实测的真实形状（用户 puppy 截图）：Claude Code 引擎把生图工具藏在
+    // ToolSearch 后面 —— Skill → SearchExtraTools → ExecuteExtraTool(包裹生图)。
+    id: 'wrapped',
+    prompt: '生成小狗图像',
+    message: assistantMessage(
+      'a-wrapped',
+      '生成完成。小狗图像已落盘：\n\n- 文件：`D:\\AI\\SpaceCode\\outputs\\imagegen\\puppy.png`\n- 尺寸：1024×1024\n- 实际使用模型：agnes-image-2.5-flash\n\n你可以在生图卡片里直接查看。',
+      [
+        { id: 'sk4', name: 'Skill', input: { skill: 'imagegen' }, status: 'completed', startTime: now - 34000, endTime: now - 33000 },
+        { id: 'se4', name: 'SearchExtraTools', input: { query: 'select:mcp__spacecode-imagegen__generate_image' }, output: 'Found 1 deferred tool(s): mcp__spacecode-imagegen__generate_image.', status: 'completed', startTime: now - 33000, endTime: now - 32000 },
+        {
+          id: 'ig4',
+          name: 'ExecuteExtraTool',
+          input: { tool_name: 'mcp__spacecode-imagegen__generate_image', params: { nameHint: 'puppy', prompt: 'a photo of a cute puppy, sitting, looking at the camera, soft daylight' } },
+          output: JSON.stringify({
+            result: [{ type: 'text', text: JSON.stringify({ model: 'agnes-image-2.5-flash', images: [{ status: 'succeeded', path: 'D:/AI/SpaceCode/outputs/imagegen/puppy.png', size: '1024x1024' }] }) }],
+            tool_name: 'mcp__spacecode-imagegen__generate_image',
+          }),
+          status: 'completed',
+          startTime: now - 32000,
+          endTime: now - 1000,
+        },
+      ],
+      [
+        { id: 'tool-sk4', type: 'tool_call', timestamp: now - 33500, status: 'completed', toolCallId: 'sk4' },
+        { id: 'tool-se4', type: 'tool_call', timestamp: now - 32500, status: 'completed', toolCallId: 'se4' },
+        { id: 'tool-ig4', type: 'tool_call', timestamp: now - 32000, status: 'completed', toolCallId: 'ig4' },
+        { id: 't-wrapped', type: 'text', timestamp: now - 500, status: 'completed', content: '生成完成。小狗图像已落盘：\n\n- 文件：`D:\\AI\\SpaceCode\\outputs\\imagegen\\puppy.png`\n- 尺寸：1024×1024\n- 实际使用模型：agnes-image-2.5-flash\n\n你可以在生图卡片里直接查看。' },
+      ],
+    ),
+  },
 ]
 </script>
 
