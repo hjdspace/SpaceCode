@@ -38,6 +38,9 @@ const SOURCE_PNG = (() => {
   return bytes
 })()
 
+/** 智谱只回 url，下载回来的字节按签名定扩展名：给一段最小合法 JPEG。 */
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9])
+
 /** 探测本机能否创建符号链接（Windows 默认无权限）。不能则显式 skip，而非静默空跑假绿。 */
 function detectSymlinkSupport(): boolean {
   const probe = mkdtempSync(join(tmpdir(), 'spacecode-symlink-probe-'))
@@ -469,8 +472,60 @@ describe('edit_image', () => {
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain('does not support image editing')
+    expect(result.content[0].text).toContain('Image model')
     expect(order).toEqual(['authorize'])
     expect(existsSync(join(root, 'outputs'))).toBe(false)
+  })
+})
+
+describe('智谱 CogView', () => {
+  const ZHIPU: ImageGenConfig = {
+    presetId: 'zhipu',
+    dialect: 'zhipu',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    apiKey: 'zp-key',
+    model: 'cogview-4',
+    disableWatermark: false,
+  }
+
+  it('授权卡的供应商与模型和实际发出的请求一致；只回 url 时下载后落盘', async () => {
+    const order: string[] = []
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      if (String(input).includes('images/generations')) {
+        order.push('fetch')
+        // 智谱只回 url（30 天有效）；用公网 IP 字面量，免去测试里的 DNS 解析。
+        return new Response(JSON.stringify({ created: 1, data: [{ url: 'https://93.184.216.34/z.jpg' }] }), { status: 200 })
+      }
+      order.push('download')
+      return new Response(JPEG, { status: 200 })
+    }) as unknown as typeof fetch
+    const authorize = allowing(order)
+
+    const result = await callImageGenTool(
+      'generate_image',
+      { prompt: 'a cat on a windowsill', nameHint: 'cat' },
+      context,
+      { loadConfig: () => ZHIPU, fetchImpl, authorize },
+    )
+
+    expect(result.isError).toBeFalsy()
+    expect(order).toEqual(['authorize', 'fetch', 'download'])
+    expect(authorize).toHaveBeenCalledWith({
+      sessionId: 's1',
+      provider: 'Zhipu CogView',
+      model: 'cogview-4',
+      count: 1,
+      prompt: 'a cat on a windowsill',
+    })
+
+    const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://open.bigmodel.cn/api/paas/v4/images/generations')
+    expect(JSON.parse(init.body as string)).toEqual({ model: 'cogview-4', prompt: 'a cat on a windowsill' })
+
+    const body = payload(result)
+    expect(body.model).toBe('cogview-4')
+    expect(body.images[0].path).toBe(join(root, 'outputs', 'imagegen', 'cat.jpg'))
+    expect(readFileSync(body.images[0].path).equals(JPEG)).toBe(true)
   })
 })
 

@@ -128,6 +128,14 @@ function buildRequest(
           }
     case 'seedream':
       return seedreamRequest(config, request, images)
+    case 'zhipu':
+      // 智谱没有 edits 端点：绝不当成文生图发出去，那会产出一张与用户意图无关的图。
+      return editing
+        ? {
+            error:
+              'The "zhipu" dialect (Zhipu CogView) does not support image editing. Ask the user to switch to OpenAI or Volcengine Ark in Settings → Image model, then retry. Do not fall back to a fresh generation.',
+          }
+        : zhipuRequest(config, request)
     default:
       return {
         error: editing
@@ -171,6 +179,21 @@ function seedreamRequest(
     body.images = images.map(image => `data:${image.mime};base64,${image.bytes.toString('base64')}`)
   }
   // 不传 n / sequential_image_generation：张数由客户端扇出，每次物理请求只要一张。
+  return {
+    url: `${config.baseUrl}/images/generations`,
+    init: { method: 'POST', headers: authHeaders(config, true), body: JSON.stringify(body) },
+  }
+}
+
+/**
+ * 智谱 CogView：只有 JSON generations，没有 edits；data 数组恒为 1，也无批量参数。
+ * 返回只有 url（30 天有效），由 collectImages 下载后落盘。
+ */
+function zhipuRequest(config: ImageGenConfig, request: ImageGenRequest): BuiltRequest {
+  const body: Record<string, unknown> = { model: config.model, prompt: request.prompt }
+  if (request.size) body.size = request.size
+  // 去水印默认不发：智谱要求账号已签署免责声明，默认发 false 会让未签署账号直接报错。
+  if (config.disableWatermark) body.watermark_enabled = false
   return {
     url: `${config.baseUrl}/images/generations`,
     init: { method: 'POST', headers: authHeaders(config, true), body: JSON.stringify(body) },

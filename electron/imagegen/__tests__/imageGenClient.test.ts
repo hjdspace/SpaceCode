@@ -21,6 +21,15 @@ const ARK: ImageGenConfig = {
   disableWatermark: false,
 }
 
+const ZHIPU: ImageGenConfig = {
+  presetId: 'zhipu',
+  dialect: 'zhipu',
+  baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  apiKey: 'zp-key',
+  model: 'cogview-4',
+  disableWatermark: false,
+}
+
 /** 完整签名的最小 PNG（8 字节魔数 + IHDR 首块），独立构造的已知良好字节。 */
 const PNG = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -104,10 +113,14 @@ describe('generateImages — OpenAI 文生图', () => {
     expect(outcome.error).not.toContain('sk-test')
   })
 
-  it('未实现的智谱方言明确拒绝，不按 OpenAI 形状乱发', async () => {
+  it('未知方言明确拒绝，不按 OpenAI 形状乱发', async () => {
     const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: 'AA==' }] })])
-    const outcome = await generateImages({ ...OPENAI, dialect: 'zhipu' }, { prompt: 'p' }, fetchImpl)
-    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('zhipu') })
+    const outcome = await generateImages(
+      { ...OPENAI, dialect: 'mystery' as ImageGenConfig['dialect'] },
+      { prompt: 'p' },
+      fetchImpl,
+    )
+    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('Unsupported image dialect') })
     expect(calls(fetchImpl)).toHaveLength(0)
   })
 
@@ -474,5 +487,88 @@ describe('generateImages — Seedream 方言（火山方舟）', () => {
     expect(outcome.error).toContain('invalid api key')
     expect(outcome.error).not.toContain('ark-key')
     expect(calls(fetchImpl)).toHaveLength(1)
+  })
+})
+
+describe('generateImages — 智谱方言', () => {
+  it('文生图走 JSON generations，只回 url 时由主进程下载，下载不带供应商凭证', async () => {
+    const fetchImpl = fakeFetch([
+      jsonResponse({ created: 1, data: [{ url: 'https://cdn.test/z.jpg' }] }),
+      new Response(JPEG, { status: 200 }),
+    ])
+
+    const outcome = await generateImages(ZHIPU, { prompt: 'a cat' }, fetchImpl, publicLookup)
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.images[0].bytes.equals(JPEG)).toBe(true)
+    expect(outcome.model).toBe('cogview-4')
+
+    const [url, init] = calls(fetchImpl)[0]
+    expect(url).toBe('https://open.bigmodel.cn/api/paas/v4/images/generations')
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer zp-key')
+    expect(JSON.parse(init.body as string)).toEqual({ model: 'cogview-4', prompt: 'a cat' })
+
+    const [downloadUrl, downloadInit] = calls(fetchImpl)[1]
+    expect(downloadUrl).toBe('https://cdn.test/z.jpg')
+    expect((downloadInit?.headers ?? {}) as Record<string, string>).not.toHaveProperty('Authorization')
+  })
+
+  it('不发任何批量参数：该端点的 data 数组恒为 1，张数一律客户端扇出', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
+    await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, publicLookup)
+
+    const body = JSON.parse(calls(fetchImpl)[0][1].body as string)
+    for (const key of ['n', 'response_format', 'sequential_image_generation', 'sequential_image_generation_options']) {
+      expect(body).not.toHaveProperty(key)
+    }
+  })
+
+  it('size 给了才带', async () => {
+    const withSize = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
+    await generateImages(ZHIPU, { prompt: 'p', size: '1024x1024' }, withSize, publicLookup)
+    expect(JSON.parse(calls(withSize)[0][1].body as string).size).toBe('1024x1024')
+
+    const without = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
+    await generateImages(ZHIPU, { prompt: 'p' }, without, publicLookup)
+    expect(JSON.parse(calls(without)[0][1].body as string)).not.toHaveProperty('size')
+  })
+
+  it('去水印默认关：未开启时不发 watermark_enabled，开启才明确关掉', async () => {
+    const byDefault = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
+    await generateImages(ZHIPU, { prompt: 'p' }, byDefault, publicLookup)
+    expect(JSON.parse(calls(byDefault)[0][1].body as string)).not.toHaveProperty('watermark_enabled')
+
+    const disabled = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
+    await generateImages({ ...ZHIPU, disableWatermark: true }, { prompt: 'p' }, disabled, publicLookup)
+    expect(JSON.parse(calls(disabled)[0][1].body as string).watermark_enabled).toBe(false)
+  })
+
+  it('下载失败 → ok:false，不返回半张图', async () => {
+    const fetchImpl = fakeFetch([
+      jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }),
+      new Response('gone', { status: 403 }),
+    ])
+    const outcome = await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, publicLookup)
+    expect(outcome.ok).toBe(false)
+    expect(calls(fetchImpl)).toHaveLength(2)
+  })
+
+  it('改图直接拒绝：零出站，绝不降级成重新生成', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] })])
+
+    const outcome = await generateImages(
+      ZHIPU,
+      { prompt: 'make it warm', images: [{ bytes: PNG, mime: 'image/png' }] },
+      fetchImpl,
+    )
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).toContain('does not support image editing')
+    expect(outcome.error).toContain('zhipu')
+    expect(outcome.error).toContain('Settings → Image model')
+    expect(calls(fetchImpl)).toHaveLength(0)
   })
 })
