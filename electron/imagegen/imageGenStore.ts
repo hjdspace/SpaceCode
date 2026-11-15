@@ -2,27 +2,11 @@
  * 生图产物落盘。写进工作区的 outputs/imagegen/ —— artifactsService 已在扫 outputs/，
  * 且该目录下的文件不受交付物扩展名过滤，所以图片会自动出现在产物面板。
  */
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, unlink, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
+import { detectImageFormat } from './imageSignatures'
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47])
-
-/**
- * 扩展名由字节头判定：供应商默认格式各不相同，写死一种会名不副实。
- * GIF 刻意不收（ADR 0019）：它不在本期支持的产物格式里。
- */
-function imageExtension(bytes: Buffer): 'png' | 'jpg' | 'webp' | null {
-  if (bytes.length >= 4 && bytes.subarray(0, 4).equals(PNG_MAGIC)) return 'png'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpg'
-  if (
-    bytes.length >= 12 &&
-    bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
-    bytes.subarray(8, 12).toString('ascii') === 'WEBP'
-  ) {
-    return 'webp'
-  }
-  return null
-}
 
 /**
  * 宽高从字节里读，不信供应商的应答：OpenAI 的 /images/generations 根本不回尺寸，
@@ -102,7 +86,8 @@ function sanitizeImageName(hint: string | undefined): string {
 
 /** index 是同一批里的序号（0 起）；文件名撞车再追加 -v2/-v3，绝不覆盖既有文件。 */
 export async function saveImage(root: string, bytes: Buffer, nameHint?: string, index = 0): Promise<string> {
-  const ext = imageExtension(bytes)
+  // 扩展名由完整签名判定（与客户端同一套）：供应商默认格式各不相同，写死一种会名不副实。
+  const ext = detectImageFormat(bytes)
   if (!ext) throw new Error('Unsupported image format: expected PNG, JPEG or WebP bytes.')
 
   const dir = resolve(root, 'outputs', 'imagegen')
@@ -117,7 +102,12 @@ export async function saveImage(root: string, bytes: Buffer, nameHint?: string, 
       await writeFile(target, bytes, { flag: 'wx' })
       return target
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+        // wx 已建出文件后才写失败（ENOSPC/EIO）会留下半截图：清掉再抛，不留半成品。
+        // EEXIST 是别人落下的同名文件，绝不能删，换下一个版本号重试。
+        await unlink(target).catch(() => {})
+        throw err
+      }
     }
   }
 }

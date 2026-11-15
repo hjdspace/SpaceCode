@@ -1,16 +1,33 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve, basename, dirname } from 'path'
 import { imageDimensions, saveImage } from '../imageGenStore'
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2])
+// 「写一半才失败」只能拦下 writeFile：先真建出半截图再抛 ENOSPC，逼 saveImage 清理。
+const mockState = vi.hoisted(() => ({ failWrite: false }))
+vi.mock('fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof import('fs/promises')>()
+  const write = real.writeFile as (...args: unknown[]) => Promise<void>
+  const writeFileMock = vi.fn(async (target: string | URL | number, data: unknown, ...rest: unknown[]) => {
+    if (typeof target === 'string' && mockState.failWrite) {
+      await write(target, Buffer.from([0x89, 0x50]), { flag: 'wx' })
+      throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
+    }
+    return write(target, data, ...rest)
+  })
+  return { ...real, default: { ...real, writeFile: writeFileMock }, writeFile: writeFileMock }
+})
+
+// 完整签名 PNG（魔数 + IHDR），过落盘签名闸门；pngOf 是函数声明，已提升到模块顶。
+const PNG = pngOf(1024, 1024)
 
 let root: string
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'spacecode-imagegen-store-'))
+  mockState.failWrite = false
 })
 
 afterEach(() => {
@@ -26,7 +43,7 @@ describe('saveImage', () => {
   })
 
   it('扩展名跟着字节走：jpeg 写 .jpg、webp 写 .webp', async () => {
-    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2])
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 0xff, 0xd9])
     const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0, 0, 0, 0]), Buffer.from('WEBPVP8 ')])
 
     expect((await saveImage(root, jpeg, 'photo')).endsWith('photo.jpg')).toBe(true)
@@ -70,7 +87,7 @@ describe('saveImage', () => {
   })
 
   it('同主干不同格式不算冲突，两份并存', async () => {
-    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 9, 9])
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 9, 9, 0xff, 0xd9])
     const png = await saveImage(root, PNG, 'hero')
     const jpg = await saveImage(root, jpeg, 'hero')
 
@@ -85,6 +102,14 @@ describe('saveImage', () => {
     expect(basename(first)).toBe('hero.png')
     expect(basename(second)).toBe('hero-2.png')
     expect(existsSync(first)).toBe(true)
+  })
+
+  it('写一半失败（ENOSPC）→ 抛错且清掉半截图，不留半成品', async () => {
+    mockState.failWrite = true
+    const target = resolve(root, 'outputs', 'imagegen', 'hero.png')
+
+    await expect(saveImage(root, PNG, 'hero')).rejects.toThrow(/ENOSPC/)
+    expect(existsSync(target)).toBe(false)
   })
 })
 

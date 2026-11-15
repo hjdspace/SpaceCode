@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest'
-import { generateImages } from '../imageGenClient'
+import { decodeBoundedBase64, generateImages, imageMultipartFieldName } from '../imageGenClient'
 import type { ImageGenConfig } from '@/shared/imageGenReference'
 
 const OPENAI: ImageGenConfig = {
@@ -11,6 +11,16 @@ const OPENAI: ImageGenConfig = {
   model: 'gpt-image-1',
   disableWatermark: false,
 }
+
+/** 完整签名的最小 PNG（8 字节魔数 + IHDR 首块），独立构造的已知良好字节。 */
+const PNG = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x04, 0x00,
+])
+const PNG_B64 = PNG.toString('base64')
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9])
+const publicLookup = async () => [{ address: '93.184.216.34', family: 4 }]
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } })
@@ -31,7 +41,7 @@ function calls(fetchImpl: typeof fetch): Array<[string, RequestInit]> {
 
 describe('generateImages — OpenAI 文生图', () => {
   it('POST /images/generations，带 model/prompt，解 b64_json', async () => {
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    const png = PNG
     const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: png.toString('base64') }] })])
 
     const outcome = await generateImages(OPENAI, { prompt: 'a cat' }, fetchImpl)
@@ -59,13 +69,13 @@ describe('generateImages — OpenAI 文生图', () => {
   })
 
   it('只回 url 时下载字节，且下载不带供应商凭证', async () => {
-    const bytes = Buffer.from([0xff, 0xd8, 0xff])
+    const bytes = JPEG
     const fetchImpl = fakeFetch([
       jsonResponse({ data: [{ url: 'https://cdn.test/a.jpg' }] }),
       new Response(bytes, { status: 200 }),
     ])
 
-    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, publicLookup)
 
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -109,12 +119,229 @@ describe('generateImages — OpenAI 文生图', () => {
       jsonResponse({ data: [{ url: 'https://cdn.test/expired.jpg' }] }),
       new Response('gone', { status: 403 }),
     ])
-    expect((await generateImages(OPENAI, { prompt: 'p' }, expired)).ok).toBe(false)
+    expect((await generateImages(OPENAI, { prompt: 'p' }, expired, publicLookup)).ok).toBe(false)
 
     const broken = vi.fn(async () => {
       throw new Error('socket hang up')
     }) as unknown as typeof fetch
     const outcome = await generateImages(OPENAI, { prompt: 'p' }, broken)
     expect(outcome).toEqual({ ok: false, error: expect.stringContaining('socket hang up') })
+  })
+})
+
+describe('generateImages — 不受信响应硬化', () => {
+  it('JSON 响应 content-length 超限 → ok:false，不吃满内存', async () => {
+    const fetchImpl = fakeFetch([
+      new Response('{}', { status: 200, headers: { 'content-length': String(64 * 1024 * 1024 + 1) } }),
+    ])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).toMatch(/limit/i)
+  })
+
+  it('b64_json 解码后是 HTML 错误页 → ok:false（签名不符）', async () => {
+    const html = Buffer.from('<!DOCTYPE html><html>502 Bad Gateway</html>').toString('base64')
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: html }] })])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    expect(outcome.ok).toBe(false)
+  })
+
+  it('b64_json 只有 4 字节 PNG 魔数（缺 IHDR）→ ok:false', async () => {
+    const partial = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: partial }] })])
+    expect((await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)).ok).toBe(false)
+  })
+
+  it('b64_json 格式非法 → ok:false', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: '!!!not-base64!!!' }] })])
+    expect((await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)).ok).toBe(false)
+  })
+
+  it('HTTP 200 内逐图 error → 识别为失败项，全失败时 ok:false 且带原因', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ error: { code: 'x', message: 'content policy violation' } }] })])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('content policy violation') })
+  })
+
+  it('HTTP 200 内一成功一逐图 error → 成功项照常返回，失败项不冒充成功', async () => {
+    const fetchImpl = fakeFetch([
+      jsonResponse({ data: [{ b64_json: PNG_B64 }, { error: { message: 'content policy' } }] }),
+    ])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.images).toHaveLength(1)
+    expect(outcome.images[0].bytes.equals(PNG)).toBe(true)
+  })
+
+  it('供应商错误回显了 key → surfaced 错误里脱敏，绝不回显', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ error: { message: 'bad key sk-test leaked' } }, 401)])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).toContain('bad key')
+    expect(outcome.error).not.toContain('sk-test')
+  })
+
+  it('fallback 错误体里 key 跨 500 截断边界 → 先脱敏再截断，不残留半截 key', async () => {
+    // 纯字符串错误体走 text.slice(0,500) 的 fallback。让 key 从第 497 字符起：
+    // 若先截断后脱敏，slice 会留下 'sk-' 半截，redactKey 找完整 key 匹配不到 → 泄露。
+    const body = 'x'.repeat(497) + 'sk-testTAIL'
+    const fetchImpl = fakeFetch([jsonResponse(body, 400)])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).not.toContain('sk-test')
+    expect(outcome.error).not.toContain('sk-')
+  })
+
+  it('逐图 error 回显 key → failures 路径也脱敏', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ error: { message: 'bad sk-test here' } }] })])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).toContain('bad')
+    expect(outcome.error).not.toContain('sk-test')
+  })
+
+  it('传输抛错且错误里带 key → catch 路径也脱敏', async () => {
+    const broken = vi.fn(async () => {
+      throw new Error('connect failed sk-test')
+    }) as unknown as typeof fetch
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, broken)
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.error).not.toContain('sk-test')
+  })
+
+  it('供应商给的下载 URL 指向元数据/内网 → ok:false，不发下载请求', async () => {
+    for (const url of ['http://169.254.169.254/latest/meta-data/', 'http://10.0.0.1/a.png', 'ftp://host/a.png']) {
+      const fetchImpl = fakeFetch([jsonResponse({ data: [{ url }] }), new Response(JPEG)])
+      const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, publicLookup)
+      expect(outcome.ok).toBe(false)
+      expect(calls(fetchImpl)).toHaveLength(1) // 只有 generations，没有下载
+    }
+  })
+
+  it('下载 URL 内嵌凭证 → ok:false', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ url: 'https://user:pass@cdn.test/a.png' }] }), new Response(JPEG)])
+    expect((await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, publicLookup)).ok).toBe(false)
+    expect(calls(fetchImpl)).toHaveLength(1)
+  })
+})
+
+describe('decodeBoundedBase64', () => {
+  it('合法 base64 正常解码', () => {
+    expect(decodeBoundedBase64(PNG_B64).equals(PNG)).toBe(true)
+  })
+
+  it('长度上界先行拒绝（小上限即可验证，无需分配巨串）', () => {
+    const b64 = Buffer.alloc(9).toString('base64') // 12 字符 > maxBytes=3 对应的 4 字符上界
+    expect(() => decodeBoundedBase64(b64, 3)).toThrow(/limit/i)
+  })
+
+  it('格式非法拒绝', () => {
+    expect(() => decodeBoundedBase64('abcd!')).toThrow(/malformed/i)
+    expect(() => decodeBoundedBase64('abc')).toThrow(/malformed/i) // 长度非 4 倍数
+  })
+
+  it('多兆字符串格式校验不递归爆栈（非分组字符类正则）', () => {
+    const huge = 'A'.repeat(2 * 1024 * 1024) // 2MB 合法 base64 字符，长度是 4 倍数
+    const bytes = decodeBoundedBase64(huge)
+    expect(bytes.length).toBe(1572864)
+  })
+})
+
+describe('generateImages — OpenAI 改图', () => {
+  it('一张参考图走 /images/edits，multipart 用单数字段名 image', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+
+    const outcome = await generateImages(
+      OPENAI,
+      { prompt: 'make it warm', images: [{ bytes: PNG, mime: 'image/png' }] },
+      fetchImpl,
+    )
+
+    expect(outcome.ok).toBe(true)
+    const [url, init] = calls(fetchImpl)[0]
+    expect(url).toBe('https://api.test/v1/images/edits')
+    expect(init.body).toBeInstanceOf(FormData)
+    const form = init.body as FormData
+    expect(form.get('model')).toBe('gpt-image-1')
+    expect(form.get('prompt')).toBe('make it warm')
+    expect(form.getAll('image')).toHaveLength(1)
+    expect(form.getAll('image[]')).toHaveLength(0)
+    // boundary 必须由 fetch 自己生成，手写 Content-Type 会让上游解析失败
+    expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined()
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test')
+  })
+  it('多张参考图用数组字段名 image[]，字节与类型原样送出', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+
+    await generateImages(
+      OPENAI,
+      { prompt: 'combine', images: [{ bytes: PNG, mime: 'image/png' }, { bytes: JPEG, mime: 'image/jpeg' }] },
+      fetchImpl,
+    )
+
+    const form = calls(fetchImpl)[0][1].body as FormData
+    expect(form.getAll('image')).toHaveLength(0)
+    const parts = form.getAll('image[]') as File[]
+    expect(parts).toHaveLength(2)
+    expect(parts[0].type).toBe('image/png')
+    expect(Buffer.from(await parts[0].arrayBuffer()).equals(PNG)).toBe(true)
+    expect(parts[1].type).toBe('image/jpeg')
+    expect(Buffer.from(await parts[1].arrayBuffer()).equals(JPEG)).toBe(true)
+  })
+
+  it('改图也带 size（给了才带）', async () => {
+    const withSize = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    await generateImages(OPENAI, { prompt: 'p', size: '1024x1536', images: [{ bytes: PNG, mime: 'image/png' }] }, withSize)
+    expect((calls(withSize)[0][1].body as FormData).get('size')).toBe('1024x1536')
+
+    const without = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    await generateImages(OPENAI, { prompt: 'p', images: [{ bytes: PNG, mime: 'image/png' }] }, without)
+    expect((calls(without)[0][1].body as FormData).get('size')).toBeNull()
+  })
+
+  it('改图失败就是失败：只发过 edits，绝不补一次 generations', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ error: { message: 'Invalid image file' } }, 400)])
+
+    const outcome = await generateImages(OPENAI, { prompt: 'p', images: [{ bytes: PNG, mime: 'image/png' }] }, fetchImpl)
+
+    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('Invalid image file') })
+    expect(calls(fetchImpl)).toHaveLength(1)
+    expect(calls(fetchImpl)[0][0]).toBe('https://api.test/v1/images/edits')
+  })
+
+  it('不支持改图的方言明确拒绝，零出站，绝不降级成重新生成', async () => {
+    for (const dialect of ['seedream', 'zhipu'] as const) {
+      const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+
+      const outcome = await generateImages(
+        { ...OPENAI, dialect },
+        { prompt: 'make it warm', images: [{ bytes: PNG, mime: 'image/png' }] },
+        fetchImpl,
+      )
+
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.error).toContain('does not support image editing')
+      expect(outcome.error).toContain(dialect)
+      expect(calls(fetchImpl)).toHaveLength(0)
+    }
+  })
+})
+
+describe('imageMultipartFieldName — 单图/多图字段名规则（为改图票铺路）', () => {
+  it('一张用单数字段名 image', () => {
+    expect(imageMultipartFieldName(1)).toBe('image')
+  })
+
+  it('多张用数组字段名 image[]', () => {
+    for (const count of [2, 3, 4]) {
+      expect(imageMultipartFieldName(count)).toBe('image[]')
+    }
   })
 })

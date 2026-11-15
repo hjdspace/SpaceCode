@@ -183,6 +183,25 @@ describe('generate_image', () => {
     expect(existsSync(join(root, 'outputs'))).toBe(false)
   })
 
+  it('HTTP 200 但 b64 解出来是 HTML 错误页 → 签名不符，不落半成品文件', async () => {
+    const order: string[] = []
+    const html = Buffer.from('<!DOCTYPE html><html>502 Bad Gateway</html>').toString('base64')
+    const fetchImpl = vi.fn(async () => {
+      order.push('fetch')
+      return new Response(JSON.stringify({ data: [{ b64_json: html }] }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const result = await callImageGenTool('generate_image', { prompt: 'a cat' }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing(order),
+    })
+
+    expect(result.isError).toBe(true)
+    expect(order).toEqual(['authorize', 'fetch'])
+    expect(existsSync(join(root, 'outputs'))).toBe(false)
+  })
+
   it('每次调用重新读配置：刚存好的 key 下一次就生效', async () => {
     const order: string[] = []
     let config: ImageGenConfig | null = null
