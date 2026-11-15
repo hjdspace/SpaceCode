@@ -2,7 +2,7 @@
   <div class="imagegen-card">
     <div class="ig-head">
       <ImageIcon :size="14" class="ig-icon" />
-      <span class="ig-title">{{ t(isEdit ? 'imageGen.card.editTitle' : 'imageGen.card.title') }}</span>
+      <span class="ig-title">{{ t(titleKey) }}</span>
       <span v-if="referenceCount" class="ig-references">{{ t('imageGen.card.referenceCount', { count: referenceCount }) }}</span>
       <span v-if="model" class="ig-model">{{ t('imageGen.card.model', { model }) }}</span>
       <span v-if="summary" class="ig-summary">{{ summary }}</span>
@@ -10,7 +10,7 @@
 
     <div v-if="isCallError" class="ig-call-error">{{ callErrorText }}</div>
 
-    <div v-if="items.length" class="ig-grid">
+    <div v-if="items.length" class="ig-grid" :class="{ 'ig-grid--single': items.length === 1 }">
       <div
         v-for="(item, index) in items"
         :key="index"
@@ -101,8 +101,12 @@ const payload = computed<{ model?: string; referenceCount?: number; images: Imag
 
 const items = computed(() => payload.value.images)
 const model = computed(() => payload.value.model)
-/** 身份取自工具名：整次失败时输出是纯文本、在途时还没有输出，返回值认不出这是改图。 */
+/** 身份取自工具名：整次失败时输出是纯文本、在途时还没有输出，返回值认不出这是改图还是批量。 */
 const isEdit = computed(() => props.toolCall.name.endsWith('__edit_image'))
+const titleKey = computed(() => {
+  if (props.toolCall.name.endsWith('__generate_batch')) return 'imageGen.card.batchTitle'
+  return isEdit.value ? 'imageGen.card.editTitle' : 'imageGen.card.title'
+})
 const referenceCount = computed(() => {
   if (payload.value.referenceCount) return payload.value.referenceCount
   const paths: unknown = props.toolCall.input?.imagePaths
@@ -152,7 +156,10 @@ const unreadable = ref<number[]>([])
 
 /** 逐项报错文案：失败项用错误码文案，读不出来的成功项交代读盘失败。 */
 const itemErrors = computed(() => items.value.map((item, index) => {
-  if (statusOf(item) === 'failed') return errorText(item)
+  const status = statusOf(item)
+  if (status === 'failed') return errorText(item)
+  // 取消项也要说清中止的只是本地请求：否则用户会以为取消就等于没花钱。
+  if (status === 'cancelled' && item.error) return errorText(item)
   return unreadable.value.includes(index) ? t('imageGen.card.readFailed') : null
 }))
 
@@ -232,6 +239,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* 单图就是本次交付物本身：132px cover 裁切只能算图标，不算预览。
+   保持纵横比放大到可读尺寸，点击仍可进灯箱看原图。 */
+.ig-grid--single {
+  .ig-item {
+    width: auto;
+    max-width: min(340px, 100%);
+  }
+
+  .ig-thumb {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 340px;
+  }
+
+  .ig-placeholder {
+    width: 264px;
+    height: 264px;
+  }
 }
 
 .ig-item {

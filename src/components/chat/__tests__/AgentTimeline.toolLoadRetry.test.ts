@@ -9,7 +9,8 @@ import type { Message } from '@/types'
  * 工具卡片是动态 import 的懒加载组件。dev server 重启/HMR 断连时 import 会失败：
  * 这里钉住「失败不抛未捕获 rejection，且清掉 loading 标记后能重试」。
  */
-vi.mock('../tools/index', () => ({
+vi.mock('../tools/index', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../tools/index')>()),
   hasToolComponent: (name: string) => name === 'Bash' || name === 'Read',
   resolveToolComponent: vi.fn(),
 }))

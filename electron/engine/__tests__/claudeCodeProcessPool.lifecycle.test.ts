@@ -524,6 +524,21 @@ describe('事件路由', () => {
     })
   })
 
+  it('进程退出顺手掐掉本会话在途生图，别的会话不受影响 (#114)', async () => {
+    const { beginImageGenWork } = await import('../../imagegen/imageGenWork')
+    const pool = new ClaudeCodeProcessPool()
+    pool.setMainWindow(fakeWindow())
+    const proc = await startPool(pool)
+    const mine = beginImageGenWork(SID)
+    const theirs = beginImageGenWork('session-bbbbbbbb')
+
+    proc.emit('exit', { code: 1 })
+
+    expect(mine.signal.aborted).toBe(true)
+    expect(mine.stopReason).toBe('shutdown')
+    expect(theirs.signal.aborted).toBe(false)
+  })
+
   it('未知事件类型被丢弃并告警，不发送', async () => {
     const pool = new ClaudeCodeProcessPool()
     const win = fakeWindow()

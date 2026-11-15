@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
-import { IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_TOOL_NAMES } from '@electron/imagegen/imageGenTools'
+import { IMAGEGEN_MAX_BATCH, IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MAX_VARIANTS, IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_TOOL_NAMES } from '@electron/imagegen/imageGenTools'
 import { parseFrontmatterText } from '@electron/skillManagerV2/fsutil'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -47,6 +47,22 @@ describe('imagegen 技能正文', () => {
 
   it('技能正文写的参考图上限与工具面一致', () => {
     expect(body).toContain(`1–${IMAGEGEN_MAX_INPUT_IMAGES} 张`)
+  })
+
+  /** 上限写错等于让 Agent 发一个必被拒的请求，或者以为能一次要 20 张。 */
+  it('变体与批量上限、不截断与输入顺序都写进正文', () => {
+    expect(body).toContain(`1–${IMAGEGEN_MAX_VARIANTS} 张`)
+    expect(body).toContain(`1–${IMAGEGEN_MAX_BATCH} 条`)
+    expect(body).toContain('不截断')
+    expect(body).toContain('输入顺序')
+  })
+
+  it('交代取消与失败分开报、已落盘的图保留，且中止不保证供应商停止计费', () => {
+    expect(body).toContain('已取消与失败是两回事')
+    expect(body).toContain('已落盘的图保留')
+    expect(body).toContain('全部被取消时工具返回取消结果')
+    expect(body).toContain('不能保证供应商停止计费')
+    expect(body).toContain('不要承诺「取消就不花钱」')
   })
 
   it('不残留外部 CLI 的目录变量、脚本名、他家模型名、抠色指令与环境变量式凭证', () => {

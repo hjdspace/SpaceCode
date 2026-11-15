@@ -5,8 +5,10 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { ImageGenConfig } from '@/shared/imageGenReference'
 import type { LoopbackMcpContext } from '../../tools/loopbackMcpServer'
-import { callImageGenTool, IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MCP_TOOLS, IMAGEGEN_TOOL_NAMES } from '../imageGenTools'
+import { callImageGenTool, IMAGEGEN_MAX_BATCH, IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MAX_VARIANTS, IMAGEGEN_MCP_TOOLS, IMAGEGEN_TOOL_NAMES } from '../imageGenTools'
 import type { ImageGenToolDeps } from '../imageGenTools'
+import { cancelAllImageGenWork, cancelImageGenWork } from '../imageGenWork'
+import { createImageGenAuthorization, setImageGenAuthorization } from '../imageGenAuthorization'
 
 const CONFIG: ImageGenConfig = {
   presetId: 'openai',
@@ -71,12 +73,47 @@ function allowing(order: string[]): ImageGenToolDeps['authorize'] {
   })
 }
 
+interface ReportItem {
+  path?: string
+  size?: string
+  status?: 'succeeded' | 'failed' | 'cancelled'
+  error?: string
+  prompt?: string
+}
+
 function payload(result: { content: Array<{ text: string }> }): {
   model: string
   referenceCount?: number
-  images: Array<{ path: string; size?: string }>
+  cancelled?: boolean
+  images: ReportItem[]
 } {
   return JSON.parse(result.content[0].text)
+}
+
+/** 每张图把序号编进 PNG 宽度：完成顺序与输入顺序不同时，才分辨得出报告有没有错位。 */
+function pngOfWidth(width: number): Buffer {
+  const bytes = Buffer.from(PNG)
+  bytes.writeUInt32BE(width, 16)
+  return bytes
+}
+
+function bodyOf(init: RequestInit): Record<string, unknown> {
+  return init.body instanceof FormData
+    ? Object.fromEntries([...init.body.entries()].map(([k, v]) => [k, String(v)]))
+    : JSON.parse(String(init.body))
+}
+
+/** 挂住直到自己的 signal 被中止：用来观察取消有没有真的传到 HTTP 层。 */
+function hangingResponse(signal?: AbortSignal | null): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    if (!signal) return
+    if (signal.aborted) reject(signal.reason)
+    else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
+}
+
+function calls(fetchImpl: typeof fetch): Array<[string, RequestInit]> {
+  return (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls as Array<[string, RequestInit]>
 }
 
 beforeEach(() => {
@@ -85,6 +122,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  cancelAllImageGenWork('shutdown')
+  setImageGenAuthorization(null)
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -116,7 +155,7 @@ describe('generate_image', () => {
     expect(body.images).toHaveLength(1)
     expect(body.images[0].path).toBe(join(root, 'outputs', 'imagegen', 'cat.png'))
     expect(body.images[0].size).toBe('1024x1024')
-    expect(existsSync(body.images[0].path)).toBe(true)
+    expect(existsSync(body.images[0].path!)).toBe(true)
 
     const text = result.content[0].text
     expect(text).not.toContain(PNG.toString('base64'))
@@ -525,7 +564,7 @@ describe('智谱 CogView', () => {
     const body = payload(result)
     expect(body.model).toBe('cogview-4')
     expect(body.images[0].path).toBe(join(root, 'outputs', 'imagegen', 'cat.jpg'))
-    expect(readFileSync(body.images[0].path).equals(JPEG)).toBe(true)
+    expect(readFileSync(body.images[0].path!).equals(JPEG)).toBe(true)
   })
 })
 
@@ -597,9 +636,400 @@ describe('Seedream（火山方舟）', () => {
   })
 })
 
+describe('批量（generate_batch）', () => {
+  /** 按 prompt 回不同宽度的图，并让靠后的 prompt 先完成：错位与并发都能被看出来。 */
+  function echoProvider(prompts: string[], onCall?: (index: number) => void): typeof fetch {
+    let inFlight = 0
+    let peak = 0
+    const impl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const prompt = String(bodyOf(init ?? {}).prompt)
+      const index = prompts.indexOf(prompt)
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      onCall?.(index)
+      await new Promise(resolve => setTimeout(resolve, (prompts.length - index) * 4))
+      inFlight -= 1
+      return new Response(JSON.stringify({ data: [{ b64_json: pngOfWidth(1200 + index).toString('base64') }] }), { status: 200 })
+    }) as unknown as ReturnType<typeof vi.fn>
+    ;(impl as unknown as { peak: () => number }).peak = () => peak
+    return impl as unknown as typeof fetch
+  }
+
+  it('每条 prompt 一次单图请求，报告按输入顺序、带各自的 prompt', async () => {
+    const order: string[] = []
+    const prompts = ['a red icon', 'a blue icon', 'a green icon']
+    const fetchImpl = echoProvider(prompts, () => order.push('fetch'))
+    const authorize = allowing(order)
+
+    const result = await callImageGenTool('generate_batch', { prompts, nameHint: 'icon' }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize,
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(order).toEqual(['authorize', 'fetch', 'fetch', 'fetch'])
+    expect(authorize).toHaveBeenCalledWith({
+      sessionId: 's1',
+      provider: 'OpenAI',
+      model: 'gpt-image-1',
+      count: 3,
+      prompt: 'a red icon',
+    })
+    expect(calls(fetchImpl).map(([, init]) => bodyOf(init).prompt)).toEqual(prompts)
+    for (const [, init] of calls(fetchImpl)) expect(bodyOf(init).n).toBeUndefined()
+
+    const body = payload(result)
+    expect(body.images.map(item => item.prompt)).toEqual(prompts)
+    expect(body.images.map(item => item.size)).toEqual(['1200x1024', '1201x1024', '1202x1024'])
+    expect(body.images.map(item => item.path)).toEqual([
+      join(root, 'outputs', 'imagegen', 'icon.png'),
+      join(root, 'outputs', 'imagegen', 'icon-2.png'),
+      join(root, 'outputs', 'imagegen', 'icon-3.png'),
+    ])
+  })
+
+  it('prompts 缺失 / 空 / 超过 8 条 / 含非字符串 → 拒绝并说明上限，不截断', async () => {
+    const bad = [
+      {},
+      { prompts: [] },
+      { prompts: Array.from({ length: IMAGEGEN_MAX_BATCH + 1 }, (_, i) => `p${i}`) },
+      { prompts: ['x', 3] },
+      { prompts: ['  '] },
+      { prompts: 'x' },
+    ]
+    for (const args of bad) {
+      const order: string[] = []
+      const result = await callImageGenTool('generate_batch', args, context, {
+        loadConfig: () => CONFIG,
+        fetchImpl: provider(order),
+        authorize: allowing(order),
+      })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain('prompts')
+      expect(order).toEqual([])
+      expect(existsSync(join(root, 'outputs'))).toBe(false)
+    }
+    const order: string[] = []
+    const tooMany = await callImageGenTool(
+      'generate_batch',
+      { prompts: Array.from({ length: IMAGEGEN_MAX_BATCH + 1 }, (_, i) => `p${i}`) },
+      context,
+      { loadConfig: () => CONFIG, fetchImpl: provider(order), authorize: allowing(order) },
+    )
+    expect(tooMany.content[0].text).toContain(String(IMAGEGEN_MAX_BATCH))
+  })
+
+  it('批量与变体共享并发上限 2', async () => {
+    const prompts = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5']
+    const batchFetch = echoProvider(prompts)
+    await callImageGenTool('generate_batch', { prompts }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl: batchFetch,
+      authorize: allowing([]),
+    })
+    expect((batchFetch as unknown as { peak: () => number }).peak()).toBe(2)
+
+    const variantPrompts = ['same']
+    const variantFetch = echoProvider(variantPrompts)
+    await callImageGenTool('generate_image', { prompt: 'same', n: IMAGEGEN_MAX_VARIANTS }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl: variantFetch,
+      authorize: allowing([]),
+    })
+    expect((variantFetch as unknown as { peak: () => number }).peak()).toBe(2)
+    expect(calls(variantFetch)).toHaveLength(IMAGEGEN_MAX_VARIANTS)
+  })
+
+  it('部分失败仍算成功：成功的照常落盘，失败项带原因且不冒充成功', async () => {
+    const prompts = ['ok one', 'bad one', 'ok two']
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const prompt = String(bodyOf(init ?? {}).prompt)
+      if (prompt === 'bad one') {
+        return new Response(JSON.stringify({ error: { message: 'content policy violation' } }), { status: 400 })
+      }
+      return new Response(JSON.stringify({ data: [{ b64_json: PNG.toString('base64') }] }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const result = await callImageGenTool('generate_batch', { prompts, nameHint: 'set' }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+
+    expect(result.isError).toBeFalsy()
+    const body = payload(result)
+    expect(body.images.map(item => item.status)).toEqual(['succeeded', 'failed', 'succeeded'])
+    expect(body.images[1].path).toBeUndefined()
+    expect(body.images[1].error).toContain('content policy violation')
+    expect(body.images[1].prompt).toBe('bad one')
+    expect(existsSync(body.images[0].path!)).toBe(true)
+    expect(existsSync(body.images[2].path!)).toBe(true)
+    expect(readdirSync(join(root, 'outputs', 'imagegen'))).toHaveLength(2)
+  })
+
+  it('全部失败才返回工具错误，且一条 prompt 只发一次请求 —— 不自动重试', async () => {
+    const prompts = ['p0', 'p1', 'p2']
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'upstream exploded' } }), { status: 500 })) as unknown as typeof fetch
+
+    const result = await callImageGenTool('generate_batch', { prompts }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('upstream exploded')
+    expect(calls(fetchImpl)).toHaveLength(prompts.length)
+    expect(existsSync(join(root, 'outputs'))).toBe(false)
+  })
+})
+
+describe('取消', () => {
+  it('中止在途 HTTP、丢弃未开始的排队项，全被取消时返回取消结果', async () => {
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => hangingResponse(init?.signal)) as unknown as typeof fetch
+
+    const pending = callImageGenTool('generate_image', { prompt: 'a cat', n: IMAGEGEN_MAX_VARIANTS }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+    await vi.waitFor(() => expect(calls(fetchImpl)).toHaveLength(2))
+    cancelImageGenWork('s1', 'user')
+    const result = await pending
+
+    expect(result.isError).toBeFalsy()
+    const body = payload(result)
+    expect(body.cancelled).toBe(true)
+    expect(body.images.map(item => item.status)).toEqual(['cancelled', 'cancelled', 'cancelled', 'cancelled'])
+    // 只有并发上限内的两条真的出站，排队项在出站之前就被丢掉。
+    expect(calls(fetchImpl)).toHaveLength(2)
+    expect(existsSync(join(root, 'outputs'))).toBe(false)
+  })
+
+  it('取消保留已拿到的图：成功项照常落盘，其余记为已取消', async () => {
+    const prompts = ['done', 'slow one', 'slow two']
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (String(bodyOf(init ?? {}).prompt) === 'done') {
+        return new Response(JSON.stringify({ data: [{ b64_json: PNG.toString('base64') }] }), { status: 200 })
+      }
+      return hangingResponse(init?.signal)
+    }) as unknown as typeof fetch
+
+    const pending = callImageGenTool('generate_batch', { prompts, nameHint: 'keep' }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+    await vi.waitFor(() => expect(calls(fetchImpl)).toHaveLength(3))
+    cancelImageGenWork('s1', 'user')
+    const result = await pending
+
+    expect(result.isError).toBeFalsy()
+    const body = payload(result)
+    expect(body.cancelled).toBeUndefined()
+    expect(body.images.map(item => item.status)).toEqual(['succeeded', 'cancelled', 'cancelled'])
+    expect(existsSync(body.images[0].path!)).toBe(true)
+    expect(readdirSync(join(root, 'outputs', 'imagegen'))).toHaveLength(1)
+  })
+
+  it('已取消与失败分开报告，不折叠成同一种状态', async () => {
+    const prompts = ['ok', 'bad', 'slow one', 'slow two']
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const prompt = String(bodyOf(init ?? {}).prompt)
+      if (prompt === 'ok') return new Response(JSON.stringify({ data: [{ b64_json: PNG.toString('base64') }] }), { status: 200 })
+      if (prompt === 'bad') return new Response(JSON.stringify({ error: { message: 'nope' } }), { status: 400 })
+      return hangingResponse(init?.signal)
+    }) as unknown as typeof fetch
+
+    const pending = callImageGenTool('generate_batch', { prompts }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+    await vi.waitFor(() => expect(calls(fetchImpl)).toHaveLength(4))
+    cancelImageGenWork('s1', 'user')
+    const result = await pending
+
+    expect(result.isError).toBeFalsy()
+    expect(payload(result).images.map(item => item.status)).toEqual(['succeeded', 'failed', 'cancelled', 'cancelled'])
+  })
+
+  it('授权卡还挂着时中止：卡片被关掉，工具返回取消且零出站', async () => {
+    const closed: string[] = []
+    const gate = createImageGenAuthorization({
+      sendDialog: () => {},
+      sendClosed: (_sessionId, event) => closed.push(event.reason),
+      permissionMode: () => 'default',
+    })
+    setImageGenAuthorization(gate)
+    const order: string[] = []
+    const fetchImpl = provider(order)
+
+    const pending = callImageGenTool('generate_image', { prompt: 'a cat', n: 2 }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: gate.authorize,
+    })
+    await vi.waitFor(() => expect(closed).toHaveLength(0))
+    cancelImageGenWork('s1', 'user')
+    const result = await pending
+
+    expect(closed).toEqual(['aborted'])
+    expect(result.isError).toBeFalsy()
+    expect(payload(result).cancelled).toBe(true)
+    expect(payload(result).images.map(item => item.status)).toEqual(['cancelled', 'cancelled'])
+    expect(order).toEqual([])
+    expect(existsSync(join(root, 'outputs'))).toBe(false)
+  })
+
+  it('应用退出序列取消所有会话的在途生图', async () => {
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => hangingResponse(init?.signal)) as unknown as typeof fetch
+    const pending = callImageGenTool('generate_image', { prompt: 'a cat', n: 2 }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+    await vi.waitFor(() => expect(calls(fetchImpl)).toHaveLength(2))
+    cancelAllImageGenWork('shutdown')
+    const result = await pending
+
+    expect(result.isError).toBeFalsy()
+    expect(payload(result).images.map(item => item.status)).toEqual(['cancelled', 'cancelled'])
+  })
+
+  it('调用结束就注销登记：之后的取消不影响下一次调用', async () => {
+    const order: string[] = []
+    const deps: ImageGenToolDeps = { loadConfig: () => CONFIG, fetchImpl: provider(order), authorize: allowing(order) }
+    expect((await callImageGenTool('generate_image', { prompt: 'a cat' }, context, deps)).isError).toBeFalsy()
+    cancelImageGenWork('s1', 'user')
+    expect((await callImageGenTool('generate_image', { prompt: 'a cat' }, context, deps)).isError).toBeFalsy()
+  })
+
+  it('取消不自动重试：中止后一条请求都不再补发', async () => {
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => hangingResponse(init?.signal)) as unknown as typeof fetch
+    const pending = callImageGenTool('generate_batch', { prompts: ['p0', 'p1', 'p2', 'p3'] }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+    await vi.waitFor(() => expect(calls(fetchImpl)).toHaveLength(2))
+    cancelImageGenWork('s1', 'user')
+    await pending
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(calls(fetchImpl)).toHaveLength(2)
+  })
+})
+
+describe('鉴权失败止血', () => {
+  it('401 立刻掐掉剩余排队项，全部标为鉴权失败而不是用户取消', async () => {
+    const prompts = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5']
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'invalid api key sk-test' } }), { status: 401 })) as unknown as typeof fetch
+
+    const result = await callImageGenTool('generate_batch', { prompts }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+
+    expect(result.isError).toBe(true)
+    // 并发上限内的两条已经出站，其余 4 条在出站之前就被掐掉 —— 一个错 key 不烧 6 次钱。
+    expect(calls(fetchImpl)).toHaveLength(2)
+    expect(result.content[0].text).toContain('auth:')
+    expect(result.content[0].text).not.toContain('sk-test')
+    expect(result.content[0].text).not.toContain('cancelled')
+    expect(existsSync(join(root, 'outputs'))).toBe(false)
+  })
+
+  it('403 与 401 同样止血；已成功的图不受影响', async () => {
+    const prompts = ['ok', 'p1', 'p2', 'p3']
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (String(bodyOf(init ?? {}).prompt) === 'ok') {
+        return new Response(JSON.stringify({ data: [{ b64_json: PNG.toString('base64') }] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ error: { message: 'forbidden' } }), { status: 403 })
+    }) as unknown as typeof fetch
+
+    const result = await callImageGenTool('generate_batch', { prompts }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+
+    expect(result.isError).toBeFalsy()
+    const body = payload(result)
+    expect(body.images[0].status).toBe('succeeded')
+    expect(existsSync(body.images[0].path!)).toBe(true)
+    for (const item of body.images.slice(1)) {
+      expect(item.status).toBe('failed')
+      expect(item.error).toMatch(/^auth: /)
+    }
+    expect(calls(fetchImpl).length).toBeLessThanOrEqual(2)
+  })
+})
+
+describe('三种方言一致', () => {
+  const DIALECTS: Array<[string, ImageGenConfig]> = [
+    ['openai', CONFIG],
+    ['seedream', { ...CONFIG, presetId: 'ark', dialect: 'seedream', baseUrl: 'https://ark.test/api/v3' }],
+    ['zhipu', { ...CONFIG, presetId: 'zhipu', dialect: 'zhipu', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' }],
+  ]
+
+  /** 智谱只回 url，另两家回 b64：方言差异只在返回形态，批量与取消口径必须一样。 */
+  function dialectProvider(config: ImageGenConfig, hang = false): typeof fetch {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      if (!String(url).includes('images/generations')) return new Response(PNG, { status: 200 })
+      if (hang) return hangingResponse(init?.signal)
+      const data = config.dialect === 'zhipu' ? [{ url: 'https://93.184.216.34/x.png' }] : [{ b64_json: PNG.toString('base64') }]
+      return new Response(JSON.stringify({ data }), { status: 200 })
+    }) as unknown as typeof fetch
+  }
+
+  it.each(DIALECTS)('%s：批量逐条单图请求，按输入顺序落盘', async (_label, config) => {
+    const fetchImpl = dialectProvider(config)
+    const result = await callImageGenTool('generate_batch', { prompts: ['first', 'second'], nameHint: 'd' }, context, {
+      loadConfig: () => config,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+
+    expect(result.isError).toBeFalsy()
+    const generations = calls(fetchImpl).filter(([url]) => url.includes('images/generations'))
+    expect(generations).toHaveLength(2)
+    expect(generations.map(([, init]) => bodyOf(init).prompt)).toEqual(['first', 'second'])
+    for (const [, init] of generations) {
+      const body = bodyOf(init)
+      expect(body.n).toBeUndefined()
+      expect(body.sequential_image_generation).toBeUndefined()
+    }
+    const body = payload(result)
+    expect(body.images.map(item => item.status)).toEqual(['succeeded', 'succeeded'])
+    expect(body.images.map(item => item.prompt)).toEqual(['first', 'second'])
+    for (const item of body.images) expect(existsSync(item.path!)).toBe(true)
+  })
+
+  it.each(DIALECTS)('%s：取消中止在途、丢掉排队项，全被取消返回取消结果', async (_label, config) => {
+    const fetchImpl = dialectProvider(config, true)
+    const pending = callImageGenTool('generate_batch', { prompts: ['p0', 'p1', 'p2', 'p3'] }, context, {
+      loadConfig: () => config,
+      fetchImpl,
+      authorize: allowing([]),
+    })
+    await vi.waitFor(() => expect(calls(fetchImpl)).toHaveLength(2))
+    cancelImageGenWork('s1', 'user')
+    const result = await pending
+
+    expect(result.isError).toBeFalsy()
+    expect(payload(result).cancelled).toBe(true)
+    expect(payload(result).images.map(item => item.status)).toEqual(['cancelled', 'cancelled', 'cancelled', 'cancelled'])
+    expect(calls(fetchImpl)).toHaveLength(2)
+    expect(existsSync(join(root, 'outputs'))).toBe(false)
+  })
+})
+
 describe('工具面', () => {
-  it('暴露文生图与改图，参数面收紧、参考图上限写进 schema', () => {
-    expect(IMAGEGEN_TOOL_NAMES).toEqual(['generate_image', 'edit_image'])
+  it('暴露文生图、改图与批量，参数面收紧、上限写进 schema', () => {
+    expect(IMAGEGEN_TOOL_NAMES).toEqual(['generate_image', 'edit_image', 'generate_batch'])
     for (const tool of IMAGEGEN_MCP_TOOLS) {
       expect(tool.inputSchema.type).toBe('object')
       expect(tool.inputSchema.additionalProperties).toBe(false)
@@ -607,14 +1037,136 @@ describe('工具面', () => {
 
     const generate = IMAGEGEN_MCP_TOOLS[0].inputSchema
     expect(generate.required).toEqual(['prompt'])
-    expect(Object.keys(generate.properties as Record<string, unknown>).sort()).toEqual(['nameHint', 'prompt', 'size'])
+    expect(Object.keys(generate.properties as Record<string, unknown>).sort()).toEqual(['n', 'nameHint', 'prompt', 'size'])
 
     const edit = IMAGEGEN_MCP_TOOLS[1].inputSchema
     expect(edit.required).toEqual(['prompt', 'imagePaths'])
-    expect(Object.keys(edit.properties as Record<string, unknown>).sort()).toEqual(['imagePaths', 'nameHint', 'prompt', 'size'])
+    expect(Object.keys(edit.properties as Record<string, unknown>).sort()).toEqual(['imagePaths', 'n', 'nameHint', 'prompt', 'size'])
     const paths = (edit.properties as Record<string, { minItems: number; maxItems: number; items: { type: string } }>).imagePaths
     expect(paths.minItems).toBe(1)
     expect(paths.maxItems).toBe(IMAGEGEN_MAX_INPUT_IMAGES)
     expect(paths.items.type).toBe('string')
+
+    const batch = IMAGEGEN_MCP_TOOLS[2].inputSchema
+    expect(batch.required).toEqual(['prompts'])
+    expect(Object.keys(batch.properties as Record<string, unknown>).sort()).toEqual(['nameHint', 'prompts', 'size'])
+    const prompts = (batch.properties as Record<string, { minItems: number; maxItems: number; items: { type: string } }>).prompts
+    expect(prompts.minItems).toBe(1)
+    expect(prompts.maxItems).toBe(IMAGEGEN_MAX_BATCH)
+    expect(prompts.items.type).toBe('string')
+
+    for (const tool of [IMAGEGEN_MCP_TOOLS[0], IMAGEGEN_MCP_TOOLS[1]]) {
+      const n = (tool.inputSchema.properties as Record<string, { type: string; minimum: number; maximum: number }>).n
+      expect(n.type).toBe('integer')
+      expect(n.minimum).toBe(1)
+      expect(n.maximum).toBe(IMAGEGEN_MAX_VARIANTS)
+    }
+  })
+
+  /** 上限是票面写死的数字：拿常量自比等于没测，改大常量必须让这里红。 */
+  it('上限就是 4 张变体 / 8 条 prompt / 4 张参考图，多一个即拒', async () => {
+    expect(IMAGEGEN_MAX_VARIANTS).toBe(4)
+    expect(IMAGEGEN_MAX_BATCH).toBe(8)
+    expect(IMAGEGEN_MAX_INPUT_IMAGES).toBe(4)
+
+    const order: string[] = []
+    const deps = { loadConfig: () => CONFIG, authorize: allowing(order), fetchImpl: provider(order) }
+
+    const five = await callImageGenTool('generate_image', { prompt: 'p', n: 5 }, context, deps)
+    expect(five.isError).toBe(true)
+    expect(five.content[0].text).toContain('4')
+
+    const nine = await callImageGenTool(
+      'generate_batch',
+      { prompts: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'] },
+      context,
+      deps,
+    )
+    expect(nine.isError).toBe(true)
+    expect(nine.content[0].text).toContain('8')
+
+    // 拒在授权之前：一个注定被拒的请求不该拿卡片去打扰用户，更不该出站。
+    expect(order).toEqual([])
+  })
+})
+
+describe('多变体（n）', () => {
+  it('n=3 扇出三次单图请求，按输入顺序报告，逐张落盘不撞名', async () => {
+    const order: string[] = []
+    let seq = 0
+    // 完成顺序刻意与输入顺序相反：报告若按完成顺序排，宽度就会错位。
+    const fetchImpl = vi.fn(async () => {
+      const index = seq++
+      order.push('fetch')
+      await new Promise(resolve => setTimeout(resolve, (3 - index) * 5))
+      return new Response(JSON.stringify({ data: [{ b64_json: pngOfWidth(1000 + index).toString('base64') }] }), { status: 200 })
+    }) as unknown as typeof fetch
+    const authorize = allowing(order)
+
+    const result = await callImageGenTool('generate_image', { prompt: 'a cat', n: 3, nameHint: 'cat' }, context, {
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      authorize,
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(order).toEqual(['authorize', 'fetch', 'fetch', 'fetch'])
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ count: 3 }))
+    expect(calls(fetchImpl)).toHaveLength(3)
+    for (const [, init] of calls(fetchImpl)) {
+      const body = bodyOf(init)
+      expect(body.n).toBeUndefined()
+      expect(body.batch_size).toBeUndefined()
+      expect(body.sequential_image_generation).toBeUndefined()
+    }
+
+    const body = payload(result)
+    expect(body.images.map(item => item.size)).toEqual(['1000x1024', '1001x1024', '1002x1024'])
+    expect(body.images.map(item => item.status)).toEqual(['succeeded', 'succeeded', 'succeeded'])
+    expect(body.images.map(item => item.path)).toEqual([
+      join(root, 'outputs', 'imagegen', 'cat.png'),
+      join(root, 'outputs', 'imagegen', 'cat-2.png'),
+      join(root, 'outputs', 'imagegen', 'cat-3.png'),
+    ])
+    for (const item of body.images) expect(existsSync(item.path!)).toBe(true)
+  })
+
+  it('n 超上限 / 非整数 / 小于 1 → 拒绝并说明上限，不截断也不问授权', async () => {
+    for (const n of [0, IMAGEGEN_MAX_VARIANTS + 1, 1.5, '2', null, -1]) {
+      const order: string[] = []
+      const result = await callImageGenTool('generate_image', { prompt: 'a cat', n }, context, {
+        loadConfig: () => CONFIG,
+        fetchImpl: provider(order),
+        authorize: allowing(order),
+      })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain(String(IMAGEGEN_MAX_VARIANTS))
+      expect(order).toEqual([])
+      expect(existsSync(join(root, 'outputs'))).toBe(false)
+    }
+  })
+
+  it('edit_image 的 n 同样扇出，每次物理请求都带同一批参考图', async () => {
+    writeFileSync(join(root, 'src.png'), SOURCE_PNG)
+    const order: string[] = []
+    const fetchImpl = provider(order)
+    const authorize = allowing(order)
+
+    const result = await callImageGenTool(
+      'edit_image',
+      { prompt: 'make it warm', imagePaths: ['src.png'], n: 2, nameHint: 'warm' },
+      context,
+      { loadConfig: () => CONFIG, fetchImpl, authorize },
+    )
+
+    expect(result.isError).toBeFalsy()
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ count: 2, referenceCount: 1 }))
+    expect(calls(fetchImpl)).toHaveLength(2)
+    for (const [url, init] of calls(fetchImpl)) {
+      expect(url).toBe('https://api.test/v1/images/edits')
+      expect((init.body as FormData).getAll('image')).toHaveLength(1)
+    }
+    expect(payload(result).images).toHaveLength(2)
+    expect(readFileSync(join(root, 'src.png')).equals(SOURCE_PNG)).toBe(true)
   })
 })

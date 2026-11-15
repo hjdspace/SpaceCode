@@ -12,7 +12,8 @@ import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import type { ExtensionDialogClosedEvent, ExtensionDialogRequest, PermissionMode } from '@/shared/channels/claudeCode'
 import type { ImageGenConfig } from '@/shared/imageGenReference'
 import { createImageGenAuthorization, setImageGenAuthorization } from './imageGenAuthorization'
-import { callImageGenTool, IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_MCP_TOOLS } from './imageGenTools'
+import { cancelAllImageGenWork } from './imageGenWork'
+import { callImageGenTool, IMAGEGEN_MAX_BATCH, IMAGEGEN_MAX_INPUT_IMAGES, IMAGEGEN_MAX_VARIANTS, IMAGEGEN_MCP_SERVER_KEY, IMAGEGEN_MCP_TOOLS } from './imageGenTools'
 import { loadImageGenConfig } from './imageGenConfig'
 import { info, warn } from '../infra/logger'
 import { createLoopbackMcpServer, type LoopbackMcpEntry, type LoopbackMcpServer } from '../tools/loopbackMcpServer'
@@ -20,8 +21,12 @@ import { createLoopbackMcpServer, type LoopbackMcpEntry, type LoopbackMcpServer 
 const SERVER_INSTRUCTIONS = [
   'generate_image produces a raster image from a text prompt and saves it into the workspace image output directory.',
   `edit_image changes existing workspace images (1-${IMAGEGEN_MAX_INPUT_IMAGES} references) and saves the result as a new file; it never overwrites the sources. When the user points at an image they want changed, use edit_image rather than generate_image.`,
+  `generate_image and edit_image take n (1-${IMAGEGEN_MAX_VARIANTS}) for variants of one prompt; generate_batch takes prompts (1-${IMAGEGEN_MAX_BATCH}) for a set of different assets. Over either limit the call is rejected — split it yourself, never expect truncation.`,
   'If editing is refused because the provider does not support it, report that and stop. Never substitute a fresh generate_image call for a failed edit.',
-  'Generation is billable: the host asks the user for authorization before the request goes out. A denial is a final answer for that call — do not retry it without the user asking again.',
+  'Generation is billable: the host asks the user for authorization before the request goes out, stating how many images this call will generate. A denial is a final answer for that call — do not retry it without the user asking again.',
+  'Never retry a cancelled, timed-out or failed image request on your own. Report what happened and let the user decide.',
+  'Results come back in input order with a per-image status: succeeded, failed or cancelled. Report those separately — a cancelled image was not a failure, and images already saved stay on disk.',
+  'Cancelling aborts the local request only. It cannot guarantee the provider stops working or stops billing for requests already sent.',
   'The tool result carries the absolute file path, the size and the model that actually ran. Report that path to the user; never paste base64 image data.',
   'You cannot see the generated image. Do not claim to have inspected it.',
 ].join('\n')
@@ -111,6 +116,8 @@ export async function stopImageGenMcpServer(): Promise<void> {
   const current = instance
   instance = null
   starting = null
+  // 先掐在途工作再关服务器：连接一断，工具层就没人替这些计费请求收尾了。
+  cancelAllImageGenWork('shutdown')
   setImageGenAuthorization(null)
   if (current) await current.stop()
 }

@@ -93,7 +93,7 @@ describe('generateImages — OpenAI 文生图', () => {
       new Response(bytes, { status: 200 }),
     ])
 
-    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, publicLookup)
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, { lookupImpl: publicLookup })
 
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -108,7 +108,7 @@ describe('generateImages — OpenAI 文生图', () => {
 
     const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
 
-    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('Invalid model') })
+    expect(outcome).toEqual({ ok: false, code: 'provider', error: expect.stringContaining('Invalid model') })
     if (outcome.ok) return
     expect(outcome.error).not.toContain('sk-test')
   })
@@ -120,7 +120,7 @@ describe('generateImages — OpenAI 文生图', () => {
       { prompt: 'p' },
       fetchImpl,
     )
-    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('Unsupported image dialect') })
+    expect(outcome).toEqual({ ok: false, code: 'provider', error: expect.stringContaining('Unsupported image dialect') })
     expect(calls(fetchImpl)).toHaveLength(0)
   })
 
@@ -139,13 +139,13 @@ describe('generateImages — OpenAI 文生图', () => {
       jsonResponse({ data: [{ url: 'https://cdn.test/expired.jpg' }] }),
       new Response('gone', { status: 403 }),
     ])
-    expect((await generateImages(OPENAI, { prompt: 'p' }, expired, publicLookup)).ok).toBe(false)
+    expect((await generateImages(OPENAI, { prompt: 'p' }, expired, { lookupImpl: publicLookup })).ok).toBe(false)
 
     const broken = vi.fn(async () => {
       throw new Error('socket hang up')
     }) as unknown as typeof fetch
     const outcome = await generateImages(OPENAI, { prompt: 'p' }, broken)
-    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('socket hang up') })
+    expect(outcome).toEqual({ ok: false, code: 'network', error: expect.stringContaining('socket hang up') })
   })
 })
 
@@ -181,7 +181,7 @@ describe('generateImages — 不受信响应硬化', () => {
   it('HTTP 200 内逐图 error → 识别为失败项，全失败时 ok:false 且带原因', async () => {
     const fetchImpl = fakeFetch([jsonResponse({ data: [{ error: { code: 'x', message: 'content policy violation' } }] })])
     const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
-    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('content policy violation') })
+    expect(outcome).toEqual({ ok: false, code: 'provider', error: expect.stringContaining('content policy violation') })
   })
 
   it('HTTP 200 内一成功一逐图 error → 成功项照常返回，失败项不冒充成功', async () => {
@@ -238,7 +238,7 @@ describe('generateImages — 不受信响应硬化', () => {
   it('供应商给的下载 URL 指向元数据/内网 → ok:false，不发下载请求', async () => {
     for (const url of ['http://169.254.169.254/latest/meta-data/', 'http://10.0.0.1/a.png', 'ftp://host/a.png']) {
       const fetchImpl = fakeFetch([jsonResponse({ data: [{ url }] }), new Response(JPEG)])
-      const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, publicLookup)
+      const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, { lookupImpl: publicLookup })
       expect(outcome.ok).toBe(false)
       expect(calls(fetchImpl)).toHaveLength(1) // 只有 generations，没有下载
     }
@@ -246,7 +246,7 @@ describe('generateImages — 不受信响应硬化', () => {
 
   it('下载 URL 内嵌凭证 → ok:false', async () => {
     const fetchImpl = fakeFetch([jsonResponse({ data: [{ url: 'https://user:pass@cdn.test/a.png' }] }), new Response(JPEG)])
-    expect((await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, publicLookup)).ok).toBe(false)
+    expect((await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, { lookupImpl: publicLookup })).ok).toBe(false)
     expect(calls(fetchImpl)).toHaveLength(1)
   })
 })
@@ -330,7 +330,7 @@ describe('generateImages — OpenAI 改图', () => {
 
     const outcome = await generateImages(OPENAI, { prompt: 'p', images: [{ bytes: PNG, mime: 'image/png' }] }, fetchImpl)
 
-    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('Invalid image file') })
+    expect(outcome).toEqual({ ok: false, code: 'provider', error: expect.stringContaining('Invalid image file') })
     expect(calls(fetchImpl)).toHaveLength(1)
     expect(calls(fetchImpl)[0][0]).toBe('https://api.test/v1/images/edits')
   })
@@ -390,7 +390,7 @@ describe('generateImages — Seedream 方言（火山方舟）', () => {
       jsonResponse({ data: [{ url: 'https://cdn.test/a.jpg' }] }),
       new Response(JPEG, { status: 200 }),
     ])
-    const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl, publicLookup)
+    const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl, { lookupImpl: publicLookup })
 
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -473,7 +473,7 @@ describe('generateImages — Seedream 方言（火山方舟）', () => {
   it('HTTP 200 内全部逐图 error → ok:false 且带原因', async () => {
     const fetchImpl = fakeFetch([jsonResponse({ data: [{ error: { message: 'content policy violation' } }] })])
     const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl)
-    expect(outcome).toEqual({ ok: false, error: expect.stringContaining('content policy violation') })
+    expect(outcome).toEqual({ ok: false, code: 'provider', error: expect.stringContaining('content policy violation') })
   })
 
   it('鉴权失败把供应商消息递给模型，不回显 key，且不重试', async () => {
@@ -497,7 +497,7 @@ describe('generateImages — 智谱方言', () => {
       new Response(JPEG, { status: 200 }),
     ])
 
-    const outcome = await generateImages(ZHIPU, { prompt: 'a cat' }, fetchImpl, publicLookup)
+    const outcome = await generateImages(ZHIPU, { prompt: 'a cat' }, fetchImpl, { lookupImpl: publicLookup })
 
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -517,7 +517,7 @@ describe('generateImages — 智谱方言', () => {
 
   it('不发任何批量参数：该端点的 data 数组恒为 1，张数一律客户端扇出', async () => {
     const fetchImpl = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
-    await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, publicLookup)
+    await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, { lookupImpl: publicLookup })
 
     const body = JSON.parse(calls(fetchImpl)[0][1].body as string)
     for (const key of ['n', 'response_format', 'sequential_image_generation', 'sequential_image_generation_options']) {
@@ -527,21 +527,21 @@ describe('generateImages — 智谱方言', () => {
 
   it('size 给了才带', async () => {
     const withSize = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
-    await generateImages(ZHIPU, { prompt: 'p', size: '1024x1024' }, withSize, publicLookup)
+    await generateImages(ZHIPU, { prompt: 'p', size: '1024x1024' }, withSize, { lookupImpl: publicLookup })
     expect(JSON.parse(calls(withSize)[0][1].body as string).size).toBe('1024x1024')
 
     const without = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
-    await generateImages(ZHIPU, { prompt: 'p' }, without, publicLookup)
+    await generateImages(ZHIPU, { prompt: 'p' }, without, { lookupImpl: publicLookup })
     expect(JSON.parse(calls(without)[0][1].body as string)).not.toHaveProperty('size')
   })
 
   it('去水印默认关：未开启时不发 watermark_enabled，开启才明确关掉', async () => {
     const byDefault = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
-    await generateImages(ZHIPU, { prompt: 'p' }, byDefault, publicLookup)
+    await generateImages(ZHIPU, { prompt: 'p' }, byDefault, { lookupImpl: publicLookup })
     expect(JSON.parse(calls(byDefault)[0][1].body as string)).not.toHaveProperty('watermark_enabled')
 
     const disabled = fakeFetch([jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }), new Response(JPEG)])
-    await generateImages({ ...ZHIPU, disableWatermark: true }, { prompt: 'p' }, disabled, publicLookup)
+    await generateImages({ ...ZHIPU, disableWatermark: true }, { prompt: 'p' }, disabled, { lookupImpl: publicLookup })
     expect(JSON.parse(calls(disabled)[0][1].body as string).watermark_enabled).toBe(false)
   })
 
@@ -550,7 +550,7 @@ describe('generateImages — 智谱方言', () => {
       jsonResponse({ data: [{ url: 'https://cdn.test/z.jpg' }] }),
       new Response('gone', { status: 403 }),
     ])
-    const outcome = await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, publicLookup)
+    const outcome = await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, { lookupImpl: publicLookup })
     expect(outcome.ok).toBe(false)
     expect(calls(fetchImpl)).toHaveLength(2)
   })
@@ -570,5 +570,256 @@ describe('generateImages — 智谱方言', () => {
     expect(outcome.error).toContain('zhipu')
     expect(outcome.error).toContain('Settings → Image model')
     expect(calls(fetchImpl)).toHaveLength(0)
+  })
+})
+
+/** 挂住直到自己的 signal 被中止：用来观察「外部取消有没有真的传到 HTTP 层」。 */
+function hangingFetch(): typeof fetch {
+  return vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal
+    if (!signal) return
+    if (signal.aborted) reject(signal.reason)
+    else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })) as unknown as typeof fetch
+}
+
+describe('generateImages — 外部中止', () => {
+  it('外部信号中止在途 HTTP，结果是 cancelled 而不是通用失败，且不重试', async () => {
+    const fetchImpl = hangingFetch()
+    const controller = new AbortController()
+
+    const pending = generateImages(OPENAI, { prompt: 'p' }, fetchImpl, { signal: controller.signal })
+    controller.abort('user')
+    const outcome = await pending
+
+    expect(outcome).toEqual({ ok: false, code: 'cancelled', error: expect.stringContaining('cancelled') })
+    expect(calls(fetchImpl)).toHaveLength(1)
+  })
+
+  it('子请求继承同一信号：fetch 拿到的 signal 随外部中止而中止', async () => {
+    const fetchImpl = hangingFetch()
+    const controller = new AbortController()
+
+    const pending = generateImages(OPENAI, { prompt: 'p' }, fetchImpl, { signal: controller.signal })
+    const sent = calls(fetchImpl)[0][1].signal as AbortSignal
+    expect(sent.aborted).toBe(false)
+
+    controller.abort('user')
+    expect(sent.aborted).toBe(true)
+    await pending
+  })
+
+  it('信号已经中止时零出站', async () => {
+    const fetchImpl = hangingFetch()
+    const controller = new AbortController()
+    controller.abort('user')
+
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, { signal: controller.signal })
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('cancelled')
+    expect(calls(fetchImpl)).toHaveLength(0)
+  })
+
+  it('下载阶段被中止同样报 cancelled，不冒充「图片数据无效」', async () => {
+    const controller = new AbortController()
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('images/generations')) {
+        return jsonResponse({ data: [{ url: 'https://93.184.216.34/z.jpg' }] })
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal
+        if (!signal) return
+        // 下载真的发出去了才中止：证明中止发生在下载途中，而不是请求之前。
+        queueMicrotask(() => controller.abort('user'))
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    }) as unknown as typeof fetch
+
+    const outcome = await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, {
+      signal: controller.signal,
+      lookupImpl: publicLookup,
+    })
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('cancelled')
+  })
+
+  it('中止前已经拿到的图照常返回：付过钱的产物不丢', async () => {
+    const controller = new AbortController()
+    const fetchImpl = vi.fn(async () => {
+      controller.abort('user')
+      return jsonResponse({ data: [{ b64_json: PNG_B64 }] })
+    }) as unknown as typeof fetch
+
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl, { signal: controller.signal })
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.images[0].bytes.equals(PNG)).toBe(true)
+  })
+
+  it('不给外部信号时行为不变：成功、超时与失败照旧', async () => {
+    const ok = await generateImages(OPENAI, { prompt: 'p' }, fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })]))
+    expect(ok.ok).toBe(true)
+
+    const timedOut = await generateImages(OPENAI, { prompt: 'p' }, fakeFetch([
+      () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') },
+    ]))
+    expect(timedOut.ok).toBe(false)
+    if (timedOut.ok) return
+    expect(timedOut.code).toBe('timeout')
+
+    const rejected = await generateImages(OPENAI, { prompt: 'p' }, fakeFetch([jsonResponse({ error: { message: 'invalid key' } }, 401)]))
+    expect(rejected.ok).toBe(false)
+    if (rejected.ok) return
+    expect(rejected.code).toBe('auth')
+  })
+})
+
+describe('generateImages — 稳定错误码', () => {
+  it.each([401, 403])('HTTP %i 是鉴权失败，供上层就地止血', async status => {
+    const fetchImpl = fakeFetch([jsonResponse({ error: { message: 'invalid key sk-test' } }, status)])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('auth')
+    expect(outcome.error).toMatch(/^auth: /)
+    expect(outcome.error).not.toContain('sk-test')
+    expect(calls(fetchImpl)).toHaveLength(1)
+  })
+
+  it('401 的错误体读不出来时仍是鉴权失败，不退回坏图', async () => {
+    const brokenBody = new ReadableStream({
+      start(controller) {
+        controller.error(new Error('socket reset'))
+      },
+    })
+    const fetchImpl = fakeFetch([new Response(brokenBody, { status: 401 })])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('auth')
+    expect(outcome.error).toMatch(/^auth: /)
+  })
+
+  it('HTTP 429 是限流，不是鉴权失败', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ error: { message: 'rate limited' } }, 429)])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('rate_limit')
+    expect(outcome.error).toContain('rate limited')
+  })
+
+  it('其余 HTTP 失败带供应商原文，码是 provider', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ error: { message: 'Invalid model' } }, 400)])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('provider')
+    expect(outcome.error).toContain('Invalid model')
+  })
+
+  it('供应商超时是 timeout，不是网络不可达', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+    }) as unknown as typeof fetch
+
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('timeout')
+  })
+
+  it('读响应体时超时也是 timeout：坏图文案会让用户以为图坏了', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      },
+    })
+    const fetchImpl = fakeFetch([new Response(body, { status: 200 })])
+
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('timeout')
+  })
+
+  it('下载 url 图片时超时也是 timeout', async () => {
+    const fetchImpl = fakeFetch([
+      jsonResponse({ data: [{ url: 'https://93.184.216.34/x.png' }] }),
+      () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') },
+    ])
+
+    const outcome = await generateImages(ZHIPU, { prompt: 'p' }, fetchImpl, { lookupImpl: publicLookup })
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('timeout')
+  })
+
+  it('签名不符是 bad_image', async () => {
+    const html = Buffer.from('<!DOCTYPE html><html>502</html>').toString('base64')
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: html }] })])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('bad_image')
+  })
+
+  it('响应体超限是 bad_image，不冒充网络问题', async () => {
+    const fetchImpl = fakeFetch([
+      new Response('{}', { status: 200, headers: { 'content-length': String(64 * 1024 * 1024 + 1) } }),
+    ])
+    const outcome = await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('bad_image')
+    expect(outcome.error).toMatch(/limit/i)
+  })
+
+  it('HTTP 200 内的逐图 error 是 provider，不是 bad_image', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ error: { message: 'content policy violation' } }] })])
+    const outcome = await generateImages(ARK, { prompt: 'p' }, fetchImpl)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('provider')
+    expect(outcome.error).toContain('content policy violation')
+  })
+
+  it('不支持改图的方言是 edit_unsupported，零出站', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    const outcome = await generateImages(
+      ZHIPU,
+      { prompt: 'warm', images: [{ bytes: PNG, mime: 'image/png' }] },
+      fetchImpl,
+    )
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.code).toBe('edit_unsupported')
+    expect(calls(fetchImpl)).toHaveLength(0)
+  })
+
+  it('OpenAI 方言也不发原生批量参数：张数一律客户端扇出', async () => {
+    const fetchImpl = fakeFetch([jsonResponse({ data: [{ b64_json: PNG_B64 }] })])
+    await generateImages(OPENAI, { prompt: 'p' }, fetchImpl)
+
+    const body = JSON.parse(calls(fetchImpl)[0][1].body as string)
+    for (const key of ['n', 'batch_size', 'sequential_image_generation']) {
+      expect(body).not.toHaveProperty(key)
+    }
   })
 })

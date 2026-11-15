@@ -32,9 +32,36 @@ export interface GeneratedImage {
   bytes: Buffer
 }
 
+/**
+ * 稳定错误码。卡片按它选本地文案，工具层按 `auth` 就地止血、按 `cancelled` 与失败分开报告。
+ * `error` 一律带 `code: ` 前缀，模型与卡片看到的是同一份可识别的串。
+ */
+export type ImageGenErrorCode =
+  | 'auth'
+  | 'rate_limit'
+  | 'timeout'
+  | 'network'
+  | 'bad_image'
+  | 'edit_unsupported'
+  | 'cancelled'
+  | 'provider'
+
 export type ImageGenOutcome =
   | { ok: true; images: GeneratedImage[]; model: string }
-  | { ok: false; error: string }
+  | { ok: false; code: ImageGenErrorCode; error: string }
+
+export interface ImageGenCallOptions {
+  lookupImpl?: LookupImpl
+  /** 调用方自持的中止信号（会话级取消 / 鉴权止血）。与内部超时并存，谁先到算谁。 */
+  signal?: AbortSignal
+}
+
+function failed(code: ImageGenErrorCode, message: string): ImageGenOutcome {
+  return { ok: false, code, error: `${code}: ${message}` }
+}
+
+/** 工具层丢弃排队项时要报同一串错误：卡片按 `code: ` 前缀认码，两侧不能各写一份。 */
+export const IMAGEGEN_CANCELLED_ERROR = 'cancelled: The image request was cancelled.'
 
 /** 供应商挂住时不能把这次 MCP 调用一起挂死。 */
 export const IMAGEGEN_TIMEOUT_MS = 120_000
@@ -63,36 +90,88 @@ export async function generateImages(
   config: ImageGenConfig,
   request: ImageGenRequest,
   fetchImpl: typeof fetch = fetch,
-  lookupImpl?: LookupImpl,
+  options: ImageGenCallOptions = {},
 ): Promise<ImageGenOutcome> {
+  const { lookupImpl, signal: external } = options
   const images = request.images ?? []
   const editing = images.length > 0
 
   const built = buildRequest(config, request, images, editing)
-  if ('error' in built) return { ok: false, error: built.error }
+  if ('error' in built) return failed(built.code, built.error)
 
-  const signal = AbortSignal.timeout(IMAGEGEN_TIMEOUT_MS)
+  // 已经取消就别发请求：这一步要花钱，排队项必须在出站之前丢掉。
+  if (external?.aborted) return cancelled()
+
+  const timeout = AbortSignal.timeout(IMAGEGEN_TIMEOUT_MS)
+  const signal = external ? AbortSignal.any([timeout, external]) : timeout
+
+  let res: Response
   try {
-    const res = await fetchImpl(built.url, { ...built.init, signal })
-
-    const payload = await readJsonBounded(res)
-    if (!res.ok) return { ok: false, error: providerMessage(payload, res.status, config.apiKey) }
-
-    const collected = await collectImages(payload, fetchImpl, signal, lookupImpl)
-    if (collected.images.length === 0) {
-      const reason = collected.failures[0] ?? 'The provider returned no image data.'
-      return { ok: false, error: redactKey(reason, config.apiKey) }
-    }
-
-    const model = (payload as { model?: unknown } | null)?.model
-    return {
-      ok: true,
-      images: collected.images,
-      model: typeof model === 'string' && model ? model : config.model,
-    }
+    res = await fetchImpl(built.url, { ...built.init, signal })
   } catch (err) {
-    return { ok: false, error: redactKey(`Image request failed: ${String(err)}`, config.apiKey) }
+    if (external?.aborted) return cancelled()
+    if (isTimeout(err)) {
+      return failed('timeout', `The provider did not respond within ${IMAGEGEN_TIMEOUT_MS / 1000}s.`)
+    }
+    return failed('network', redactKey(`Image request failed: ${String(err)}`, config.apiKey))
   }
+
+  // 先看状态码再读 body：401/403 的止血判定不能被「错误体读失败」吞掉，
+  // 否则一个坏 key 仍可能把整批排队项烧完。
+  if (!res.ok) {
+    const payload = await readJsonBounded(res).catch(() => null)
+    if (external?.aborted) return cancelled()
+    return failed(httpErrorCode(res.status), providerMessage(payload, res.status, config.apiKey))
+  }
+
+  let payload: unknown
+  try {
+    payload = await readJsonBounded(res)
+  } catch (err) {
+    if (external?.aborted) return cancelled()
+    if (isTimeout(err)) {
+      return failed('timeout', `The provider did not respond within ${IMAGEGEN_TIMEOUT_MS / 1000}s.`)
+    }
+    return failed('bad_image', redactKey(errorText(err), config.apiKey))
+  }
+
+  const collected = await collectImages(payload, fetchImpl, signal, lookupImpl)
+  if (collected.images.length === 0) {
+    if (external?.aborted) return cancelled()
+    const first = collected.failures[0]
+    return failed(
+      first?.code ?? 'bad_image',
+      redactKey(first?.message ?? 'The provider returned no image data.', config.apiKey),
+    )
+  }
+
+  // 拿到图就算成功，即使信号随后被中止：那张图已经画好也已经计费，不能丢。
+  const model = (payload as { model?: unknown } | null)?.model
+  return {
+    ok: true,
+    images: collected.images,
+    model: typeof model === 'string' && model ? model : config.model,
+  }
+}
+
+function cancelled(): ImageGenOutcome {
+  return { ok: false, code: 'cancelled', error: IMAGEGEN_CANCELLED_ERROR }
+}
+
+/** 超时可能发生在出站、读 body 或下载图片任一阶段：都报 timeout，别冒充坏图。 */
+function isTimeout(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'TimeoutError'
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/** 401/403 是止血信号：一个错 key 不该把整批排队项都烧成同样的付费失败。 */
+function httpErrorCode(status: number): ImageGenErrorCode {
+  if (status === 401 || status === 403) return 'auth'
+  if (status === 429) return 'rate_limit'
+  return 'provider'
 }
 
 interface BuiltRequest {
@@ -109,7 +188,7 @@ function buildRequest(
   request: ImageGenRequest,
   images: ImageGenInputImage[],
   editing: boolean,
-): BuiltRequest | { error: string } {
+): BuiltRequest | { code: ImageGenErrorCode; error: string } {
   switch (config.dialect) {
     case 'openai':
       return editing
@@ -123,6 +202,7 @@ function buildRequest(
               method: 'POST',
               headers: authHeaders(config, true),
               // 不发 response_format：gpt-image 系恒回 b64_json，dall-e 系默认回 url，两种都解。
+              // 也不发 n：张数由客户端扇出，每次物理请求只要一张。
               body: JSON.stringify(openAiPayload(config, request)),
             },
           }
@@ -132,16 +212,18 @@ function buildRequest(
       // 智谱没有 edits 端点：绝不当成文生图发出去，那会产出一张与用户意图无关的图。
       return editing
         ? {
+            code: 'edit_unsupported',
             error:
               'The "zhipu" dialect (Zhipu CogView) does not support image editing. Ask the user to switch to OpenAI or Volcengine Ark in Settings → Image model, then retry. Do not fall back to a fresh generation.',
           }
         : zhipuRequest(config, request)
     default:
-      return {
-        error: editing
-          ? `The "${config.dialect}" dialect does not support image editing. Ask the user to pick a provider that does (Settings → Image model); do not retry as a fresh generation.`
-          : `Unsupported image dialect "${config.dialect}".`,
-      }
+      return editing
+        ? {
+            code: 'edit_unsupported',
+            error: `The "${config.dialect}" dialect does not support image editing. Ask the user to pick a provider that does (Settings → Image model); do not retry as a fresh generation.`,
+          }
+        : { code: 'provider', error: `Unsupported image dialect "${config.dialect}".` }
   }
 }
 
@@ -222,17 +304,17 @@ async function collectImages(
   fetchImpl: typeof fetch,
   signal: AbortSignal,
   lookupImpl?: LookupImpl,
-): Promise<{ images: GeneratedImage[]; failures: string[] }> {
+): Promise<{ images: GeneratedImage[]; failures: Array<{ code: ImageGenErrorCode; message: string }> }> {
   const data = (payload as { data?: unknown } | null)?.data
   const entries = Array.isArray(data) ? data : []
   const images: GeneratedImage[] = []
-  const failures: string[] = []
+  const failures: Array<{ code: ImageGenErrorCode; message: string }> = []
 
   for (const item of entries) {
     const entry = (item ?? {}) as { b64_json?: unknown; url?: unknown; error?: unknown }
     // HTTP 200 里也可能逐图带 error（内容审核等）：那是失败项，不能冒充成功。
     if (entry.error != null) {
-      failures.push(entryErrorMessage(entry.error))
+      failures.push({ code: 'provider', message: entryErrorMessage(entry.error) })
       continue
     }
     try {
@@ -246,7 +328,7 @@ async function collectImages(
         images.push({ bytes: validateImageBytes(bytes) })
       }
     } catch (err) {
-      failures.push(err instanceof Error ? err.message : String(err))
+      failures.push({ code: isTimeout(err) ? 'timeout' : 'bad_image', message: errorText(err) })
     }
   }
   return { images, failures }
@@ -289,6 +371,7 @@ function providerMessage(payload: unknown, status: number, key: string): string 
     const err = (payload as { error?: { message?: unknown } }).error
     if (err && typeof err.message === 'string' && err.message) return redactKey(err.message, key)
   }
+  if (payload == null) return `HTTP ${status}`
   const text = typeof payload === 'string' ? payload : JSON.stringify(payload)
   // 先脱敏再截断：key 若横跨 500 边界，先截断会留下半截 key，redactKey 匹配不到完整 key。
   return redactKey(`HTTP ${status}: ${text ?? ''}`, key).slice(0, 500)

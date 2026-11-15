@@ -567,6 +567,19 @@ describe('routeEvent 事件路由', () => {
       message: 'x',
     })
   })
+  it('进程退出顺手掐掉本会话在途生图，别的会话不受影响 (#114)', async () => {
+    const { beginImageGenWork } = await import('../../../imagegen/imageGenWork')
+    const { pool } = makePool()
+    const [proc] = await seedSessions(pool, 1)
+    const mine = beginImageGenWork('seed-0')
+    const theirs = beginImageGenWork('seed-other')
+
+    proc.emit('exit', 0, null, null)
+
+    expect(mine.signal.aborted).toBe(true)
+    expect(mine.stopReason).toBe('shutdown')
+    expect(theirs.signal.aborted).toBe(false)
+  })
 })
 
 describe('routeEvent 经重试桥分诊（429 中间态）', () => {

@@ -47,6 +47,7 @@ export default {
   card: {
     title: '生图',
     editTitle: '改图',
+    batchTitle: '批量生图',
     referenceCount: '参考图 {count} 张',
     model: '模型 {model}',
     openFolder: '打开所在文件夹',
@@ -76,6 +77,8 @@ export default {
       bad_image: '供应商返回的不是有效图片数据',
       limit: '超出单次张数上限，请拆成更小的批次',
       edit_unsupported: '当前供应商不支持改图，请到设置里换一个模型',
+      cancelled: '已取消本地请求，不保证供应商停止计费',
+      provider: '供应商返回错误',
     },
   },
 }

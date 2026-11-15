@@ -9,6 +9,7 @@ import { info, warn, error, debug } from '../../infra/logger'
 import { claudeCodeNamespace } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
 import { engineBlockedError, type EngineBlockedPayload } from '@/shared/engineErrors'
+import { cancelImageGenWork } from '../../imagegen/imageGenWork'
 
 // 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
 const CLAUDE_CODE_EVENT_BY_SUFFIX = eventChannelsBySuffix(claudeCodeNamespace.events, 'claude-code:')
@@ -461,6 +462,8 @@ export class PiProcessPool {
     const handlers = {
       message: (msg: any) => this.routeEvent(sessionId, msg.type, msg),
       exit: (code: number | null, signal?: NodeJS.Signals | null, stderrTail?: string) => {
+        // 会话没了就没人替在途生图收尾：那些计费请求必须就地中止 (#114)。
+        cancelImageGenWork(sessionId, 'shutdown')
         this.routeEvent(sessionId, 'exit', { code, signal, stderr: stderrTail })
       },
       error: (err: Error) => this.routeEvent(sessionId, 'error', { message: err.message }),

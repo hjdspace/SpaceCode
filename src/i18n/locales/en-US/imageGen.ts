@@ -47,6 +47,7 @@ export default {
   card: {
     title: 'Image generation',
     editTitle: 'Image edit',
+    batchTitle: 'Image batch',
     referenceCount: 'References: {count}',
     model: 'Model {model}',
     openFolder: 'Open containing folder',
@@ -76,6 +77,8 @@ export default {
       bad_image: 'The provider did not return valid image data',
       limit: 'Over the per-call image limit — split into smaller batches',
       edit_unsupported: 'This provider cannot edit images — pick another model in Settings',
+      cancelled: 'Cancelled locally — the provider may still bill for work already started',
+      provider: 'The provider returned an error',
     },
   },
 }

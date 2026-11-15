@@ -33,7 +33,18 @@ export const TOOL_COMPONENT_MAP: Record<string, () => Promise<any>> = {
   // 内置生图 MCP：这张表是精确名匹配，必须用完整工具名，裸名 generate_image 命中不了
   'mcp__spacecode-imagegen__generate_image': () => import('./ImageGenToolCard.vue'),
   'mcp__spacecode-imagegen__edit_image': () => import('./ImageGenToolCard.vue'),
+  'mcp__spacecode-imagegen__generate_batch': () => import('./ImageGenToolCard.vue'),
 }
+
+// 承重交付物工具：卡片本身就是用户要看的结论（plan 要批准、生图要看图），
+// 折进「N 个工具调用」等于把结果藏起来 —— 永远独立成行，不参与折叠组。
+export const PROMOTED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'plan_mode_question',
+  'plan_mode_complete',
+  'mcp__spacecode-imagegen__generate_image',
+  'mcp__spacecode-imagegen__edit_image',
+  'mcp__spacecode-imagegen__generate_batch',
+])
 
 const componentCache = new Map<string, Component>()
 

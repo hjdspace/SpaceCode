@@ -16,7 +16,8 @@ import type {
   PermissionMode,
 } from '@/shared/channels/claudeCode'
 
-export type ImageGenDecision = 'allow' | 'always' | 'deny'
+/** `cancelled` 与 `deny` 分开：前者是用户中止了这次调用，后者是用户看过卡后明确拒绝。 */
+export type ImageGenDecision = 'allow' | 'always' | 'deny' | 'cancelled'
 
 export interface ImageGenAuthorizationRequest {
   sessionId: string | null
@@ -42,6 +43,8 @@ export interface ImageGenAuthorization {
   authorize: (request: ImageGenAuthorizationRequest) => Promise<ImageGenDecision>
   /** 命中宿主自铸的对话框就地结算并返回 true；未命中返回 false，调用方原样透传给引擎。 */
   respond: (dialogId: string, answer: ExtensionDialogAnswer) => boolean
+  /** 关掉待应答的卡并判 cancelled。sessionId 为 null 表示所有会话（应用退出序列）。 */
+  cancelPending: (sessionId: string | null) => void
 }
 
 type Locale = 'zh-CN' | 'en-US'
@@ -155,6 +158,17 @@ export function createImageGenAuthorization(deps: ImageGenAuthorizationDeps): Im
       entry.settle(decision)
       return true
     },
+
+    cancelPending(sessionId) {
+      // 复制一份再遍历：settle 会同步唤醒工具层，它可能立刻发起下一次授权。
+      for (const [dialogId, entry] of [...pending]) {
+        if (sessionId !== null && entry.sessionId !== sessionId) continue
+        pending.delete(dialogId)
+        clearTimeout(entry.timer)
+        close(entry, dialogId, 'aborted')
+        entry.settle('cancelled')
+      }
+    },
   }
 }
 
@@ -172,4 +186,9 @@ export function setImageGenAuthorization(instance: ImageGenAuthorization | null)
 /** 命中 = 宿主自铸的授权卡，已就地结算；未命中 = 引擎自己的对话框，调用方原样透传。 */
 export function respondImageGenDialog(dialogId: string, answer: ExtensionDialogAnswer): boolean {
   return hostAuthorization?.respond(dialogId, answer) ?? false
+}
+
+/** 取消在途生图工作时顺手关掉待应答的卡；sessionId 为 null 表示所有会话。 */
+export function cancelImageGenDialogs(sessionId: string | null): void {
+  hostAuthorization?.cancelPending(sessionId)
 }

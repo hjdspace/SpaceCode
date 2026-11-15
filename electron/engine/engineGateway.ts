@@ -23,6 +23,7 @@ import { info, warn, error, debug } from '../infra/logger'
 import { engineBlockedError } from '@/shared/engineErrors'
 import { removeSessionArtifacts } from '../session/tempArtifacts'
 import { respondImageGenDialog } from '../imagegen/imageGenAuthorization'
+import { cancelImageGenWork } from '../imagegen/imageGenWork'
 
 const TAG = 'EngineGateway'
 
@@ -135,11 +136,13 @@ export const engineGateway = {
   }),
 
   abort: withLogging('abort', async (sessionId: string): Promise<void> => {
+    cancelImageGenWork(sessionId, 'user')
     const engine = findEngineForSession(sessionId)
     await engine.abort(sessionId)
   }),
 
   stop: withLogging('stop', async (sessionId: string): Promise<void> => {
+    cancelImageGenWork(sessionId, 'user')
     for (const engine of EngineFactory.getAllEngines()) {
       if (engine.getSessionStatus(sessionId)) {
         try {
@@ -155,6 +158,7 @@ export const engineGateway = {
   }),
 
   suspendSession: withLogging('suspendSession', (sessionId: string): void => {
+    cancelImageGenWork(sessionId, 'user')
     const engine = findEngineForSession(sessionId)
     const fn = requireAction<(sid: string) => void>(engine, 'suspendSession')
     fn(sessionId)

@@ -230,6 +230,59 @@ describe('改图结果', () => {
   })
 })
 
+describe('批量结果', () => {
+  const BATCH_CALL = { name: 'mcp__spacecode-imagegen__generate_batch', input: { prompts: ['a red icon', 'a blue icon'] } }
+  const BATCH = {
+    model: 'gpt-image-1',
+    images: [
+      { path: PNG_PATH, status: 'succeeded', prompt: 'a red icon' },
+      { status: 'cancelled', error: 'cancelled: The image request was cancelled.', prompt: 'a blue icon' },
+    ],
+  }
+
+  it('标题写明这是批量，逐图状态各自可辨', async () => {
+    const wrapper = setup(makeToolCall(BATCH, BATCH_CALL))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('批量生图')
+    const items = wrapper.findAll('.ig-item')
+    expect(items[0].classes()).toContain('is-succeeded')
+    expect(items[1].classes()).toContain('is-cancelled')
+    expect(wrapper.find('.ig-summary').text()).toContain('1 张已取消')
+  })
+
+  it('英文界面下批量文案跟随语言', async () => {
+    i18n.global.locale.value = 'en-US'
+    const wrapper = setup(makeToolCall(BATCH, BATCH_CALL))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('Image batch')
+  })
+
+  it('还没返回时标题就是批量 —— 身份取自工具名', async () => {
+    const wrapper = setup(makeToolCall('', { ...BATCH_CALL, status: 'running' }))
+    await flush()
+
+    expect(wrapper.find('.ig-title').text()).toBe('批量生图')
+  })
+
+  it('取消与供应商错误都渲染成本地文案，不回显原文', async () => {
+    const wrapper = setup(makeToolCall({
+      model: 'm',
+      images: [
+        { status: 'cancelled', error: 'cancelled: The image request was cancelled.' },
+        { status: 'failed', error: 'provider: HTTP 500 upstream exploded' },
+      ],
+    }, BATCH_CALL))
+    await flush()
+
+    const errors = wrapper.findAll('.ig-item-error').map(node => node.text())
+    expect(errors[0]).toBe('已取消本地请求，不保证供应商停止计费')
+    expect(errors[1]).toBe('供应商返回错误')
+    expect(wrapper.text()).not.toContain('upstream exploded')
+  })
+})
+
 describe('失败文案与凭证', () => {
   it('稳定错误码渲染成可读文案，不回显供应商原文里的 key', async () => {
     const wrapper = setup(makeToolCall({
@@ -325,5 +378,38 @@ describe('流式回填', () => {
     resolveSlow('T0xE')
     await flush()
     expect(wrapper.find('img.ig-thumb').attributes('src')).toBe('data:image/png;base64,QUJD')
+  })
+})
+
+/**
+ * 单图是本次交付物本身，走保持纵横比的大尺寸内联预览；
+ * 多图保持紧凑网格。布局修饰类是两种形态的唯一开关，钉住它。
+ */
+describe('单图预览布局', () => {
+  it('只有一张图时网格进入单图预览形态', async () => {
+    const wrapper = setup(makeToolCall({ model: 'm', images: [{ path: PNG_PATH }] }))
+    await flush()
+
+    expect(wrapper.find('.ig-grid').classes()).toContain('ig-grid--single')
+    expect(wrapper.find('img.ig-thumb').exists()).toBe(true)
+  })
+
+  it('多张图保持紧凑网格，不进单图形态', async () => {
+    const wrapper = setup(makeToolCall({
+      model: 'm',
+      images: [{ path: PNG_PATH }, { path: 'C:/proj/outputs/imagegen/second.png' }],
+    }))
+    await flush()
+
+    expect(wrapper.find('.ig-grid').classes()).not.toContain('ig-grid--single')
+    expect(wrapper.findAll('img.ig-thumb')).toHaveLength(2)
+  })
+
+  it('单张失败也走单图形态 —— 占位与报错同样需要可读尺寸', async () => {
+    const wrapper = setup(makeToolCall({ model: 'm', images: [{ status: 'failed', error: 'provider: HTTP 500' }] }))
+    await flush()
+
+    expect(wrapper.find('.ig-grid').classes()).toContain('ig-grid--single')
+    expect(wrapper.find('.ig-placeholder').exists()).toBe(true)
   })
 })

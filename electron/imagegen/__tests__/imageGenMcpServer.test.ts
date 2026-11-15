@@ -94,7 +94,7 @@ describe('生图 MCP 服务器', () => {
     )
 
     const tools = await client.listTools()
-    expect(tools.tools.map(tool => tool.name)).toEqual(['generate_image', 'edit_image'])
+    expect(tools.tools.map(tool => tool.name)).toEqual(['generate_image', 'edit_image', 'generate_batch'])
     expect(client.getServerVersion()?.name).toBe('spacecode-imagegen')
     expect(client.getInstructions()).toContain('generate_image')
 
@@ -159,6 +159,76 @@ describe('生图 MCP 服务器', () => {
     const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://api.test/v1/images/edits')
     expect((init.body as FormData).getAll('image')).toHaveLength(1)
+  })
+
+  it('真实 SDK 客户端能调批量：授权卡写明这次生几张', async () => {
+    const fetchImpl = provider()
+    await startImageGenMcpServer({
+      permissionMode: () => 'default',
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      locale: () => 'zh-CN',
+    })
+
+    client = new Client({ name: 'spacecode-test-client', version: '1.0.0' })
+    const entry = getImageGenMcpEntry('session-batch', root)!
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers } }),
+    )
+
+    const calling = client.callTool({
+      name: 'generate_batch',
+      arguments: { prompts: ['a red icon', 'a blue icon', 'a green icon'], nameHint: 'icon' },
+    })
+
+    await vi.waitFor(() => expect(mockState.sent).toHaveLength(1))
+    const dialog = mockState.sent[0].payload.data as ExtensionDialogRequest
+    expect(dialog.message ?? '').toContain('张数：3')
+    expect(respondImageGenDialog(dialog.dialogId, { kind: 'value', value: '允许一次' })).toBe(true)
+
+    const result = await calling
+    expect(result.isError).toBeFalsy()
+    const body = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(body.images.map((item: { prompt: string }) => item.prompt)).toEqual(['a red icon', 'a blue icon', 'a green icon'])
+    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3)
+  })
+
+  it('服务器停止（应用退出序列）中止在途生图请求，不落半张图', async () => {
+    const reasons: unknown[] = []
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      if (!signal) return
+      signal.addEventListener('abort', () => {
+        reasons.push(signal.reason)
+        reject(signal.reason)
+      }, { once: true })
+    })) as unknown as typeof fetch
+
+    await startImageGenMcpServer({
+      permissionMode: () => 'default',
+      loadConfig: () => CONFIG,
+      fetchImpl,
+      locale: () => 'zh-CN',
+    })
+
+    client = new Client({ name: 'spacecode-test-client', version: '1.0.0' })
+    const entry = getImageGenMcpEntry('session-quit', root)!
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers } }),
+    )
+
+    // 停服务器会顺手切断连接，所以这次调用的结果读不回来；能验的是出站请求有没有被中止。
+    const calling = client.callTool({ name: 'generate_batch', arguments: { prompts: ['p0', 'p1', 'p2', 'p3'] } }).catch(() => null)
+    await vi.waitFor(() => expect(mockState.sent).toHaveLength(1))
+    const dialog = mockState.sent[0].payload.data as ExtensionDialogRequest
+    expect(respondImageGenDialog(dialog.dialogId, { kind: 'value', value: '允许一次' })).toBe(true)
+    await vi.waitFor(() => expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2))
+
+    await stopImageGenMcpServer()
+    await calling
+
+    expect(reasons).toEqual(['shutdown', 'shutdown'])
+    expect(existsSync(join(root, 'outputs'))).toBe(false)
   })
 
   it('没在监听时不给条目，绝不递一个连不上的地址', async () => {
