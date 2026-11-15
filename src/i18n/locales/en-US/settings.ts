@@ -12,6 +12,7 @@ export default {
   memory: 'Memory',
   rtk: 'RTK Optimization',
   voiceInput: 'Voice Input',
+  imageGen: 'Image model',
   shortcuts: 'Shortcuts',
   pet: 'Pet',
   hooks: 'Hooks',

@@ -12,6 +12,7 @@ export default {
   memory: '记忆',
   rtk: 'RTK 优化',
   voiceInput: '语音输入',
+  imageGen: '生图模型',
   shortcuts: '快捷键',
   pet: '桌面宠物',
   hooks: 'Hook',

@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'f
 import { debug, info, warn, error } from '../infra/logger'
 import { proxyManager, buildProxyConfigFromSettings, isSameProxyConfig } from '../infra/proxyManager'
 import { aggregateLocalTokenStats } from '../session/tokenStatsService'
+import { redactImageGenApiKey, mergeImageGenApiKey } from '../imagegen/imageGenConfig'
 
 // ── Path helpers ────────────────────────────────────────────────
 
@@ -231,14 +232,17 @@ async function applyGuiSettingsSave(data: string): Promise<{ success: boolean; e
   try {
     ensureClaudeDir()
     const settingsPath = getGuiSettingsPath()
-    writeFileSync(settingsPath, data, 'utf-8')
+    // 渲染层手里没有生图明文 key，交上来的一律是空值；不合并磁盘那份就等于每次保存都抹掉它。
+    const persisted = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf-8') : null
+    const merged = mergeImageGenApiKey(data, persisted)
+    writeFileSync(settingsPath, merged, 'utf-8')
     debug('Settings', `GUI settings saved to ${settingsPath}`)
 
-    syncApiConfigToSettingsJson(data)
+    syncApiConfigToSettingsJson(merged)
 
     let parsedGuiSettings: Record<string, any> | null = null
     try {
-      parsedGuiSettings = JSON.parse(data)
+      parsedGuiSettings = JSON.parse(merged)
     } catch {}
     let proxy: ProxyReconcileResult = { state: 'not-needed' }
     if (parsedGuiSettings && typeof parsedGuiSettings === 'object') {
@@ -263,7 +267,7 @@ export function registerSettingsIPCHandlers(): void {
       if (existsSync(settingsPath)) {
         const raw = readFileSync(settingsPath, 'utf-8')
         debug('Settings', `GUI settings loaded from ${settingsPath}`)
-        return { success: true, data: raw }
+        return { success: true, data: redactImageGenApiKey(raw) }
       }
       debug('Settings', `No GUI settings file at ${settingsPath}`)
       return { success: true, data: null }

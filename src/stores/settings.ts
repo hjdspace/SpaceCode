@@ -4,6 +4,7 @@ import { type Locale, applyLocale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import type { ModelProfile, ModelCapabilityOverride, ProfilesFile, ProfileApplyFailure } from '@/types/profile'
+import type { ImageGenConfig } from '@/shared/imageGenReference'
 import { type EffortLevel, normalizeEffortLevel } from '@/shared/effort'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
@@ -97,6 +98,9 @@ export interface AuthSettings {
   lastSelectedModel?: string
   /** 首次启动引导是否已走完（走完或用户明确「不再提醒」）。 */
   hasCompletedOnboarding?: boolean
+  /** 生图模型配置。独立于 Profile：生图账号与对话账号是两套，跟着 Profile 切换会迫使重复填写。
+   *  apiKey 只写 —— 主进程回读时清空，是否已配置看 hasApiKey。 */
+  imageGenConfig?: ImageGenConfig | null
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -330,6 +334,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const voiceInputCustomUrl = ref<string>(saved.voiceInputCustomUrl ?? '')
   const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
   const hasCompletedOnboarding = ref<boolean>(saved.hasCompletedOnboarding === true)
+  const imageGenConfig = ref<ImageGenConfig | null>(saved.imageGenConfig ?? null)
 
   /** gui-settings.json / .env 的异步读取是否已经落定。
    *  首启动判定必须等它 — 否则标记还在默认 false，会给所有老用户误弹引导。 */
@@ -570,11 +575,16 @@ export const useSettingsStore = defineStore('settings', () => {
       archiveAfterDays: archiveAfterDays.value,
       voiceInputCustomUrl: voiceInputCustomUrl.value.trim() || undefined,
       lastSelectedModel: lastSelectedModel.value || undefined,
-      hasCompletedOnboarding: hasCompletedOnboarding.value
+      hasCompletedOnboarding: hasCompletedOnboarding.value,
+      imageGenConfig: imageGenConfig.value
     }
 
     const serialized = JSON.stringify(data, null, 2)
-    localStorage.setItem(SETTINGS_STORAGE_KEY, serialized)
+    // 生图 key 只写：明文只交主进程，本地留脱敏副本 —— 否则重启后又能从 localStorage 读出明文。
+    const localCopy = data.imageGenConfig
+      ? { ...data, imageGenConfig: { ...data.imageGenConfig, apiKey: '' } }
+      : data
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(localCopy, null, 2))
 
     // Also save legacy format for backward compatibility
     const legacyConfig = config.value
@@ -885,6 +895,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.archiveAfterDays !== undefined) archiveAfterDays.value = settings.archiveAfterDays
     if (settings.voiceInputCustomUrl !== undefined) voiceInputCustomUrl.value = settings.voiceInputCustomUrl
     if (settings.hasCompletedOnboarding !== undefined) hasCompletedOnboarding.value = settings.hasCompletedOnboarding
+    if (settings.imageGenConfig !== undefined) imageGenConfig.value = settings.imageGenConfig
   }
 
   async function loadFromGuiSettingsFile() {
@@ -972,6 +983,15 @@ export const useSettingsStore = defineStore('settings', () => {
     return saveSettings()
   }
 
+  /** 留空 key 表示沿用磁盘上那份（渲染层拿不到明文），所以「已配置」标记只能累加、不能因空值回落。 */
+  function setImageGenConfig(config: ImageGenConfig | null): Promise<{ success: boolean; proxyState?: string; error?: string }> {
+    const apiKey = config?.apiKey.trim() ?? ''
+    imageGenConfig.value = config
+      ? { ...config, apiKey, hasApiKey: apiKey.length > 0 || imageGenConfig.value?.hasApiKey === true }
+      : null
+    return saveSettings()
+  }
+
   /**
    * 一次性迁移: 默认字号 14 → 15。
    * 仅当当前值仍停留在旧默认 14 时提升, 显式选择过其他字号的用户不受影响;
@@ -1042,6 +1062,8 @@ export const useSettingsStore = defineStore('settings', () => {
     archiveAfterDays,
     voiceInputCustomUrl,
     setVoiceInputCustomUrl,
+    imageGenConfig,
+    setImageGenConfig,
     lastSelectedModel,
     hasCompletedOnboarding,
     settingsReady,
