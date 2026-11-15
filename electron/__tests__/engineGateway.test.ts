@@ -389,6 +389,47 @@ describe('engineGateway', () => {
       expect(engine.respondExtensionDialog).toHaveBeenCalledWith('s1', 'uuid-1', { kind: 'value', value: 'Allow' })
     })
 
+    /**
+     * 生图授权卡是宿主自铸的对话框，两个引擎都会弹（#108）。所以命中登记表就地结算，
+     * 绝不往引擎递 —— Claude 那侧连 respondExtensionDialog 都没有，递过去只会把一次
+     * 有效的「允许」变成 NotImplementedError。
+     */
+    it('respondExtensionDialog settles a host authorization dialog locally even on an engine without the protocol', async () => {
+      const engine = mockState.makeClaudeEngine({ respondExtensionDialog: undefined })
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      const { createImageGenAuthorization, setImageGenAuthorization } = await import('../imagegen/imageGenAuthorization')
+      const sent: Array<{ dialogId: string }> = []
+      const authorization = createImageGenAuthorization({
+        sendDialog: (_sessionId, request) => { sent.push(request) },
+        sendClosed: () => {},
+        permissionMode: () => 'default',
+      })
+      setImageGenAuthorization(authorization)
+
+      const decision = authorization.authorize({
+        sessionId: 's1',
+        provider: 'OpenAI',
+        model: 'gpt-image-1',
+        count: 1,
+        prompt: 'a cover',
+      })
+      engineGateway.respondExtensionDialog('s1', sent[0].dialogId, { kind: 'value', value: '允许一次' })
+
+      await expect(decision).resolves.toBe('allow')
+    })
+
+    it('respondExtensionDialog passes an unknown dialog id through to the engine unchanged', () => {
+      const engine = mockState.makePiEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      engineGateway.respondExtensionDialog('s1', 'pi-uuid-9', { kind: 'cancel' })
+
+      expect(engine.respondExtensionDialog).toHaveBeenCalledWith('s1', 'pi-uuid-9', { kind: 'cancel' })
+    })
+
     it('setPermissionMode throws when engine lacks it', async () => {
       const engine = mockState.makePiEngine()
       engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })

@@ -33,6 +33,9 @@ import { removeTempFiles, writeSessionTempFile } from './tempArtifacts'
 import { getSpawnEnvironment } from './spawnEnvironment'
 import { buildEnabledMcpConfig } from '../tools/mcpConfigStore'
 import { getTodoMcpEntry } from '../todo/todoMcpServer'
+import type { LoopbackMcpEntry } from '../tools/loopbackMcpServer'
+import { getImageGenMcpEntry } from '../imagegen/imageGenMcpServer'
+import { IMAGEGEN_MCP_SERVER_KEY } from '../imagegen/imageGenTools'
 import { TODO_AVAILABILITY_HINT, TODO_MCP_SERVER_KEY } from '@/shared/todoReference'
 import { getOfficeCliInstallDir, syncInstalledOfficeCli } from '../tools/officeCliService'
 import { rtkManager } from '../tools/rtkManager'
@@ -1575,13 +1578,18 @@ export class SessionProcess extends EventEmitter {
       } catch (err) {
         warn('SessionProcess', `Failed to load MCP config: ${err}`)
       }
-      // 待办 MCP 是应用内的 loopback 服务器，条目只存在于本次 spawn：
+      // 待办与生图 MCP 都是应用内的 loopback 服务器，条目只存在于本次 spawn：
       // 写进 mcp-servers.json 会让端口和凭证落盘，还会在设置面板里冒出一条
-      // 用户删不掉的幽灵条目。URL 带会话 id 与工作区，待办才能反查会话、归对项目。
+      // 用户删不掉的幽灵条目。URL 带会话 id 与工作区，待办才能反查会话、归对项目，
+      // 生图才能找到该问谁授权、该把图落在哪。
+      const builtinEntries: Record<string, LoopbackMcpEntry> = {}
       const todoEntry = getTodoMcpEntry(this.sessionId, config.cwd)
-      if (todoEntry) {
+      if (todoEntry) builtinEntries[TODO_MCP_SERVER_KEY] = todoEntry
+      const imageGenEntry = getImageGenMcpEntry(this.sessionId, config.cwd)
+      if (imageGenEntry) builtinEntries[IMAGEGEN_MCP_SERVER_KEY] = imageGenEntry
+      if (Object.keys(builtinEntries).length > 0) {
         enabledMcpConfig = {
-          mcpServers: { ...enabledMcpConfig?.mcpServers, [TODO_MCP_SERVER_KEY]: todoEntry },
+          mcpServers: { ...enabledMcpConfig?.mcpServers, ...builtinEntries },
           usesPackageManagerLauncher: enabledMcpConfig?.usesPackageManagerLauncher ?? false,
         }
       }

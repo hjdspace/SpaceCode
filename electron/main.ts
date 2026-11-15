@@ -26,6 +26,8 @@ import { registerAgentsIPCHandlers } from './skills/agentsService'
 import { registerArtifactsIPCHandlers, stopArtifactsWatch } from './skills/artifactsService'
 import { registerCronIPCHandlers } from './cron/cronService'
 import { registerTodoIPCHandlers } from './todo/todoService'
+import { startImageGenMcpServer, stopImageGenMcpServer } from './imagegen/imageGenMcpServer'
+import { engineGateway } from './engine/engineGateway'
 import { registerOfficeCliIPCHandlers, cleanupOfficeCli, ensureOfficeCliInstalled } from './tools/officeCliService'
 import { registerCuaDriverIPCHandlers, cleanupCuaDriverMcp } from './tools/cuaDriverService'
 import { registerBrowserUseIPCHandlers, cleanupBrowserUseMcp } from './tools/browserUseService'
@@ -281,6 +283,12 @@ app.whenReady().then(async () => {
 
   registerTodoIPCHandlers()
   info('Startup', 'Todo IPC handlers registered')
+
+  // 生图工具面：起不来只是这一轮没有生图工具，对话照常。授权模式取用户自己选的那个，
+  // 由这里注入而不是让生图模块去 import 网关 —— 那会和引擎的注入点连成环。
+  void startImageGenMcpServer({
+    permissionMode: sessionId => (sessionId ? engineGateway.getSessionStatus(sessionId)?.permissionMode : undefined),
+  }).catch(() => {})
 
   registerOfficeCliIPCHandlers()
   info('Startup', 'OfficeCLI IPC handlers registered')
@@ -610,6 +618,7 @@ app.on('before-quit', async () => {
   await runQuitStep('cleanupOfficeCli', cleanupOfficeCli)
   await runQuitStep('cleanupCuaDriverMcp', cleanupCuaDriverMcp)
   await runQuitStep('cleanupBrowserUseMcp', cleanupBrowserUseMcp)
+  await runQuitStep('stopImageGenMcp', stopImageGenMcpServer)
   await runQuitStep('stopArtifactsWatch', stopArtifactsWatch)
   await runQuitStep('destroyTray', destroyTray)
   await runQuitStep('destroyAutoUpdater', destroyAutoUpdater)

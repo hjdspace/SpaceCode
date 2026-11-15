@@ -10,6 +10,7 @@ import type { ProcessStatus } from '../../session/sessionProcess'
 import type { EngineSessionConfig, ExtensionDialogAnswer, ExtensionDialogCloseReason, ExtensionDialogMethod, ImageAttachment } from './types'
 import { EXTENSION_DIALOG_METHODS, isExpectedDroppedPiEvent } from './PiEventMapper'
 import { toPiThinkingLevel } from '@/shared/effort'
+import { EXTENSION_DIALOG_WATCHDOG_MS } from '@/shared/channels/claudeCode'
 import { info, warn, error, debug } from '../../infra/logger'
 import { redactArgsForLog } from '../../infra/redactArgs'
 import {
@@ -30,6 +31,9 @@ import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
 import { findAgentDefinition } from './agentDefinitions'
 import { syncPiMcpConfigFromStore } from '../../tools/piMcpProjection'
 import { getTodoMcpEntry } from '../../todo/todoMcpServer'
+import type { LoopbackMcpEntry } from '../../tools/loopbackMcpServer'
+import { getImageGenMcpEntry } from '../../imagegen/imageGenMcpServer'
+import { IMAGEGEN_MCP_SERVER_KEY } from '../../imagegen/imageGenTools'
 import { TODO_AVAILABILITY_HINT, TODO_MCP_SERVER_KEY } from '@/shared/todoReference'
 import { mergeRetrySettings } from './piRetrySettings'
 
@@ -115,13 +119,6 @@ interface PendingExtensionDialog {
   method: ExtensionDialogMethod
   timer: NodeJS.Timeout
 }
-
-/**
- * 没带 timeout 的对话框在宿主这边最多等多久。pi 只对显式给了 timeout 的帧自己兜底，
- * 其余的会永远 await —— 窗口关了、H5 掉线时没人应答，会话就死停在那儿，池也腾不出来。
- * 到点补一帧 cancelled 并按 watchdog 关掉卡片，把 #45 那条「绝不挂死」的核验保住。
- */
-const EXTENSION_DIALOG_WATCHDOG_MS = 5 * 60_000
 
 /**
  * 日志用的单行摘要。pi 会把整段提问塞进 title（`runRpcConfirmation` 拼的是
@@ -1254,12 +1251,16 @@ export class PiSessionProcess extends EventEmitter {
    */
   private projectMcpConfig(): void {
     try {
-      // 待办 MCP 是应用内服务器，只投影给这一次 spawn：URL 带本会话 id 与工作区，
-      // Agent 建的待办才能反查到会话、归到正确的项目。
+      // 待办与生图 MCP 都是应用内服务器，只投影给这一次 spawn：URL 带本会话 id 与工作区，
+      // Agent 建的待办才能反查到会话、归到正确的项目，生图才能找到该问谁授权、图落在哪。
+      const extras: Record<string, LoopbackMcpEntry> = {}
       const todoEntry = getTodoMcpEntry(this.sessionId, this.config.cwd)
+      if (todoEntry) extras[TODO_MCP_SERVER_KEY] = todoEntry
+      const imageGenEntry = getImageGenMcpEntry(this.sessionId, this.config.cwd)
+      if (imageGenEntry) extras[IMAGEGEN_MCP_SERVER_KEY] = imageGenEntry
       const result = syncPiMcpConfigFromStore(
         undefined,
-        todoEntry ? { [TODO_MCP_SERVER_KEY]: todoEntry } : undefined,
+        Object.keys(extras).length > 0 ? extras : undefined,
       )
       if (result.error) {
         warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] MCP projection skipped | ${result.error}`)

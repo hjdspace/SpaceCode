@@ -340,8 +340,11 @@ describe('syncPiMcpConfigFromStore — runtime-only extras', () => {
     expect(entry._spacecode).toEqual({ key: 'spacecode-todo' })
   })
 
-  it('never persists the extra into the panel store', () => {
-    syncPiMcpConfigFromStore(HOME, { 'spacecode-todo': todoEntry })
+  it('never persists the extras into the panel store', () => {
+    syncPiMcpConfigFromStore(HOME, {
+      'spacecode-todo': todoEntry,
+      'spacecode-imagegen': { ...todoEntry, url: 'http://127.0.0.1:53124/mcp/sess-1' },
+    })
     const storePath = join('/fake-userdata', 'mcp-servers.json')
     expect(store.files.has(storePath)).toBe(false)
   })

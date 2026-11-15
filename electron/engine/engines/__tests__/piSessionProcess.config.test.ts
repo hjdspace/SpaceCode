@@ -4,6 +4,7 @@ import * as path from 'path'
 import { PiSessionProcess } from '../PiSessionProcess'
 import { MIN_PI_VERSION, resetPiCliProbeCache } from '../piCliResolver'
 import type { EngineSessionConfig } from '../types'
+import type { PersistedMcpServer } from '../../../tools/mcpConfigStore'
 import { warn as loggerWarn } from '../../../infra/logger'
 
 /**
@@ -57,6 +58,7 @@ interface PrivateConfigApi {
   detectProviderFromBaseUrl(baseUrl: string | undefined): string | undefined
   resolveEffectiveProvider(): string | undefined
   shouldUseCompatProvider(): boolean
+  projectMcpConfig(): void
 }
 
 const HOME = '/home/u'
@@ -138,6 +140,11 @@ vi.mock('../../../session/engineChildProcess', () => ({
 const todoMcp = vi.hoisted(() => ({ entry: null as { type: 'http'; url: string } | null }))
 vi.mock('../../../todo/todoMcpServer', () => ({
   getTodoMcpEntry: () => todoMcp.entry,
+}))
+
+const imageGenMcp = vi.hoisted(() => ({ entry: null as { type: 'http'; url: string; headers: Record<string, string> } | null }))
+vi.mock('../../../imagegen/imageGenMcpServer', () => ({
+  getImageGenMcpEntry: () => imageGenMcp.entry,
 }))
 
 // 解析器现在静态 import child_process（不再是函数体里的 require），模块 mock 能拦住它 ——
@@ -440,6 +447,45 @@ describe('buildArgs — todo availability hint', () => {
     expect(privates(newProc({ disableMcp: true })).buildArgs().join(' ')).not.toContain('mcp__spacecode-todo__')
     todoMcp.entry = null
     expect(privates(newProc()).buildArgs()).not.toContain('--append-system-prompt')
+  })
+})
+
+/**
+ * pi 读 MCP 的唯一入口是 ~/.pi/agent/mcp.json，没有 --mcp-config 旗子（#53）。
+ * 所以生图条目必须真的投影进那份文件，否则 pi 会话里根本看不到这个工具 (#108)。
+ */
+describe('projectMcpConfig — builtin image generation entry', () => {
+  const MCP_JSON = path.join(PI_AGENT_DIR, 'mcp.json')
+  const imageEntry = { type: 'http' as const, url: 'http://127.0.0.1:53124/mcp/pi-config-0001?root=%2Fws', headers: { Authorization: 'Bearer i' } }
+
+  beforeEach(() => {
+    todoMcp.entry = null
+    imageGenMcp.entry = null
+  })
+
+  function projected(): Record<string, PersistedMcpServer> {
+    const written = H.writes.find(w => w.path === MCP_JSON)
+    expect(written).toBeDefined()
+    return JSON.parse(written!.content).mcpServers
+  }
+
+  it('projects the image entry alongside the todo entry, marked as ours', () => {
+    todoMcp.entry = { type: 'http', url: 'http://127.0.0.1:53123/mcp/pi-config-0001' }
+    imageGenMcp.entry = imageEntry
+
+    privates(newProc()).projectMcpConfig()
+
+    const servers = projected()
+    expect(Object.keys(servers).sort()).toEqual(['spacecode-imagegen', 'spacecode-todo'])
+    expect(servers['spacecode-imagegen'].url).toBe(imageEntry.url)
+    expect(servers['spacecode-imagegen'].headers).toEqual(imageEntry.headers)
+    expect(servers['spacecode-imagegen']._spacecode).toEqual({ key: 'spacecode-imagegen' })
+  })
+
+  it('writes no image entry while the server is not listening', () => {
+    todoMcp.entry = { type: 'http', url: 'http://127.0.0.1:53123/mcp/pi-config-0001' }
+    privates(newProc()).projectMcpConfig()
+    expect(Object.keys(projected())).toEqual(['spacecode-todo'])
   })
 })
 

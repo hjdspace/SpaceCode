@@ -99,6 +99,12 @@ export type ExtensionDialogCloseReason =
   | 'process_exit'
   | 'process_restart'
 
+/**
+ * 帧没带 timeout 时宿主最多等多久。pi 只对显式给了 timeout 的帧自己兜底，其余会永远 await；
+ * 窗口关了、H5 掉线时没人应答，会话就死停在那儿。宿主自铸的授权对话框共用这一口径。
+ */
+export const EXTENSION_DIALOG_WATCHDOG_MS = 5 * 60_000
+
 /** 渲染层答回来的值；`kind` 与发起的 method 对应，cancel 表示「没有答案」 */
 export type ExtensionDialogAnswer =
   | { kind: 'value'; value: string }
