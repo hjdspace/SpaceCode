@@ -71,11 +71,15 @@
             <NoProjectHome v-if="showNoProjectWelcome && !readonly" />
 
             <template v-else>
-              <!-- 会话级路由标记：静态展示本会话以什么身份开始 -->
-              <div v-if="workRoutingMarkerText" class="work-routing-marker" data-test="work-routing-marker">
-                <Sparkles :size="13" />
-                <span>{{ workRoutingMarkerText }}</span>
-              </div>
+              <!-- 会话级路由标记：展示本会话以什么身份开始，可下拉改选 -->
+              <WorkAssistantMarker
+                v-if="paneSession?.workRouting"
+                :routing="paneSession.workRouting"
+                :readonly="readonly"
+                :busy="reselectingAssistant"
+                :workspace="paneSession.workingDirectory"
+                @reselect="handleReselectAssistant"
+              />
 
               <TeammateTranscriptHeader
                 v-if="paneIsViewingTeammate"
@@ -310,6 +314,7 @@ import MessageList from '../chat/MessageList.vue'
 import RecommendedPrompts from '../chat/RecommendedPrompts.vue'
 import WelcomeHero from '../chat/WelcomeHero.vue'
 import WorkAssistantShortcuts from '../work/WorkAssistantShortcuts.vue'
+import WorkAssistantMarker from '../work/WorkAssistantMarker.vue'
 import TeamStatusBar from '../chat/TeamStatusBar.vue'
 import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
 import ChatInput, { type Attachment, type ImageAttachment, type SendOptions } from '../chat/ChatInput.vue'
@@ -321,7 +326,7 @@ interface AllAttachments {
 
 import NoProjectHome from './NoProjectHome.vue'
 import ToastNotification from '../common/ToastNotification.vue'
-import { History, ClipboardList, Sparkles } from 'lucide-vue-next'
+import { History, ClipboardList } from 'lucide-vue-next'
 import ContextUsageChip from '../chat/ContextUsageChip.vue'
 import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
@@ -337,7 +342,6 @@ import { pathsEqual } from '@/utils/recentProjectRoots'
 import { resolveModelAliasForEngine } from '@/utils/engineModel'
 import { useChatCommands } from '@/composables/useChatCommands'
 import { useWorkRouting } from '@/composables/useWorkRouting'
-import { workDisplayName } from '@/utils/workAssistant'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useRewindFlow } from '@/composables/useRewindFlow'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
@@ -485,14 +489,17 @@ function handleRoutingCancel() {
   workRouting.cancelRouting(paneSessionId.value)
 }
 
-const workRoutingMarkerText = computed(() => {
-  const routing = paneSession.value?.workRouting
-  if (!routing) return ''
-  if (routing.outcome === 'general') return t('work.routeMarkerGeneral')
-  if (!routing.assistant) return ''
-  const key = routing.outcome === 'auto' ? 'work.routeMarkerAuto' : 'work.routeMarkerPicked'
-  return t(key, { name: workDisplayName(routing.assistant) })
-})
+/** 改选 = 带原首输入新建会话；防止下拉连点开出多个会话。 */
+const reselectingAssistant = ref(false)
+async function handleReselectAssistant(name: string) {
+  if (props.readonly || reselectingAssistant.value) return
+  reselectingAssistant.value = true
+  try {
+    await workRouting.reselectAssistant(paneSessionId.value, name)
+  } finally {
+    reselectingAssistant.value = false
+  }
+}
 
 // The floating env panel needs ~324px (300 panel + 12 right margin + 12 gutter).
 // Reserve that space whenever the chat can still keep a usable composer/message
@@ -1763,22 +1770,6 @@ async function handleRestoreHistorySession(session: any) {
   flex-direction: column;
   overflow: hidden;
   position: relative;
-}
-
-.work-routing-marker {
-  align-self: center;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 10px 0 2px;
-  padding: 4px 12px;
-  font-size: var(--text-2xs);
-  color: var(--text-muted);
-  background: var(--surface-glass);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-full, 999px);
-  svg { color: var(--accent-primary); }
 }
 
 .chat-header {

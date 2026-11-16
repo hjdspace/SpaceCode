@@ -329,6 +329,95 @@ describe('auto work routing binding', () => {
   })
 })
 
+describe('work routing reselect', () => {
+  it('creates a new picked session, returns the original first message, and keeps the source', async () => {
+    const { chat } = await freshStores()
+    const source = chat.createSession('新对话', 'D:/work')
+    source.assistantId = 'ppt-creator'
+    source.workRouting = { outcome: 'auto', assistant: 'ppt-creator', at: Date.now() }
+    source.messages.push(
+      {
+        id: 'u1',
+        role: 'user',
+        content: '把大纲做成可编辑 PPT',
+        timestamp: 1,
+        attachments: [{ name: 'outline.md', path: 'D:/work/outline.md', isFolder: false }],
+      },
+      { id: 'a1', role: 'assistant', content: '做好了', timestamp: 2 },
+    )
+
+    const prepared = await chat.reselectWorkAssistant(source.id, {
+      name: 'docx-writer',
+      skills: ['docx'],
+    })
+
+    expect(prepared).not.toBeNull()
+    const created = prepared!.session
+    expect(created.id).not.toBe(source.id)
+    expect(chat.currentSessionId).toBe(created.id)
+    expect(created.assistantId).toBe('docx-writer')
+    expect(created.agent).toBe('docx-writer')
+    expect(created.workRouting).toMatchObject({ outcome: 'picked', assistant: 'docx-writer' })
+    expect(chat.shouldRouteWorkFirstMessage(created.id)).toBe(false)
+
+    // 旧会话完整保留（已产出的内容与绑定都不动）
+    expect(chat.sessions.some(s => s.id === source.id)).toBe(true)
+    expect(source.assistantId).toBe('ppt-creator')
+    expect(source.messages.map(message => message.id)).toEqual(['u1', 'a1'])
+
+    expect(prepared!.firstUserMessage).toMatchObject({
+      id: 'u1',
+      content: '把大纲做成可编辑 PPT',
+    })
+    expect(mocks.installAgent).toHaveBeenCalledWith('docx-writer', 'global', 'D:/work')
+    expect(mocks.installSkill).toHaveBeenCalledWith('docx', 'project', 'D:/work')
+
+    chat.flushSaveNow()
+    const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    expect(persisted).toHaveLength(2)
+    expect(persisted.find((s: { id: string }) => s.id === created.id).workRouting)
+      .toMatchObject({ outcome: 'picked', assistant: 'docx-writer' })
+  })
+
+  it('lets a general session switch to a specific assistant', async () => {
+    const { chat } = await freshStores()
+    const source = chat.createSession('新对话', 'D:/work')
+    source.workRouting = { outcome: 'general', at: Date.now() }
+    source.messages.push({ id: 'u1', role: 'user', content: '帮我看看这份材料', timestamp: 1 })
+
+    const prepared = await chat.reselectWorkAssistant(source.id, { name: 'docx-writer' })
+
+    expect(prepared?.session.assistantId).toBe('docx-writer')
+    expect(prepared?.session.workRouting).toMatchObject({ outcome: 'picked', assistant: 'docx-writer' })
+    expect(prepared?.firstUserMessage?.id).toBe('u1')
+  })
+
+  it('keeps the source session working directory so replayed attachments still resolve', async () => {
+    const { chat, app } = await freshStores()
+    // 用户后来把工作区切到了别处：改选仍应回到来源会话的目录。
+    app.setWorkWorkspace('D:/current')
+    const source = chat.createSession('旧工作区会话', 'D:/old-project')
+    source.workRouting = { outcome: 'auto', assistant: 'ppt-creator', at: Date.now() }
+
+    const prepared = await chat.reselectWorkAssistant(source.id, { name: 'docx-writer' })
+
+    expect(prepared?.session.workingDirectory).toBe(source.workingDirectory)
+    expect(mocks.installAgent).toHaveBeenCalledWith('docx-writer', 'global', 'D:/old-project')
+  })
+
+  it('refuses sessions that never routed', async () => {
+    const { chat } = await freshStores()
+    const source = chat.createSession('旧会话', 'D:/work')
+    const before = chat.sessions.length
+
+    const prepared = await chat.reselectWorkAssistant(source.id, { name: 'docx-writer' })
+
+    expect(prepared).toBeNull()
+    expect(chat.sessions).toHaveLength(before)
+    expect(chat.currentSessionId).toBe(source.id)
+  })
+})
+
 describe('workRouting hydration', () => {
   it('keeps a persisted decision across a restart', async () => {
     const first = await freshStores()

@@ -12,6 +12,8 @@ import {
   createLlmRouterAdapter,
   routeFirstMessage,
 } from '@/services/assistantRouter'
+import { buildOutgoingMessage } from '@/lib/composer-outgoing'
+import type { Attachment, ImageAttachment, Message } from '@/types'
 import type {
   PendingWorkRouting,
   RankedCandidate,
@@ -235,6 +237,54 @@ export function useWorkRouting() {
     sessionStore.abortWorkRouting(sessionId)
   }
 
+  function isImageAttachment(attachment: Attachment | ImageAttachment): attachment is ImageAttachment {
+    return (attachment as ImageAttachment).type === 'image'
+  }
+
+  /** 会话记录里的附件可能混有图片块；按发送时的形状拆回 files / images。 */
+  function splitMessageAttachments(message: Message): { files: Attachment[]; images: ImageAttachment[] } {
+    const files: Attachment[] = []
+    const images: ImageAttachment[] = [...(message.imageAttachments ?? [])]
+    for (const attachment of message.attachments ?? []) {
+      if (isImageAttachment(attachment)) images.push(attachment)
+      else files.push(attachment)
+    }
+    return { files, images }
+  }
+
+  /**
+   * 标记下拉改选：带原始首输入新建会话，旧会话保留。
+   * 不重跑路由 —— 新会话直接记 outcome='picked'，点谁绑谁。
+   */
+  async function reselectAssistant(sourceSessionId: string, name: string): Promise<boolean> {
+    const source = sessionStore.getSession(sourceSessionId)
+    if (!source?.workRouting || source.workRouting.assistant === name) return false
+    const assistant = findWorkAssistant(name)
+    if (!assistant) {
+      console.warn('[WorkRouting] Reselected assistant is not in the work library:', name)
+      return false
+    }
+
+    const prepared = await sessionStore.reselectWorkAssistant(sourceSessionId, toBinding(assistant))
+    if (!prepared) return false
+
+    const first = prepared.firstUserMessage
+    if (!first) return true
+    const { files, images } = splitMessageAttachments(first)
+    if (!first.content.trim() && files.length === 0 && images.length === 0) return true
+
+    appStore.openArtifactsPanel()
+    const { messageContent, userContent } = buildOutgoingMessage(first.content, { files, images })
+    // 不等待整轮回复收口：调用方的 busy 只用于防止改选连点开出多个会话，
+    // 若等首轮结束再解除，新会话的标记下拉会整轮都处于禁用态。
+    void turnStore.sendMessage(messageContent, userContent, { files, images }, {
+      sessionId: prepared.session.id,
+    }).catch(error => {
+      console.error('[WorkRouting] Failed to resend the original first message:', error)
+    })
+    return true
+  }
+
   /** 失败形态候选卡的「从画廊选择」：让画廊点选落回当前会话而非新建。 */
   function openGalleryForRouting(sessionId: string) {
     const pending = sessionStore.getPendingWorkRouting(sessionId)
@@ -261,6 +311,7 @@ export function useWorkRouting() {
     pickCandidate,
     chooseGeneral,
     cancelRouting,
+    reselectAssistant,
     openGalleryForRouting,
     completeGalleryPick,
   }

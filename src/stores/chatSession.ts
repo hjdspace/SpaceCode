@@ -2420,8 +2420,13 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     })
   }
 
-  async function startWorkAssistantSession(assistant: WorkAssistantBinding): Promise<Session> {
-    const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
+  async function startWorkAssistantSession(
+    assistant: WorkAssistantBinding,
+    options?: { workingDirectory?: string },
+  ): Promise<Session> {
+    // 改选要把首条消息的附件路径原样带过去：新会话必须落在来源会话的目录，
+    // 否则刚装好的项目技能与 @"绝对路径" 引用都指向另一个工作区。
+    const cwd = options?.workingDirectory || appStore.workWorkspace || appStore.projectRoot || undefined
 
     // Phase 4: 技能可用性校验 + 降级回退
     let effectiveSkills = assistant.skills ? [...assistant.skills] : undefined
@@ -2484,6 +2489,34 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     // 提前起进程会让控制请求抢在首条消息之前进入 CLI 的串行 stdin 循环, 用户消息只能
     // 排在它后面 —— 而 get_context_usage 这类请求可能占住循环好几分钟.
     return session
+  }
+
+  /**
+   * 改选助手：带着原会话的首条用户输入新建会话，旧会话原样保留（PRD S4）。
+   *
+   * 人格/技能是 spawn 期注入的，热切换不存在；而且旧会话可能已经产出内容，
+   * 就地换助手会把它们留在错误的人格下。新会话直接记 outcome='picked'：
+   * 改选是手动决定，不得再触发路由。
+   *
+   * @returns 新会话与来源会话的首条用户消息（调用方负责重发）；来源不存在或未决策时返回 null。
+   */
+  async function reselectWorkAssistant(
+    sourceSessionId: string,
+    assistant: WorkAssistantBinding,
+  ): Promise<{ session: Session; firstUserMessage: Message | null } | null> {
+    const source = getSession(sourceSessionId)
+    if (!source?.workRouting) return null
+    const firstUserMessage = source.messages.find(message => message.role === 'user') ?? null
+    const session = await startWorkAssistantSession(assistant, {
+      workingDirectory: source.workingDirectory,
+    })
+    session.workRouting = {
+      outcome: 'picked',
+      assistant: assistant.name,
+      at: Date.now(),
+    }
+    saveToStorage()
+    return { session, firstUserMessage }
   }
 
   /**
@@ -2832,6 +2865,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     switchAgent,
     switchModel,
     startWorkAssistantSession,
+    reselectWorkAssistant,
     switchWorkAssistant,
     // Work Assistant Routing
     shouldRouteWorkFirstMessage,

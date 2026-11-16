@@ -46,6 +46,7 @@ export default {
   routeGallery: '从画廊选择',
   routeStart: '开始会话',
   routeChange: '更换助手',
+  routeReselectHint: '选择后将新建会话，并自动重发你的首条消息；当前会话会保留。',
   newSessionToast: '已新建空会话，可直接输入需求',
   folderSetToast: '工作目录已设置：{name}',
   assistantChosenToast: '已选择「{name}」，进入会话…',

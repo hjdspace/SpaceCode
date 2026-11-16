@@ -278,6 +278,83 @@ describe('useWorkRouting first message', () => {
     )
   })
 
+  it('reselects from an auto session into a new session and resends the original input', async () => {
+    const { chat, routing, session, send } = await freshSetup()
+    session.assistantId = 'ppt-creator'
+    session.workRouting = { outcome: 'auto', assistant: 'ppt-creator', at: Date.now() }
+    session.messages.push(
+      {
+        id: 'u1',
+        role: 'user',
+        content: '把大纲做成可编辑 PPT',
+        timestamp: 1,
+        attachments: [{
+          name: 'outline.md',
+          path: 'D:/work/outline.md',
+          isFolder: false,
+          source: 'upload',
+        }],
+      },
+      { id: 'a1', role: 'assistant', content: '做好了', timestamp: 2 },
+    )
+
+    const ok = await routing.reselectAssistant(session.id, 'docx-writer')
+
+    expect(ok).toBe(true)
+    const created = chat.currentSession!
+    expect(created.id).not.toBe(session.id)
+    expect(created.assistantId).toBe('docx-writer')
+    expect(created.workRouting).toMatchObject({ outcome: 'picked', assistant: 'docx-writer' })
+    // 改选是手动决定：不再调用路由模型
+    expect(mocks.sendMessage).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith(
+      '@"D:/work/outline.md" 把大纲做成可编辑 PPT\n\nAttachments: [File: outline.md]',
+      '把大纲做成可编辑 PPT',
+      expect.objectContaining({
+        files: [expect.objectContaining({ path: 'D:/work/outline.md' })],
+        images: [],
+      }),
+      { sessionId: created.id },
+    )
+    // 旧会话保留（含已产出的回复），且仍是原来的助手
+    expect(chat.sessions.some(s => s.id === session.id)).toBe(true)
+    expect(session.assistantId).toBe('ppt-creator')
+    expect(session.messages.map(m => m.id)).toEqual(['u1', 'a1'])
+  })
+
+  it('reselects from a general session and replays the first message', async () => {
+    const { chat, routing, session, send } = await freshSetup()
+    session.workRouting = { outcome: 'general', at: Date.now() }
+    session.messages.push({ id: 'u1', role: 'user', content: '帮我看看这份材料', timestamp: 1 })
+
+    const ok = await routing.reselectAssistant(session.id, 'ppt-creator')
+
+    expect(ok).toBe(true)
+    const created = chat.currentSession!
+    expect(created.assistantId).toBe('ppt-creator')
+    expect(created.workRouting).toMatchObject({ outcome: 'picked', assistant: 'ppt-creator' })
+    expect(send).toHaveBeenCalledWith(
+      '帮我看看这份材料',
+      undefined,
+      { files: [], images: [] },
+      { sessionId: created.id },
+    )
+    expect(session.workRouting).toMatchObject({ outcome: 'general' })
+  })
+
+  it('ignores reselecting the assistant already in use and unknown names', async () => {
+    const { chat, routing, session, send } = await freshSetup()
+    session.workRouting = { outcome: 'auto', assistant: 'ppt-creator', at: Date.now() }
+    const before = chat.sessions.length
+
+    expect(await routing.reselectAssistant(session.id, 'ppt-creator')).toBe(false)
+    expect(await routing.reselectAssistant(session.id, 'not-an-assistant')).toBe(false)
+
+    expect(chat.sessions).toHaveLength(before)
+    expect(chat.currentSessionId).toBe(session.id)
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it('binds in place when the assistant is picked from the gallery', async () => {
     const { chat, routing, session, send } = await freshSetup()
     mocks.sendMessage.mockResolvedValue(JSON.stringify({ none: true, candidates: [] }))

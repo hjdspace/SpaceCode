@@ -145,7 +145,14 @@ import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { useWorkRouting } from '@/composables/useWorkRouting'
-import { workAssistantIcon, workAvatarStyle, workDisplayName, workCategoryColor } from '@/utils/workAssistant'
+import {
+  workAssistantIcon,
+  workAvatarStyle,
+  workDisplayName,
+  workCategoryColor,
+  workAssistantDescription,
+  matchesWorkAssistantQuery,
+} from '@/utils/workAssistant'
 import CustomAssistantEditor from './CustomAssistantEditor.vue'
 
 const { t, locale } = useI18n()
@@ -186,12 +193,8 @@ const filtered = computed(() => {
   if (activeCategory.value !== 'all') {
     list = list.filter(a => (a.category || 'general') === activeCategory.value)
   }
-  const q = query.value.trim().toLowerCase()
-  if (q) {
-    list = list.filter(a =>
-      workDisplayName(a.name).toLowerCase().includes(q) ||
-      displayDesc(a).toLowerCase().includes(q)
-    )
+  if (query.value.trim()) {
+    list = list.filter(a => matchesWorkAssistantQuery(a, query.value, isZh()))
   }
   return list
 })
@@ -207,7 +210,7 @@ function isZh() {
 }
 
 function displayDesc(a: AgentDef): string {
-  return (isZh() && a.descriptionZh) ? a.descriptionZh : a.description
+  return workAssistantDescription(a, isZh())
 }
 
 /** 根据绑定的 skill 推断输出格式标签；无明确格式的助手返回空串 */

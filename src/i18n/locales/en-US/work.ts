@@ -46,6 +46,7 @@ export default {
   routeGallery: 'Browse gallery',
   routeStart: 'Start session',
   routeChange: 'Change assistant',
+  routeReselectHint: 'Picking one starts a new session with your first message re-sent. This session is kept.',
   newSessionToast: 'New empty session created — type your request',
   folderSetToast: 'Working folder set: {name}',
   assistantChosenToast: 'Selected {name}, entering session…',

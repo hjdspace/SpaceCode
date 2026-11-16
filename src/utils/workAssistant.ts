@@ -89,3 +89,26 @@ export function workDisplayName(name: string): string {
     })
     .join(' ')
 }
+
+interface WorkAssistantCopy {
+  name: string
+  description: string
+  descriptionZh?: string
+}
+
+/** 本地化描述：中文环境且提供中文描述时优先。 */
+export function workAssistantDescription(agent: WorkAssistantCopy, isZh: boolean): string {
+  return isZh && agent.descriptionZh ? agent.descriptionZh : agent.description
+}
+
+/** 画廊与改选下拉共用的搜索口径：显示名 + 本地化描述，大小写不敏感。 */
+export function matchesWorkAssistantQuery(
+  agent: WorkAssistantCopy,
+  query: string,
+  isZh: boolean,
+): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return workDisplayName(agent.name).toLowerCase().includes(q) ||
+    workAssistantDescription(agent, isZh).toLowerCase().includes(q)
+}
