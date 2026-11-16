@@ -221,6 +221,22 @@
           </div>
           <input type="checkbox" class="s-toggle-switch" v-model="showSkillsManagerEntry" />
         </div>
+        <div class="s-toggle-wrapper">
+          <div class="s-toggle-info">
+            <span class="s-toggle-label">{{ $t('settings.autoArchive') }}</span>
+            <span class="s-toggle-description">{{ $t('settings.autoArchiveDesc') }}</span>
+          </div>
+          <select
+            v-model="archiveAfterDays"
+            class="s-form-select s-archive-select"
+            data-testid="auto-archive-select"
+            :aria-label="$t('settings.autoArchive')"
+          >
+            <option v-for="days in AUTO_ARCHIVE_DAY_OPTIONS" :key="days" :value="days">
+              {{ days === 0 ? $t('settings.autoArchiveDisabled') : $t('settings.autoArchiveDays', { count: days }) }}
+            </option>
+          </select>
+        </div>
       </div>
     </div>
   </div>
@@ -238,6 +254,7 @@ import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { normalizeAbsolutePath } from '@/utils/normalizePath'
+import { AUTO_ARCHIVE_DAY_OPTIONS } from '@/utils/sessionArchive'
 import { recordRecentProjectRoot } from '@/utils/recentProjectRoots'
 import { useSettingsStore } from '@/stores/settings'
 import type { EngineType } from '@/stores/settings'
@@ -306,6 +323,17 @@ const showSkillsManagerEntry = computed({
   set: (val: boolean) => {
     settingsStore.showSkillsManagerEntry = val
     settingsStore.saveSettings()
+    emit('change')
+  }
+})
+
+const archiveAfterDays = computed({
+  get: () => settingsStore.archiveAfterDays,
+  set: (val: number) => {
+    settingsStore.archiveAfterDays = val
+    settingsStore.saveSettings()
+    // 改阈值当场生效：否则选了 7 天还得等下次启动才看得到结果。
+    sessionStore.runAutoArchive()
     emit('change')
   }
 })
@@ -479,6 +507,14 @@ function applyProjectRoot(path: string) {
 </script>
 
 <style lang="scss" scoped>
+
+/* 自动归档天数下拉：跟开关行右侧对齐，不占满整行 */
+.s-archive-select {
+  width: 120px;
+  flex-shrink: 0;
+  padding: 8px 32px 8px 12px;
+  font-size: 13px;
+}
 
 /* First-run guide row */
 .guide-row {

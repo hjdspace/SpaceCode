@@ -420,6 +420,142 @@ function buildNode(p: string, depth: number, maxDepth: number): FileTreeNode | n
   }
 }
 
+// ── Relative file collection ───────────────────────────────────────
+
+/** Collect relative file paths beneath a directory, skipping ignored entries and symlinked dirs. */
+export function collectRelativeFiles(dir: string): Set<string> {
+  const result = new Set<string>()
+  collectRelativeFilesRecursive(dir, '', result)
+  return result
+}
+
+function collectRelativeFilesRecursive(baseDir: string, relPrefix: string, out: Set<string>): void {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(baseDir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (isIgnoredEntry(entry.name)) continue
+    const rel = relPrefix ? path.join(relPrefix, entry.name) : entry.name
+    if (entry.isDirectory()) {
+      if (entry.isSymbolicLink()) continue
+      collectRelativeFilesRecursive(path.join(baseDir, entry.name), rel, out)
+    } else if (entry.isFile()) {
+      out.add(rel)
+    }
+  }
+}
+
+/** Read a file relative to a base directory. Returns null if not found. */
+export function readRelativeFile(baseDir: string, relPath: string): string | null {
+  const fullPath = path.join(baseDir, relPath)
+  try {
+    return fs.readFileSync(fullPath, 'utf-8')
+  } catch {
+    return null
+  }
+}
+
+// ── Agent skill discovery ──────────────────────────────────────────
+
+/**
+ * Discover skill directories beneath an agent scan root.
+ * Only recurses when `recursive` (OpenClaw + shared .agents root); skill
+ * directories are collected without descending into them. Hidden entries and
+ * ignored names are skipped — except `node_modules`, which the shared root may
+ * traverse when `includeDependencyDirs` is set. Results are sorted with
+ * non-symlinks first, then deduped by canonicalized path.
+ * Reference: AgentBro `service.rs` `discover_agent_skill_paths`.
+ */
+export function discoverAgentSkillPaths(
+  root: string,
+  recursive: boolean,
+  includeDependencyDirs: boolean
+): string[] {
+  const out: string[] = []
+  discoverAgentSkillPathsInner(root, recursive, includeDependencyDirs, 0, out)
+  out.sort((a, b) => {
+    const aIsLink = isSymlink(a)
+    const bIsLink = isSymlink(b)
+    return Number(aIsLink) - Number(bIsLink) || a.localeCompare(b)
+  })
+  const seen = new Set<string>()
+  return out.filter((p) => {
+    let canon = p
+    try {
+      canon = fs.realpathSync(p)
+    } catch {
+      // Keep the lexical path when the target disappears during a scan.
+    }
+    if (seen.has(canon)) return false
+    seen.add(canon)
+    return true
+  })
+}
+
+function discoverAgentSkillPathsInner(
+  dir: string,
+  recursive: boolean,
+  includeDependencyDirs: boolean,
+  depth: number,
+  out: string[]
+): void {
+  if (depth > 8) return
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const name = entry.name
+    const ignored = isIgnoredEntry(name) && !(includeDependencyDirs && name === 'node_modules')
+    if (ignored || name.startsWith('.')) continue
+    const childPath = path.join(dir, name)
+    let isDir: boolean
+    try {
+      isDir = fs.statSync(childPath).isDirectory()
+    } catch {
+      continue
+    }
+    if (!isDir) continue
+    if (isSkillDir(childPath)) {
+      out.push(childPath)
+      continue
+    }
+    if (recursive) {
+      discoverAgentSkillPathsInner(childPath, recursive, includeDependencyDirs, depth + 1, out)
+    }
+  }
+}
+
+/**
+ * Sanitized directory name fallback for unmanaged rows without an inferred id.
+ * Unlike sanitizeId, any invalid character becomes a dash rather than being dropped.
+ */
+export function sanitizeBasename(p: string): string {
+  const base = path.basename(p)
+  let out = ''
+  let prevDash = false
+  for (const ch of base) {
+    if (/[a-zA-Z0-9]/.test(ch) || ch === '-' || ch === '_') {
+      out += ch
+      prevDash = ch === '-'
+    } else if (!prevDash && out.length > 0) {
+      out += '-'
+      prevDash = true
+    }
+  }
+  return out.replace(/^-+|-+$/g, '') || 'skill'
+}
+
+export function normalizePathKey(value: string): string {
+  const normalized = path.normalize(value)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
 // ── Time ───────────────────────────────────────────────────────────
 
 export function nowIso(): string {

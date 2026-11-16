@@ -216,6 +216,92 @@ describe('engineGateway', () => {
     })
   })
 
+  /**
+   * 取消入口收敛在网关（#114）：三个 adapter 都从这里派发，所以「中止/停止/挂起顺手
+   * 掐掉在途生图」只需要在这一处成立。放到各 adapter 里等于三份会各自漂移的口径。
+   */
+  describe('取消在途生图工作', () => {
+    it('abort 先掐掉本会话的在途生图，再走引擎原有语义', async () => {
+      const { beginImageGenWork } = await import('../imagegen/imageGenWork')
+      const work = beginImageGenWork('s1')
+      const engine = mockState.makeClaudeEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      let abortedWhenEngineRan: boolean | null = null
+      engine.abort.mockImplementation(async () => { abortedWhenEngineRan = work.signal.aborted })
+      mockState.engines.push(engine)
+
+      await engineGateway.abort('s1')
+
+      expect(abortedWhenEngineRan).toBe(true)
+      expect(work.stopReason).toBe('user')
+      expect(engine.abort).toHaveBeenCalledWith('s1')
+    })
+
+    it('stop 先掐掉在途生图，再停引擎并回收产物', async () => {
+      const { beginImageGenWork } = await import('../imagegen/imageGenWork')
+      const work = beginImageGenWork('s1')
+      const engine = mockState.makeClaudeEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      let abortedWhenEngineRan: boolean | null = null
+      engine.stop.mockImplementation(async () => { abortedWhenEngineRan = work.signal.aborted })
+      mockState.engines.push(engine)
+
+      await engineGateway.stop('s1')
+
+      expect(abortedWhenEngineRan).toBe(true)
+      expect(engine.stop).toHaveBeenCalledWith('s1')
+    })
+
+    it('suspendSession 先掐掉在途生图，再挂起进程', async () => {
+      const { beginImageGenWork } = await import('../imagegen/imageGenWork')
+      const work = beginImageGenWork('s1')
+      const engine = mockState.makeClaudeEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      let abortedWhenEngineRan: boolean | null = null
+      engine.suspendSession!.mockImplementation(() => { abortedWhenEngineRan = work.signal.aborted })
+      mockState.engines.push(engine)
+
+      engineGateway.suspendSession('s1')
+
+      expect(abortedWhenEngineRan).toBe(true)
+      expect(engine.suspendSession).toHaveBeenCalledWith('s1')
+    })
+
+    it('只掐本会话：别的会话在途生图不受影响', async () => {
+      const { beginImageGenWork } = await import('../imagegen/imageGenWork')
+      const mine = beginImageGenWork('s1')
+      const theirs = beginImageGenWork('s2')
+      const engine = mockState.makeClaudeEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      await engineGateway.abort('s1')
+
+      expect(mine.signal.aborted).toBe(true)
+      expect(theirs.signal.aborted).toBe(false)
+    })
+
+    it('中止同时关掉本会话待应答的生图授权卡，判 cancelled 而不是 deny', async () => {
+      const { createImageGenAuthorization, setImageGenAuthorization } = await import('../imagegen/imageGenAuthorization')
+      const closed: string[] = []
+      const authorization = createImageGenAuthorization({
+        sendDialog: () => {},
+        sendClosed: (_sessionId, event) => closed.push(event.reason),
+        permissionMode: () => 'default',
+      })
+      setImageGenAuthorization(authorization)
+      const engine = mockState.makeClaudeEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      const decision = authorization.authorize({ sessionId: 's1', provider: 'OpenAI', model: 'gpt-image-1', count: 2, prompt: 'a cover' })
+      await engineGateway.abort('s1')
+
+      await expect(decision).resolves.toBe('cancelled')
+      expect(closed).toEqual(['aborted'])
+    })
+  })
+
   describe('startSession', () => {
     it('delegates to the engine and returns status', async () => {
       const engine = mockState.makeClaudeEngine()
@@ -387,6 +473,47 @@ describe('engineGateway', () => {
       engineGateway.respondExtensionDialog('s1', 'uuid-1', { kind: 'value', value: 'Allow' })
 
       expect(engine.respondExtensionDialog).toHaveBeenCalledWith('s1', 'uuid-1', { kind: 'value', value: 'Allow' })
+    })
+
+    /**
+     * 生图授权卡是宿主自铸的对话框，两个引擎都会弹（#108）。所以命中登记表就地结算，
+     * 绝不往引擎递 —— Claude 那侧连 respondExtensionDialog 都没有，递过去只会把一次
+     * 有效的「允许」变成 NotImplementedError。
+     */
+    it('respondExtensionDialog settles a host authorization dialog locally even on an engine without the protocol', async () => {
+      const engine = mockState.makeClaudeEngine({ respondExtensionDialog: undefined })
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      const { createImageGenAuthorization, setImageGenAuthorization } = await import('../imagegen/imageGenAuthorization')
+      const sent: Array<{ dialogId: string }> = []
+      const authorization = createImageGenAuthorization({
+        sendDialog: (_sessionId, request) => { sent.push(request) },
+        sendClosed: () => {},
+        permissionMode: () => 'default',
+      })
+      setImageGenAuthorization(authorization)
+
+      const decision = authorization.authorize({
+        sessionId: 's1',
+        provider: 'OpenAI',
+        model: 'gpt-image-1',
+        count: 1,
+        prompt: 'a cover',
+      })
+      engineGateway.respondExtensionDialog('s1', sent[0].dialogId, { kind: 'value', value: '允许一次' })
+
+      await expect(decision).resolves.toBe('allow')
+    })
+
+    it('respondExtensionDialog passes an unknown dialog id through to the engine unchanged', () => {
+      const engine = mockState.makePiEngine()
+      engine.getSessionStatus.mockReturnValue({ sessionId: 's1', isRunning: true })
+      mockState.engines.push(engine)
+
+      engineGateway.respondExtensionDialog('s1', 'pi-uuid-9', { kind: 'cancel' })
+
+      expect(engine.respondExtensionDialog).toHaveBeenCalledWith('s1', 'pi-uuid-9', { kind: 'cancel' })
     })
 
     it('setPermissionMode throws when engine lacks it', async () => {

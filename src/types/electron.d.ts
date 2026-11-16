@@ -27,12 +27,14 @@ import type { GitRendererApi } from '@/shared/channels/git'
 import type { TerminalRendererApi, TerminalEventApi } from '@/shared/channels/terminal'
 import type { UpdateRendererApi, UpdateEventApi } from '@/shared/channels/update'
 import type { VoiceRendererApi, VoiceEventApi } from '@/shared/channels/voice'
+import type { TodoRendererApi, TodoEventApi } from '@/shared/channels/todo'
 import type { FactoryRendererApi, FactoryEventApi } from '@/shared/channels/factory'
 import type { ClaudeCodeRendererApi, ClaudeCodeEventApi } from '@/shared/channels/claudeCode'
 import type { MemoryRendererApi } from '@/shared/channels/memory'
 import type { SuperAgentRendererApi } from '@/shared/channels/superAgent'
 import type { DesignExportRequest, DesignExportResult } from '@/shared/designExport'
 import type { EffortLevel } from '@/shared/effort'
+import type { ImageModelListResult } from '@/shared/imageGenModels'
 import type {
 SkillManagerOverview,
 SkillManagerSettings,
@@ -427,6 +429,8 @@ export interface ElectronUpdateAPI extends UpdateRendererApi, UpdateEventApi {}
 
 export interface ElectronVoiceAPI extends VoiceRendererApi, VoiceEventApi {}
 
+export interface ElectronTodoAPI extends TodoRendererApi, TodoEventApi {}
+
 export interface ElectronImWechatAPI {
   startQrLogin: () => Promise<{ qrcodeUrl: string; qrcodeId: string }>
   checkQrStatus: (qrcodeId: string) => Promise<{
@@ -526,6 +530,8 @@ export interface ElectronAPI {
   }>
   loadGuiSettings: () => Promise<{ success: boolean; data: string | null; error?: string }>
 
+  listImageGenModels: (baseUrl: string, apiKey?: string) => Promise<ImageModelListResult>
+
   profilesLoad: () => Promise<{ success: boolean; data: string | null; error?: string }>
   profilesSave: (data: string) => Promise<{ success: boolean; error?: string }>
   profilesBackupCorrupt: (data: string) => Promise<{ success: boolean; backupPath?: string; error?: string }>
@@ -568,6 +574,7 @@ export interface ElectronAPI {
   rtk: ElectronRtkAPI
   update: ElectronUpdateAPI
   voice: ElectronVoiceAPI
+  todo: ElectronTodoAPI
   cron: ElectronCronAPI
   factory: ElectronFactoryAPI
   superAgent: ElectronSuperAgentAPI
@@ -585,6 +592,7 @@ export interface ElectronAPI {
   shell: {
     openExternal: (url: string) => Promise<void>
     openPath: (path: string) => Promise<void>
+    showItemInFolder: (path: string) => Promise<void>
   }
 
   clipboard: {

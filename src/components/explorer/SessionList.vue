@@ -25,6 +25,7 @@
           @mouseleave="hoveredFolder = null"
           @create-session="(e) => $emit('create-session-in-project', e, group.workingDirectory)"
           @remove-project="$emit('remove-project', group.workingDirectory)"
+          @archive-project="(wd) => $emit('archive-project', wd)"
           @open-folder-picker="$emit('open-folder-picker')"
           @click="$emit('switch-project', group.workingDirectory)"
           :show-remove-button="showRemoveButton"
@@ -55,6 +56,7 @@
                 @mouseleave="hoveredSession = null"
                 @select="$emit('select', session.id)"
                 @delete="(e) => $emit('delete', e, session.id)"
+                @archive="(e) => $emit('archive', e, session.id)"
                 @rename="(newTitle) => $emit('rename', session.id, newTitle)"
                 @copy-id="handleCopySessionId(session.id)"
                 @split-screen="(sessionId) => $emit('split-screen', sessionId)"
@@ -123,9 +125,11 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   select: [id: string]
   delete: [e: MouseEvent, sessionId: string]
+  archive: [e: MouseEvent, sessionId: string]
   rename: [sessionId: string, newTitle: string]
   'create-session-in-project': [e: MouseEvent, workingDirectory: string]
   'remove-project': [workingDirectory: string]
+  'archive-project': [workingDirectory: string]
   'switch-project': [workingDirectory: string]
   'open-folder-picker': []
   'split-screen': [sessionId: string]

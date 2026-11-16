@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { buildOutgoingMessage } from '../composer-outgoing'
+import { buildTodoMarker, buildTodoReferenceBlock } from '@/shared/todoReference'
 import type { AllAttachments } from '@/composables/types'
 
 function files(source?: AllAttachments['files'][number]['source']): AllAttachments {
@@ -87,5 +88,52 @@ describe('buildOutgoingMessage', () => {
     expect(result.messageContent.startsWith('@"D:/repo/a.png"')).toBe(true)
     expect(result.messageContent).toContain('Attachments: [File: a.png]')
     expect(result.userContent).toBe('')
+  })
+})
+
+describe('buildOutgoingMessage — todo 引用', () => {
+  const marker = buildTodoMarker('t1', '收尾登录改造')
+  const references = [{ id: 't1', title: '收尾登录改造', status: 'open' as const, priority: 'high' as const, notes: '剩下接口联调' }]
+
+  it('引擎正文 = 引用块 + 可读标题，气泡保留 marker 以便渲染回 chip', () => {
+    const result = buildOutgoingMessage(`继续 ${marker} 的第二步`, { files: [], images: [] }, { todoReferences: references })
+
+    expect(result.messageContent.startsWith('<planning_reference_instructions>')).toBe(true)
+    expect(result.messageContent).toContain('<referenced_todos>')
+    expect(result.messageContent).toContain('剩下接口联调')
+    expect(result.messageContent).toContain('继续 「收尾登录改造」 的第二步')
+    expect(result.messageContent).not.toContain('@todo:')
+    expect(result.userContent).toBe(`继续 ${marker} 的第二步`)
+  })
+
+  it('只发了引用没打字：正文只剩可读标题，引用块在前', () => {
+    const result = buildOutgoingMessage(marker, { files: [], images: [] }, { todoReferences: references })
+
+    expect(result.messageContent).toBe(`${buildTodoReferenceBlock(references)}\n\n「收尾登录改造」`)
+    expect(result.userContent).toBe(marker)
+  })
+
+  it('没有 todoReferences 时不动正文，marker 原样透传', () => {
+    const result = buildOutgoingMessage(`继续 ${marker}`, { files: [], images: [] })
+
+    expect(result.messageContent).toBe(`继续 ${marker}`)
+    expect(result.userContent).toBeUndefined()
+  })
+
+  it('displayLabel 优先于 marker 正文（命令 chip 展开的提示词）', () => {
+    const result = buildOutgoingMessage(`展开的提示词 ${marker}`, { files: [], images: [] }, {
+      displayLabel: '/review',
+      todoReferences: references,
+    })
+
+    expect(result.userContent).toBe('/review')
+    expect(result.messageContent).toContain('<referenced_todos>')
+  })
+
+  it('引用块排在附件 @"路径" 引用之前', () => {
+    const result = buildOutgoingMessage(`继续 ${marker}`, files('upload'), { todoReferences: references })
+
+    expect(result.messageContent.indexOf('<referenced_todos>')).toBeLessThan(result.messageContent.indexOf('@"D:/repo/a.png"'))
+    expect(result.messageContent).toContain('Attachments: [File: a.png]')
   })
 })

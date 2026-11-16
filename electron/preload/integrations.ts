@@ -1,6 +1,6 @@
 // electron/preload/integrations.ts
 // 集成域：终端、Git、记忆、语音、引擎、超级 Agent、流水线、更新、
-// 桌面宠物、移动端与 H5、定时任务、IM。
+// 桌面宠物、移动端与 H5、定时任务、IM、待办。
 
 import { gitChannels } from '@/shared/channels/git'
 import { terminalNamespace } from '@/shared/channels/terminal'
@@ -10,6 +10,7 @@ import { memoryChannels } from '@/shared/channels/memory'
 import { voiceNamespace } from '@/shared/channels/voice'
 import { factoryNamespace } from '@/shared/channels/factory'
 import { superAgentNamespace } from '@/shared/channels/superAgent'
+import { todoNamespace } from '@/shared/channels/todo'
 import { createPreloadBridge, createEventBridge } from '@/shared/preloadBridge'
 import type { PreloadIpc } from './types'
 
@@ -43,6 +44,13 @@ export function createIntegrationsApi(ipcRenderer: PreloadIpc) {
       ...createEventBridge(voiceNamespace.events, ipcRenderer, 'voice:'),
     } satisfies import('@/shared/channels/voice').VoiceRendererApi
       & import('@/shared/channels/voice').VoiceEventApi,
+
+    // Todo API — 待办、分组、到点提醒与 macOS 提醒事项同步，全部表驱动注册
+    todo: {
+      ...createPreloadBridge(todoNamespace.channels, ipcRenderer, 'todo:'),
+      ...createEventBridge(todoNamespace.events, ipcRenderer, 'todo:'),
+    } satisfies import('@/shared/channels/todo').TodoRendererApi
+      & import('@/shared/channels/todo').TodoEventApi,
 
     // ClaudeCode Engine API — invoke channels 与事件订阅均表驱动注册
     claudeCode: {

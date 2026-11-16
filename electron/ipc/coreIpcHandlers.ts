@@ -262,6 +262,13 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
     await shell.openPath(targetPath)
   })
 
+  // 定位文件而非打开它：openPath 会把图片交给看图程序，卡片要的是资源管理器里选中该文件。
+  ipcMain.handle('shell:showItemInFolder', (_event, targetPath: unknown) => {
+    if (typeof targetPath !== 'string' || !targetPath) return
+    info('IPC', 'shell:showItemInFolder', { targetPath })
+    shell.showItemInFolder(targetPath)
+  })
+
   // 卡片复制动作只允许写入字符串；非字符串一律丢弃，不落到系统剪贴板
   ipcMain.handle('clipboard:writeText', async (_event, text: unknown) => {
     if (typeof text !== 'string') return

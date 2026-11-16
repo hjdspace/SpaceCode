@@ -10,6 +10,8 @@
  */
 import type { ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
+import { parseImageModelIds } from '@/shared/imageGenModels'
+import type { ImageModelListResult } from '@/shared/imageGenModels'
 
 export type {
   CuaDriverStatus,
@@ -420,6 +422,7 @@ import { shell } from './api/shell'
 import { skills } from './api/skills'
 import { superAgent } from './api/superAgent'
 import { terminal } from './api/terminal'
+import { todo } from './api/todo'
 import { trace } from './api/trace'
 import { update } from './api/update'
 import { voice } from './api/voice'
@@ -558,6 +561,32 @@ export const api = {
       return Promise.resolve({ success: true, data })
     }
     return Promise.resolve({ success: false, data: null, error: 'loadGuiSettings not available' })
+  },
+  /**
+   * 生图模型列表。Electron 下由主进程探测（key 留空时用存档那份）；
+   * H5 没有主进程，只能拿输入框里这份 key 直连远程 HTTP 代理。
+   */
+  listImageGenModels: async (baseUrl: string, apiKey?: string): Promise<ImageModelListResult> => {
+    if (electronAPI?.listImageGenModels) {
+      return electronAPI.listImageGenModels(baseUrl, apiKey)
+    }
+    const key = apiKey?.trim() ?? ''
+    if (!_isH5Mode || !key) return { success: false, reason: 'unavailable' }
+
+    const result = await h5ApiClient.httpFetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!result) return { success: false, reason: 'network' }
+    if (!result.ok) return { success: false, reason: 'http', status: result.status }
+    try {
+      return { success: true, models: parseImageModelIds(JSON.parse(result.data)) }
+    } catch {
+      return { success: false, reason: 'network' }
+    }
   },
   profilesLoad: (): Promise<{ success: boolean; data: string | null; error?: string }> => {
     if (electronAPI?.profilesLoad) {
@@ -838,6 +867,7 @@ export const api = {
   skills,
   superAgent,
   terminal,
+  todo,
   trace,
   update,
   voice,

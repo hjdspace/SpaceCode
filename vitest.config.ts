@@ -105,7 +105,7 @@ export default defineConfig({
         'electron/im/**': { statements: 52 }, // 52.2% (feishuAdapter 事件链路补齐后的下界)
         'electron/session/**': { statements: 80 }, // 85.6% (sessionProcess 分帧/spawn/argv/env/生命周期)
         'electron/tools/**': { statements: 65 }, // 68.1% (browserUse 安装与健康 + rtk 下载/统计 + officecli 截图分页与 watch 生命周期)
-        'electron/skillManagerV2/**': { statements: 72 }, // 74.8%
+        'electron/skillManagerV2/**': { statements: 82 }, // 87.4% (尾部自由函数外迁 + agentConfigReaders 与 index.ts 44 个 IPC 通道补测；index.ts 从 0% 到 99.2%)
       },
     },
   },

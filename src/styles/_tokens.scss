@@ -105,6 +105,17 @@
   --error-glow: #{$error-glow};
   --info: #3b82f6;
   --info-glow: rgba(59, 130, 246, 0.15);
+
+  /* Todo 分组色板 — 8 个色相，供分组圆点/chip 用 color-mix 派生底色。
+     只在这里发射，暗色主题各自提亮，避免浅底浅字。 */
+  --todo-hue-teal: #0d9488;
+  --todo-hue-blue: #2563eb;
+  --todo-hue-violet: #7c3aed;
+  --todo-hue-amber: #b45309;
+  --todo-hue-rose: #e11d48;
+  --todo-hue-green: #059669;
+  --todo-hue-cyan: #0891b2;
+  --todo-hue-magenta: #c026d3;
   
   --border-subtle: rgba(24, 25, 31, 0.05);
   --border-light: rgba(24, 25, 31, 0.07);
@@ -211,6 +222,17 @@
   --error-glow: rgba(198, 69, 69, 0.15);
   --info: #60a5fa;
   --info-glow: rgba(96, 165, 250, 0.15);
+
+  /* Todo 分组色板 — 8 个色相，供分组圆点/chip 用 color-mix 派生底色。
+     只在这里发射，奶油底上再压深一档，保证 4.5:1。 */
+  --todo-hue-teal: #0f766e;
+  --todo-hue-blue: #1d4ed8;
+  --todo-hue-violet: #6d28d9;
+  --todo-hue-amber: #a16207;
+  --todo-hue-rose: #be123c;
+  --todo-hue-green: #047857;
+  --todo-hue-cyan: #0e7490;
+  --todo-hue-magenta: #a21caf;
 
   /* Border System - Hairline Philosophy */
   --border-subtle: rgba(20, 20, 19, 0.04);
@@ -332,6 +354,17 @@
   --info: #60a5fa;
   --info-glow: rgba(96, 165, 250, 0.18);
 
+  /* Todo 分组色板 — 8 个色相，供分组圆点/chip 用 color-mix 派生底色。
+     只在这里发射，暗底上提亮，保证 4.5:1。 */
+  --todo-hue-teal: #5eead4;
+  --todo-hue-blue: #60a5fa;
+  --todo-hue-violet: #a78bfa;
+  --todo-hue-amber: #fcd34d;
+  --todo-hue-rose: #fda4af;
+  --todo-hue-green: #34d399;
+  --todo-hue-cyan: #22d3ee;
+  --todo-hue-magenta: #e879f9;
+
   /* Border System - Subtle on dark */
   --border-subtle: rgba(250, 249, 245, 0.04);
   --border-light: rgba(250, 249, 245, 0.06);
@@ -438,6 +471,17 @@
   --error-glow: rgba(239, 68, 68, 0.2);
   --info: #60a5fa;
   --info-glow: rgba(96, 165, 250, 0.2);
+
+  /* Todo 分组色板 — 8 个色相，供分组圆点/chip 用 color-mix 派生底色。
+     只在这里发射，暗底上提亮，保证 4.5:1。 */
+  --todo-hue-teal: #2dd4bf;
+  --todo-hue-blue: #60a5fa;
+  --todo-hue-violet: #a78bfa;
+  --todo-hue-amber: #fbbf24;
+  --todo-hue-rose: #fb7185;
+  --todo-hue-green: #34d399;
+  --todo-hue-cyan: #22d3ee;
+  --todo-hue-magenta: #e879f9;
   
   --border-subtle: rgba(255, 255, 255, 0.04);
   --border-light: rgba(255, 255, 255, 0.06);

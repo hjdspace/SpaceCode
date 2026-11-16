@@ -17,6 +17,11 @@ import {
   inspectPath,
   removePath,
   expandTilde,
+  collectRelativeFiles,
+  readRelativeFile,
+  discoverAgentSkillPaths,
+  sanitizeBasename,
+  normalizePathKey,
 } from '../fsutil'
 
 // ── Test helpers ───────────────────────────────────────────────────
@@ -383,6 +388,254 @@ body`)
     it('leaves absolute paths unchanged', () => {
       const abs = path.join(tmpDir, 'foo')
       expect(expandTilde(abs)).toBe(abs)
+    })
+  })
+
+  // ── collectRelativeFiles ───────────────────────────────────────
+
+  describe('collectRelativeFiles', () => {
+    it('递归收集相对路径', () => {
+      writeFile(path.join(tmpDir, 'SKILL.md'), 'root')
+      writeFile(path.join(tmpDir, 'sub', 'nested.md'), 'nested')
+      writeFile(path.join(tmpDir, 'sub', 'deep', 'leaf.txt'), 'leaf')
+
+      expect([...collectRelativeFiles(tmpDir)].sort()).toEqual([
+        'SKILL.md',
+        path.join('sub', 'deep', 'leaf.txt'),
+        path.join('sub', 'nested.md'),
+      ])
+    })
+
+    it('目录不存在时返回空集合', () => {
+      expect(collectRelativeFiles(path.join(tmpDir, 'nope')).size).toBe(0)
+    })
+
+    it('空目录返回空集合', () => {
+      const empty = path.join(tmpDir, 'empty')
+      fs.mkdirSync(empty)
+      expect(collectRelativeFiles(empty).size).toBe(0)
+    })
+
+    it('跳过被忽略的目录与临时文件', () => {
+      writeFile(path.join(tmpDir, 'keep.md'), 'keep')
+      writeFile(path.join(tmpDir, 'node_modules', 'pkg', 'index.js'), 'noise')
+      writeFile(path.join(tmpDir, '.git', 'config'), 'noise')
+      writeFile(path.join(tmpDir, 'swap.swp'), 'noise')
+      writeFile(path.join(tmpDir, 'partial.tmp'), 'noise')
+
+      expect([...collectRelativeFiles(tmpDir)]).toEqual(['keep.md'])
+    })
+
+    it('不进入符号链接目录', () => {
+      const real = path.join(tmpDir, 'real')
+      writeFile(path.join(real, 'inside.md'), 'inside')
+      writeFile(path.join(tmpDir, 'top.md'), 'top')
+      const link = path.join(tmpDir, 'linked')
+      let linked = false
+      try {
+        fs.symlinkSync(real, link, 'dir')
+        linked = true
+      } catch {
+        // Windows 无符号链接权限时退化为只验证普通收集
+      }
+
+      const files = collectRelativeFiles(tmpDir)
+      expect(files.has('top.md')).toBe(true)
+      if (linked) {
+        expect(files.has(path.join('real', 'inside.md'))).toBe(true)
+        expect(files.has(path.join('linked', 'inside.md'))).toBe(false)
+      }
+    })
+  })
+
+  // ── readRelativeFile ───────────────────────────────────────────
+
+  describe('readRelativeFile', () => {
+    it('读出嵌套文件内容', () => {
+      writeFile(path.join(tmpDir, 'sub', 'file.md'), '你好')
+      expect(readRelativeFile(tmpDir, path.join('sub', 'file.md'))).toBe('你好')
+    })
+
+    it('文件不存在时返回 null', () => {
+      expect(readRelativeFile(tmpDir, 'missing.md')).toBeNull()
+    })
+
+    it('基准目录不存在时返回 null', () => {
+      expect(readRelativeFile(path.join(tmpDir, 'nope'), 'file.md')).toBeNull()
+    })
+  })
+
+  // ── discoverAgentSkillPaths ────────────────────────────────────
+
+  describe('discoverAgentSkillPaths', () => {
+    function makeSkill(rel: string): string {
+      const dir = path.join(tmpDir, rel)
+      writeFile(path.join(dir, 'SKILL.md'), '# skill')
+      return dir
+    }
+
+    it('非递归时只取直接子目录里的技能', () => {
+      const top = makeSkill('top')
+      makeSkill(path.join('nested', 'deep'))
+
+      expect(discoverAgentSkillPaths(tmpDir, false, false)).toEqual([top])
+    })
+
+    it('递归时能取到嵌套技能', () => {
+      const top = makeSkill('top')
+      const deep = makeSkill(path.join('nested', 'deep'))
+
+      expect(discoverAgentSkillPaths(tmpDir, true, false)).toEqual([top, deep].sort())
+    })
+
+    it('命中技能目录后不再向下递归', () => {
+      const outer = makeSkill('outer')
+      makeSkill(path.join('outer', 'inner'))
+
+      expect(discoverAgentSkillPaths(tmpDir, true, false)).toEqual([outer])
+    })
+
+    it('跳过隐藏目录', () => {
+      makeSkill(path.join('.hidden', 'skill'))
+      const visible = makeSkill('visible')
+
+      expect(discoverAgentSkillPaths(tmpDir, true, false)).toEqual([visible])
+    })
+
+    it('默认跳过 node_modules', () => {
+      makeSkill(path.join('node_modules', 'pkg'))
+      const visible = makeSkill('visible')
+
+      expect(discoverAgentSkillPaths(tmpDir, true, false)).toEqual([visible])
+    })
+
+    it('includeDependencyDirs 时穿越 node_modules', () => {
+      const dep = makeSkill(path.join('node_modules', 'pkg'))
+
+      expect(discoverAgentSkillPaths(tmpDir, true, true)).toEqual([dep])
+    })
+
+    it('includeDependencyDirs 不影响其它被忽略的目录', () => {
+      makeSkill(path.join('.git', 'skill'))
+      makeSkill(path.join('target', 'skill'))
+
+      expect(discoverAgentSkillPaths(tmpDir, true, true)).toEqual([])
+    })
+
+    it('普通文件不被当作技能目录', () => {
+      writeFile(path.join(tmpDir, 'SKILL.md'), 'root file')
+      writeFile(path.join(tmpDir, 'loose.txt'), 'loose')
+
+      expect(discoverAgentSkillPaths(tmpDir, true, false)).toEqual([])
+    })
+
+    it('根目录不存在时返回空数组', () => {
+      expect(discoverAgentSkillPaths(path.join(tmpDir, 'nope'), true, false)).toEqual([])
+    })
+
+    it('递归深度上限为 8 层', () => {
+      const atLimit = makeSkill(path.join('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'limit'))
+      makeSkill(path.join('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'deep'))
+
+      expect(discoverAgentSkillPaths(tmpDir, true, false)).toEqual([atLimit])
+    })
+
+    it('结果按路径排序且非符号链接优先', () => {
+      // 链接指向扫描根之外，否则会被 realpath 去重吃掉，观察不到排序
+      const scanRoot = path.join(tmpDir, 'root')
+      const inside = path.join(scanRoot, 'zeta')
+      writeFile(path.join(inside, 'SKILL.md'), '# inside')
+      const outside = path.join(tmpDir, 'outside', 'skill')
+      writeFile(path.join(outside, 'SKILL.md'), '# outside')
+      const link = path.join(scanRoot, 'alpha')
+      let linked = false
+      try {
+        fs.symlinkSync(outside, link, 'dir')
+        linked = true
+      } catch {
+        // 无符号链接权限时只验证排序
+      }
+
+      const found = discoverAgentSkillPaths(scanRoot, false, false)
+      if (linked) {
+        expect(found).toEqual([inside, link])
+      } else {
+        expect(found).toEqual([inside])
+      }
+    })
+
+    it('指向同一真实路径的入口被去重', () => {
+      const real = makeSkill('real')
+      const link = path.join(tmpDir, 'alias')
+      let linked = false
+      try {
+        fs.symlinkSync(real, link, 'dir')
+        linked = true
+      } catch {
+        // 无符号链接权限时退化为验证真实目录本身
+      }
+
+      const found = discoverAgentSkillPaths(tmpDir, false, false)
+      expect(found).toContain(real)
+      if (linked) expect(found).toHaveLength(1)
+    })
+  })
+
+  // ── sanitizeBasename ───────────────────────────────────────────
+
+  describe('sanitizeBasename', () => {
+    it('保留字母数字、dash 与下划线', () => {
+      expect(sanitizeBasename('my-skill_2')).toBe('my-skill_2')
+    })
+
+    it('只取路径的最后一段', () => {
+      expect(sanitizeBasename(path.join(tmpDir, 'parent', 'leaf'))).toBe('leaf')
+    })
+
+    it('任意非法字符都转成 dash（与 sanitizeId 不同）', () => {
+      expect(sanitizeBasename('a@b')).toBe('a-b')
+      expect(sanitizeId('a@b')).toBe('ab')
+    })
+
+    it('连续非法字符折叠成一个 dash', () => {
+      expect(sanitizeBasename('a@@@b')).toBe('a-b')
+    })
+
+    it('去掉首尾 dash', () => {
+      expect(sanitizeBasename('@lead')).toBe('lead')
+      expect(sanitizeBasename('trail@')).toBe('trail')
+      expect(sanitizeBasename('@both@')).toBe('both')
+    })
+
+    it('结果为空时回退到 skill', () => {
+      expect(sanitizeBasename('@@@')).toBe('skill')
+      expect(sanitizeBasename('')).toBe('skill')
+    })
+
+    it('中文字符按非法字符处理', () => {
+      expect(sanitizeBasename('技能')).toBe('skill')
+      expect(sanitizeBasename('a技能b')).toBe('a-b')
+    })
+  })
+
+  // ── normalizePathKey ───────────────────────────────────────────
+
+  describe('normalizePathKey', () => {
+    it('折叠冗余的路径段', () => {
+      const input = path.join('a', '..', 'b', '.', 'c')
+      expect(normalizePathKey(input)).toBe(path.join('b', 'c'))
+    })
+
+    it('仅在 win32 上折叠大小写', () => {
+      const input = path.join('MiXeD', 'Case')
+      const expected = process.platform === 'win32' ? path.join('mixed', 'case') : input
+      expect(normalizePathKey(input)).toBe(expected)
+    })
+
+    it('同一平台下等价路径得到同一个 key', () => {
+      const a = normalizePathKey(path.join(tmpDir, 'x', '..', 'y'))
+      const b = normalizePathKey(path.join(tmpDir, 'y'))
+      expect(a).toBe(b)
     })
   })
 })

@@ -11,6 +11,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'f
 import { debug, info, warn, error } from '../infra/logger'
 import { proxyManager, buildProxyConfigFromSettings, isSameProxyConfig } from '../infra/proxyManager'
 import { aggregateLocalTokenStats } from '../session/tokenStatsService'
+import { redactImageGenApiKey, mergeImageGenApiKey, loadImageGenConfig } from '../imagegen/imageGenConfig'
+import { listImageModels } from '../imagegen/imageGenModels'
 
 // ── Path helpers ────────────────────────────────────────────────
 
@@ -231,14 +233,17 @@ async function applyGuiSettingsSave(data: string): Promise<{ success: boolean; e
   try {
     ensureClaudeDir()
     const settingsPath = getGuiSettingsPath()
-    writeFileSync(settingsPath, data, 'utf-8')
+    // 渲染层手里没有生图明文 key，交上来的一律是空值；不合并磁盘那份就等于每次保存都抹掉它。
+    const persisted = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf-8') : null
+    const merged = mergeImageGenApiKey(data, persisted)
+    writeFileSync(settingsPath, merged, 'utf-8')
     debug('Settings', `GUI settings saved to ${settingsPath}`)
 
-    syncApiConfigToSettingsJson(data)
+    syncApiConfigToSettingsJson(merged)
 
     let parsedGuiSettings: Record<string, any> | null = null
     try {
-      parsedGuiSettings = JSON.parse(data)
+      parsedGuiSettings = JSON.parse(merged)
     } catch {}
     let proxy: ProxyReconcileResult = { state: 'not-needed' }
     if (parsedGuiSettings && typeof parsedGuiSettings === 'object') {
@@ -263,7 +268,7 @@ export function registerSettingsIPCHandlers(): void {
       if (existsSync(settingsPath)) {
         const raw = readFileSync(settingsPath, 'utf-8')
         debug('Settings', `GUI settings loaded from ${settingsPath}`)
-        return { success: true, data: raw }
+        return { success: true, data: redactImageGenApiKey(raw) }
       }
       debug('Settings', `No GUI settings file at ${settingsPath}`)
       return { success: true, data: null }
@@ -271,6 +276,21 @@ export function registerSettingsIPCHandlers(): void {
       error('Settings', 'Failed to load GUI settings', err)
       return { success: false, data: null, error: String(err) }
     }
+  })
+
+  /**
+   * 生图模型列表。渲染层手里没有明文 key，所以留空时回落到磁盘上存档的那份；
+   * baseUrl 用表单里当前值 —— 用户可能刚改完、还没保存。
+   */
+  ipcMain.handle('imagegen:listModels', async (_event, payload: { baseUrl?: unknown; apiKey?: unknown } = {}) => {
+    const baseUrl = typeof payload.baseUrl === 'string' ? payload.baseUrl.trim().replace(/\/+$/, '') : ''
+    if (!/^https?:\/\/\S+$/i.test(baseUrl)) return { success: false, reason: 'invalid-base-url' }
+
+    const enteredKey = typeof payload.apiKey === 'string' ? payload.apiKey.trim() : ''
+    const apiKey = enteredKey || loadImageGenConfig()?.apiKey || ''
+    if (!apiKey) return { success: false, reason: 'no-key' }
+
+    return listImageModels(baseUrl, apiKey)
   })
 
   // ── Profiles ──────────────────────────────────────────────────

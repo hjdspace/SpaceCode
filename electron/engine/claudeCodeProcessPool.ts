@@ -4,6 +4,7 @@ import { info, warn, error, debug } from '../infra/logger'
 import { claudeCodeNamespace, type ThinkingUpdateTiming } from '@/shared/channels/claudeCode'
 import { eventChannelsBySuffix } from '@/shared/channelMap'
 import { engineBlockedError, type EngineBlockedPayload } from '@/shared/engineErrors'
+import { cancelImageGenWork } from '../imagegen/imageGenWork'
 import type { EffortLevel } from '@/shared/effort'
 
 // 引擎事件按类型动态派发：后缀 → 完整 channel 名，与 renderer 端订阅共享同一真相源
@@ -743,6 +744,8 @@ export class ClaudeCodeProcessPool {
       exit: (data: { code: number | null; signal?: string | null; stderr?: string }) => {
         // 进程没了，预热回收标记不再有意义
         this.warmedSessions.delete(sessionId)
+        // 会话没了就没人替在途生图收尾：那些计费请求必须就地中止 (#114)。
+        cancelImageGenWork(sessionId, 'shutdown')
         this.routeEvent(sessionId, 'exit', data)
       },
       error: (err: Error) => this.routeEvent(sessionId, 'error', { message: err.message }),

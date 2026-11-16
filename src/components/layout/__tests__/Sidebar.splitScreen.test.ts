@@ -33,6 +33,24 @@ vi.mock('@/services/electronAPI', () => ({
     getEnv: vi.fn().mockResolvedValue(''),
     notifyEngineSourceChanged: vi.fn().mockResolvedValue(undefined),
     terminal: { onExit: vi.fn() },
+    // Sidebar 挂载即加载待办（徽章与到点提醒在面板未打开时也要是活的）
+    todo: {
+      list: vi.fn().mockResolvedValue([]),
+      listGroups: vi.fn().mockResolvedValue([]),
+      listActiveReminders: vi.fn().mockResolvedValue([]),
+      getSyncState: vi.fn().mockResolvedValue({
+        supported: false,
+        permission: 'unsupported',
+        config: { enabled: false, listId: null },
+        lists: [],
+        conflicts: [],
+        syncing: false,
+      }),
+      onChanged: vi.fn(() => vi.fn()),
+      onAgentOperation: vi.fn(() => vi.fn()),
+      onReminderDue: vi.fn(() => vi.fn()),
+      onSyncStateChanged: vi.fn(() => vi.fn()),
+    },
   },
 }))
 

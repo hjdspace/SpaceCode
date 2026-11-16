@@ -10,7 +10,8 @@
  * - Auto-resize
  */
 import { ref, nextTick } from 'vue'
-import { pathBasename } from '@/utils/mention-chips'
+import { pathBasename, TODO_CHIP_ICON } from '@/utils/mention-chips'
+import { buildTodoMarker, decodeTodoTitle } from '@/shared/todoReference'
 import type { ImageAttachment, Attachment } from '@/composables/types'
 
 // ── Pure logic (exported for testing) ──────────────────────────
@@ -31,13 +32,13 @@ export function getMimeTypeFromFileName(fileName: string): string {
 }
 
 /** Parse mention markers from plain text */
-export function parseMentionMarkers(text: string): Array<{ kind: 'file' | 'folder' | 'image'; value: string; fullMatch: string; index: number }> {
-  const MARKER_RE = /@(file|folder|image):"([^"]+)"/g
-  const results: Array<{ kind: 'file' | 'folder' | 'image'; value: string; fullMatch: string; index: number }> = []
+export function parseMentionMarkers(text: string): Array<{ kind: 'file' | 'folder' | 'image' | 'todo'; value: string; fullMatch: string; index: number }> {
+  const MARKER_RE = /@(file|folder|image|todo):"([^"]+)"/g
+  const results: Array<{ kind: 'file' | 'folder' | 'image' | 'todo'; value: string; fullMatch: string; index: number }> = []
   let match: RegExpExecArray | null
   while ((match = MARKER_RE.exec(text)) !== null) {
     results.push({
-      kind: match[1] as 'file' | 'folder' | 'image',
+      kind: match[1] as 'file' | 'folder' | 'image' | 'todo',
       value: match[2],
       fullMatch: match[0],
       index: match.index,
@@ -76,6 +77,11 @@ export function serializeMentionChip(path: string, isFolder: boolean): string {
 /** Serialize an image chip to its text marker form */
 export function serializeImageChip(imageId: string): string {
   return `@image:"${imageId}" `
+}
+
+/** Serialize a todo reference chip to its text marker form */
+export function serializeTodoChip(id: string, title: string): string {
+  return `${buildTodoMarker(id, title)} `
 }
 
 /** Serialize a command chip to its text marker form */
@@ -157,6 +163,11 @@ export function useContentEditor(options?: {
           const kind = node.getAttribute('data-kind') || 'slash_command'
           const source = node.getAttribute('data-source') || 'builtin'
           text += serializeCommandChip(command, kind, source)
+        } else if (node instanceof Element && node.classList.contains('todo-chip')) {
+          const todoId = node.getAttribute('data-todo-id')
+          if (todoId) {
+            text += serializeTodoChip(todoId, node.getAttribute('data-todo-title') || '')
+          }
         } else if (node.nodeType === Node.TEXT_NODE) {
           text += node.textContent || ''
         } else if (node instanceof Element && node.tagName === 'BR') {
@@ -253,6 +264,64 @@ export function useContentEditor(options?: {
     finalRange.collapse(true)
     sel.removeAllRanges()
     sel.addRange(finalRange)
+
+    inputText.value = getEditorPlainText()
+  }
+
+  /** Todo 引用 chip：标题写进 data 属性，待办被删掉后气泡里仍能显示名字 */
+  function buildTodoChipElement(id: string, title: string): HTMLElement {
+    const chip = document.createElement('span')
+    chip.className = 'todo-chip'
+    chip.setAttribute('contenteditable', 'false')
+    chip.setAttribute('data-todo-id', id)
+    chip.setAttribute('data-todo-title', title)
+    chip.setAttribute('title', title)
+
+    const icon = document.createElement('span')
+    icon.className = 'chip-icon'
+    icon.setAttribute('aria-hidden', 'true')
+    icon.innerHTML = TODO_CHIP_ICON
+
+    const nameSpan = document.createElement('span')
+    nameSpan.className = 'chip-name'
+    nameSpan.textContent = title || id
+
+    chip.appendChild(icon)
+    chip.appendChild(nameSpan)
+    chip.appendChild(createDeleteButton(chip, () => { inputText.value = getEditorPlainText() }))
+    return chip
+  }
+
+  /** Insert an inline todo reference chip at current cursor position */
+  function insertTodoChip(id: string, title: string) {
+    const editor = editorRef.value
+    if (!editor) return
+
+    const chip = buildTodoChipElement(id, title)
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0)
+      range.deleteContents()
+      range.insertNode(chip)
+
+      const afterRange = document.createRange()
+      afterRange.setStartAfter(chip)
+      afterRange.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(afterRange)
+
+      const spaceNode = document.createTextNode(' ')
+      afterRange.insertNode(spaceNode)
+
+      const finalRange = document.createRange()
+      finalRange.setStartAfter(spaceNode)
+      finalRange.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(finalRange)
+    } else {
+      editor.appendChild(chip)
+      editor.appendChild(document.createTextNode(' '))
+    }
 
     inputText.value = getEditorPlainText()
   }
@@ -490,7 +559,12 @@ export function useContentEditor(options?: {
   // ── Paste handling ─────────────────────────────────────────────
 
   /** Build a chip element from a marker */
-  function buildChipElementFromMarker(kind: 'file' | 'folder' | 'image', value: string): HTMLElement {
+  function buildChipElementFromMarker(kind: 'file' | 'folder' | 'image' | 'todo', value: string): HTMLElement {
+    if (kind === 'todo') {
+      const split = value.indexOf('::')
+      const id = split === -1 ? value : value.slice(0, split)
+      return buildTodoChipElement(id, split === -1 ? '' : decodeTodoTitle(value.slice(split + 2)))
+    }
     const isFolder = kind === 'folder'
     const isImage = kind === 'image'
     const chip = document.createElement('span')
@@ -542,7 +616,7 @@ export function useContentEditor(options?: {
   /** Insert pasted plain text at the cursor, converting any mention markers back into chips */
   function insertPastedTextWithMarkers(text: string) {
     if (!text) return
-    const MARKER_RE = /@(file|folder|image):"([^"]+)"/g
+    const MARKER_RE = /@(file|folder|image|todo):"([^"]+)"/g
     let lastIndex = 0
     let match: RegExpExecArray | null
     let inserted = false
@@ -554,7 +628,7 @@ export function useContentEditor(options?: {
         document.execCommand('insertText', false, before)
       }
 
-      const chip = buildChipElementFromMarker(kind as 'file' | 'folder' | 'image', value)
+      const chip = buildChipElementFromMarker(kind as 'file' | 'folder' | 'image' | 'todo', value)
       const sel = window.getSelection()
       if (sel && sel.rangeCount > 0) {
         const range = sel.getRangeAt(0)
@@ -592,14 +666,14 @@ export function useContentEditor(options?: {
     const editor = editorRef.value
     if (!editor) return false
     if (editor.textContent?.trim()) return true
-    return editor.querySelectorAll('.mention-chip, .command-chip').length > 0
+    return editor.querySelectorAll('.mention-chip, .command-chip, .todo-chip').length > 0
   }
 
   // ── Backspace chip deletion ────────────────────────────────────
 
   /** Handle backspace key - delete whole chip if cursor is right after it.
    *  Returns info about what was deleted so the caller can update their state. */
-  function handleBackspaceChip(event: KeyboardEvent): { deleted: true; type: 'mention' | 'command'; path?: string; imageId?: string } | { deleted: false } {
+  function handleBackspaceChip(event: KeyboardEvent): { deleted: true; type: 'mention' | 'command' | 'todo'; path?: string; imageId?: string } | { deleted: false } {
     const sel = window.getSelection()
     if (!sel || !sel.isCollapsed || !sel.rangeCount) return { deleted: false }
 
@@ -615,7 +689,8 @@ export function useContentEditor(options?: {
     }
 
     if (!nodeBefore || !(nodeBefore instanceof Element)) return { deleted: false }
-    if (!nodeBefore.classList.contains('mention-chip') && !nodeBefore.classList.contains('command-chip')) {
+    const classes = nodeBefore.classList
+    if (!classes.contains('mention-chip') && !classes.contains('command-chip') && !classes.contains('todo-chip')) {
       return { deleted: false }
     }
 
@@ -628,12 +703,14 @@ export function useContentEditor(options?: {
     }
 
     const isMention = nodeBefore.classList.contains('mention-chip')
+    const isTodo = nodeBefore.classList.contains('todo-chip')
     const path = nodeBefore.getAttribute('data-path')
     const imageId = nodeBefore.getAttribute('data-image-id')
 
     nodeBefore.remove()
     inputText.value = getEditorPlainText()
 
+    if (isTodo) return { deleted: true, type: 'todo' }
     if (isMention) {
       return { deleted: true, type: 'mention', path: path || undefined, imageId: imageId || undefined }
     }
@@ -657,6 +734,7 @@ export function useContentEditor(options?: {
 
     // Chip insertion
     insertMentionChip,
+    insertTodoChip,
     insertCommandChip,
     insertImageChip,
 

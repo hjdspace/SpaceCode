@@ -314,7 +314,7 @@ jobs:
             echo "=== Before: $WRAPPER ==="
             cat "$WRAPPER"
             # 直接重写 distributionUrl 行为官方源（避免 sed 转义 \: 的复杂性）
-            sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-all.zip|' "$WRAPPER"
+            sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-all.zip|' "$WRAPPER"
             echo "=== After: $WRAPPER ==="
             cat "$WRAPPER"
           fi

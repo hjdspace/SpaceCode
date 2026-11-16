@@ -127,6 +127,10 @@ export function createCoreApi(ipcRenderer: PreloadIpc) {
     loadGuiSettings: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
       ipcRenderer.invoke('settings:loadGuiSettings'),
 
+    // 生图模型列表（key 留空时主进程用存档那份探测上游）
+    listImageGenModels: (baseUrl: string, apiKey?: string) =>
+      ipcRenderer.invoke('imagegen:listModels', { baseUrl, apiKey }),
+
     // Profiles persistence (file-based, ~/.spacecode/profiles.json)
     profilesLoad: (): Promise<{ success: boolean; data: string | null; error?: string }> =>
       ipcRenderer.invoke('profiles:load'),
@@ -163,6 +167,8 @@ export function createCoreApi(ipcRenderer: PreloadIpc) {
         ipcRenderer.invoke('shell:openExternal', url),
       openPath: (path: string): Promise<void> =>
         ipcRenderer.invoke('shell:openPath', path),
+      showItemInFolder: (path: string): Promise<void> =>
+        ipcRenderer.invoke('shell:showItemInFolder', path),
     },
 
     // 卡片复制动作：文本经主进程写入系统剪贴板

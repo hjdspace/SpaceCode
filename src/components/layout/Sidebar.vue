@@ -257,6 +257,22 @@
               <Clock :size="13" />
               <span>{{ t('sidebar.cron') }}</span>
             </button>
+            <button
+              class="feature-nav-item"
+              :class="{ active: appStore.showTodoManager }"
+              data-testid="todo-entry"
+              @click="handleOpenTodo"
+            >
+              <ListTodo :size="13" />
+              <span>{{ t('sidebar.todo') }}</span>
+              <span
+                v-if="todoBadgeCount > 0"
+                class="feature-nav-badge"
+                :class="{ 'is-alert': todoStore.overdueCount > 0 }"
+                data-testid="todo-due-badge"
+                :title="t('todo.stats.today', { n: todoBadgeCount })"
+              >{{ todoBadgeCount }}</span>
+            </button>
           </div>
 
           <!-- Separator -->
@@ -290,9 +306,11 @@
               :search-query="sessionSearchQuery"
               @select="handleSelectSession"
               @delete="handleDeleteSession"
+              @archive="handleArchiveSession"
               @rename="handleRenameSession"
               @create-session-in-project="handleCreateSessionInProject"
               @remove-project="handleRemoveProject"
+              @archive-project="handleArchiveWorkspace"
               @switch-project="sessionStore.switchProject"
               @open-folder-picker="handleOpenFolderPicker"
               @split-screen="handleSplitScreen"
@@ -398,6 +416,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useScmStore } from '@/stores/scm'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import { useSuperAgentStore } from '@/stores/superAgent'
+import { useTodoStore } from '@/stores/todo'
 import {
   Plus,
   FolderTree,
@@ -413,6 +432,7 @@ import {
   Activity,
   Cpu,
   Clock,
+  ListTodo,
   FolderOpen,
   Package,
   LayoutGrid,
@@ -459,6 +479,9 @@ const superAgentStore = useSuperAgentStore()
 const superAgentEntryBadgeCount = computed(
   () => superAgentStore.attentionCount + superAgentStore.reviewRemindedCount,
 )
+const todoStore = useTodoStore()
+/** 到期徽章：今天到期的条数（含逾期），逾期时转成告警色。 */
+const todoBadgeCount = computed(() => todoStore.counts.today)
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { addFileToFile } = useFileToChat()
@@ -608,6 +631,10 @@ function handleOpenMcp() {
 
 function handleOpenCron() {
   appStore.showCronManager = true
+}
+
+function handleOpenTodo() {
+  appStore.showTodoManager = true
 }
 
 function handleTerminalClick() {
@@ -842,6 +869,37 @@ function handleRenameSession(sessionId: string, newTitle: string) {
   sessionStore.renameSession(sessionId, newTitle)
 }
 
+/**
+ * 归档不需要二次确认（可在设置里取消归档），但必须把界面从被归档的会话上挪开：
+ * 分屏的每个 pane 各自绑定 tabId，只改全局 activeCenterTab 会让其它 pane 继续
+ * 显示一个已经不在列表里的会话。
+ */
+async function handleArchiveSession(e: MouseEvent, sessionId: string) {
+  e.preventDefault()
+  e.stopPropagation()
+
+  const wasCurrent = sessionStore.currentSessionId === sessionId
+  if (!sessionStore.archiveSession(sessionId)) return
+
+  const tabId = `session-${sessionId}`
+  const splitLayout = useSplitLayoutStore()
+  const fallbackTabId = sessionStore.currentSessionId
+    ? `session-${sessionStore.currentSessionId}`
+    : 'chat'
+  for (const leaf of splitLayout.leaves) {
+    if (leaf.content.tabId === tabId) {
+      splitLayout.setPaneContent(leaf.id, { kind: 'session', tabId: fallbackTabId })
+    }
+  }
+  if (appStore.activeCenterTab === tabId) {
+    appStore.activeCenterTab = fallbackTabId
+  }
+
+  if (wasCurrent && sessionStore.currentSessionId) {
+    await handleSelectSession(sessionStore.currentSessionId)
+  }
+}
+
 function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
   e.stopPropagation()
 
@@ -861,6 +919,53 @@ function handleCreateSessionInProject(e: MouseEvent, workingDirectory: string) {
     }
   } catch (error) {
     console.error('Failed to create session in project:', error)
+  }
+}
+
+/**
+ * 工作区归档：整组移出侧栏，可逆。先确认（用户拍板），再把界面从被归档
+ * 工作区的会话上挪开 —— 分屏每个 pane 各自绑定 tabId，只改全局
+ * activeCenterTab 会让其它 pane 继续显示已隐藏的会话。
+ */
+async function handleArchiveWorkspace(workingDirectory: string) {
+  const name = workingDirectory.split(/[\\/]/).filter(Boolean).pop() || workingDirectory
+  const count = sessionStore.sessions.filter(s =>
+    !s.ephemeral
+    && !s.observedSession
+    && !!s.workingDirectory
+    && pathsEqual(s.workingDirectory, workingDirectory),
+  ).length
+  if (!await showConfirm(
+    t('sidebar.confirmArchiveWorkspace', { name, count }),
+    { title: t('sidebar.confirmArchiveWorkspaceTitle') },
+  )) return
+
+  const tabIds = new Set(
+    sessionStore.sessions
+      .filter(s => !!s.workingDirectory && pathsEqual(s.workingDirectory, workingDirectory))
+      .map(s => `session-${s.id}`),
+  )
+  const wasCurrent = !!sessionStore.currentSession?.workingDirectory
+    && pathsEqual(sessionStore.currentSession.workingDirectory, workingDirectory)
+  if (!sessionStore.archiveWorkspace(workingDirectory)) return
+
+  const splitLayout = useSplitLayoutStore()
+  const fallbackTabId = sessionStore.currentSessionId
+    ? `session-${sessionStore.currentSessionId}`
+    : 'chat'
+  for (const leaf of splitLayout.leaves) {
+    if (leaf.content.tabId && tabIds.has(leaf.content.tabId)) {
+      splitLayout.setPaneContent(leaf.id, { kind: 'session', tabId: fallbackTabId })
+    }
+  }
+  if (appStore.activeCenterTab && tabIds.has(appStore.activeCenterTab)) {
+    appStore.activeCenterTab = fallbackTabId
+  }
+  if (pathsEqual(appStore.projectRoot, workingDirectory)) {
+    appStore.closeProject()
+  }
+  if (wasCurrent && sessionStore.currentSessionId) {
+    await handleSelectSession(sessionStore.currentSessionId)
   }
 }
 
@@ -949,6 +1054,9 @@ function handleOpenSettings(event: Event) {
 onMounted(() => {
   // Load workspace path if available
   workspacePath.value = appStore.projectRoot || ''
+
+  // 待办徽章与到点提醒要在面板没打开时也是活的，所以订阅在侧栏就接上（load 幂等）
+  void todoStore.load()
 
   // Listen for streaming status updates
   window.addEventListener('session-streaming-start', handleStreamingStart)
@@ -1459,6 +1567,10 @@ onUnmounted(() => {
       align-items: center;
       justify-content: center;
       line-height: 1;
+
+      &.is-alert {
+        background: var(--error);
+      }
     }
   }
 

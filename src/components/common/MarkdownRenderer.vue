@@ -759,6 +759,8 @@ watch(() => props.content, (newVal, oldVal) => {
 </script>
 
 <style lang="scss" scoped>
+@use "@/styles/composer-chips" as *;
+
 /*
   聊天 Markdown 排版 — 对齐 PI-Desktop prose.css (Codex 桌面规范):
   所有字号/行高引用全局类型阶梯 token, 无裸 px。
@@ -1152,6 +1154,10 @@ watch(() => props.content, (newVal, oldVal) => {
       border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.3);
       color: var(--accent-primary);
     }
+  }
+
+  :deep(.todo-chip) {
+    @include todo-reference-chip;
   }
 
   :deep(.mermaid-container) {

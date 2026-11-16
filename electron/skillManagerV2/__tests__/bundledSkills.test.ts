@@ -78,6 +78,12 @@ describe('内置技能名单', () => {
     expect(specs[0].targetAgentIds).toEqual(['claude-code', 'pi'])
   })
 
+  it('生图技能在名单里，同时铺给 Claude Code 与 Pi', () => {
+    const specs = BUNDLED_SKILLS.filter((s) => s.skillId === 'imagegen')
+    expect(specs).toHaveLength(1)
+    expect(specs[0].targetAgentIds).toEqual(['claude-code', 'pi'])
+  })
+
   it('同一技能只有一份正文资源，不存在 Pi 专用版本', () => {
     const root = bundledSkillsRoot({ appPath: join(repoRoot, 'dist-electron') })
     expect(existsSync(join(root, `${GENUI_SKILL_ID}-pi`))).toBe(false)

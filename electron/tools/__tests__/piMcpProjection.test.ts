@@ -50,6 +50,7 @@ import {
   readPiForeignServers,
   setPiForeignServerEnabled,
   syncPiMcpConfig,
+  syncPiMcpConfigFromStore,
 } from '../piMcpProjection'
 import type { PersistedMcpServer } from '../mcpConfigStore'
 
@@ -311,5 +312,60 @@ describe('isSpaceCodeOwned', () => {
     expect(isSpaceCodeOwned({ _spacecode: 'a' })).toBe(false)
     expect(isSpaceCodeOwned({ description: 'pi-only' })).toBe(false)
     expect(isSpaceCodeOwned(null)).toBe(false)
+  })
+})
+
+/**
+ * 应用内的待办 MCP 服务器只存在于本次运行：URL 带端口和 Bearer 凭证。
+ * 它必须投影给 pi（pi 没有 --mcp-config，用户级 mcp.json 是唯一入口），
+ * 但绝不能写进 mcp-servers.json —— 那会让凭证落盘，还会在设置面板里
+ * 留下一条用户删不掉的幽灵条目。
+ */
+describe('syncPiMcpConfigFromStore — runtime-only extras', () => {
+  const todoEntry: PersistedMcpServer = {
+    type: 'http',
+    url: 'http://127.0.0.1:53123/mcp/sess-1?root=D%3A%2Fwork',
+    headers: { Authorization: 'Bearer secret' },
+  }
+
+  it('projects the extra http entry with the ownership marker', () => {
+    const result = syncPiMcpConfigFromStore(HOME, { 'spacecode-todo': todoEntry })
+    expect(result.wrote).toBe(true)
+    const entry = readPiFileJson().mcpServers['spacecode-todo']
+    expect(entry.type).toBe('http')
+    expect(entry.url).toBe(todoEntry.url)
+    expect(entry.headers).toEqual({ Authorization: 'Bearer secret' })
+    // exposure=direct：pi 默认的 codemode 会把工具自动激活成宿主没有权限卡片的形态
+    expect(entry.exposure).toBe('direct')
+    expect(entry._spacecode).toEqual({ key: 'spacecode-todo' })
+  })
+
+  it('never persists the extras into the panel store', () => {
+    syncPiMcpConfigFromStore(HOME, {
+      'spacecode-todo': todoEntry,
+      'spacecode-imagegen': { ...todoEntry, url: 'http://127.0.0.1:53124/mcp/sess-1' },
+    })
+    const storePath = join('/fake-userdata', 'mcp-servers.json')
+    expect(store.files.has(storePath)).toBe(false)
+  })
+
+  it('replaces its own previous entry on the next spawn instead of accumulating', () => {
+    syncPiMcpConfigFromStore(HOME, { 'spacecode-todo': todoEntry })
+    const next = { ...todoEntry, url: 'http://127.0.0.1:53999/mcp/sess-2' }
+    syncPiMcpConfigFromStore(HOME, { 'spacecode-todo': next })
+    const servers = readPiFileJson().mcpServers
+    expect(Object.keys(servers)).toEqual(['spacecode-todo'])
+    expect(servers['spacecode-todo'].url).toBe(next.url)
+  })
+
+  it('prunes the entry once the server is gone, leaving the user’s own servers alone', () => {
+    seedPiFile({ mcpServers: { mine: { command: 'node', args: ['mine.js'] } } })
+    syncPiMcpConfigFromStore(HOME, { 'spacecode-todo': todoEntry })
+    expect(Object.keys(readPiFileJson().mcpServers).sort()).toEqual(['mine', 'spacecode-todo'])
+
+    syncPiMcpConfigFromStore(HOME)
+    const servers = readPiFileJson().mcpServers
+    expect(Object.keys(servers)).toEqual(['mine'])
+    expect(servers.mine).toEqual({ command: 'node', args: ['mine.js'] })
   })
 })

@@ -86,6 +86,28 @@ vi.mock('../../tools/mcpConfigStore', () => ({
   },
 }))
 
+const todoMcp = vi.hoisted(() => ({
+  entry: null as { type: 'http'; url: string; headers: Record<string, string> } | null,
+  calls: [] as Array<{ sessionId: string | null; projectRoot?: string | null }>,
+}))
+vi.mock('../../todo/todoMcpServer', () => ({
+  getTodoMcpEntry: (sessionId: string | null, projectRoot?: string | null) => {
+    todoMcp.calls.push({ sessionId, projectRoot })
+    return todoMcp.entry
+  },
+}))
+
+const imageGenMcp = vi.hoisted(() => ({
+  entry: null as { type: 'http'; url: string; headers: Record<string, string> } | null,
+  calls: [] as Array<{ sessionId: string | null; projectRoot?: string | null }>,
+}))
+vi.mock('../../imagegen/imageGenMcpServer', () => ({
+  getImageGenMcpEntry: (sessionId: string | null, projectRoot?: string | null) => {
+    imageGenMcp.calls.push({ sessionId, projectRoot })
+    return imageGenMcp.entry
+  },
+}))
+
 vi.mock('../../tools/officeCliService', () => ({
   getOfficeCliInstallDir: vi.fn(() => '/office/bin'),
   syncInstalledOfficeCli: vi.fn(() => ({ copied: false, reason: 'up-to-date', bundledVersion: null, installedVersion: null })),
@@ -136,6 +158,10 @@ beforeEach(() => {
   net.proxyUrl = null
   mcp.config = null
   mcp.throwOnBuild = false
+  todoMcp.entry = null
+  todoMcp.calls = []
+  imageGenMcp.entry = null
+  imageGenMcp.calls = []
 })
 
 afterEach(() => {
@@ -261,6 +287,91 @@ describe('buildArgs — per-session MCP projection', () => {
     expect(args).toContain('--mcp-config')
     expect(args).not.toContain('--strict-mcp-config')
     expect(flag(args, '--append-system-prompt')).toContain('mcp__browser-use__')
+  })
+})
+
+/**
+ * 待办 MCP 是应用内的 loopback 服务器，条目只在 spawn 这一刻拼进 payload：
+ * 写进 mcp-servers.json 会让端口和凭证落盘，还会在设置面板里冒出用户删不掉的幽灵条目。
+ * URL 必须带本会话 id 与工作区，否则 Agent 建的待办反查不到会话、也归不对项目。
+ */
+describe('buildArgs — in-app todo MCP injection', () => {
+  const entry = { type: 'http' as const, url: 'http://127.0.0.1:53123/mcp/sess-args-0001', headers: { Authorization: 'Bearer t' } }
+
+  it('injects the entry and the availability hint even when no on-disk server is enabled', () => {
+    todoMcp.entry = entry
+    const args = buildArgs()
+    expect(todoMcp.calls).toEqual([{ sessionId: 'sess-args-0001', projectRoot: '/tmp/ws' }])
+    const written = fsp.writes.find(w => w.content.includes('mcpServers'))!
+    expect(JSON.parse(written.content).mcpServers['spacecode-todo']).toEqual(entry)
+    expect(flag(args, '--append-system-prompt')).toContain('mcp__spacecode-todo__')
+  })
+
+  it('keeps the on-disk servers alongside it', () => {
+    mcp.config = { mcpServers: { 'browser-use': { command: 'python' } }, usesPackageManagerLauncher: true }
+    todoMcp.entry = entry
+    const args = buildArgs()
+    const written = fsp.writes.find(w => w.content.includes('mcpServers'))!
+    expect(Object.keys(JSON.parse(written.content).mcpServers).sort()).toEqual(['browser-use', 'spacecode-todo'])
+    const append = flag(args, '--append-system-prompt')!
+    expect(append).toContain('mcp__browser-use__')
+    expect(append).toContain('mcp__spacecode-todo__')
+  })
+
+  it('injects nothing when the session disabled MCP', () => {
+    todoMcp.entry = entry
+    const args = buildArgs({ disableMcp: true })
+    expect(todoMcp.calls).toEqual([])
+    expect(args).not.toContain('--mcp-config')
+    expect(flag(args, '--append-system-prompt')).not.toContain('mcp__spacecode-todo__')
+  })
+
+  it('stays silent while the server is not listening — no unreachable url, no phantom hint', () => {
+    const args = buildArgs()
+    expect(args).not.toContain('--mcp-config')
+    expect(flag(args, '--append-system-prompt')).not.toContain('mcp__spacecode-todo__')
+  })
+
+  it('still injects the todo server when the on-disk MCP store throws', () => {
+    mcp.throwOnBuild = true
+    todoMcp.entry = entry
+    buildArgs()
+    const written = fsp.writes.find(w => w.content.includes('mcpServers'))!
+    expect(Object.keys(JSON.parse(written.content).mcpServers)).toEqual(['spacecode-todo'])
+  })
+})
+
+/**
+ * 生图 MCP 与待办同构（#108）：条目只存在于本次 spawn，URL 带会话 id 与工作区，
+ * 授权闸门要靠会话 id 找用户、落盘要靠工作区定位置。
+ */
+describe('buildArgs — in-app image generation MCP injection', () => {
+  const entry = { type: 'http' as const, url: 'http://127.0.0.1:53124/mcp/sess-args-0001', headers: { Authorization: 'Bearer i' } }
+
+  it('injects the entry alongside the todo server and the on-disk servers', () => {
+    mcp.config = { mcpServers: { 'browser-use': { command: 'python' } }, usesPackageManagerLauncher: true }
+    todoMcp.entry = { type: 'http', url: 'http://127.0.0.1:53123/mcp/sess-args-0001', headers: { Authorization: 'Bearer t' } }
+    imageGenMcp.entry = entry
+
+    buildArgs()
+
+    expect(imageGenMcp.calls).toEqual([{ sessionId: 'sess-args-0001', projectRoot: '/tmp/ws' }])
+    const written = fsp.writes.find(w => w.content.includes('mcpServers'))!
+    const servers = JSON.parse(written.content).mcpServers
+    expect(Object.keys(servers).sort()).toEqual(['browser-use', 'spacecode-imagegen', 'spacecode-todo'])
+    expect(servers['spacecode-imagegen']).toEqual(entry)
+  })
+
+  it('injects nothing when the session disabled MCP', () => {
+    imageGenMcp.entry = entry
+    const args = buildArgs({ disableMcp: true })
+    expect(imageGenMcp.calls).toEqual([])
+    expect(args).not.toContain('--mcp-config')
+  })
+
+  it('stays silent while the server is not listening — no unreachable url', () => {
+    const args = buildArgs()
+    expect(args).not.toContain('--mcp-config')
   })
 })
 

@@ -9,6 +9,7 @@ import { applyGenuiCardBudget, sanitizeGenuiSession } from '@/lib/genui/cardLife
 const STORAGE_KEY = 'chat_sessions_v2'
 const PROJECTS_KEY = 'chat_projects_v2'
 const DELETED_SESSIONS_KEY = 'chat_deleted_sessions_v1'
+const ARCHIVED_WORKSPACES_KEY = 'chat_archived_workspaces_v1'
 const STORAGE_VERSION = '2.1'
 
 const STORAGE_QUOTA_LIMIT = 4 * 1024 * 1024
@@ -577,6 +578,39 @@ export function saveProjectsToStorage(projects: string[]): boolean {
     return true
   } catch (e) {
     console.error('[ChatStore] Failed to save projects to storage:', e)
+    return false
+  }
+}
+
+export function loadArchivedWorkspacesFromStorage(): Record<string, number> {
+  try {
+    const saved = localStorage.getItem(ARCHIVED_WORKSPACES_KEY)
+    if (!saved) return {}
+    const parsed = JSON.parse(saved)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const seen = new Set<string>()
+    const result: Record<string, number> = {}
+    for (const [path, at] of Object.entries(parsed)) {
+      if (!path || typeof at !== 'number' || !Number.isFinite(at)) continue
+      const normalized = normalizeAbsolutePath(path)
+      const key = normalized.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      result[normalized] = at
+    }
+    return result
+  } catch (e) {
+    console.error('[ChatStore] Failed to load archived workspaces from storage:', e)
+    return {}
+  }
+}
+
+export function saveArchivedWorkspacesToStorage(workspaces: Record<string, number>): boolean {
+  try {
+    localStorage.setItem(ARCHIVED_WORKSPACES_KEY, JSON.stringify(workspaces))
+    return true
+  } catch (e) {
+    console.error('[ChatStore] Failed to save archived workspaces to storage:', e)
     return false
   }
 }

@@ -60,9 +60,21 @@
               <Copy :size="14" />
               <span>{{ t('sidebar.copyPath') }}</span>
             </button>
-            <template v-if="showRemoveButton && workingDirectory !== ''">
+            <template v-if="workingDirectory !== ''">
               <div class="menu-divider" />
-              <button class="menu-item destructive" @click="handleRemoveProject">
+              <button
+                class="menu-item destructive"
+                data-testid="project-archive-menu-item"
+                @click="handleArchiveProject"
+              >
+                <Archive :size="14" />
+                <span>{{ t('sidebar.archiveWorkspace') }}</span>
+              </button>
+              <button
+                v-if="showRemoveButton"
+                class="menu-item destructive"
+                @click="handleRemoveProject"
+              >
                 <FolderMinus :size="14" />
                 <span>{{ t('sidebar.removeFromList') }}</span>
               </button>
@@ -86,7 +98,8 @@ import {
   MoreVertical,
   Copy,
   ExternalLink,
-  FolderMinus
+  FolderMinus,
+  Archive
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -111,6 +124,7 @@ const emit = defineEmits<{
   mouseleave: []
   'create-session': [e: MouseEvent]
   'remove-project': [workingDirectory: string]
+  'archive-project': [workingDirectory: string]
   'open-folder-picker': []
 }>()
 
@@ -166,6 +180,11 @@ async function handleCopyPath() {
 function handleRemoveProject() {
   menuOpen.value = false
   emit('remove-project', props.workingDirectory)
+}
+
+function handleArchiveProject() {
+  menuOpen.value = false
+  emit('archive-project', props.workingDirectory)
 }
 
 // Close menu when clicking outside

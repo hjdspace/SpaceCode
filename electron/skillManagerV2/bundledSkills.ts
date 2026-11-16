@@ -3,7 +3,7 @@
  *
  * 技能正文随构建生成（`scripts/genui-skill-build.mts`），与渲染端版本同源；这里只负责把它
  * seed 进中心库并铺到 Agent。口径见 `docs/adr/0016-genui-skill-single-source-two-targets.md`
- * 与 `docs/prd/genui-cards.md` §6。
+ * 与 `docs/prd/genui-cards.md` §6。生图技能没有生成步骤，正文就是仓库里的静态资源。
  *
  * 本模块不 import 构建脚本：那份模块带着 `genPrompt` 与 240KB 物料元数据，进主进程 bundle
  * 毫无道理。两份 `GENUI_SKILL_ID` / `BUNDLED_SKILLS_RESOURCE_DIR` 的一致性由
@@ -32,6 +32,7 @@ export type BundledSkillSpec = {
 
 export const BUNDLED_SKILLS: readonly BundledSkillSpec[] = [
   { skillId: GENUI_SKILL_ID, targetAgentIds: ['claude-code', 'pi'] },
+  { skillId: 'imagegen', targetAgentIds: ['claude-code', 'pi'] },
 ]
 
 /**

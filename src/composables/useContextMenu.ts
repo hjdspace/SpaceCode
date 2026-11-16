@@ -4,16 +4,27 @@
  * Manages:
  * - @ trigger detection
  * - Context item search and navigation
- * - File/folder selection
+ * - File/folder/todo selection
  */
 import { ref, computed } from 'vue'
 import { api } from '@/services/electronAPI'
+import { useTodoStore } from '@/stores/todo'
+import type { TodoStatus } from '@/shared/channels/todo'
 
 export interface ContextItem {
   name: string
   path: string
   relativePath: string
-  type: 'file' | 'directory'
+  type: 'file' | 'directory' | 'todo'
+  /** type === 'todo' 时：待办本体信息，供菜单渲染徽标与插入 chip */
+  todoId?: string
+  todoStatus?: TodoStatus
+  todoDueAt?: number
+}
+
+/** todo 项的 path 只用于列表 key / 高亮，加前缀避免与真实文件路径撞车。 */
+export function todoContextPath(id: string): string {
+  return `todo:${id}`
 }
 
 // ── Pure logic (exported for testing) ──────────────────────────
@@ -75,30 +86,45 @@ export function useContextMenu(options?: {
     return contextItems.value
   })
 
-  // Load context items from file search
+  // Load context items: todo 引用排在文件之前，没有工作区时也要能引用待办
   async function loadContextItems() {
-    const workingDirectory = options?.workingDirectory?.()
-    if (!workingDirectory) return
+    const todoStore = useTodoStore()
+    const query = contextSearchQuery.value
+    const todoItems: ContextItem[] = todoStore.searchForReference(query, 6).map(todo => ({
+      name: todo.title,
+      path: todoContextPath(todo.id),
+      relativePath: todo.groupId ? (todoStore.groupById.get(todo.groupId)?.name ?? '') : '',
+      type: 'todo',
+      todoId: todo.id,
+      todoStatus: todo.status,
+      todoDueAt: todo.dueAt,
+    }))
 
     isLoadingContext.value = true
     try {
-      const query = contextSearchQuery.value
-      const entries = await api.searchFiles(workingDirectory, query, { maxResults: 100 })
+      const workingDirectory = options?.workingDirectory?.()
+      const entries = workingDirectory
+        ? await api.searchFiles(workingDirectory, query, { maxResults: 100 })
+        : []
 
       if (!showContextMenu.value) return
 
-      const items: ContextItem[] = entries.map(entry => ({
-        name: entry.name,
-        path: entry.path,
-        relativePath: entry.relativePath,
-        type: entry.isDirectory ? 'directory' : 'file'
-      }))
+      const items: ContextItem[] = [
+        ...todoItems,
+        ...entries.map(entry => ({
+          name: entry.name,
+          path: entry.path,
+          relativePath: entry.relativePath,
+          type: entry.isDirectory ? 'directory' as const : 'file' as const,
+        })),
+      ]
 
       contextItems.value = items
       highlightedContextItem.value = getInitialHighlight(items)
     } catch (error) {
       console.error('Failed to load context items:', error)
-      contextItems.value = []
+      contextItems.value = todoItems
+      highlightedContextItem.value = getInitialHighlight(todoItems)
     } finally {
       isLoadingContext.value = false
     }

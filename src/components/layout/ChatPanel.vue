@@ -307,7 +307,7 @@ import WelcomeHero from '../chat/WelcomeHero.vue'
 import WorkAssistantShortcuts from '../work/WorkAssistantShortcuts.vue'
 import TeamStatusBar from '../chat/TeamStatusBar.vue'
 import TeammateTranscriptHeader from '../chat/TeammateTranscriptHeader.vue'
-import ChatInput, { type Attachment, type ImageAttachment } from '../chat/ChatInput.vue'
+import ChatInput, { type Attachment, type ImageAttachment, type SendOptions } from '../chat/ChatInput.vue'
 
 interface AllAttachments {
   files: Attachment[]
@@ -1034,7 +1034,7 @@ watch(() => paneIsLoading.value, async (loading, prevLoading) => {
       await handleSend(msg.content, {
         files: msg.attachments as Attachment[],
         images: msg.images as ImageAttachment[],
-      })
+      }, msg.todoReferences ? { todoReferences: msg.todoReferences } : undefined)
     }
   }
 })
@@ -1143,10 +1143,6 @@ async function handleEffortChange(level: EffortLevel) {
 async function handleAgentChange(agent: string) {
   await sessionStore.switchAgent(agent, paneSessionId.value || undefined)
   console.log('[ChatPanel] Agent changed to:', agent || '(default)')
-}
-
-interface SendOptions {
-  displayLabel?: string
 }
 
 interface AllAttachments {

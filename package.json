@@ -1,6 +1,6 @@
 {
   "name": "spacecode",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "homepage": "https://github.com/hjdspace/SpaceCode",
   "author": {
     "name": "hjdspace",
@@ -111,6 +111,7 @@
     "sharp": "^0.34.5",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
+    "undici": "^7.27.2",
     "vite": "^8.2.0",
     "vite-plugin-electron": "^1.1.2",
     "vitest": "^5.0.0",

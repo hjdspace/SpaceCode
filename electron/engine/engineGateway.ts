@@ -22,6 +22,8 @@ import type {
 import { info, warn, error, debug } from '../infra/logger'
 import { engineBlockedError } from '@/shared/engineErrors'
 import { removeSessionArtifacts } from '../session/tempArtifacts'
+import { respondImageGenDialog } from '../imagegen/imageGenAuthorization'
+import { cancelImageGenWork } from '../imagegen/imageGenWork'
 
 const TAG = 'EngineGateway'
 
@@ -134,11 +136,13 @@ export const engineGateway = {
   }),
 
   abort: withLogging('abort', async (sessionId: string): Promise<void> => {
+    cancelImageGenWork(sessionId, 'user')
     const engine = findEngineForSession(sessionId)
     await engine.abort(sessionId)
   }),
 
   stop: withLogging('stop', async (sessionId: string): Promise<void> => {
+    cancelImageGenWork(sessionId, 'user')
     for (const engine of EngineFactory.getAllEngines()) {
       if (engine.getSessionStatus(sessionId)) {
         try {
@@ -154,6 +158,7 @@ export const engineGateway = {
   }),
 
   suspendSession: withLogging('suspendSession', (sessionId: string): void => {
+    cancelImageGenWork(sessionId, 'user')
     const engine = findEngineForSession(sessionId)
     const fn = requireAction<(sid: string) => void>(engine, 'suspendSession')
     fn(sessionId)
@@ -242,6 +247,9 @@ export const engineGateway = {
     dialogId: string,
     answer: ExtensionDialogAnswer,
   ): void => {
+    // 宿主自铸的授权卡（生图）先就地结算：它不属于任一引擎的对话框协议，
+    // 递过去在 Claude 那侧会直接抛 NotImplementedError (#108)。
+    if (respondImageGenDialog(dialogId, answer)) return
     const engine = findEngineForSession(sessionId)
     const fn = requireAction<(sid: string, did: string, a: ExtensionDialogAnswer) => void>(engine, 'respondExtensionDialog')
     fn(sessionId, dialogId, answer)

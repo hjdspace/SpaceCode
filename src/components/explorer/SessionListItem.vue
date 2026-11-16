@@ -70,6 +70,15 @@
         class="action-menu"
       >
         <button
+          class="archive-trigger"
+          data-testid="session-archive-button"
+          :title="t('explorer.archiveConversation')"
+          :aria-label="t('explorer.archiveConversation')"
+          @click.stop="handleArchive"
+        >
+          <Archive :size="14" />
+        </button>
+        <button
           ref="menuTriggerRef"
           class="menu-trigger"
           :aria-label="t('explorer.sessionMenu')"
@@ -110,6 +119,11 @@
             <span>{{ t('explorer.copyConversationId') }}</span>
           </button>
           <div class="menu-divider" />
+          <!-- Archive Conversation (归档对话) -->
+          <button class="menu-item destructive" data-testid="session-archive-menu-item" @click="handleArchive">
+            <Archive :size="14" />
+            <span>{{ t('explorer.archiveConversation') }}</span>
+          </button>
           <!-- Delete Conversation (删除对话) -->
           <button class="menu-item destructive" @click="handleDelete">
             <Trash2 :size="14" />
@@ -159,6 +173,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Session } from '@/types'
 import {
+  Archive,
   Bell,
   Trash2,
   Copy,
@@ -188,6 +203,7 @@ const emit = defineEmits<{
   mouseleave: []
   select: []
   delete: [e: MouseEvent]
+  archive: [e: MouseEvent]
   rename: [newTitle: string]
   'copy-id': [sessionId: string]
   'split-screen': [sessionId: string]
@@ -310,6 +326,11 @@ function confirmRename() {
 function handleDelete(e: MouseEvent) {
   menuOpen.value = false
   emit('delete', e)
+}
+
+function handleArchive(e: MouseEvent) {
+  menuOpen.value = false
+  emit('archive', e)
 }
 
 function handleSplitScreen() {
@@ -564,7 +585,8 @@ onUnmounted(() => {
 
 .right-area {
   flex-shrink: 0;
-  width: 38px;
+  // 与 hover 时覆盖上来的「归档 + 更多」两个按钮同宽，避免遮住标题尾部
+  width: 46px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -588,9 +610,13 @@ onUnmounted(() => {
   top: 50%;
   transform: translateY(-50%);
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-.menu-trigger {
+.menu-trigger,
+.archive-trigger {
   width: 20px;
   height: 20px;
   padding: 0;

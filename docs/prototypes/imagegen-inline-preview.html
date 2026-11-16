@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生图内联预览 · 真实组件原型</title>
+<!--
+  加载真实 AgentTimeline + ImageGenToolCard 验证「生图结果在主聊天界面内联预览」。
+  运行：npx vite --config vite.config.preview.ts  →  http://127.0.0.1:5174/docs/prototypes/imagegen-inline-preview.html
+  宿主桥在模块图加载前装好（_context.ts 在 import 时快照 window.electronAPI）。
+-->
+<script>
+  function canvasPng(label, hue, w, h) {
+    var c = document.createElement('canvas'); c.width = w; c.height = h
+    var g = c.getContext('2d')
+    var grad = g.createLinearGradient(0, 0, w, h)
+    grad.addColorStop(0, 'hsl(' + hue + ' 72% 56%)')
+    grad.addColorStop(1, 'hsl(' + ((hue + 70) % 360) + ' 68% 34%)')
+    g.fillStyle = grad; g.fillRect(0, 0, w, h)
+    g.fillStyle = 'rgba(255,255,255,.94)'
+    g.font = 'bold ' + Math.round(h / 11) + 'px sans-serif'
+    g.textAlign = 'center'; g.textBaseline = 'middle'
+    g.fillText(label, w / 2, h / 2)
+    return c.toDataURL('image/png').split(',')[1]
+  }
+  var b64cache = {}
+  window.__revealedPaths = []
+  window.electronAPI = {
+    readFileAsBase64: function (path) {
+      if (b64cache[path]) return Promise.resolve(b64cache[path])
+      var p
+      if (/kitten\.png$/.test(path)) {
+        p = fetch('/outputs/imagegen/kitten.png').then(function (res) {
+          if (!res.ok) throw new Error('missing')
+          return res.arrayBuffer()
+        }).then(function (buf) {
+          var bytes = new Uint8Array(buf), s = ''
+          for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+          return btoa(s)
+        }).catch(function () { return canvasPng('kitten', 28, 1024, 1024) })
+      } else if (/wide\.png$/.test(path)) {
+        p = Promise.resolve(canvasPng('1536 × 1024', 205, 1536, 1024))
+      } else if (/tall\.png$/.test(path)) {
+        p = Promise.resolve(canvasPng('1024 × 1536', 330, 1024, 1536))
+      } else {
+        p = Promise.resolve(canvasPng(path.split('/').pop(), 150, 1024, 1024))
+      }
+      return p.then(function (b64) { b64cache[path] = b64; return b64 })
+    },
+    shell: {
+      showItemInFolder: function (path) {
+        window.__revealedPaths.push(path)
+        console.log('[preview] showItemInFolder', path)
+        return Promise.resolve()
+      }
+    }
+  }
+</script>
+<style>
+  html, body { margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="./imagegen-inline-preview/main.ts"></script>
+</body>
+</html>

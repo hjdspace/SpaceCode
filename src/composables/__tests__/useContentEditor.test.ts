@@ -23,6 +23,7 @@ import {
   buildRelativePath,
   mergeComposerFiles,
 } from '@/composables/useContentEditor'
+import { buildTodoMarker, parseTodoMarkers } from '@/shared/todoReference'
 import type { ImageAttachment } from '@/composables/types'
 
 // ── 工具 ─────────────────────────────────────────────────────────
@@ -777,6 +778,134 @@ describe('insertPastedTextWithMarkers / buildChipElementFromMarker', () => {
     expect(imgChip.querySelector('.chip-name')?.textContent).toBe('blob:img-1')
 
     expect(fileChip.querySelector('.chip-delete-btn')).toBeTruthy()
+  })
+})
+
+// ── 待办引用 chip ────────────────────────────────────────────────
+
+describe('todo 引用 chip', () => {
+  it('insertTodoChip 写入 id 与标题，序列化成 @todo marker', () => {
+    const h = mountEditor()
+    h.editor.textContent = '继续 '
+    selectEnd(h.editor)
+
+    h.insertTodoChip('t1', '收尾登录改造')
+
+    const chip = h.editor.querySelector('.todo-chip')!
+    expect(chip.getAttribute('data-todo-id')).toBe('t1')
+    expect(chip.getAttribute('data-todo-title')).toBe('收尾登录改造')
+    expect(chip.getAttribute('contenteditable')).toBe('false')
+    expect(chip.querySelector('.chip-name')?.textContent).toBe('收尾登录改造')
+    expect(chip.querySelector('.chip-icon svg')).toBeTruthy()
+    expect(h.inputText.value).toBe(`继续 ${buildTodoMarker('t1', '收尾登录改造')} \u00A0`)
+  })
+
+  it('标题里的引号与 :: 不会撑破 marker', () => {
+    const h = mountEditor()
+    selectEnd(h.editor)
+    const title = '半截的 "重构" :: 第二步'
+
+    h.insertTodoChip('t2', title)
+
+    expect(parseTodoMarkers(h.inputText.value)).toEqual([{ id: 't2', title }])
+  })
+
+  it('标题为空时 chip 显示 id，仍能被序列化与解析', () => {
+    const h = mountEditor()
+    selectEnd(h.editor)
+
+    h.insertTodoChip('t3', '')
+
+    expect(h.editor.querySelector('.chip-name')?.textContent).toBe('t3')
+    expect(parseTodoMarkers(h.inputText.value)).toEqual([{ id: 't3', title: '' }])
+  })
+
+  it('没有选区时追加到末尾', () => {
+    const h = mountEditor()
+    h.editor.textContent = 'hi'
+    clearSelection()
+
+    h.insertTodoChip('t4', '无光标')
+
+    expect(h.editor.querySelectorAll('.todo-chip')).toHaveLength(1)
+    expect(h.inputText.value).toContain('@todo:"t4::')
+  })
+
+  it('删除按钮与退格都能整枚移除，退格回报 type=todo', () => {
+    const h = mountEditor()
+    selectEnd(h.editor)
+    h.insertTodoChip('t5', 'A')
+
+    const btn = h.editor.querySelector('.chip-delete-btn') as HTMLElement
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    expect(h.editor.querySelector('.todo-chip')).toBeNull()
+    expect(h.inputText.value).toBe('')
+
+    selectEnd(h.editor)
+    h.insertTodoChip('t6', 'B')
+    // 光标落在尾随 nbsp 之后：退格先吃掉 nbsp，第二次才命中 chip
+    const sel = window.getSelection()!
+    const range = document.createRange()
+    range.setStart(h.editor.lastChild!, 0)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+
+    const ev = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true })
+    expect(h.handleBackspaceChip(ev)).toEqual({ deleted: true, type: 'todo' })
+    expect(ev.defaultPrevented).toBe(true)
+    expect(h.editor.querySelector('.todo-chip')).toBeNull()
+    expect(h.inputText.value).toBe('')
+  })
+
+  it('只有 todo chip 也算有内容（否则发送按钮不亮）', () => {
+    const h = mountEditor()
+    selectEnd(h.editor)
+    h.insertTodoChip('t7', '只有引用')
+    h.inputText.value = ''
+
+    expect(h.hasContent([], [])).toBe(true)
+  })
+
+  it('collectMentions 不把 todo chip 当成文件附件', () => {
+    const h = mountEditor()
+    selectEnd(h.editor)
+    h.insertTodoChip('t8', '不是文件')
+
+    expect(h.collectAllAttachments([], []).files).toEqual([])
+  })
+
+  it('粘贴 @todo marker 还原成 chip（标题解码回中文）', () => {
+    stubExecCommand()
+    const h = mountEditor()
+    selectEnd(h.editor)
+
+    h.insertPastedTextWithMarkers(`${buildTodoMarker('t9', '收尾登录改造')} `)
+
+    const chip = h.editor.querySelector('.todo-chip')!
+    expect(chip.getAttribute('data-todo-id')).toBe('t9')
+    expect(chip.getAttribute('data-todo-title')).toBe('收尾登录改造')
+    expect(chip.querySelector('.chip-name')?.textContent).toBe('收尾登录改造')
+  })
+
+  it('buildChipElementFromMarker：todo 缺分隔符时退化成只有 id', () => {
+    const h = mountEditor()
+
+    const chip = h.buildChipElementFromMarker('todo', 'bare-id')
+
+    expect(chip.className).toBe('todo-chip')
+    expect(chip.getAttribute('data-todo-id')).toBe('bare-id')
+    expect(chip.querySelector('.chip-name')?.textContent).toBe('bare-id')
+  })
+
+  it('parseMentionMarkers 认出 todo kind', () => {
+    expect(parseMentionMarkers(buildTodoMarker('t10', 'A'))[0]).toMatchObject({ kind: 'todo' })
+  })
+
+  it('未挂载编辑器时 no-op', () => {
+    const c = useContentEditor()
+    expect(() => c.insertTodoChip('t11', 'A')).not.toThrow()
+    expect(c.inputText.value).toBe('')
   })
 })
 

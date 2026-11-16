@@ -332,6 +332,7 @@ import FileAttachmentCard from './FileAttachmentCard.vue'
 import { useAppStore, type InputInjectPayload } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
+import { useTodoStore } from '@/stores/todo'
 import { api } from '@/services/electronAPI'
 import { useI18n } from 'vue-i18n'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
@@ -371,6 +372,13 @@ import { buildDictationAppend } from '@/lib/voice/mergeDictation'
 import type { VoiceComposerTarget, VoiceSnapshot } from '@/lib/voice/voiceDictation'
 import type { VoiceModelInstallInfo } from '@/shared/channels/voice'
 import type { ImageAttachment, AllAttachments, SendOptions } from '@/composables/types'
+import {
+  missingTodoReference,
+  parseTodoMarkers,
+  replaceTodoMarkersWithTitles,
+  todoReferenceFromTodo,
+  type TodoReferenceItem,
+} from '@/shared/todoReference'
 import type { PermissionMode } from '@/shared/channels/claudeCode'
 import type { EffortLevel } from '@/shared/effort'
 
@@ -433,6 +441,7 @@ const settingsStore = useSettingsStore()
 const appStore = useAppStore()
 const sessionStore = useChatSessionStore()
 const turnStore = useTurnStore()
+const todoStore = useTodoStore()
 const { t } = useI18n()
 const { openProjectFromPicker } = useOpenProjectWorkflow()
 const { pendingFile, consumePendingFile } = useFileToChat()
@@ -481,7 +490,7 @@ const {
   editorRef, containerRef, inputText,
   getEditorPlainText, getTextBeforeCursor,
   setCursorToEnd, focusEditor,
-  insertMentionChip, insertCommandChip, insertImageChip,
+  insertMentionChip, insertTodoChip, insertCommandChip, insertImageChip,
   removeTriggerText, setEditorContent, clearEditor,
   collectAllAttachments, autoResize,
   insertPastedTextWithMarkers,
@@ -905,6 +914,12 @@ async function applyEffort(level: EffortLevel) {
 
 // ── Workbench injection ──────────────────────────────────────────
 function injectFromWorkbench(payload: InputInjectPayload) {
+  if (payload.todo) {
+    editorRef.value?.focus()
+    setCursorToEnd()
+    insertTodoChip(payload.todo.id, payload.todo.title)
+    autoResize()
+  }
   if (payload.image) {
     const img: ImageAttachment = { ...payload.image, type: 'image' }
     attachedImages.value.push(img)
@@ -1246,6 +1261,15 @@ function selectContextItem(item: ContextItem) {
 
   closeContextMenu()
 
+  if (item.type === 'todo') {
+    if (item.todoId) insertTodoChip(item.todoId, item.name)
+    nextTick(() => {
+      editorRef.value?.focus()
+      setCursorToEnd()
+    })
+    return
+  }
+
   insertMentionChip(item.relativePath || item.name, item.path, item.type === 'directory')
 
   if (!attachedFiles.value.some(f => f.path === item.path)) {
@@ -1342,6 +1366,22 @@ function readCommandChips(): CommandChipData[] {
   }))
 }
 
+/**
+ * 正文里的 @todo 标记 → 引用快照，并把当前会话记到待办上（详情里能跳回这个会话）。
+ * 只在真正要发出去时抓，草稿里插着 chip 不写任何数据。
+ */
+function collectTodoReferences(content: string): TodoReferenceItem[] {
+  const markers = parseTodoMarkers(content)
+  if (markers.length === 0) return []
+  const sid = editorSessionId.value
+  return markers.map(marker => {
+    const todo = todoStore.findTodo(marker.id)
+    if (!todo) return missingTodoReference(marker)
+    if (sid) void todoStore.touchSession(todo.id, sid)
+    return todoReferenceFromTodo(todo, todo.groupId ? todoStore.groupById.get(todo.groupId)?.name : undefined)
+  })
+}
+
 function handleSend(steerMode = false) {
   // 录音中草稿只读：此时提交会把尚未收口的转写留在编辑器里。
   if (isOptimizing.value || voiceActive.value) return
@@ -1359,21 +1399,31 @@ function handleSend(steerMode = false) {
     sessionId: editorSessionId.value,
   })
 
+  if (decision.kind === 'none') return
+
+  const todoReferences = collectTodoReferences(decision.kind === 'slash' ? decision.args : decision.content)
+
   switch (decision.kind) {
-    case 'none':
-      return
-    case 'send':
+    case 'send': {
       // emit 元数与抽取前一致：不带 options 的发送不会多出一个 undefined
-      if (decision.options) emit('send', decision.content, decision.attachments, decision.options)
+      const options: SendOptions | undefined = todoReferences.length > 0
+        ? { ...decision.options, todoReferences }
+        : decision.options
+      if (options) emit('send', decision.content, decision.attachments, options)
       else emit('send', decision.content, decision.attachments)
       break
-    case 'slash':
+    }
+    case 'slash': {
+      // 斜杠命令的 args 是纯文本通道，没有引用块可挂：标记换成可读标题，
+      // 否则 /goal 的目标里会留下一串编码后的 id。
+      const args = replaceTodoMarkersWithTitles(decision.args)
       if (decision.displayLabel === undefined) {
-        emit('slash-command', decision.command, decision.args, decision.attachments)
+        emit('slash-command', decision.command, args, decision.attachments)
       } else {
-        emit('slash-command', decision.command, decision.args, decision.attachments, decision.displayLabel)
+        emit('slash-command', decision.command, args, decision.attachments, decision.displayLabel)
       }
       break
+    }
     case 'queue': {
       const sid = editorSessionId.value
       if (!sid) return
@@ -1383,6 +1433,7 @@ function handleSend(steerMode = false) {
         attachments: decision.attachments.files.map(f => ({ ...f })),
         images: decision.attachments.images.map(img => ({ ...img })),
         displayLabel: decision.displayLabel,
+        todoReferences: todoReferences.length > 0 ? todoReferences : undefined,
         priority: 'later',
         createdAt: Date.now(),
       })

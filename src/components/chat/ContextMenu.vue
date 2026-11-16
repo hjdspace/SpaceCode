@@ -21,7 +21,6 @@
           <X :size="12" />
         </button>
       </div>
-      <div class="dropdown-section-title">{{ t('chatInput.addContext') }}</div>
       <div class="dropdown-list" ref="listRef">
         <div v-if="isLoading" class="dropdown-loading">
           <Loader2 :size="16" class="spin" />
@@ -30,25 +29,50 @@
         <div v-else-if="items.length === 0" class="dropdown-empty">
           <span>{{ t('chatInput.noMatchingFiles') }}</span>
         </div>
-        <button
-          v-for="item in items"
-          :key="item.path"
-          class="dropdown-item"
-          :class="{ highlighted: highlightedItem === item.path }"
-          @click="$emit('select', item)"
-          @mouseenter="$emit('navigate', item.path)"
-        >
-          <component
-            :is="item.type === 'directory' ? Folder : FileText"
-            :size="16"
-            class="item-icon"
-            :class="{ 'is-folder': item.type === 'directory' }"
-          />
-          <div class="item-content">
-            <span class="item-name">{{ item.name }}</span>
-            <span class="item-path">{{ item.relativePath }}</span>
-          </div>
-        </button>
+        <template v-else>
+          <template v-if="todoItems.length > 0">
+            <div class="dropdown-section-title">{{ t('todo.composer.mentionSection') }}</div>
+            <button
+              v-for="item in todoItems"
+              :key="item.path"
+              class="dropdown-item is-todo"
+              :class="{ highlighted: highlightedItem === item.path }"
+              @click="$emit('select', item)"
+              @mouseenter="$emit('navigate', item.path)"
+            >
+              <span class="todo-glyph" :class="{ 'is-done': item.todoStatus === 'completed' }">
+                <component :is="item.todoStatus === 'completed' ? CheckCircle2 : ListTodo" :size="15" />
+              </span>
+              <div class="item-content">
+                <span class="item-name" :class="{ 'is-done': item.todoStatus === 'completed' }">{{ item.name }}</span>
+                <span class="item-path">{{ item.relativePath || t('todo.composer.mentionHint') }}</span>
+              </div>
+              <span v-if="item.todoDueAt" class="item-due">{{ formatDueShort(item.todoDueAt, Date.now(), locale) }}</span>
+            </button>
+          </template>
+          <template v-if="fileItems.length > 0">
+            <div class="dropdown-section-title">{{ t('chatInput.addContext') }}</div>
+            <button
+              v-for="item in fileItems"
+              :key="item.path"
+              class="dropdown-item"
+              :class="{ highlighted: highlightedItem === item.path }"
+              @click="$emit('select', item)"
+              @mouseenter="$emit('navigate', item.path)"
+            >
+              <component
+                :is="item.type === 'directory' ? Folder : FileText"
+                :size="16"
+                class="item-icon"
+                :class="{ 'is-folder': item.type === 'directory' }"
+              />
+              <div class="item-content">
+                <span class="item-name">{{ item.name }}</span>
+                <span class="item-path">{{ item.relativePath }}</span>
+              </div>
+            </button>
+          </template>
+        </template>
       </div>
       <div class="dropdown-section-divider"></div>
       <button class="dropdown-footer-item" @click="$emit('browseFiles')">
@@ -61,13 +85,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Search, X, Loader2, FileText, Folder, FolderOpen } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Search, X, Loader2, FileText, Folder, FolderOpen, ListTodo, CheckCircle2 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { vClickOutside } from '@/components/common/vClickOutside'
+import { formatDueShort } from '@/utils/todoTime'
 import type { ContextItem } from '@/composables/useContextMenu'
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
   position: { top?: string; bottom?: string; left: string }
   searchQuery: string
@@ -85,7 +110,10 @@ defineEmits<{
   browseFiles: []
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+const todoItems = computed(() => props.items.filter(item => item.type === 'todo'))
+const fileItems = computed(() => props.items.filter(item => item.type !== 'todo'))
 
 const searchInputRef = ref<HTMLInputElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
@@ -160,6 +188,46 @@ defineExpose({ searchInputRef, listRef })
   letter-spacing: 0.5px;
   color: var(--text-muted);
   background: var(--bg-secondary);
+}
+
+.dropdown-item.is-todo {
+  align-items: center;
+
+  .todo-glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    color: var(--todo-hue-violet);
+    background: color-mix(in srgb, var(--todo-hue-violet) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--todo-hue-violet) 26%, transparent);
+
+    &.is-done {
+      color: var(--todo-hue-green);
+      background: color-mix(in srgb, var(--todo-hue-green) 14%, transparent);
+      border-color: color-mix(in srgb, var(--todo-hue-green) 26%, transparent);
+    }
+  }
+
+  .item-name.is-done {
+    color: var(--text-muted);
+    text-decoration: line-through;
+  }
+
+  .item-due {
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    background: var(--surface-hover);
+  }
 }
 
 .dropdown-list {

@@ -7,7 +7,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const H = vi.hoisted(() => ({
-  electronAPI: null as { shell?: { openExternal: (url: string) => Promise<void> } } | null,
+  electronAPI: null as {
+    shell?: {
+      openExternal?: (url: string) => Promise<void>
+      showItemInFolder?: (path: string) => Promise<void>
+    }
+  } | null,
   isH5: false,
 }))
 
@@ -59,6 +64,29 @@ describe('shell.openExternal', () => {
     const { shell } = await importFresh()
 
     await expect(shell.openExternal('https://example.com/x')).resolves.toBeUndefined()
+    expect(open).not.toHaveBeenCalled()
+  })
+})
+
+describe('shell.showItemInFolder', () => {
+  it('Electron 在场时直通主进程，并报告能力可用', async () => {
+    const showItemInFolder = vi.fn().mockResolvedValue(undefined)
+    H.electronAPI = { shell: { showItemInFolder } }
+    const { shell } = await importFresh()
+
+    expect(shell.canShowItemInFolder).toBe(true)
+    await shell.showItemInFolder('C:/proj/outputs/imagegen/hero.png')
+
+    expect(showItemInFolder).toHaveBeenCalledWith('C:/proj/outputs/imagegen/hero.png')
+  })
+
+  it('H5 报告能力不可用，调用静默成功而不抛错、不开窗口', async () => {
+    H.isH5 = true
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const { shell } = await importFresh()
+
+    expect(shell.canShowItemInFolder).toBe(false)
+    await expect(shell.showItemInFolder('/remote/hero.png')).resolves.toBeUndefined()
     expect(open).not.toHaveBeenCalled()
   })
 })

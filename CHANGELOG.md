@@ -1,3 +1,23 @@
+## [0.9.1](https://github.com/hjdspace/SpaceCode/compare/v0.9.0...v0.9.1) (2026-11-15)
+
+### Features
+
+- **archive:** 工作区归档 —— 项目菜单整组隐藏、归档页工作区 tab 恢复与永久删除
+- **archive:** 会话归档与设置页归档管理
+- **todo:** 待办工作区 —— 半成品随手记、输入框引用续做、Agent 共建与提醒
+
+### Refactor
+
+- **skillManagerV2:** 外迁 service.ts 尾部自由函数并补齐 IPC 层覆盖
+
+### Documentation
+
+- **readme:** 补齐 Super Agent 等 6 个特性并校正过期事实
+
+### Chore
+
+- 更新截图文件
+
 ## [0.9.0](https://github.com/hjdspace/SpaceCode/compare/v0.8.14...v0.9.0) (2026-11-08)
 
 ### Features

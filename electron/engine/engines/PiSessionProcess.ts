@@ -10,6 +10,7 @@ import type { ProcessStatus } from '../../session/sessionProcess'
 import type { EngineSessionConfig, ExtensionDialogAnswer, ExtensionDialogCloseReason, ExtensionDialogMethod, ImageAttachment } from './types'
 import { EXTENSION_DIALOG_METHODS, isExpectedDroppedPiEvent } from './PiEventMapper'
 import { toPiThinkingLevel } from '@/shared/effort'
+import { EXTENSION_DIALOG_WATCHDOG_MS } from '@/shared/channels/claudeCode'
 import { info, warn, error, debug } from '../../infra/logger'
 import { redactArgsForLog } from '../../infra/redactArgs'
 import {
@@ -29,6 +30,11 @@ import {
 import { resolveSubagentsExtensionPath } from './piSubagentsExtension'
 import { findAgentDefinition } from './agentDefinitions'
 import { syncPiMcpConfigFromStore } from '../../tools/piMcpProjection'
+import { getTodoMcpEntry } from '../../todo/todoMcpServer'
+import type { LoopbackMcpEntry } from '../../tools/loopbackMcpServer'
+import { getImageGenMcpEntry } from '../../imagegen/imageGenMcpServer'
+import { IMAGEGEN_MCP_SERVER_KEY } from '../../imagegen/imageGenTools'
+import { TODO_AVAILABILITY_HINT, TODO_MCP_SERVER_KEY } from '@/shared/todoReference'
 import { mergeRetrySettings } from './piRetrySettings'
 
 /**
@@ -113,13 +119,6 @@ interface PendingExtensionDialog {
   method: ExtensionDialogMethod
   timer: NodeJS.Timeout
 }
-
-/**
- * 没带 timeout 的对话框在宿主这边最多等多久。pi 只对显式给了 timeout 的帧自己兜底，
- * 其余的会永远 await —— 窗口关了、H5 掉线时没人应答，会话就死停在那儿，池也腾不出来。
- * 到点补一帧 cancelled 并按 watchdog 关掉卡片，把 #45 那条「绝不挂死」的核验保住。
- */
-const EXTENSION_DIALOG_WATCHDOG_MS = 5 * 60_000
 
 /**
  * 日志用的单行摘要。pi 会把整段提问塞进 title（`runRpcConfirmation` 拼的是
@@ -1252,7 +1251,17 @@ export class PiSessionProcess extends EventEmitter {
    */
   private projectMcpConfig(): void {
     try {
-      const result = syncPiMcpConfigFromStore()
+      // 待办与生图 MCP 都是应用内服务器，只投影给这一次 spawn：URL 带本会话 id 与工作区，
+      // Agent 建的待办才能反查到会话、归到正确的项目，生图才能找到该问谁授权、图落在哪。
+      const extras: Record<string, LoopbackMcpEntry> = {}
+      const todoEntry = getTodoMcpEntry(this.sessionId, this.config.cwd)
+      if (todoEntry) extras[TODO_MCP_SERVER_KEY] = todoEntry
+      const imageGenEntry = getImageGenMcpEntry(this.sessionId, this.config.cwd)
+      if (imageGenEntry) extras[IMAGEGEN_MCP_SERVER_KEY] = imageGenEntry
+      const result = syncPiMcpConfigFromStore(
+        undefined,
+        Object.keys(extras).length > 0 ? extras : undefined,
+      )
       if (result.error) {
         warn('PiSessionProcess', `[${this.sessionId.slice(0, 8)}] MCP projection skipped | ${result.error}`)
         return
@@ -1312,7 +1321,12 @@ export class PiSessionProcess extends EventEmitter {
     // 带上 pi 自己的会话文件，否则新进程起来就是一个没有历史的新会话
     if (this._piSessionFile) args.push('--session', this._piSessionFile)
     if (this.config.systemPrompt) args.push('--system-prompt', this.config.systemPrompt)
-    if (this.config.appendSystemPrompt) args.push('--append-system-prompt', this.config.appendSystemPrompt)
+    // 待办提示与调用方的追加提示合成同一个 flag：pi 只认最后一个
+    // --append-system-prompt，分成两个会把用户的提示词顶掉。
+    const todoHint =
+      !this.config.disableMcp && getTodoMcpEntry(this.sessionId, this.config.cwd) ? TODO_AVAILABILITY_HINT : ''
+    const appendPrompt = [this.config.appendSystemPrompt, todoHint].filter(Boolean).join('\n\n')
+    if (appendPrompt) args.push('--append-system-prompt', appendPrompt)
 
     // plan 的只读语义全靠这个扩展（来路与口径见 piPlanModeExtension）：起进程时不带它，
     // 就等于「界面显示计划模式、工具照写不误」 (#45)。

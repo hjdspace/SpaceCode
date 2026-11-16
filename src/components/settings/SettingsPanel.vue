@@ -94,6 +94,9 @@
             <BrowserUseSettings
               v-else-if="activeTab === 'browser-use'"
             />
+            <ImageGenSettings
+              v-else-if="activeTab === 'image-gen'"
+            />
             <H5AccessSettings
               v-else-if="activeTab === 'h5-access'"
             />
@@ -105,6 +108,9 @@
             />
             <MemorySettings
               v-else-if="activeTab === 'memory'"
+            />
+            <ArchiveSettings
+              v-else-if="activeTab === 'archive'"
             />
             <AboutSettings
               v-else-if="activeTab === 'about'"
@@ -120,7 +126,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, defineAsyncComponent, type AsyncComponentLoader } from 'vue'
 import {
   ArrowLeft,
-  Settings, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat, BookOpenText, Mic
+  Settings, Palette, Wrench, Keyboard, Bot, BarChart3, Zap, Monitor, Globe, Info, Smartphone, MessageCircle, Cat, BookOpenText, Mic, Archive, Image as ImageIcon
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -153,6 +159,8 @@ const ImSettings = asyncSetting(() => import('./ImSettings.vue'))
 const PetSettings = asyncSetting(() => import('./pet/PetSettings.vue'))
 const AboutSettings = asyncSetting(() => import('./AboutSettings.vue'))
 const MemorySettings = asyncSetting(() => import('./MemorySettings.vue'))
+const ArchiveSettings = asyncSetting(() => import('./ArchiveSettings.vue'))
+const ImageGenSettings = asyncSetting(() => import('./ImageGenSettings.vue'))
 
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
@@ -163,12 +171,14 @@ const settingMenuItems = computed(() => [
   { id: 'model', label: t('settings.modelSettings'), icon: Bot },
   { id: 'tools', label: t('settings.tools'), icon: Wrench },
   { id: 'voice-input', label: t('settings.voiceInput'), icon: Mic },
+  { id: 'image-gen', label: t('settings.imageGen'), icon: ImageIcon },
   { id: 'computer-use', label: t('settings.computerUse'), icon: Monitor },
   { id: 'browser-use', label: t('settings.browserUse'), icon: Globe },
   { id: 'h5-access', label: t('settings.h5Access'), icon: Smartphone },
   { id: 'rtk', label: t('settings.rtk'), icon: Zap },
   { id: 'im', label: t('im.title'), icon: MessageCircle },
   { id: 'memory', label: t('settings.memory'), icon: BookOpenText },
+  { id: 'archive', label: t('settings.archive'), icon: Archive },
 ])
 
 const personalMenuItems = computed(() => [
