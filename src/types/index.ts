@@ -1,4 +1,5 @@
 import type { GenuiCardFallback, GenuiCardRecord, GenuiCardSubmissionMeta } from './genui'
+import type { WorkRoutingState } from './workRouting'
 
 export enum ErrorCategory {
   RATE_LIMIT = 'rate_limit',
@@ -288,6 +289,13 @@ export interface Session {
   sessionType?: SessionType
   /** Work 模式下绑定的专业助手 id。 */
   assistantId?: string
+  /**
+   * 由升级后的新会话入口创建，允许首消息自动路由。
+   * 升级前的空 work 会话没有此字段 → 视为遗留会话，拦截逻辑不追溯改变其行为。
+   */
+  workRoutable?: boolean
+  /** 一次性的路由决策结果；字段存在 = 已决策，后续发送不再路由。 */
+  workRouting?: WorkRoutingState
   /**
    * 本会话选定的引擎 agent。缺省 = 这个会话从没选过 agent。
    * 徽章与选择器都读它；全局选择只作为新建会话的默认值。

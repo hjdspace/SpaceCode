@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly, watch } from 'vue'
 import type { Session, SessionType, Message, ToolCall, AgentInfo, SessionEngineType, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus } from '@/types'
+import type { PendingWorkFirstMessage, WorkAssistantBinding } from '@/types/workRouting'
 import { ErrorCategory } from '@/types'
 import type { RewindOption } from '@/types/rewind'
 import { i18n } from '@/i18n'
@@ -700,6 +701,9 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       isTabOpen: true,
       lastActivityAt: Date.now(),
       mode: appStore.mode,
+      // 只有升级后的新建入口（无历史 id、非临时会话）才参与首消息路由；
+      // 遗留会话没有这个标记，拦截逻辑不得追溯改变它们的行为。
+      workRoutable: appStore.mode === 'work' && !sessionId && !options?.ephemeral ? true : undefined,
       agent: currentAgent.value || undefined,
       ephemeral: options?.ephemeral || undefined,
       sessionType: options?.sessionType,
@@ -2409,13 +2413,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     })
   }
 
-  async function startWorkAssistantSession(assistant: {
-    name: string
-    skills?: string[]
-    permission?: string
-    skillRuntime?: 'officecli' | 'node' | 'none'
-    skillsRequired?: boolean
-  }): Promise<Session> {
+  async function startWorkAssistantSession(assistant: WorkAssistantBinding): Promise<Session> {
     const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
 
     // Phase 4: 技能可用性校验 + 降级回退
@@ -2486,14 +2484,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
    * 用于输入框上方常用助手快捷选择场景：
    * 当前会话是空的 work 会话且未选助手时，直接绑定助手到当前会话。
    */
-  async function switchWorkAssistant(assistant: {
-    name: string
-    skills?: string[]
-    permission?: string
-    skillRuntime?: 'officecli' | 'node' | 'none'
-    skillsRequired?: boolean
-  }): Promise<void> {
-    const session = currentSession.value
+  async function switchWorkAssistant(assistant: WorkAssistantBinding, targetSessionId?: string): Promise<void> {
+    const session = targetSessionId ? getSession(targetSessionId) : currentSession.value
     if (!session) return
 
     const cwd = appStore.workWorkspace || appStore.projectRoot || undefined
@@ -2566,6 +2558,55 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       const policyStore = usePermissionPolicyStore()
       await policyStore.setPermissionMode(session.id, assistant.permission as any)
     }
+  }
+
+  // ── 办公助手首消息路由 ──────────────────────────────────────
+  // 决策本身在 services/assistantRouter（可注入 adapter）；这里只持有
+  // 「能不能路由」「绑定并落盘」「被扣住的首消息」三件可观察状态。
+
+  /** 被扣住的首消息（含附件）。只活在内存里：重启后未决会话按无路由处理。 */
+  const pendingWorkFirstMessage = ref<PendingWorkFirstMessage | null>(null)
+
+  function holdWorkFirstMessage(message: PendingWorkFirstMessage) {
+    pendingWorkFirstMessage.value = message
+  }
+
+  function clearPendingWorkFirstMessage() {
+    pendingWorkFirstMessage.value = null
+  }
+
+  /**
+   * 拦截条件：work 模式 + 新入口创建的空通用会话 + 未绑定助手 + 未决策 + 开关开启。
+   * 手动选过助手（画廊/快捷卡）或已有任意消息的会话天然不满足。
+   */
+  function shouldRouteWorkFirstMessage(sessionId?: string): boolean {
+    const session = getSession(sessionId ?? currentSessionId.value)
+    if (!session) return false
+    if (session.mode !== 'work' || session.workRoutable !== true) return false
+    if (session.assistantId || session.workRouting) return false
+    if (session.ephemeral || session.observedSession) return false
+    if (session.messages.length > 0) return false
+    return settingsStore.routerConfig.enabled
+  }
+
+  /** 高置信结果：复用 switchWorkAssistant 就地绑定，再落盘决策快照。会话 id 不变。 */
+  async function applyAutoWorkRouting(
+    sessionId: string,
+    input: {
+      assistant: WorkAssistantBinding
+      ranked: Array<{ name: string; score: number }>
+    },
+  ): Promise<void> {
+    await switchWorkAssistant(input.assistant, sessionId)
+    const session = getSession(sessionId)
+    if (!session) return
+    session.workRouting = {
+      outcome: 'auto',
+      assistant: input.assistant.name,
+      ranked: input.ranked.map(entry => ({ name: entry.name, score: entry.score })),
+      at: Date.now(),
+    }
+    saveToStorage()
   }
 
   sessions.value.forEach(s => {
@@ -2648,6 +2689,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     switchModel,
     startWorkAssistantSession,
     switchWorkAssistant,
+    // Work Assistant Routing
+    shouldRouteWorkFirstMessage,
+    applyAutoWorkRouting,
+    holdWorkFirstMessage,
+    pendingWorkFirstMessage: readonly(pendingWorkFirstMessage),
+    clearPendingWorkFirstMessage,
     // Turn Checkpoints
     turnCheckpoints: readonly(turnCheckpoints),
     turnChangeCards,

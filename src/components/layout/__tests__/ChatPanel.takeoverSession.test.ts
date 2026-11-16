@@ -83,7 +83,6 @@ vi.mock('@/services/llm', () => ({
 
 vi.mock('@/services/h5ApiClient', () => ({ isH5Mode: () => false }))
 vi.mock('@/composables/useChatCommands', () => ({ useChatCommands: () => ({ executeCommand: vi.fn() }) }))
-vi.mock('@/composables/useWorkRouter', () => ({ useWorkRouter: () => ({ route: vi.fn(() => ({ type: 'none' })) }) }))
 vi.mock('@/utils/recentProjectRoots', () => ({ pathsEqual: (a: string, b: string) => a === b }))
 vi.mock('@/components/chat/MessageList.vue', () => ({ default: MessageListStub }))
 
@@ -92,7 +91,6 @@ const componentStub = { template: '<div />' }
 vi.mock('@/components/chat/RecommendedPrompts.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/WelcomeHero.vue', () => ({ default: componentStub }))
 vi.mock('@/components/work/WorkAssistantShortcuts.vue', () => ({ default: componentStub }))
-vi.mock('@/components/work/WorkAssistantPicker.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/TeamStatusBar.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/TeammateTranscriptHeader.vue', () => ({ default: componentStub }))
 const ChatInputStub = defineComponent({

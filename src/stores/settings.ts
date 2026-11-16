@@ -5,6 +5,7 @@ import { api } from '@/services/electronAPI'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
 import type { ModelProfile, ModelCapabilityOverride, ProfilesFile, ProfileApplyFailure } from '@/types/profile'
 import type { ImageGenConfig } from '@/shared/imageGenReference'
+import type { RouterConfig } from '@/types/workRouting'
 import { type EffortLevel, normalizeEffortLevel } from '@/shared/effort'
 
 export type AuthMethod = 'anthropic_compatible' | 'openai_compatible' | 'gemini_api' | 'claudeai' | 'console'
@@ -101,6 +102,8 @@ export interface AuthSettings {
   /** 生图模型配置。独立于 Profile：生图账号与对话账号是两套，跟着 Profile 切换会迫使重复填写。
    *  apiKey 只写 —— 主进程回读时清空，是否已配置看 hasApiKey。 */
   imageGenConfig?: ImageGenConfig | null
+  /** 办公助手路由配置。独立于 Profile；默认开启并跟随当前登录方式的快速模型槽位。 */
+  routerConfig?: RouterConfig
 }
 
 const SETTINGS_STORAGE_KEY = 'claude_desktop_settings'
@@ -115,6 +118,35 @@ function createDefaultProviderConfig(): ProviderConfig {
     haikuModel: '',
     sonnetModel: '',
     opusModel: ''
+  }
+}
+
+export const DEFAULT_ROUTER_CONFIG: RouterConfig = {
+  enabled: true,
+  modelSource: 'follow-fast',
+}
+
+/** 未知/损坏的持久化值一律收敛到默认值，避免 hydrate 出一个半截配置。 */
+export function normalizeRouterConfig(value: unknown): RouterConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...DEFAULT_ROUTER_CONFIG }
+  }
+  const record = value as Record<string, unknown>
+  const provider = record.provider === 'openai'
+    ? 'openai'
+    : record.provider === 'anthropic'
+      ? 'anthropic'
+      : undefined
+  const baseUrl = typeof record.baseUrl === 'string' && record.baseUrl ? record.baseUrl : undefined
+  const apiKey = typeof record.apiKey === 'string' && record.apiKey ? record.apiKey : undefined
+  const model = typeof record.model === 'string' && record.model ? record.model : undefined
+  return {
+    enabled: record.enabled !== false,
+    modelSource: record.modelSource === 'custom' ? 'custom' : 'follow-fast',
+    ...(provider ? { provider } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(apiKey ? { apiKey } : {}),
+    ...(model ? { model } : {}),
   }
 }
 
@@ -335,6 +367,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const lastSelectedModel = ref<string>(saved.lastSelectedModel || '')
   const hasCompletedOnboarding = ref<boolean>(saved.hasCompletedOnboarding === true)
   const imageGenConfig = ref<ImageGenConfig | null>(saved.imageGenConfig ?? null)
+  const routerConfig = ref<RouterConfig>(normalizeRouterConfig(saved.routerConfig))
 
   /** gui-settings.json / .env 的异步读取是否已经落定。
    *  首启动判定必须等它 — 否则标记还在默认 false，会给所有老用户误弹引导。 */
@@ -576,7 +609,8 @@ export const useSettingsStore = defineStore('settings', () => {
       voiceInputCustomUrl: voiceInputCustomUrl.value.trim() || undefined,
       lastSelectedModel: lastSelectedModel.value || undefined,
       hasCompletedOnboarding: hasCompletedOnboarding.value,
-      imageGenConfig: imageGenConfig.value
+      imageGenConfig: imageGenConfig.value,
+      routerConfig: { ...routerConfig.value }
     }
 
     const serialized = JSON.stringify(data, null, 2)
@@ -896,6 +930,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.voiceInputCustomUrl !== undefined) voiceInputCustomUrl.value = settings.voiceInputCustomUrl
     if (settings.hasCompletedOnboarding !== undefined) hasCompletedOnboarding.value = settings.hasCompletedOnboarding
     if (settings.imageGenConfig !== undefined) imageGenConfig.value = settings.imageGenConfig
+    if (settings.routerConfig !== undefined) routerConfig.value = normalizeRouterConfig(settings.routerConfig)
   }
 
   async function loadFromGuiSettingsFile() {
@@ -1064,6 +1099,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setVoiceInputCustomUrl,
     imageGenConfig,
     setImageGenConfig,
+    routerConfig,
     lastSelectedModel,
     hasCompletedOnboarding,
     settingsReady,

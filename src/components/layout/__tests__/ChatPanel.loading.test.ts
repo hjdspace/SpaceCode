@@ -68,12 +68,6 @@ vi.mock('@/composables/useChatCommands', () => ({
   }),
 }))
 
-vi.mock('@/composables/useWorkRouter', () => ({
-  useWorkRouter: () => ({
-    route: vi.fn(() => ({ type: 'none' })),
-  }),
-}))
-
 vi.mock('@/utils/recentProjectRoots', () => ({
   pathsEqual: (a: string, b: string) => a === b,
 }))
@@ -84,7 +78,6 @@ const componentStub = { template: '<div />' }
 vi.mock('@/components/chat/RecommendedPrompts.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/WelcomeHero.vue', () => ({ default: componentStub }))
 vi.mock('@/components/work/WorkAssistantShortcuts.vue', () => ({ default: componentStub }))
-vi.mock('@/components/work/WorkAssistantPicker.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/TeamStatusBar.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/TeammateTranscriptHeader.vue', () => ({ default: componentStub }))
 vi.mock('@/components/chat/ChatInput.vue', () => ({ default: componentStub }))

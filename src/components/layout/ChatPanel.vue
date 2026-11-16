@@ -71,6 +71,12 @@
             <NoProjectHome v-if="showNoProjectWelcome && !readonly" />
 
             <template v-else>
+              <!-- 会话级路由标记：静态展示本会话以什么身份开始 -->
+              <div v-if="workRoutingMarkerText" class="work-routing-marker" data-test="work-routing-marker">
+                <Sparkles :size="13" />
+                <span>{{ workRoutingMarkerText }}</span>
+              </div>
+
               <TeammateTranscriptHeader
                 v-if="paneIsViewingTeammate"
                 :teammate="paneViewedTeammate"
@@ -135,15 +141,6 @@
             :compact="compact"
           />
           <ToastNotification v-if="!compact && !readonly" />
-
-          <!-- Work 模式自动路由：多助手匹配时的选择弹窗 -->
-          <WorkAssistantPicker
-            v-if="pickerVisible"
-            v-model:visible="pickerVisible"
-            :candidates="pickerCandidates"
-            @confirm="onPickerConfirm"
-            @cancel="onPickerCancel"
-          />
 
           <!-- Rewind Dialog -->
           <RewindDialog
@@ -316,7 +313,7 @@ interface AllAttachments {
 
 import NoProjectHome from './NoProjectHome.vue'
 import ToastNotification from '../common/ToastNotification.vue'
-import { History, ClipboardList } from 'lucide-vue-next'
+import { History, ClipboardList, Sparkles } from 'lucide-vue-next'
 import ContextUsageChip from '../chat/ContextUsageChip.vue'
 import ContextUsageWarningBar from '../chat/ContextUsageWarningBar.vue'
 import { useContextUsageStore } from '@/stores/contextUsage'
@@ -331,14 +328,18 @@ import { initLLMService, llmState } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { resolveModelAliasForEngine } from '@/utils/engineModel'
 import { useChatCommands } from '@/composables/useChatCommands'
-import { useWorkRouter } from '@/composables/useWorkRouter'
+import {
+  buildRoutingCandidates,
+  createLlmRouterAdapter,
+  routeFirstMessage,
+} from '@/services/assistantRouter'
+import { workDisplayName } from '@/utils/workAssistant'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useRewindFlow } from '@/composables/useRewindFlow'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { api } from '@/services/electronAPI'
 import { isH5Mode } from '@/services/h5ApiClient'
 
-const WorkAssistantPicker = defineAsyncComponent(() => import('../work/WorkAssistantPicker.vue'))
 const TerminalPanel = defineAsyncComponent(() => import('../terminal/TerminalPanel.vue'))
 const OrchestrationCanvas = defineAsyncComponent(() => import('../orchestration/OrchestrationCanvas.vue'))
 const FactoryView = defineAsyncComponent(() => import('../factory/FactoryView.vue'))
@@ -435,48 +436,150 @@ const sessionFileChanges = useSessionFileChangesStore()
 const scmStore = useScmStore()
 const taskManager = useTaskManager()
 
-// ── Work 模式自动路由：助手选择弹窗 ──────────────────────────────
-const { route: routeWork } = useWorkRouter()
-const pickerVisible = ref(false)
-const pickerCandidates = ref<AgentDef[]>([])
-let pickerResolve: ((a: AgentDef | null) => void) | null = null
+// ── Work 模式首消息路由 ──────────────────────────────────────
+// 决策在 services/assistantRouter（LLM adapter + 阈值处置）。S1 的兜底是临时形态：
+// 扣住消息、打开既有画廊；选中助手后由 resumeHeldWorkFirstMessage 重放（S2 换成候选卡）。
+const HELD_WORK_MESSAGE_TTL_MS = 120_000
 
-function pickAssistant(candidates: AgentDef[]): Promise<AgentDef | null> {
-  pickerCandidates.value = candidates
-  pickerVisible.value = true
-  return new Promise(resolve => { pickerResolve = resolve })
+function findWorkAssistant(name: string): AgentDef | undefined {
+  return agentsStore.installedAgents.find(a => a.name === name && a.mode === 'work')
+    || agentsStore.libraryAgents.find(a => a.name === name && a.mode === 'work')
 }
 
-function onPickerConfirm(a: AgentDef) {
-  pickerVisible.value = false
-  pickerResolve?.(a)
-  pickerResolve = null
-}
-
-function onPickerCancel() {
-  pickerVisible.value = false
-  pickerResolve?.(null)
-  pickerResolve = null
-}
-
-type RouteOutcome =
-  | { kind: 'routed'; assistant: AgentDef }
-  | { kind: 'cancel' }
-  | { kind: 'passthrough' }
-
-/** Work 模式发送前路由：匹配助手 / 咨询用户 / 透传 */
-async function routeWorkSend(content: string): Promise<RouteOutcome> {
-  const result = routeWork(content)
-  if (result.type === 'match' && result.assistant) {
-    return { kind: 'routed', assistant: result.assistant }
+function cloneAttachments(attachments: {
+  files: ReadonlyArray<Attachment>
+  images: ReadonlyArray<ImageAttachment>
+}): AllAttachments {
+  return {
+    files: attachments.files.map(file => ({ ...file })),
+    images: attachments.images.map(image => ({ ...image })),
   }
-  if (result.type === 'ask' && result.candidates.length > 0) {
-    const chosen = await pickAssistant(result.candidates)
-    if (!chosen) return { kind: 'cancel' }
-    return { kind: 'routed', assistant: chosen }
-  }
-  return { kind: 'passthrough' }
 }
+
+/** 草稿由编辑器 HTML 恢复（纯 text 字段不会写回 contenteditable），这里做转义 + 换行。 */
+function plainTextToEditorHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+}
+
+/** @returns true = 继续发送；false = 消息已被扣住，等画廊选择。 */
+async function tryAutoRouteWorkMessage(
+  content: string,
+  attachments: AllAttachments,
+  messageContent: string,
+  userContent?: string,
+): Promise<boolean> {
+  const sessionId = paneSessionId.value
+  const workspace = appStore.workWorkspace || appStore.projectRoot || undefined
+  try {
+    if (agentsStore.libraryAgents.length === 0) await agentsStore.fetchLibrary(workspace)
+    await agentsStore.fetchInstalled(workspace)
+  } catch (err) {
+    console.warn('[ChatPanel] Failed to load work assistants for routing:', err)
+  }
+
+  const isZh = String(locale.value).toLowerCase().startsWith('zh')
+  const candidates = buildRoutingCandidates({
+    library: agentsStore.libraryAgents,
+    installed: agentsStore.installedAgents,
+    isZh,
+  })
+  const outcome = await routeFirstMessage({
+    message: content,
+    candidates,
+    isZh,
+    adapter: createLlmRouterAdapter(),
+  })
+
+  if (outcome.kind === 'auto') {
+    const assistant = findWorkAssistant(outcome.assistant)
+    if (assistant) {
+      try {
+        await sessionStore.applyAutoWorkRouting(sessionId, {
+          assistant: {
+            name: assistant.name,
+            skills: assistant.skills,
+            permission: assistant.permission,
+            skillRuntime: assistant.skillRuntime,
+            skillsRequired: assistant.skillsRequired,
+          },
+          ranked: outcome.ranked.map(entry => ({ name: entry.name, score: entry.score })),
+        })
+        return true
+      } catch (err) {
+        console.error('[ChatPanel] Failed to bind auto-routed assistant:', err)
+      }
+    }
+  }
+
+  sessionStore.holdWorkFirstMessage({
+    sessionId,
+    content,
+    messageContent,
+    userContent,
+    attachments: cloneAttachments(attachments),
+    at: Date.now(),
+  })
+  appStore.showWorkGallery = true
+  // 输入框在这一刻已被清空；画廊挂载后补一份草稿，用户取消选择时不丢正文与附件。
+  // 必须在组件卸载之后写，否则 ChatInput 的 unmount 草稿保存会把空编辑器的内容写回来。
+  void nextTick(() => {
+    sessionStore.saveDraft(sessionId, {
+      text: content,
+      attachments: attachments.files.map(file => ({ ...file })),
+      images: attachments.images.map(image => ({ ...image })),
+      quotes: [],
+      editorHtml: plainTextToEditorHtml(content),
+    })
+  })
+  return false
+}
+
+/**
+ * 画廊选中助手后（新会话已绑定），把扣住的首消息原样发出去。
+ * 任何分支都清掉 pending：留着它才有被无关会话误收的风险。
+ */
+async function resumeHeldWorkFirstMessage() {
+  if (props.sessionId || props.compact || props.readonly) return
+  const held = sessionStore.pendingWorkFirstMessage
+  if (!held) return
+  const sessionId = paneSessionId.value
+  if (!sessionId) return
+  sessionStore.clearPendingWorkFirstMessage()
+
+  // 画廊被直接关掉、没有换会话：正文与附件由上面的草稿恢复，不重复注入。
+  if (sessionId === held.sessionId) return
+
+  const session = sessionStore.getSession(sessionId)
+  const isFreshPickedSession = !!session &&
+    session.mode === 'work' &&
+    !!session.assistantId &&
+    session.messages.length === 0 &&
+    session.createdAt >= held.at &&
+    Date.now() - held.at <= HELD_WORK_MESSAGE_TTL_MS
+  if (!isFreshPickedSession) return
+
+  // 消息已转交给新会话，原会话的兜底草稿不能留着（否则回到旧会话会看到重复文本）。
+  sessionStore.clearDraft(held.sessionId)
+  try {
+    await turnStore.sendMessage(
+      held.messageContent,
+      held.userContent,
+      cloneAttachments(held.attachments),
+    )
+  } catch (error) {
+    console.error('[ChatPanel] Failed to send held work message:', error)
+  }
+}
+
+const workRoutingMarkerText = computed(() => {
+  const routing = paneSession.value?.workRouting
+  if (!routing || routing.outcome !== 'auto' || !routing.assistant) return ''
+  return t('work.routeMarkerAuto', { name: workDisplayName(routing.assistant) })
+})
 
 // The floating env panel needs ~324px (300 panel + 12 right margin + 12 gutter).
 // Reserve that space whenever the chat can still keep a usable composer/message
@@ -951,6 +1054,7 @@ const currentModel = ref('')
 // 否则重启后输入框会回退显示 config.model（恒为 sonnet 槽位）。
 onMounted(async () => {
   await initLLMService()
+  await resumeHeldWorkFirstMessage()
   currentModel.value = settingsStore.lastSelectedModel || settingsStore.config.model || ''
   if (paneSessionId.value && !paneIsObserved.value) {
     contextUsageStore.refresh(paneSessionId.value)
@@ -1163,28 +1267,18 @@ async function handleSend(content: string, attachments: AllAttachments, options?
     if (!ok) return
   }
 
-  // Work 模式自动路由：空会话且未选助手时，根据输入匹配专业助手。
-  // 单命中 → 直接创建助手会话；多命中/模糊 → 弹出选择；无匹配 → 透传到当前会话。
+  // Work 模式首消息路由：必须在引擎初始化之前决策一次。
+  // 高置信 → 就地绑定 top-1 助手后照常发送；低置信/none/失败/不可用 → 扣住消息并打开画廊。
+  const { messageContent, userContent } = buildOutgoingMessage(content, attachments, options)
+
   if (
+    !props.sessionId &&
     appStore.mode === 'work' &&
-    paneSession.value?.mode === 'work' &&
-    !paneSession.value?.assistantId &&
-    paneMessages.value.length === 0
+    content.trim().length > 0 &&
+    sessionStore.shouldRouteWorkFirstMessage(paneSessionId.value)
   ) {
-    const outcome = await routeWorkSend(content.trim())
-    if (outcome.kind === 'cancel') return
-    if (outcome.kind === 'routed' && outcome.assistant) {
-      try {
-        await sessionStore.startWorkAssistantSession({
-          name: outcome.assistant.name,
-          skills: outcome.assistant.skills,
-          permission: outcome.assistant.permission,
-        })
-      } catch (err) {
-        console.error('[ChatPanel] Failed to start routed assistant session:', err)
-      }
-    }
-    // passthrough：不创建助手会话，直接发送到当前空 work 会话
+    const proceed = await tryAutoRouteWorkMessage(content, attachments, messageContent, userContent)
+    if (!proceed) return
   }
 
   // Work 助手会话：用户首次发送消息时展开 Artifacts 面板
@@ -1197,10 +1291,6 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   ) {
     appStore.openArtifactsPanel()
   }
-
-  // 发送正文组装抽到 lib/composer-outgoing（与 Super Agent Router 宿主共用同一份，
-  // 保证 @"路径" 引用与附件摘要块的格式在所有宿主逐字一致）
-  const { messageContent, userContent } = buildOutgoingMessage(content, attachments, options)
 
   console.log('[ChatPanel] Calling turnStore.sendMessage...')
   try {
@@ -1740,6 +1830,22 @@ async function handleRestoreHistorySession(session: any) {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+}
+
+.work-routing-marker {
+  align-self: center;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 2px;
+  padding: 4px 12px;
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-full, 999px);
+  svg { color: var(--accent-primary); }
 }
 
 .chat-header {
