@@ -46,12 +46,19 @@ export interface PendingWorkRouting {
 export interface RouterConfig {
   /** 关闭后办公模式回到画廊优先，首消息不再拦截。 */
   enabled: boolean
-  /** follow-fast = 当前 authMethod 的 haiku 槽位（未配置回退主模型）；custom = 自带连接。 */
-  modelSource: 'follow-fast' | 'custom'
+  /** follow-fast = 当前 authMethod 的 haiku 槽位；custom = 自带 LLM 连接；jev = TypeSafe System One 专用协议。 */
+  modelSource: 'follow-fast' | 'custom' | 'jev'
+  /** custom 模式下的 LLM 供应商。 */
   provider?: 'anthropic' | 'openai'
   baseUrl?: string
   apiKey?: string
   model?: string
+  /** jev 模式下的 TypeSafe endpoint。 */
+  jevEndpoint?: string
+  /** jev 模式下的 TypeSafe API key。 */
+  jevApiKey?: string
+  /** jev 模式下的模型版本（固定，记录响应中的模型 ID）。 */
+  jevModel?: string
 }
 
 /** 会话上的路由结果快照。字段存在 = 已决策，后续发送不再路由。 */

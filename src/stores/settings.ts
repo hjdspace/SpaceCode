@@ -132,6 +132,11 @@ export function normalizeRouterConfig(value: unknown): RouterConfig {
     return { ...DEFAULT_ROUTER_CONFIG }
   }
   const record = value as Record<string, unknown>
+  const modelSource = record.modelSource === 'custom'
+    ? 'custom'
+    : record.modelSource === 'jev'
+      ? 'jev'
+      : 'follow-fast'
   const provider = record.provider === 'openai'
     ? 'openai'
     : record.provider === 'anthropic'
@@ -140,13 +145,19 @@ export function normalizeRouterConfig(value: unknown): RouterConfig {
   const baseUrl = typeof record.baseUrl === 'string' && record.baseUrl ? record.baseUrl : undefined
   const apiKey = typeof record.apiKey === 'string' && record.apiKey ? record.apiKey : undefined
   const model = typeof record.model === 'string' && record.model ? record.model : undefined
+  const jevEndpoint = typeof record.jevEndpoint === 'string' && record.jevEndpoint ? record.jevEndpoint : undefined
+  const jevApiKey = typeof record.jevApiKey === 'string' && record.jevApiKey ? record.jevApiKey : undefined
+  const jevModel = typeof record.jevModel === 'string' && record.jevModel ? record.jevModel : undefined
   return {
     enabled: record.enabled !== false,
-    modelSource: record.modelSource === 'custom' ? 'custom' : 'follow-fast',
+    modelSource,
     ...(provider ? { provider } : {}),
     ...(baseUrl ? { baseUrl } : {}),
     ...(apiKey ? { apiKey } : {}),
     ...(model ? { model } : {}),
+    ...(jevEndpoint ? { jevEndpoint } : {}),
+    ...(jevApiKey ? { jevApiKey } : {}),
+    ...(jevModel ? { jevModel } : {}),
   }
 }
 

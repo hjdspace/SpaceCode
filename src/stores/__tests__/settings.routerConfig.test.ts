@@ -74,7 +74,7 @@ describe('助手路由配置', () => {
   it('从 gui-settings 读回时收敛损坏形状', async () => {
     vi.mocked(api.loadGuiSettings).mockResolvedValue({
       success: true,
-      data: JSON.stringify({ routerConfig: { enabled: 'nope', modelSource: 'jev', provider: 'other' } }),
+      data: JSON.stringify({ routerConfig: { enabled: 'nope', modelSource: 'invalid', provider: 'other' } }),
     })
 
     const settings = await setup()
@@ -184,6 +184,22 @@ describe('normalizeRouterConfig', () => {
       baseUrl: 'https://router.test/v1',
       apiKey: 'sk-router',
       model: 'cheap',
+    })
+  })
+
+  it('keeps valid jev fields', () => {
+    expect(normalizeRouterConfig({
+      enabled: true,
+      modelSource: 'jev',
+      jevEndpoint: 'https://jev.test/v1/choice',
+      jevApiKey: 'sk-jev',
+      jevModel: 'jev-1',
+    })).toEqual({
+      enabled: true,
+      modelSource: 'jev',
+      jevEndpoint: 'https://jev.test/v1/choice',
+      jevApiKey: 'sk-jev',
+      jevModel: 'jev-1',
     })
   })
 })

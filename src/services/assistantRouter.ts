@@ -7,6 +7,7 @@
  * The v1 adapter calls the lightweight LLM seam (same as session titles).
  */
 import { initLLMService, sendMessage } from '@/services/llm'
+import { api } from '@/services/electronAPI'
 import { useSettingsStore } from '@/stores/settings'
 import type {
   RankedCandidate,
@@ -278,6 +279,120 @@ export function createLlmRouterAdapter(): RouterAdapter {
       })
       if (signal?.aborted) throw new Error('routing aborted')
       return parseRoutingDecision(raw, candidates)
+    },
+  }
+}
+
+// ── Jev adapter ──────────────────────────────────────────────────────────
+
+/** Jev (TypeSafe System One) Choice 请求的 state 形状。 */
+interface JevChoiceState {
+  request: string
+  candidates: Array<{ name: string; description: string; skillDescriptions?: string[]; routingHints?: string }>
+}
+
+/** Jev Choice 请求体。 */
+interface JevChoiceRequest {
+  state: JevChoiceState
+  options: string[]
+  model?: string
+}
+
+/** Jev Choice 响应体。 */
+interface JevChoiceResponse {
+  choice: string
+  probabilities: Record<string, number>
+  modelId?: string
+}
+
+/**
+ * 解析 Jev Choice 响应为 RoutingDecision。
+ *
+ * - choice === 'none' → RoutingDecision.none = true
+ * - 概率分布映射 score（截断到 [0,1]），丢弃未知 name
+ * - reason 恒为空字符串（Jev 协议不提供理由）
+ * - 降序排列，至多 3 条
+ */
+export function parseJevResponse(response: JevChoiceResponse, candidates: RoutingCandidate[]): RoutingDecision {
+  if (response.choice === 'none') return { none: true, ranked: [] }
+
+  const allowed = new Set(candidates.map(c => c.name))
+  const ranked: RankedCandidate[] = []
+  for (const [name, prob] of Object.entries(response.probabilities)) {
+    if (!allowed.has(name)) continue
+    const score = typeof prob === 'number' && Number.isFinite(prob) ? Math.min(1, Math.max(0, prob)) : 0
+    ranked.push({ name, score, reason: '' })
+  }
+
+  ranked.sort((a, b) => b.score - a.score)
+  return { none: false, ranked: ranked.slice(0, MAX_RANKED_CANDIDATES) }
+}
+
+/**
+ * Jev (TypeSafe System One) 决策模型 adapter。
+ *
+ * 专用协议：state = { request, candidates }；options = 候选 name 列表 + 'none'。
+ * 返回所选项 + 概率分布，映射为 RoutingDecision（score = 概率，reason 可空）。
+ * 超时/取消/失败语义与 LLM adapter 完全一致（8s、AbortSignal、不重试）。
+ */
+export function createJevRouterAdapter(): RouterAdapter {
+  return {
+    async decide({ message, candidates, signal }) {
+      const settings = useSettingsStore()
+      const config = settings.routerConfig
+      const endpoint = config.jevEndpoint
+      const apiKey = config.jevApiKey
+
+      if (!endpoint || !apiKey) throw new RouterUnavailableError()
+
+      if (signal?.aborted) throw new Error('routing aborted')
+
+      const state: JevChoiceState = {
+        request: truncateRoutingMessage(message),
+        candidates: candidates.map(c => ({
+          name: c.name,
+          description: c.description,
+          ...(c.skillDescriptions?.length ? { skillDescriptions: c.skillDescriptions } : {}),
+          ...(c.routingHints ? { routingHints: c.routingHints } : {}),
+        })),
+      }
+      const requestBody: JevChoiceRequest = {
+        state,
+        options: [...candidates.map(c => c.name), 'none'],
+        ...(config.jevModel ? { model: config.jevModel } : {}),
+      }
+
+      const response = await api.httpFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+        timeoutMs: ROUTING_TIMEOUT_MS,
+      })
+
+      if (signal?.aborted) throw new Error('routing aborted')
+
+      if (!response || !response.ok) {
+        throw new Error(`Jev API error: ${response?.status ?? 'unknown'} - ${response?.error ?? ''}`.trim())
+      }
+
+      let parsed: JevChoiceResponse
+      try {
+        parsed = JSON.parse(response.data)
+      } catch {
+        throw new Error('Jev response is not valid JSON')
+      }
+
+      if (typeof parsed.choice !== 'string') {
+        throw new Error('Jev response missing "choice" field')
+      }
+      if (!parsed.probabilities || typeof parsed.probabilities !== 'object') {
+        throw new Error('Jev response missing "probabilities" field')
+      }
+
+      return parseJevResponse(parsed, candidates)
     },
   }
 }

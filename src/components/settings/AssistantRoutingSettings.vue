@@ -44,6 +44,7 @@
           >
             <option value="follow-fast">{{ t('settings.assistantRouting.modelSourceFollowFast') }}</option>
             <option value="custom">{{ t('settings.assistantRouting.modelSourceCustom') }}</option>
+            <option value="jev">{{ t('settings.assistantRouting.modelSourceJev') }}</option>
           </select>
         </div>
 
@@ -58,7 +59,7 @@
           <p class="s-form-hint">{{ t('settings.assistantRouting.followFastHint') }}</p>
         </div>
 
-        <template v-else>
+        <template v-else-if="modelSource === 'custom'">
           <div class="s-form-group">
             <label class="s-form-label" for="routing-provider">{{ t('settings.assistantRouting.providerLabel') }}</label>
             <select
@@ -139,6 +140,74 @@
           </div>
         </template>
 
+        <template v-else-if="modelSource === 'jev'">
+          <div class="s-form-group">
+            <label class="s-form-label" for="jev-endpoint">{{ t('settings.assistantRouting.jevEndpointLabel') }}</label>
+            <input
+              id="jev-endpoint"
+              v-model="jevEndpoint"
+              data-test="jev-endpoint"
+              class="s-form-input"
+              type="text"
+              :placeholder="t('settings.assistantRouting.jevEndpointPlaceholder')"
+              spellcheck="false"
+              autocomplete="off"
+              @input="markDirty"
+            />
+          </div>
+
+          <div class="s-form-group">
+            <label class="s-form-label" for="jev-api-key">{{ t('settings.assistantRouting.jevApiKeyLabel') }}</label>
+            <div class="s-input-with-action">
+              <input
+                id="jev-api-key"
+                v-model="jevApiKey"
+                data-test="jev-api-key"
+                class="s-form-input"
+                :type="showJevKey ? 'text' : 'password'"
+                :placeholder="t('settings.assistantRouting.jevApiKeyPlaceholder')"
+                spellcheck="false"
+                autocomplete="off"
+                @input="markDirty"
+              />
+              <button
+                class="s-btn s-btn-secondary"
+                type="button"
+                data-test="toggle-jev-key"
+                @click="showJevKey = !showJevKey"
+              >
+                <component :is="showJevKey ? EyeOff : Eye" :size="14" />
+                <span>{{ showJevKey ? t('settings.assistantRouting.hideKey') : t('settings.assistantRouting.showKey') }}</span>
+              </button>
+            </div>
+            <p class="s-form-hint">{{ t('settings.assistantRouting.jevApiKeyHint') }}</p>
+          </div>
+
+          <div class="s-form-group">
+            <label class="s-form-label" for="jev-model">{{ t('settings.assistantRouting.jevModelLabel') }}</label>
+            <input
+              id="jev-model"
+              v-model="jevModel"
+              data-test="jev-model"
+              class="s-form-input"
+              type="text"
+              :placeholder="t('settings.assistantRouting.jevModelPlaceholder')"
+              spellcheck="false"
+              autocomplete="off"
+              @input="markDirty"
+            />
+          </div>
+
+          <p class="s-form-hint">{{ t('settings.assistantRouting.jevHint') }}</p>
+          <p v-if="!jevHasKey" class="s-form-hint routing-warning">{{ t('settings.assistantRouting.jevUnavailableHint') }}</p>
+
+          <div class="save-row">
+            <button class="s-btn s-btn-primary" type="button" data-test="save-jev" :disabled="saving" @click="saveJev">
+              {{ saving ? t('settings.assistantRouting.saving') : t('settings.assistantRouting.save') }}
+            </button>
+          </div>
+        </template>
+
         <p v-if="validationError" class="s-form-hint validation-error">{{ validationError }}</p>
       </div>
     </div>
@@ -162,8 +231,12 @@ const provider = ref<NonNullable<RouterConfig['provider']>>(settingsStore.router
 const baseUrl = ref(settingsStore.routerConfig.baseUrl ?? '')
 const apiKey = ref(settingsStore.routerConfig.apiKey ?? '')
 const model = ref(settingsStore.routerConfig.model ?? '')
+const jevEndpoint = ref(settingsStore.routerConfig.jevEndpoint ?? '')
+const jevApiKey = ref(settingsStore.routerConfig.jevApiKey ?? '')
+const jevModel = ref(settingsStore.routerConfig.jevModel ?? '')
 
 const showKey = ref(false)
+const showJevKey = ref(false)
 const saving = ref(false)
 const status = ref<'success' | 'error' | null>(null)
 const validationError = ref('')
@@ -181,6 +254,7 @@ const followFastBinding = computed(() =>
 const followFastAvailable = computed(() => !!followFastBinding.value)
 const fastModel = computed(() => followFastBinding.value?.model)
 const customHasKey = computed(() => apiKey.value.trim().length > 0)
+const jevHasKey = computed(() => jevEndpoint.value.trim().length > 0 && jevApiKey.value.trim().length > 0)
 const enabledHint = computed(() =>
   enabled.value
     ? t('settings.assistantRouting.enabledHint')
@@ -194,6 +268,9 @@ function applyConfig(next: RouterConfig): void {
   baseUrl.value = next.baseUrl ?? ''
   apiKey.value = next.apiKey ?? ''
   model.value = next.model ?? ''
+  jevEndpoint.value = next.jevEndpoint ?? ''
+  jevApiKey.value = next.jevApiKey ?? ''
+  jevModel.value = next.jevModel ?? ''
 }
 
 // 面板可能挂载早于 gui-settings.json 落地（KeepAlive 会把它留住）；配置到达后回灌。
@@ -230,11 +307,11 @@ async function onEnabledChange(): Promise<void> {
 }
 
 /**
- * 「自定义」只是打开表单：连接字段齐全并按下保存前，仍然沿用 follow-fast。
+ * 「自定义」/「Jev」只是打开表单：连接字段齐全并按下保存前，仍然沿用 follow-fast。
  * 切回 follow-fast 没有表单可保存，立即落盘并让表单回到已存配置。
  */
 async function onSourceChange(): Promise<void> {
-  if (modelSource.value === 'custom') {
+  if (modelSource.value === 'custom' || modelSource.value === 'jev') {
     status.value = null
     validationError.value = ''
     return
@@ -258,6 +335,24 @@ async function saveCustom(): Promise<void> {
     baseUrl: url,
     apiKey: apiKey.value.trim(),
     model: model.value.trim(),
+  })
+  if (status.value === 'success') applyConfig(settingsStore.routerConfig)
+}
+
+async function saveJev(): Promise<void> {
+  validationError.value = ''
+  const endpoint = jevEndpoint.value.trim().replace(/\/+$/, '')
+  if (endpoint && !/^https?:\/\/\S+$/i.test(endpoint)) {
+    validationError.value = t('settings.assistantRouting.invalidBaseUrl')
+    return
+  }
+
+  dirty.value = false
+  await persist({
+    modelSource: 'jev',
+    jevEndpoint: endpoint,
+    jevApiKey: jevApiKey.value.trim(),
+    jevModel: jevModel.value.trim(),
   })
   if (status.value === 'success') applyConfig(settingsStore.routerConfig)
 }

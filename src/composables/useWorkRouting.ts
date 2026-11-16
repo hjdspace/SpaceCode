@@ -6,9 +6,11 @@
 import { useAppStore } from '@/stores/app'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
 import { useChatSessionStore } from '@/stores/chatSession'
+import { useSettingsStore } from '@/stores/settings'
 import { useTurnStore } from '@/stores/turn'
 import {
   buildRoutingCandidates,
+  createJevRouterAdapter,
   createLlmRouterAdapter,
   routeFirstMessage,
 } from '@/services/assistantRouter'
@@ -40,6 +42,7 @@ export function useWorkRouting() {
   const agentsStore = useAgentsStore()
   const turnStore = useTurnStore()
   const appStore = useAppStore()
+  const settingsStore = useSettingsStore()
 
   function findWorkAssistant(name: string): AgentDef | undefined {
     return agentsStore.installedAgents.find(a => a.name === name && a.mode === 'work')
@@ -155,11 +158,15 @@ export function useWorkRouting() {
       isZh,
     })
 
+    const adapter = settingsStore.routerConfig.modelSource === 'jev'
+      ? createJevRouterAdapter()
+      : createLlmRouterAdapter()
+
     const outcome = await routeFirstMessage({
       message: input.content,
       candidates,
       isZh,
-      adapter: createLlmRouterAdapter(),
+      adapter,
       signal,
     })
 

@@ -241,4 +241,92 @@ describe('AssistantRoutingSettings', () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain(zh.saveFailed))
     expect(wrapper.text()).not.toContain(zh.saved)
   })
+
+  it('切到 Jev 只展开表单，不提前落盘', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('#routing-model-source').setValue('jev')
+    await nextTick()
+
+    expect(wrapper.find('#jev-endpoint').exists()).toBe(true)
+    expect(wrapper.find('#jev-api-key').exists()).toBe(true)
+    expect(wrapper.find('#jev-model').exists()).toBe(true)
+    expect(useSettingsStore().routerConfig.modelSource).toBe('follow-fast')
+    expect(apiMocks.saveGuiSettings).not.toHaveBeenCalled()
+  })
+
+  it('保存 Jev 连接：endpoint/key/model 全部持久化', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('#routing-model-source').setValue('jev')
+    await wrapper.find('#jev-endpoint').setValue('https://jev.test/v1/choice')
+    await wrapper.find('#jev-api-key').setValue('sk-jev')
+    await wrapper.find('#jev-model').setValue('jev-1')
+    await wrapper.find('[data-test="save-jev"]').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.find('[data-test="save-status"]').exists()).toBe(true))
+    expect(savedRouterConfig()).toEqual({
+      enabled: true,
+      modelSource: 'jev',
+      jevEndpoint: 'https://jev.test/v1/choice',
+      jevApiKey: 'sk-jev',
+      jevModel: 'jev-1',
+    })
+    expect(wrapper.text()).toContain(zh.saved)
+  })
+
+  it('Jev 缺 key 时提示路由不可用', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('#routing-model-source').setValue('jev')
+    await nextTick()
+
+    expect(wrapper.text()).toContain(zh.jevUnavailableHint)
+  })
+
+  it('Jev 缺 endpoint 时不可用提示仍然显示', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('#routing-model-source').setValue('jev')
+    await wrapper.find('#jev-api-key').setValue('sk-jev')
+    await nextTick()
+
+    expect(wrapper.text()).toContain(zh.jevUnavailableHint)
+  })
+
+  it('Jev 填了 endpoint 和 key 后不显示不可用警告', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('#routing-model-source').setValue('jev')
+    await wrapper.find('#jev-endpoint').setValue('https://jev.test/v1/choice')
+    await wrapper.find('#jev-api-key').setValue('sk-jev')
+    await nextTick()
+
+    expect(wrapper.text()).not.toContain(zh.jevUnavailableHint)
+  })
+
+  it('Jev Endpoint 非法时阻止保存', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('#routing-model-source').setValue('jev')
+    await wrapper.find('#jev-endpoint').setValue('not-a-url')
+    await wrapper.find('#jev-api-key').setValue('sk-jev')
+    await wrapper.find('[data-test="save-jev"]').trigger('click')
+
+    expect(apiMocks.saveGuiSettings).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain(zh.invalidBaseUrl)
+  })
+
+  it('从 Jev 切回 follow-fast 立即落盘', async () => {
+    const settings = useSettingsStore()
+    settings.routerConfig = {
+      enabled: true,
+      modelSource: 'jev',
+      jevEndpoint: 'https://jev.test/v1/choice',
+      jevApiKey: 'sk-jev',
+      jevModel: 'jev-1',
+    }
+    const wrapper = mountPanel()
+    await nextTick()
+    expect(inputValue(wrapper, '#routing-model-source')).toBe('jev')
+
+    await wrapper.find('#routing-model-source').setValue('follow-fast')
+
+    await vi.waitFor(() => expect(savedRouterConfig().modelSource).toBe('follow-fast'))
+    expect(savedRouterConfig()).toMatchObject({ jevEndpoint: 'https://jev.test/v1/choice', jevApiKey: 'sk-jev', jevModel: 'jev-1' })
+  })
 })
