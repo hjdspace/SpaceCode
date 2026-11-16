@@ -90,10 +90,16 @@
                 :loading="paneIsLoading"
                 :session-id="paneSessionId"
                 :readonly="readonly"
+                :held-message="heldWorkMessage"
+                :work-routing-card="workRoutingCard"
                 @tool-submit="handleToolSubmit"
                 @tool-skip="handleToolSkip"
                 @rewind="handleMessageRewind"
                 @edit-resend="handleEditResend"
+                @routing-pick="handleRoutingPick"
+                @routing-general="handleRoutingGeneral"
+                @routing-gallery="handleRoutingGallery"
+                @routing-cancel="handleRoutingCancel"
               />
 
               <WelcomeHero
@@ -105,8 +111,8 @@
                 @select="handleWelcomeTaskSelect"
               />
 
-              <RecommendedPrompts v-if="!readonly" />
-              <WorkAssistantShortcuts v-if="!readonly" />
+              <RecommendedPrompts v-if="!readonly && !isAwaitingWorkRouting" />
+              <WorkAssistantShortcuts v-if="!readonly && !isAwaitingWorkRouting" />
             </template>
           </div>
 
@@ -131,11 +137,11 @@
             @update:agent="handleAgentChange"
             @open-skills="handleOpenSkills"
             @stop="handleStop"
-            :disabled="paneIsLoading"
+            :disabled="paneIsLoading || isAwaitingWorkRouting"
             :is-sending="paneIsLoading"
             :model-value="currentModel"
             :working-directory="paneWorkingDirectory"
-            :placeholder="t('chat.askAnything')"
+            :placeholder="composerPlaceholder"
             :show-open-project-action="showNoProjectWelcome"
             :session-id="paneSessionId || undefined"
             :compact="compact"
@@ -296,6 +302,8 @@ import { buildInitialGoalPrompt, MAX_GOAL_TURNS } from '@/lib/goalPrompts'
 import { serializeQuoteAttachments } from '@/composables/useContentEditor'
 import { useSettingsStore } from '@/stores/settings'
 import type { EffortLevel } from '@/shared/effort'
+import type { Message } from '@/types'
+import type { WorkRoutingCardState } from '@/types/workRouting'
 import { useAppStore } from '@/stores/app'
 import { useSplitLayoutStore } from '@/stores/splitLayout'
 import MessageList from '../chat/MessageList.vue'
@@ -328,11 +336,7 @@ import { initLLMService, llmState } from '@/services/llm'
 import { pathsEqual } from '@/utils/recentProjectRoots'
 import { resolveModelAliasForEngine } from '@/utils/engineModel'
 import { useChatCommands } from '@/composables/useChatCommands'
-import {
-  buildRoutingCandidates,
-  createLlmRouterAdapter,
-  routeFirstMessage,
-} from '@/services/assistantRouter'
+import { useWorkRouting } from '@/composables/useWorkRouting'
 import { workDisplayName } from '@/utils/workAssistant'
 import { useOpenProjectWorkflow } from '@/composables/useOpenProjectWorkflow'
 import { useRewindFlow } from '@/composables/useRewindFlow'
@@ -437,148 +441,57 @@ const scmStore = useScmStore()
 const taskManager = useTaskManager()
 
 // ── Work 模式首消息路由 ──────────────────────────────────────
-// 决策在 services/assistantRouter（LLM adapter + 阈值处置）。S1 的兜底是临时形态：
-// 扣住消息、打开既有画廊；选中助手后由 resumeHeldWorkFirstMessage 重放（S2 换成候选卡）。
-const HELD_WORK_MESSAGE_TTL_MS = 120_000
+// 扣住消息 → 匹配 → 候选卡 / 自动绑定 / 失败形态，编排在 composables/useWorkRouting。
+// 本组件只负责把扣住状态投影到时间线与 composer，并把卡片交互转发回去。
+const workRouting = useWorkRouting()
 
-function findWorkAssistant(name: string): AgentDef | undefined {
-  return agentsStore.installedAgents.find(a => a.name === name && a.mode === 'work')
-    || agentsStore.libraryAgents.find(a => a.name === name && a.mode === 'work')
-}
+const panePendingRouting = computed(() => sessionStore.getPendingWorkRouting(paneSessionId.value))
+const isAwaitingWorkRouting = computed(() => !!panePendingRouting.value)
 
-function cloneAttachments(attachments: {
-  files: ReadonlyArray<Attachment>
-  images: ReadonlyArray<ImageAttachment>
-}): AllAttachments {
+const heldWorkMessage = computed<Message | null>(() => {
+  const pending = panePendingRouting.value
+  if (!pending) return null
   return {
-    files: attachments.files.map(file => ({ ...file })),
-    images: attachments.images.map(image => ({ ...image })),
+    id: `held-work-${pending.sessionId}-${pending.attempt}`,
+    role: 'user',
+    content: pending.userContent || pending.content,
+    timestamp: pending.at,
+    attachments: pending.attachments.files,
+    imageAttachments: pending.attachments.images,
   }
+})
+
+const workRoutingCard = computed<WorkRoutingCardState | null>(() => panePendingRouting.value ?? null)
+
+const composerPlaceholder = computed(() => {
+  const pending = panePendingRouting.value
+  if (!pending) return t('chat.askAnything')
+  return pending.phase === 'matching' ? t('work.routeMatching') : t('work.routePickHint')
+})
+
+function handleRoutingPick(name: string) {
+  void workRouting.pickCandidate(paneSessionId.value, name)
 }
 
-/** 草稿由编辑器 HTML 恢复（纯 text 字段不会写回 contenteditable），这里做转义 + 换行。 */
-function plainTextToEditorHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>')
+function handleRoutingGeneral() {
+  void workRouting.chooseGeneral(paneSessionId.value)
 }
 
-/** @returns true = 继续发送；false = 消息已被扣住，等画廊选择。 */
-async function tryAutoRouteWorkMessage(
-  content: string,
-  attachments: AllAttachments,
-  messageContent: string,
-  userContent?: string,
-): Promise<boolean> {
-  const sessionId = paneSessionId.value
-  const workspace = appStore.workWorkspace || appStore.projectRoot || undefined
-  try {
-    if (agentsStore.libraryAgents.length === 0) await agentsStore.fetchLibrary(workspace)
-    await agentsStore.fetchInstalled(workspace)
-  } catch (err) {
-    console.warn('[ChatPanel] Failed to load work assistants for routing:', err)
-  }
-
-  const isZh = String(locale.value).toLowerCase().startsWith('zh')
-  const candidates = buildRoutingCandidates({
-    library: agentsStore.libraryAgents,
-    installed: agentsStore.installedAgents,
-    isZh,
-  })
-  const outcome = await routeFirstMessage({
-    message: content,
-    candidates,
-    isZh,
-    adapter: createLlmRouterAdapter(),
-  })
-
-  if (outcome.kind === 'auto') {
-    const assistant = findWorkAssistant(outcome.assistant)
-    if (assistant) {
-      try {
-        await sessionStore.applyAutoWorkRouting(sessionId, {
-          assistant: {
-            name: assistant.name,
-            skills: assistant.skills,
-            permission: assistant.permission,
-            skillRuntime: assistant.skillRuntime,
-            skillsRequired: assistant.skillsRequired,
-          },
-          ranked: outcome.ranked.map(entry => ({ name: entry.name, score: entry.score })),
-        })
-        return true
-      } catch (err) {
-        console.error('[ChatPanel] Failed to bind auto-routed assistant:', err)
-      }
-    }
-  }
-
-  sessionStore.holdWorkFirstMessage({
-    sessionId,
-    content,
-    messageContent,
-    userContent,
-    attachments: cloneAttachments(attachments),
-    at: Date.now(),
-  })
-  appStore.showWorkGallery = true
-  // 输入框在这一刻已被清空；画廊挂载后补一份草稿，用户取消选择时不丢正文与附件。
-  // 必须在组件卸载之后写，否则 ChatInput 的 unmount 草稿保存会把空编辑器的内容写回来。
-  void nextTick(() => {
-    sessionStore.saveDraft(sessionId, {
-      text: content,
-      attachments: attachments.files.map(file => ({ ...file })),
-      images: attachments.images.map(image => ({ ...image })),
-      quotes: [],
-      editorHtml: plainTextToEditorHtml(content),
-    })
-  })
-  return false
+function handleRoutingGallery() {
+  workRouting.openGalleryForRouting(paneSessionId.value)
 }
 
-/**
- * 画廊选中助手后（新会话已绑定），把扣住的首消息原样发出去。
- * 任何分支都清掉 pending：留着它才有被无关会话误收的风险。
- */
-async function resumeHeldWorkFirstMessage() {
-  if (props.sessionId || props.compact || props.readonly) return
-  const held = sessionStore.pendingWorkFirstMessage
-  if (!held) return
-  const sessionId = paneSessionId.value
-  if (!sessionId) return
-  sessionStore.clearPendingWorkFirstMessage()
-
-  // 画廊被直接关掉、没有换会话：正文与附件由上面的草稿恢复，不重复注入。
-  if (sessionId === held.sessionId) return
-
-  const session = sessionStore.getSession(sessionId)
-  const isFreshPickedSession = !!session &&
-    session.mode === 'work' &&
-    !!session.assistantId &&
-    session.messages.length === 0 &&
-    session.createdAt >= held.at &&
-    Date.now() - held.at <= HELD_WORK_MESSAGE_TTL_MS
-  if (!isFreshPickedSession) return
-
-  // 消息已转交给新会话，原会话的兜底草稿不能留着（否则回到旧会话会看到重复文本）。
-  sessionStore.clearDraft(held.sessionId)
-  try {
-    await turnStore.sendMessage(
-      held.messageContent,
-      held.userContent,
-      cloneAttachments(held.attachments),
-    )
-  } catch (error) {
-    console.error('[ChatPanel] Failed to send held work message:', error)
-  }
+function handleRoutingCancel() {
+  workRouting.cancelRouting(paneSessionId.value)
 }
 
 const workRoutingMarkerText = computed(() => {
   const routing = paneSession.value?.workRouting
-  if (!routing || routing.outcome !== 'auto' || !routing.assistant) return ''
-  return t('work.routeMarkerAuto', { name: workDisplayName(routing.assistant) })
+  if (!routing) return ''
+  if (routing.outcome === 'general') return t('work.routeMarkerGeneral')
+  if (!routing.assistant) return ''
+  const key = routing.outcome === 'auto' ? 'work.routeMarkerAuto' : 'work.routeMarkerPicked'
+  return t(key, { name: workDisplayName(routing.assistant) })
 })
 
 // The floating env panel needs ~324px (300 panel + 12 right margin + 12 gutter).
@@ -973,15 +886,17 @@ const showRecommendedPrompts = computed(
     appStore.mode === 'work' &&
     paneSession.value?.mode === 'work' &&
     isEmptyChat.value &&
+    !isAwaitingWorkRouting.value &&
     welcomePromptList.value.length > 0,
 )
 
-/** work 模式 + 空会话 + 未选助手 → 显示选人卡 */
+/** work 模式 + 空会话 + 未选助手 → 显示选人卡（路由等待/候选期间让位给候选卡） */
 const showWorkAssistantShortcuts = computed(
   () =>
     appStore.mode === 'work' &&
     paneSession.value?.mode === 'work' &&
     isEmptyChat.value &&
+    !isAwaitingWorkRouting.value &&
     !paneSession.value?.assistantId,
 )
 
@@ -990,6 +905,7 @@ const showWelcomeHero = computed(
   () =>
     !showNoProjectWelcome.value &&
     isEmptyChat.value &&
+    !isAwaitingWorkRouting.value &&
     !showRecommendedPrompts.value &&
     !showWorkAssistantShortcuts.value,
 )
@@ -1054,7 +970,6 @@ const currentModel = ref('')
 // 否则重启后输入框会回退显示 config.model（恒为 sonnet 槽位）。
 onMounted(async () => {
   await initLLMService()
-  await resumeHeldWorkFirstMessage()
   currentModel.value = settingsStore.lastSelectedModel || settingsStore.config.model || ''
   if (paneSessionId.value && !paneIsObserved.value) {
     contextUsageStore.refresh(paneSessionId.value)
@@ -1268,7 +1183,7 @@ async function handleSend(content: string, attachments: AllAttachments, options?
   }
 
   // Work 模式首消息路由：必须在引擎初始化之前决策一次。
-  // 高置信 → 就地绑定 top-1 助手后照常发送；低置信/none/失败/不可用 → 扣住消息并打开画廊。
+  // 消息先扣住（时间线内联显示、composer 禁用），再由 useWorkRouting 决定自动绑定 / 候选卡。
   const { messageContent, userContent } = buildOutgoingMessage(content, attachments, options)
 
   if (
@@ -1277,8 +1192,23 @@ async function handleSend(content: string, attachments: AllAttachments, options?
     content.trim().length > 0 &&
     sessionStore.shouldRouteWorkFirstMessage(paneSessionId.value)
   ) {
-    const proceed = await tryAutoRouteWorkMessage(content, attachments, messageContent, userContent)
-    if (!proceed) return
+    const sessionId = paneSessionId.value
+    if (!sessionId) return
+    void workRouting.startFirstMessageRouting({
+      sessionId,
+      content,
+      messageContent,
+      userContent,
+      attachments: {
+        files: attachments.files.map(file => ({ ...file })),
+        images: attachments.images.map(image => ({ ...image })),
+      },
+      isZh: String(locale.value).toLowerCase().startsWith('zh'),
+      workspace: appStore.workWorkspace || appStore.projectRoot || undefined,
+    }).catch(error => {
+      console.error('[ChatPanel] Work first-message routing failed:', error)
+    })
+    return
   }
 
   // Work 助手会话：用户首次发送消息时展开 Artifacts 面板
@@ -1309,6 +1239,9 @@ async function handleSend(content: string, attachments: AllAttachments, options?
 // 处理停止/中断
 async function handleStop() {
   console.log('[ChatPanel] Stopping...')
+  const sessionId = props.sessionId ? paneSessionId.value : sessionStore.currentSessionId
+  // 停止/切走都中止在途路由：卡片转为失败形态，消息仍扣着等点选。
+  if (sessionId) workRouting.cancelRouting(sessionId)
   try {
     await turnStore.abort(props.sessionId ? paneSessionId.value : undefined)
     console.log('[ChatPanel] Stop requested successfully')

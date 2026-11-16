@@ -55,6 +55,19 @@ async function freshStores(): Promise<Stores> {
   return stores
 }
 
+function emptyAttachments() {
+  return { files: [], images: [] }
+}
+
+function holdFirstMessage(chat: Stores['chat'], sessionId: string, content = '帮我做个可编辑的 PPT') {
+  return chat.beginWorkRouting({
+    sessionId,
+    content,
+    messageContent: content,
+    attachments: emptyAttachments(),
+  })
+}
+
 beforeEach(() => {
   localStorage.clear()
   vi.clearAllMocks()
@@ -115,13 +128,147 @@ describe('work first-message routing gate', () => {
   })
 })
 
+describe('pending routing lifecycle', () => {
+  it('holds the first message out of session.messages and blocks a second routing', async () => {
+    const { chat } = await freshStores()
+    const session = chat.createSession('新对话', 'D:/work')
+
+    const { signal, attempt } = holdFirstMessage(chat, session.id)
+    const pending = chat.getPendingWorkRouting(session.id)
+
+    expect(signal.aborted).toBe(false)
+    expect(pending).toMatchObject({ phase: 'matching', content: '帮我做个可编辑的 PPT', attempt })
+    expect(pending?.attachments).toEqual({ files: [], images: [] })
+    expect(session.messages).toHaveLength(0)
+    expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(false)
+  })
+
+  it('moves to the candidate card and ignores results from a stale attempt', async () => {
+    const { chat } = await freshStores()
+    const session = chat.createSession('新对话', 'D:/work')
+
+    const first = holdFirstMessage(chat, session.id)
+    chat.abortWorkRouting(session.id)
+    expect(chat.getPendingWorkRouting(session.id)).toMatchObject({
+      phase: 'candidates',
+      failure: 'abort',
+    })
+
+    const second = holdFirstMessage(chat, session.id)
+    expect(second.attempt).not.toBe(first.attempt)
+    chat.setWorkRoutingCandidates(session.id, {
+      attempt: first.attempt,
+      ranked: [{ name: 'ppt-creator', score: 0.5, reason: 'stale' }],
+    })
+
+    expect(chat.getPendingWorkRouting(session.id)).toMatchObject({ phase: 'matching', ranked: [] })
+    chat.setWorkRoutingCandidates(session.id, {
+      attempt: second.attempt,
+      ranked: [{ name: 'ppt-creator', score: 0.5, reason: 'fits' }],
+    })
+    expect(chat.getPendingWorkRouting(session.id)?.ranked).toHaveLength(1)
+  })
+
+  it('aborts in-flight routing when switching sessions and keeps the card on the origin', async () => {
+    const { chat } = await freshStores()
+    const origin = chat.createSession('新对话', 'D:/work')
+    const other = chat.createSession('另一个会话', 'D:/work', undefined, { activate: false })
+
+    const { signal } = holdFirstMessage(chat, origin.id)
+    await chat.selectSession(other.id)
+
+    expect(signal.aborted).toBe(true)
+    expect(chat.getPendingWorkRouting(origin.id)).toMatchObject({
+      phase: 'candidates',
+      failure: 'abort',
+    })
+    expect(origin.messages).toHaveLength(0)
+
+    // 返回原会话后候选卡仍在原位，可直接点选
+    await chat.selectSession(origin.id)
+    const bound = await chat.completeWorkRouting(origin.id, {
+      outcome: 'picked',
+      assistant: { name: 'ppt-creator' },
+    })
+    expect(bound).toBe(true)
+    expect(origin.assistantId).toBe('ppt-creator')
+    expect(origin.workRouting).toMatchObject({ outcome: 'picked', assistant: 'ppt-creator' })
+    expect(chat.getPendingWorkRouting(origin.id)).toBeUndefined()
+  })
+
+  it('refuses an auto completion after the user cancelled', async () => {
+    const { chat } = await freshStores()
+    const session = chat.createSession('新对话', 'D:/work')
+
+    holdFirstMessage(chat, session.id)
+    chat.abortWorkRouting(session.id)
+    const completed = await chat.completeWorkRouting(session.id, {
+      outcome: 'auto',
+      assistant: { name: 'ppt-creator' },
+    })
+
+    expect(completed).toBe(false)
+    expect(session.assistantId).toBeUndefined()
+    expect(session.workRouting).toBeUndefined()
+    expect(chat.getPendingWorkRouting(session.id)?.phase).toBe('candidates')
+  })
+
+  it('records the general exit without binding an assistant', async () => {
+    const { chat } = await freshStores()
+    const session = chat.createSession('新对话', 'D:/work')
+
+    holdFirstMessage(chat, session.id)
+    chat.setWorkRoutingCandidates(session.id, { failure: 'none' })
+    const completed = chat.completeGeneralWorkRouting(session.id)
+
+    expect(completed).toBe(true)
+    expect(session.assistantId).toBeUndefined()
+    expect(session.workRouting).toMatchObject({ outcome: 'general' })
+    expect(chat.getPendingWorkRouting(session.id)).toBeUndefined()
+    expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(false)
+
+    chat.flushSaveNow()
+    const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    expect(persisted[0].workRouting).toMatchObject({ outcome: 'general' })
+  })
+
+  it('drops the pending route when the session is deleted', async () => {
+    const { chat } = await freshStores()
+    const session = chat.createSession('新对话', 'D:/work')
+
+    holdFirstMessage(chat, session.id)
+    await chat.deleteSession(session.id)
+
+    expect(chat.getPendingWorkRouting(session.id)).toBeUndefined()
+  })
+
+  it('clears the gallery handoff target once the pick is resolved', async () => {
+    const { chat } = await freshStores()
+    const session = chat.createSession('新对话', 'D:/work')
+
+    holdFirstMessage(chat, session.id)
+    chat.setWorkRoutingCandidates(session.id, { failure: 'unavailable' })
+    chat.setRoutingGalleryTarget(session.id)
+    expect(chat.routingGalleryTarget).toBe(session.id)
+
+    await chat.completeWorkRouting(session.id, {
+      outcome: 'picked',
+      assistant: { name: 'docx-writer' },
+    })
+    expect(chat.routingGalleryTarget).toBeNull()
+  })
+})
+
 describe('auto work routing binding', () => {
   it('binds through switchWorkAssistant, keeps the session id, and persists the decision', async () => {
     const { chat } = await freshStores()
     const session = chat.createSession('新对话', 'D:/work')
     const sessionId = session.id
 
-    await chat.applyAutoWorkRouting(sessionId, {
+    const { attempt } = holdFirstMessage(chat, sessionId)
+    const completed = await chat.completeWorkRouting(sessionId, {
+      attempt,
+      outcome: 'auto',
       assistant: { name: 'ppt-creator', skills: ['pptx'] },
       ranked: [
         { name: 'ppt-creator', score: 0.92 },
@@ -130,6 +277,7 @@ describe('auto work routing binding', () => {
     })
 
     // 同一个会话就地绑定，不新建会话
+    expect(completed).toBe(true)
     expect(chat.currentSessionId).toBe(sessionId)
     expect(chat.sessions.filter(s => s.id === sessionId)).toHaveLength(1)
     expect(session.assistantId).toBe('ppt-creator')
@@ -156,7 +304,9 @@ describe('auto work routing binding', () => {
     mocks.checkInstalled.mockResolvedValueOnce(false)
     const session = chat.createSession('新对话', 'D:/work')
 
-    await chat.applyAutoWorkRouting(session.id, {
+    holdFirstMessage(chat, session.id)
+    await chat.completeWorkRouting(session.id, {
+      outcome: 'auto',
       assistant: { name: 'morph-ppt', skills: ['morph-ppt'], skillRuntime: 'officecli' },
       ranked: [{ name: 'morph-ppt', score: 0.8 }],
     })
@@ -169,7 +319,9 @@ describe('workRouting hydration', () => {
   it('keeps a persisted decision across a restart', async () => {
     const first = await freshStores()
     const session = first.chat.createSession('新对话', 'D:/work')
-    await first.chat.applyAutoWorkRouting(session.id, {
+    holdFirstMessage(first.chat, session.id)
+    await first.chat.completeWorkRouting(session.id, {
+      outcome: 'auto',
       assistant: { name: 'docx-writer' },
       ranked: [{ name: 'docx-writer', score: 0.88 }],
     })
@@ -180,6 +332,7 @@ describe('workRouting hydration', () => {
     const restored = second.chat.getSession(sessionId)
 
     expect(restored?.workRouting).toMatchObject({ outcome: 'auto', assistant: 'docx-writer' })
+    expect(second.chat.getPendingWorkRouting(sessionId)).toBeUndefined()
     expect(second.chat.shouldRouteWorkFirstMessage(sessionId)).toBe(false)
   })
 
@@ -202,27 +355,5 @@ describe('workRouting hydration', () => {
     expect(legacy).toBeTruthy()
     expect(legacy?.workRouting).toBeUndefined()
     expect(chat.shouldRouteWorkFirstMessage('legacy-work')).toBe(false)
-  })
-})
-
-describe('held first message', () => {
-  it('holds and clears the message without touching the session messages', async () => {
-    const { chat } = await freshStores()
-    const session = chat.createSession('新对话', 'D:/work')
-
-    chat.holdWorkFirstMessage({
-      sessionId: session.id,
-      content: '帮我做个可编辑的 PPT',
-      messageContent: '帮我做个可编辑的 PPT',
-      userContent: undefined,
-      attachments: { files: [], images: [] },
-      at: Date.now(),
-    })
-
-    expect(chat.pendingWorkFirstMessage?.sessionId).toBe(session.id)
-    expect(session.messages).toHaveLength(0)
-
-    chat.clearPendingWorkFirstMessage()
-    expect(chat.pendingWorkFirstMessage).toBeNull()
   })
 })

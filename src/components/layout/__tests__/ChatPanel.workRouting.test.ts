@@ -8,12 +8,21 @@ const MessageListStub = defineComponent({
   props: {
     messages: { type: Array, required: true },
     loading: { type: Boolean, required: true },
+    sessionId: { type: String, default: '' },
+    readonly: { type: Boolean, default: false },
+    heldMessage: { type: Object, default: null },
+    workRoutingCard: { type: Object, default: null },
   },
   template: '<div data-test="message-list" />',
 })
 
 const ChatInputStub = defineComponent({
   name: 'ChatInput',
+  props: {
+    disabled: { type: Boolean, default: false },
+    isSending: { type: Boolean, default: false },
+    placeholder: { type: String, default: '' },
+  },
   template: '<div data-test="chat-input" />',
 })
 
@@ -42,6 +51,13 @@ vi.mock('@/services/electronAPI', () => ({
     getEnv: vi.fn().mockResolvedValue(''),
     notifyEngineSourceChanged: vi.fn().mockResolvedValue(undefined),
     h5Access: { setMirrorSession: vi.fn().mockResolvedValue(undefined) },
+    agents: {
+      install: vi.fn().mockResolvedValue({ success: true }),
+      getInstalled: vi.fn().mockResolvedValue({ agents: [] }),
+      scanLibrary: vi.fn().mockResolvedValue({ agents: [] }),
+    },
+    skills: { installLocal: vi.fn().mockResolvedValue({ success: true }) },
+    officecli: { checkInstalled: vi.fn().mockResolvedValue(true) },
     git: {
       getStatus: vi.fn().mockResolvedValue(null),
       getFullDiff: vi.fn().mockResolvedValue(null),
@@ -118,48 +134,89 @@ describe('ChatPanel held work message', () => {
     })
   })
 
-  async function holdMessageFrom(sourceSessionId: string) {
-    const { useChatSessionStore } = await import('@/stores/chatSession')
-    const store = useChatSessionStore()
-    store.holdWorkFirstMessage({
-      sessionId: sourceSessionId,
-      content: '帮我做个可编辑的 PPT',
-      messageContent: '帮我做个可编辑的 PPT',
-      userContent: undefined,
-      attachments: {
-        files: [{ name: 'outline.md', path: 'D:/repo/outline.md', isFolder: false }],
-        images: [],
-      },
-      at: Date.now() - 1000,
-    })
-  }
-
-  it('sends the held message into the freshly bound assistant session', async () => {
+  async function mountWithHeldMessage() {
     const { default: ChatPanel } = await import('../ChatPanel.vue')
     const { useChatSessionStore } = await import('@/stores/chatSession')
     const { useTurnStore } = await import('@/stores/turn')
     const { useAppStore } = await import('@/stores/app')
+    const { useAgentsStore } = await import('@/stores/agents')
 
     const appStore = useAppStore()
     appStore.mode = 'work'
     appStore.setWorkWorkspace('D:/repo')
     appStore.projectRoot = 'D:/repo'
 
-    const store = useChatSessionStore()
-    const source = store.createSession('新对话', 'D:/repo')
-    await holdMessageFrom(source.id)
+    const agentsStore = useAgentsStore()
+    agentsStore.libraryAgents = [{
+      name: 'ppt-creator',
+      description: 'editable decks',
+      content: '',
+      sourceDir: '',
+      agentPath: '',
+      isInstalled: false,
+      category: 'office',
+      mode: 'work',
+    }]
 
-    // 画廊点选 → startWorkAssistantSession 创建的新会话
-    const picked = store.createSession('ppt-creator', 'D:/repo')
-    picked.assistantId = 'ppt-creator'
-    store.selectSession(picked.id)
+    const store = useChatSessionStore()
+    const session = store.createSession('新对话', 'D:/repo')
+    store.beginWorkRouting({
+      sessionId: session.id,
+      content: '帮我做个可编辑的 PPT',
+      messageContent: '帮我做个可编辑的 PPT',
+      attachments: {
+        files: [{ name: 'outline.md', path: 'D:/repo/outline.md', isFolder: false }],
+        images: [],
+      },
+    })
 
     const turnStore = useTurnStore()
     const sendMessage = vi.spyOn(turnStore, 'sendMessage').mockResolvedValue(undefined)
 
-    shallowMount(ChatPanel, { global: { plugins: [pinia] } })
+    const wrapper = shallowMount(ChatPanel, { global: { plugins: [pinia] } })
+    await flushPromises()
+    return { wrapper, store, session, sendMessage }
+  }
+
+  it('renders the held message and matching card while the composer is disabled', async () => {
+    const { wrapper, store, session } = await mountWithHeldMessage()
+
+    const list = wrapper.findComponent(MessageListStub)
+    const input = wrapper.findComponent(ChatInputStub)
+
+    expect(list.props('heldMessage')).toMatchObject({
+      role: 'user',
+      content: '帮我做个可编辑的 PPT',
+      attachments: [expect.objectContaining({ path: 'D:/repo/outline.md' })],
+    })
+    expect(list.props('workRoutingCard')).toMatchObject({ phase: 'matching' })
+    expect(input.props('disabled')).toBe(true)
+    expect(input.props('placeholder')).toBe('work.routeMatching')
+    expect(store.getPendingWorkRouting(session.id)?.phase).toBe('matching')
+  })
+
+  it('cancelling from the card turns the wait into the failure form', async () => {
+    const { wrapper, store, session } = await mountWithHeldMessage()
+
+    wrapper.findComponent(MessageListStub).vm.$emit('routing-cancel')
     await flushPromises()
 
+    expect(store.getPendingWorkRouting(session.id)).toMatchObject({
+      phase: 'candidates',
+      failure: 'abort',
+    })
+  })
+
+  it('picking a candidate binds and sends the held message', async () => {
+    const { wrapper, store, session, sendMessage } = await mountWithHeldMessage()
+
+    store.abortWorkRouting(session.id)
+    await flushPromises()
+    wrapper.findComponent(MessageListStub).vm.$emit('routing-pick', 'ppt-creator')
+    await flushPromises()
+
+    expect(session.assistantId).toBe('ppt-creator')
+    expect(store.getPendingWorkRouting(session.id)).toBeUndefined()
     expect(sendMessage).toHaveBeenCalledWith(
       '帮我做个可编辑的 PPT',
       undefined,
@@ -167,62 +224,26 @@ describe('ChatPanel held work message', () => {
         files: [expect.objectContaining({ path: 'D:/repo/outline.md' })],
         images: [],
       }),
+      { sessionId: session.id },
     )
-    expect(store.pendingWorkFirstMessage).toBeNull()
   }, 30000)
 
-  it('clears the held message when the gallery is closed without picking', async () => {
-    const { default: ChatPanel } = await import('../ChatPanel.vue')
-    const { useChatSessionStore } = await import('@/stores/chatSession')
-    const { useTurnStore } = await import('@/stores/turn')
-    const { useAppStore } = await import('@/stores/app')
+  it('the general exit sends without binding an assistant', async () => {
+    const { wrapper, store, session, sendMessage } = await mountWithHeldMessage()
 
-    const appStore = useAppStore()
-    appStore.mode = 'work'
-    appStore.setWorkWorkspace('D:/repo')
-    appStore.projectRoot = 'D:/repo'
-
-    const store = useChatSessionStore()
-    const source = store.createSession('新对话', 'D:/repo')
-    await holdMessageFrom(source.id)
-
-    const turnStore = useTurnStore()
-    const sendMessage = vi.spyOn(turnStore, 'sendMessage').mockResolvedValue(undefined)
-
-    shallowMount(ChatPanel, { global: { plugins: [pinia] } })
+    store.abortWorkRouting(session.id)
+    await flushPromises()
+    wrapper.findComponent(MessageListStub).vm.$emit('routing-general')
     await flushPromises()
 
-    expect(sendMessage).not.toHaveBeenCalled()
-    expect(store.pendingWorkFirstMessage).toBeNull()
-  }, 30000)
-
-  it('does not replay a stale held message into an unrelated empty assistant session', async () => {
-    const { default: ChatPanel } = await import('../ChatPanel.vue')
-    const { useChatSessionStore } = await import('@/stores/chatSession')
-    const { useTurnStore } = await import('@/stores/turn')
-    const { useAppStore } = await import('@/stores/app')
-
-    const appStore = useAppStore()
-    appStore.mode = 'work'
-    appStore.setWorkWorkspace('D:/repo')
-    appStore.projectRoot = 'D:/repo'
-
-    const store = useChatSessionStore()
-    const source = store.createSession('新对话', 'D:/repo')
-    // 旧会话：创建时间早于扣住时刻，不属于本次点选
-    const oldBound = store.createSession('docx-writer', 'D:/repo')
-    oldBound.assistantId = 'docx-writer'
-    oldBound.createdAt = Date.now() - 10_000
-    await holdMessageFrom(source.id)
-    store.selectSession(oldBound.id)
-
-    const turnStore = useTurnStore()
-    const sendMessage = vi.spyOn(turnStore, 'sendMessage').mockResolvedValue(undefined)
-
-    shallowMount(ChatPanel, { global: { plugins: [pinia] } })
-    await flushPromises()
-
-    expect(sendMessage).not.toHaveBeenCalled()
-    expect(store.pendingWorkFirstMessage).toBeNull()
+    expect(session.assistantId).toBeUndefined()
+    expect(session.workRouting).toMatchObject({ outcome: 'general' })
+    expect(store.getPendingWorkRouting(session.id)).toBeUndefined()
+    expect(sendMessage).toHaveBeenCalledWith(
+      '帮我做个可编辑的 PPT',
+      undefined,
+      expect.objectContaining({ images: [] }),
+      { sessionId: session.id },
+    )
   }, 30000)
 })

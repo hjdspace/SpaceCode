@@ -4,9 +4,9 @@
       :scroll-ref="listRef"
       :messages="props.messages"
     />
-    <div class="message-list" ref="listRef" :class="{ 'has-messages': props.messages.length > 0 || props.loading }">
+    <div class="message-list" ref="listRef" :class="{ 'has-messages': props.messages.length > 0 || props.loading || !!props.heldMessage }">
       <div class="messages-container" :class="{ im: props.presentation === 'im' }">
-        <div v-if="props.messages.length === 0 && !props.loading" class="empty-state">
+        <div v-if="props.messages.length === 0 && !props.loading && !props.heldMessage" class="empty-state">
           <MessageSquare :size="48" />
           <p>{{ t('chat.startConversation') }}</p>
           <span>{{ t('chat.startConversationDesc') }}</span>
@@ -80,6 +80,30 @@
           />
         </div>
 
+        <!-- 办公助手首消息路由：扣住的消息与候选卡锚在这条消息下面，不追加到末尾 -->
+        <div
+          v-if="props.heldMessage"
+          :data-minimap-id="props.heldMessage.id"
+          class="held-work-message minimap-anchor"
+          data-test="held-work-message"
+        >
+          <MessageItem
+            :message="props.heldMessage"
+            :session-id="props.sessionId"
+            :readonly="true"
+            :can-rewind="false"
+            :presentation="props.presentation"
+          />
+          <WorkRoutingCard
+            v-if="props.workRoutingCard"
+            :state="props.workRoutingCard"
+            @pick="emit('routingPick', $event)"
+            @general="emit('routingGeneral')"
+            @gallery="emit('routingGallery')"
+            @cancel="emit('routingCancel')"
+          />
+        </div>
+
         <slot name="append" />
 
         <div v-if="props.loading && !hasVisibleAssistantContent" class="loading-wrapper">
@@ -99,12 +123,14 @@
 import { ref, watch, nextTick, onMounted, computed, onUnmounted, useSlots } from 'vue'
 import type { Message } from '@/types'
 import type { TurnChangeCardData } from '@/types'
+import type { WorkRoutingCardState } from '@/types/workRouting'
 import MessageItem from './MessageItem.vue'
 import AgentTimeline from './AgentTimeline.vue'
 import DesignBlocks from './DesignBlocks.vue'
 import GenuiCardGroup from '@/components/genui/GenuiCardGroup.vue'
 import CurrentTurnChangeCard from './CurrentTurnChangeCard.vue'
 import ArtifactSummaryCard from './ArtifactSummaryCard.vue'
+import WorkRoutingCard from '@/components/work/WorkRoutingCard.vue'
 import ConversationMinimap from './ConversationMinimap.vue'
 import LoadingState from './LoadingState.vue'
 import ExtensionDialogCard from './tools/ExtensionDialogCard.vue'
@@ -136,6 +162,11 @@ const emit = defineEmits<{
   openArtifact: [path: string]
   submitForm: [answers: Record<string, unknown>]
   selectNext: [prompt: string]
+  // Work 首消息路由卡片
+  routingPick: [name: string]
+  routingGeneral: []
+  routingGallery: []
+  routingCancel: []
 }>()
 
 const props = defineProps<{
@@ -166,6 +197,13 @@ const props = defineProps<{
    * - 不传：主聊天原样渲染。
    */
   presentation?: 'im'
+  /**
+   * 被路由扣住的首消息：只在宿主会话里出现，不落盘、不发送。
+   * 渲染在时间线里（首条消息位置），候选卡紧随其后。
+   */
+  heldMessage?: Message | null
+  /** 扣住期间的路由状态（等待匹配 / 候选卡）。 */
+  workRoutingCard?: WorkRoutingCardState | null
 }>()
 
 interface MessageGroup {

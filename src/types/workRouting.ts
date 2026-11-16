@@ -10,15 +10,36 @@ export interface WorkAssistantBinding {
   skillsRequired?: boolean
 }
 
-/** 路由兜底时被扣住的首消息：扣住期间不发送、不起引擎，选中助手后原样重放。 */
-export interface PendingWorkFirstMessage {
+/** 路由失败/无匹配时失败形态候选卡给出的库序助手。 */
+export interface RoutingSuggestion {
+  name: string
+  description?: string
+}
+
+export type WorkRoutingFailure = 'none' | 'unavailable' | 'timeout' | 'abort' | 'error'
+
+/**
+ * 一次首消息路由的易失状态（按会话存放，不落盘）。
+ * matching = 等待决策（composer 禁用 + 取消）；candidates = 等待点选。
+ */
+export interface PendingWorkRouting {
   /** 扣住该消息的原始会话（路由发生地）。 */
   sessionId: string
-  /** 用户键入的原文（画廊被关掉时随草稿还给输入框）。 */
+  /** 用户键入的原文（决策输入）。 */
   content: string
+  /** 组装后发给引擎的正文（含附件摘要等）。 */
   messageContent: string
+  /** 时间线气泡要展示的正文；缺省用 content。 */
   userContent?: string
   attachments: { files: Attachment[]; images: ImageAttachment[] }
+  phase: 'matching' | 'candidates'
+  /** 低置信候选（带模型理由）；失败形态为空。 */
+  ranked: RankedCandidate[]
+  failure?: WorkRoutingFailure
+  /** 失败形态的库序候选，不空手。 */
+  suggestions: RoutingSuggestion[]
+  /** 本次路由尝试的序号：过期结果不得覆盖新一轮或已点选的状态。 */
+  attempt: number
   at: number
 }
 
@@ -54,6 +75,12 @@ export interface RankedCandidate {
   score: number
   reason: string
 }
+
+/** 候选卡渲染所需的全部状态：扣住消息状态里驱动 UI 的那几项。 */
+export type WorkRoutingCardState = Pick<
+  PendingWorkRouting,
+  'phase' | 'ranked' | 'failure' | 'suggestions'
+>
 
 export interface RoutingDecision {
   /** 模型显式判定没有合适的助手。 */

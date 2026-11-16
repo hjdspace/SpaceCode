@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly, watch } from 'vue'
 import type { Session, SessionType, Message, ToolCall, AgentInfo, SessionEngineType, SessionTurnCheckpoint, TurnChangeCardData, TeammateStatus } from '@/types'
-import type { PendingWorkFirstMessage, WorkAssistantBinding } from '@/types/workRouting'
+import type { PendingWorkRouting, RankedCandidate, RoutingSuggestion, WorkAssistantBinding, WorkRoutingFailure } from '@/types/workRouting'
 import { ErrorCategory } from '@/types'
 import type { RewindOption } from '@/types/rewind'
 import { i18n } from '@/i18n'
@@ -710,6 +710,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     }
     sessions.value.unshift(session)
     if (activate) {
+      // 新建并切走也属于「切换会话」：中止旧会话的在途路由，卡片留在原会话。
+      abortRoutingBeforeSwitch(session.id)
       currentSessionId.value = session.id
       clearTurnCheckpoints()
     }
@@ -1611,6 +1613,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
 
   async function selectSession(sessionId: string) {
+    // 切换会话中止在途路由：候选卡留在原会话原位等待点选，返回后仍可继续。
+    abortRoutingBeforeSwitch(sessionId)
     currentSessionId.value = sessionId
 
     const session = sessions.value.find(s => s.id === sessionId)
@@ -1659,6 +1663,8 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     const session = sessions.value.find(s => s.id === sessionId)
     if (!session) return
 
+    // 与 selectSession 同一口径：切走即中止在途路由，候选卡留在原会话。
+    abortRoutingBeforeSwitch(sessionId)
     currentSessionId.value = sessionId
     if (session.workingDirectory) {
       currentProjectRoot.value = session.workingDirectory
@@ -1815,6 +1821,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
       }
       clearSessionToolUseMappings(sessionId)
       sessionDrafts.value.delete(sessionId)
+      clearWorkRouting(sessionId)
       if (newChatDraft.value?.ownerSessionId === sessionId) {
         newChatDraft.value = null
       }
@@ -2561,18 +2568,34 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
 
   // ── 办公助手首消息路由 ──────────────────────────────────────
-  // 决策本身在 services/assistantRouter（可注入 adapter）；这里只持有
-  // 「能不能路由」「绑定并落盘」「被扣住的首消息」三件可观察状态。
+  // 决策在 services/assistantRouter，编排在 composables/useWorkRouting；这里只持有
+  // 「能不能路由」「等待/候选状态」「绑定并落盘」三件可观察状态。
+  // 扣住的消息与等待 UI 都是易失的：只活在内存里，重启后未决会话下次发送重新路由。
 
-  /** 被扣住的首消息（含附件）。只活在内存里：重启后未决会话按无路由处理。 */
-  const pendingWorkFirstMessage = ref<PendingWorkFirstMessage | null>(null)
+  const pendingWorkRouting = ref<Map<string, PendingWorkRouting>>(new Map())
+  /** 从失败形态候选卡打开画廊时记下的会话：画廊点选应就地绑定而非新建会话。 */
+  const routingGalleryTarget = ref<string | null>(null)
+  // AbortController / 尝试序号 / 完成锁不进响应式状态（不可序列化，也不需要驱动 UI）
+  const routingControllers = new Map<string, AbortController>()
+  const routingCompletionLocks = new Set<string>()
+  let routingAttemptSeq = 0
 
-  function holdWorkFirstMessage(message: PendingWorkFirstMessage) {
-    pendingWorkFirstMessage.value = message
+  function abortRoutingController(sessionId: string) {
+    const controller = routingControllers.get(sessionId)
+    if (!controller) return
+    routingControllers.delete(sessionId)
+    controller.abort()
   }
 
-  function clearPendingWorkFirstMessage() {
-    pendingWorkFirstMessage.value = null
+  /** 切走某个会话前的统一动作：中止它的在途路由（卡片留在原会话等待点选）。 */
+  function abortRoutingBeforeSwitch(nextSessionId?: string | null) {
+    const previous = currentSessionId.value
+    if (previous && previous !== nextSessionId) abortWorkRouting(previous)
+  }
+
+  function getPendingWorkRouting(sessionId?: string | null): PendingWorkRouting | undefined {
+    if (!sessionId) return undefined
+    return pendingWorkRouting.value.get(sessionId)
   }
 
   /**
@@ -2580,33 +2603,154 @@ export const useChatSessionStore = defineStore('chatSession', () => {
    * 手动选过助手（画廊/快捷卡）或已有任意消息的会话天然不满足。
    */
   function shouldRouteWorkFirstMessage(sessionId?: string): boolean {
-    const session = getSession(sessionId ?? currentSessionId.value)
+    const id = sessionId ?? currentSessionId.value
+    const session = getSession(id)
     if (!session) return false
     if (session.mode !== 'work' || session.workRoutable !== true) return false
     if (session.assistantId || session.workRouting) return false
     if (session.ephemeral || session.observedSession) return false
     if (session.messages.length > 0) return false
+    if (id && pendingWorkRouting.value.has(id)) return false
     return settingsStore.routerConfig.enabled
   }
 
-  /** 高置信结果：复用 switchWorkAssistant 就地绑定，再落盘决策快照。会话 id 不变。 */
-  async function applyAutoWorkRouting(
+  /** 扣住首消息并进入「正在匹配」；返回本次尝试的取消信号与序号。 */
+  function beginWorkRouting(input: {
+    sessionId: string
+    content: string
+    messageContent: string
+    userContent?: string
+    attachments: PendingWorkRouting['attachments']
+  }): { signal: AbortSignal; attempt: number } {
+    abortRoutingController(input.sessionId)
+    const attempt = ++routingAttemptSeq
+    const controller = new AbortController()
+    routingControllers.set(input.sessionId, controller)
+    pendingWorkRouting.value.set(input.sessionId, {
+      sessionId: input.sessionId,
+      content: input.content,
+      messageContent: input.messageContent,
+      userContent: input.userContent,
+      attachments: {
+        files: input.attachments.files.map(file => ({ ...file })),
+        images: input.attachments.images.map(image => ({ ...image })),
+      },
+      phase: 'matching',
+      ranked: [],
+      suggestions: [],
+      attempt,
+      at: Date.now(),
+    })
+    return { signal: controller.signal, attempt }
+  }
+
+  /**
+   * 决策收口为候选卡（低置信 ranked / 失败形态）。过期尝试的结果直接丢弃；
+   * 已被取消/切换会话置为候选卡的，这里只补充内容（如库序建议），不覆盖既有相位。
+   */
+  function setWorkRoutingCandidates(
     sessionId: string,
     input: {
-      assistant: WorkAssistantBinding
-      ranked: Array<{ name: string; score: number }>
+      attempt?: number
+      ranked?: RankedCandidate[]
+      failure?: WorkRoutingFailure
+      suggestions?: RoutingSuggestion[]
     },
-  ): Promise<void> {
+  ) {
+    const pending = pendingWorkRouting.value.get(sessionId)
+    if (!pending) return
+    if (input.attempt !== undefined && pending.attempt !== input.attempt) return
+    pending.phase = 'candidates'
+    if (input.ranked) pending.ranked = input.ranked
+    if (input.failure) pending.failure = input.failure
+    if (input.suggestions) pending.suggestions = input.suggestions
+    abortRoutingController(sessionId)
+  }
+
+  /**
+   * 中止在途路由：用户取消、切换会话、停止都走这里。
+   * 卡片留在原位转成失败形态等待点选 —— 不静默丢消息，也不卡死。
+   */
+  function abortWorkRouting(sessionId: string) {
+    const pending = pendingWorkRouting.value.get(sessionId)
+    abortRoutingController(sessionId)
+    if (!pending || pending.phase !== 'matching') return
+    pending.phase = 'candidates'
+    pending.failure = 'abort'
+  }
+
+  /** 高置信自动绑定 / 卡片点选的共同收口：就地绑定 + 落盘决策快照 + 清掉等待态。 */
+  async function completeWorkRouting(
+    sessionId: string,
+    input: {
+      attempt?: number
+      outcome: 'auto' | 'picked'
+      assistant: WorkAssistantBinding
+      ranked?: ReadonlyArray<{ name: string; score: number }>
+    },
+  ): Promise<boolean> {
+    const pending = pendingWorkRouting.value.get(sessionId)
+    if (!pending) return false
+    if (input.attempt !== undefined && pending.attempt !== input.attempt) return false
+    if (input.outcome === 'auto' && pending.phase !== 'matching') return false
+    if (input.outcome === 'picked' && pending.phase !== 'candidates') return false
+
     await switchWorkAssistant(input.assistant, sessionId)
     const session = getSession(sessionId)
-    if (!session) return
+    if (!session) return false
     session.workRouting = {
-      outcome: 'auto',
+      outcome: input.outcome,
       assistant: input.assistant.name,
-      ranked: input.ranked.map(entry => ({ name: entry.name, score: entry.score })),
+      ranked: (input.ranked ?? pending.ranked).map(entry => ({ name: entry.name, score: entry.score })),
       at: Date.now(),
     }
+    pendingWorkRouting.value.delete(sessionId)
+    abortRoutingController(sessionId)
+    if (routingGalleryTarget.value === sessionId) routingGalleryTarget.value = null
     saveToStorage()
+    return true
+  }
+
+  /** 「通用对话」出口：不绑定助手，会话以无助手配置启动。 */
+  function completeGeneralWorkRouting(sessionId: string, input?: { attempt?: number }): boolean {
+    const pending = pendingWorkRouting.value.get(sessionId)
+    if (!pending) return false
+    if (input?.attempt !== undefined && pending.attempt !== input.attempt) return false
+    const session = getSession(sessionId)
+    if (!session) return false
+    session.workRouting = {
+      outcome: 'general',
+      ...(pending.ranked.length > 0
+        ? { ranked: pending.ranked.map(entry => ({ name: entry.name, score: entry.score })) }
+        : {}),
+      at: Date.now(),
+    }
+    pendingWorkRouting.value.delete(sessionId)
+    abortRoutingController(sessionId)
+    if (routingGalleryTarget.value === sessionId) routingGalleryTarget.value = null
+    saveToStorage()
+    return true
+  }
+
+  /** 会话删除/不可路由时的清理：丢弃扣住的消息与在途请求。 */
+  function clearWorkRouting(sessionId: string) {
+    abortRoutingController(sessionId)
+    pendingWorkRouting.value.delete(sessionId)
+    if (routingGalleryTarget.value === sessionId) routingGalleryTarget.value = null
+  }
+
+  function tryLockWorkRoutingCompletion(sessionId: string): boolean {
+    if (routingCompletionLocks.has(sessionId)) return false
+    routingCompletionLocks.add(sessionId)
+    return true
+  }
+
+  function unlockWorkRoutingCompletion(sessionId: string) {
+    routingCompletionLocks.delete(sessionId)
+  }
+
+  function setRoutingGalleryTarget(sessionId: string | null) {
+    routingGalleryTarget.value = sessionId
   }
 
   sessions.value.forEach(s => {
@@ -2691,10 +2835,17 @@ export const useChatSessionStore = defineStore('chatSession', () => {
     switchWorkAssistant,
     // Work Assistant Routing
     shouldRouteWorkFirstMessage,
-    applyAutoWorkRouting,
-    holdWorkFirstMessage,
-    pendingWorkFirstMessage: readonly(pendingWorkFirstMessage),
-    clearPendingWorkFirstMessage,
+    getPendingWorkRouting,
+    beginWorkRouting,
+    setWorkRoutingCandidates,
+    abortWorkRouting,
+    completeWorkRouting,
+    completeGeneralWorkRouting,
+    clearWorkRouting,
+    tryLockWorkRoutingCompletion,
+    unlockWorkRoutingCompletion,
+    routingGalleryTarget: readonly(routingGalleryTarget),
+    setRoutingGalleryTarget,
     // Turn Checkpoints
     turnCheckpoints: readonly(turnCheckpoints),
     turnChangeCards,

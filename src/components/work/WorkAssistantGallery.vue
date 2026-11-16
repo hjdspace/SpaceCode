@@ -138,12 +138,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Search, Bot, X, FolderOpen, Plus, ChevronRight } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useAgentsStore, type AgentDef } from '@/stores/agents'
+import { useWorkRouting } from '@/composables/useWorkRouting'
 import { workAssistantIcon, workAvatarStyle, workDisplayName, workCategoryColor } from '@/utils/workAssistant'
 import CustomAssistantEditor from './CustomAssistantEditor.vue'
 
@@ -151,6 +152,7 @@ const { t, locale } = useI18n()
 const appStore = useAppStore()
 const sessionStore = useChatSessionStore()
 const agentsStore = useAgentsStore()
+const workRouting = useWorkRouting()
 
 const query = ref('')
 const activeCategory = ref('all')
@@ -235,6 +237,12 @@ async function handleSelect(a: AgentDef) {
   }
   starting.value = true
   try {
+    // 从路由失败形态候选卡打开画廊：点选应就地绑定当前会话并发送扣住的消息，
+    // 而不是另开一个会话把首消息留在原地。
+    if (await workRouting.completeGalleryPick(a.name)) {
+      appStore.showWorkGallery = false
+      return
+    }
     await sessionStore.startWorkAssistantSession({
       name: a.name,
       skills: a.skills,
@@ -255,6 +263,7 @@ function changeWorkspace() {
 }
 
 function handleClose() {
+  sessionStore.setRoutingGalleryTarget(null)
   appStore.showWorkGallery = false
 }
 
@@ -292,6 +301,11 @@ function displaySkillDescs(a: AgentDef): string[] {
 
 onMounted(async () => {
   await loadLibrary()
+})
+
+onBeforeUnmount(() => {
+  // 离开画廊即撤销路由交接：之后从其他入口打开画廊应恢复“新建会话”的原有行为。
+  sessionStore.setRoutingGalleryTarget(null)
 })
 </script>
 
