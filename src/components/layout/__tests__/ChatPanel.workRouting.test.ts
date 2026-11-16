@@ -134,12 +134,13 @@ describe('ChatPanel held work message', () => {
     })
   })
 
-  async function mountWithHeldMessage() {
+  async function mountPanel({ hold = true } = {}) {
     const { default: ChatPanel } = await import('../ChatPanel.vue')
     const { useChatSessionStore } = await import('@/stores/chatSession')
     const { useTurnStore } = await import('@/stores/turn')
     const { useAppStore } = await import('@/stores/app')
     const { useAgentsStore } = await import('@/stores/agents')
+    const { useSettingsStore } = await import('@/stores/settings')
 
     const appStore = useAppStore()
     appStore.mode = 'work'
@@ -160,23 +161,44 @@ describe('ChatPanel held work message', () => {
 
     const store = useChatSessionStore()
     const session = store.createSession('新对话', 'D:/repo')
-    store.beginWorkRouting({
-      sessionId: session.id,
-      content: '帮我做个可编辑的 PPT',
-      messageContent: '帮我做个可编辑的 PPT',
-      attachments: {
-        files: [{ name: 'outline.md', path: 'D:/repo/outline.md', isFolder: false }],
-        images: [],
-      },
-    })
+    if (hold) {
+      store.beginWorkRouting({
+        sessionId: session.id,
+        content: '帮我做个可编辑的 PPT',
+        messageContent: '帮我做个可编辑的 PPT',
+        attachments: {
+          files: [{ name: 'outline.md', path: 'D:/repo/outline.md', isFolder: false }],
+          images: [],
+        },
+      })
+    }
 
     const turnStore = useTurnStore()
     const sendMessage = vi.spyOn(turnStore, 'sendMessage').mockResolvedValue(undefined)
 
     const wrapper = shallowMount(ChatPanel, { global: { plugins: [pinia] } })
     await flushPromises()
-    return { wrapper, store, session, sendMessage }
+    return { wrapper, store, session, sendMessage, settings: useSettingsStore() }
   }
+
+  const mountWithHeldMessage = () => mountPanel()
+
+  it('with routing switched off, the first send goes straight to the engine', async () => {
+    const { wrapper, store, session, sendMessage, settings } = await mountPanel({ hold: false })
+    settings.routerConfig = { enabled: false, modelSource: 'follow-fast' }
+    await flushPromises()
+
+    wrapper.findComponent(ChatInputStub).vm.$emit('send', '帮我做个 PPT', { files: [], images: [] })
+    await flushPromises()
+
+    expect(store.getPendingWorkRouting(session.id)).toBeUndefined()
+    expect(sendMessage).toHaveBeenCalledWith(
+      '帮我做个 PPT',
+      undefined,
+      { files: [], images: [] },
+      undefined,
+    )
+  })
 
   it('renders the held message and matching card while the composer is disabled', async () => {
     const { wrapper, store, session } = await mountWithHeldMessage()

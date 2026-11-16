@@ -1027,6 +1027,12 @@ export const useSettingsStore = defineStore('settings', () => {
     return saveSettings()
   }
 
+  /** 路由配置独立于 Profile。传空串即清除该字段；决策在发送时才读这份配置，未开始的匹配立即生效。 */
+  function setRouterConfig(patch: Partial<RouterConfig>): Promise<{ success: boolean; proxyState?: string; error?: string }> {
+    routerConfig.value = normalizeRouterConfig({ ...routerConfig.value, ...patch })
+    return saveSettings()
+  }
+
   /**
    * 一次性迁移: 默认字号 14 → 15。
    * 仅当当前值仍停留在旧默认 14 时提升, 显式选择过其他字号的用户不受影响;
@@ -1100,6 +1106,7 @@ export const useSettingsStore = defineStore('settings', () => {
     imageGenConfig,
     setImageGenConfig,
     routerConfig,
+    setRouterConfig,
     lastSelectedModel,
     hasCompletedOnboarding,
     settingsReady,

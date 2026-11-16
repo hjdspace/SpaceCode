@@ -96,6 +96,69 @@ describe('助手路由配置', () => {
     expect(settings.getSonnetModel()).toBe('model-b')
     expect(settings.routerConfig).toEqual({ enabled: true, modelSource: 'custom', provider: 'anthropic', apiKey: 'sk-router', model: 'cheap' })
   })
+
+  it('setRouterConfig 局部合并并立即落盘', async () => {
+    const settings = await setup()
+    settings.routerConfig = {
+      enabled: true,
+      modelSource: 'custom',
+      provider: 'openai',
+      baseUrl: 'https://router.test/v1',
+      apiKey: 'sk-router',
+      model: 'cheap',
+    }
+
+    await settings.setRouterConfig({ enabled: false })
+
+    expect(settings.routerConfig).toEqual({
+      enabled: false,
+      modelSource: 'custom',
+      provider: 'openai',
+      baseUrl: 'https://router.test/v1',
+      apiKey: 'sk-router',
+      model: 'cheap',
+    })
+    const calls = vi.mocked(api.saveGuiSettings).mock.calls
+    const sent = JSON.parse(calls[calls.length - 1][0] as string)
+    expect(sent.routerConfig.enabled).toBe(false)
+  })
+
+  it('开关可以从关闭切回开启，custom 连接字段随之保留', async () => {
+    const settings = await setup()
+    await settings.setRouterConfig({
+      enabled: false,
+      modelSource: 'custom',
+      provider: 'anthropic',
+      apiKey: 'sk-router',
+      model: 'cheap',
+    })
+    await settings.setRouterConfig({ enabled: true })
+
+    expect(settings.routerConfig).toEqual({
+      enabled: true,
+      modelSource: 'custom',
+      provider: 'anthropic',
+      apiKey: 'sk-router',
+      model: 'cheap',
+    })
+  })
+
+  it('空串 patch 能清掉 custom 连接字段，不会留下半截配置', async () => {
+    const settings = await setup()
+    settings.routerConfig = {
+      enabled: true,
+      modelSource: 'custom',
+      provider: 'openai',
+      baseUrl: 'https://router.test/v1',
+      apiKey: 'sk-router',
+      model: 'cheap',
+    }
+
+    await settings.setRouterConfig({ apiKey: '', baseUrl: '', model: '' })
+
+    expect(settings.routerConfig).toEqual({ enabled: true, modelSource: 'custom', provider: 'openai' })
+    expect(normalizeRouterConfig(settings.routerConfig)).toEqual(settings.routerConfig)
+  })
 })
 
 describe('normalizeRouterConfig', () => {

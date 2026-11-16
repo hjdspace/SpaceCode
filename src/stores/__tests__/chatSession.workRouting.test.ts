@@ -118,12 +118,26 @@ describe('work first-message routing gate', () => {
     expect(chat.shouldRouteWorkFirstMessage(sideTask.id)).toBe(false)
   })
 
-  it('honours the routerConfig switch', async () => {
+  it('honours the routerConfig switch and restores routing when re-enabled', async () => {
     const { chat, settings } = await freshStores()
     const session = chat.createSession('新对话', 'D:/work')
 
     settings.routerConfig = { enabled: false, modelSource: 'follow-fast' }
+    expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(false)
 
+    settings.routerConfig = { enabled: true, modelSource: 'follow-fast' }
+    expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(true)
+  })
+
+  it('toggling the switch off does not disturb a session that already decided', async () => {
+    const { chat, settings } = await freshStores()
+    const session = chat.createSession('已决策', 'D:/work')
+    session.workRouting = { outcome: 'auto', assistant: 'ppt-creator', at: Date.now() }
+
+    settings.routerConfig = { enabled: false, modelSource: 'follow-fast' }
+    expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(false)
+
+    settings.routerConfig = { enabled: true, modelSource: 'follow-fast' }
     expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(false)
   })
 })
