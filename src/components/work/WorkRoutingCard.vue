@@ -56,6 +56,16 @@
       </div>
 
       <div class="wr-actions">
+        <button
+          v-if="canRetry"
+          type="button"
+          class="wr-action wr-retry"
+          data-test="work-routing-retry"
+          @click="emit('retry')"
+        >
+          <RotateCcw :size="14" />
+          <span>{{ t('work.routeRetry') }}</span>
+        </button>
         <button type="button" class="wr-action wr-general" data-test="work-routing-general" @click="emit('general')">
           <MessagesSquare :size="14" />
           <span>{{ t('work.generalChat') }}</span>
@@ -78,7 +88,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Bot, LayoutGrid, Loader2, MessagesSquare, Sparkles } from 'lucide-vue-next'
+import { Bot, LayoutGrid, Loader2, MessagesSquare, RotateCcw, Sparkles } from 'lucide-vue-next'
 import type { WorkRoutingCardState, WorkRoutingFailure } from '@/types/workRouting'
 import { workDisplayName } from '@/utils/workAssistant'
 
@@ -91,6 +101,7 @@ const emit = defineEmits<{
   general: []
   gallery: []
   cancel: []
+  retry: []
 }>()
 
 const { t } = useI18n()
@@ -114,6 +125,14 @@ const subtitle = computed(() => {
   if (props.state.phase === 'matching') return t('work.routeMatchingHint')
   if (props.state.ranked.length > 0) return t('work.routeCandidatesHint')
   return t('work.routeFallbackHint')
+})
+
+/** 可重试条件：失败形态的候选卡且不是用户主动取消的。 */
+const canRetry = computed(() => {
+  if (props.state.phase !== 'candidates') return false
+  if (props.state.ranked.length > 0) return false
+  const f = props.state.failure
+  return f === 'error' || f === 'timeout' || f === 'none'
 })
 </script>
 
@@ -304,6 +323,17 @@ const subtitle = computed(() => {
 
   &:hover {
     background: var(--surface-glass-hover);
+  }
+}
+
+.wr-retry {
+  color: var(--accent-primary);
+  background: var(--surface-glass);
+  border: 1px solid var(--surface-border);
+
+  &:hover {
+    background: var(--accent-primary-glow);
+    border-color: var(--accent-primary);
   }
 }
 

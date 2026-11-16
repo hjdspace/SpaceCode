@@ -42,6 +42,7 @@ export default {
   routeCancelledTitle: '自动匹配已中止',
   routeErrorTitle: '自动匹配失败',
   routeFallbackHint: '直接选择下面的助手，或继续通用对话。',
+  routeRetry: '重试匹配',
   routeSuggestionsLabel: '常用助手',
   routeGallery: '从画廊选择',
   routeStart: '开始会话',

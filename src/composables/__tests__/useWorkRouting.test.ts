@@ -494,4 +494,75 @@ describe('useWorkRouting first message', () => {
       { sessionId: session.id },
     )
   })
+
+  it('manually retries routing after a failure and succeeds on the second attempt', async () => {
+    const { chat, routing, session, send } = await freshSetup()
+    // first routing call fails (429) — exhausts all auto-retries inside routeFirstMessage
+    mocks.sendMessage.mockRejectedValue(new Error('API Error: 429 Too Many Requests'))
+
+    vi.useFakeTimers()
+    try {
+      const run = routing.startFirstMessageRouting(startInput(session.id))
+      // advance past auto-retry backoff delays (3 attempts with backoff)
+      await vi.advanceTimersByTimeAsync(120_000)
+      await run
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // after auto-retry exhaustion the card is in candidates with failure='error'
+    let pending = chat.getPendingWorkRouting(session.id)
+    expect(pending?.phase).toBe('candidates')
+    expect(pending?.failure).toBe('error')
+    expect(pending?.retryCount).toBeUndefined()
+
+    // user clicks retry — second call succeeds
+    mocks.sendMessage.mockResolvedValueOnce(JSON.stringify({
+      none: false,
+      candidates: [{ name: 'ppt-creator', score: 0.92, reason: 'PPT' }],
+    }))
+    await routing.retryRouting(session.id, true)
+
+    expect(session.assistantId).toBe('ppt-creator')
+    expect(session.workRouting).toMatchObject({ outcome: 'auto', assistant: 'ppt-creator' })
+    expect(chat.getPendingWorkRouting(session.id)).toBeUndefined()
+    expect(send).toHaveBeenCalledWith(
+      '做个可编辑的 PPT',
+      undefined,
+      expect.objectContaining({ images: [] }),
+      { sessionId: session.id },
+    )
+  })
+
+  it('manually retries routing after a failure and still fails, increments retryCount', async () => {
+    const { chat, routing, session, send } = await freshSetup()
+    mocks.sendMessage.mockRejectedValue(new Error('API Error: 429 Too Many Requests'))
+
+    vi.useFakeTimers()
+    try {
+      const run = routing.startFirstMessageRouting(startInput(session.id))
+      await vi.advanceTimersByTimeAsync(120_000)
+      await run
+    } finally {
+      vi.useRealTimers()
+    }
+    let pending = chat.getPendingWorkRouting(session.id)
+    expect(pending?.failure).toBe('error')
+
+    // user clicks retry — still fails
+    vi.useFakeTimers()
+    try {
+      const run = routing.retryRouting(session.id, true)
+      await vi.advanceTimersByTimeAsync(120_000)
+      await run
+    } finally {
+      vi.useRealTimers()
+    }
+    pending = chat.getPendingWorkRouting(session.id)
+    expect(pending?.phase).toBe('candidates')
+    expect(pending?.failure).toBe('error')
+    expect(pending?.retryCount).toBe(1)
+
+    expect(send).not.toHaveBeenCalled()
+  })
 })

@@ -42,6 +42,7 @@ export default {
   routeCancelledTitle: 'Matching stopped',
   routeErrorTitle: 'Auto-matching failed',
   routeFallbackHint: 'Pick an assistant below, or continue with general chat.',
+  routeRetry: 'Retry matching',
   routeSuggestionsLabel: 'Common assistants',
   routeGallery: 'Browse gallery',
   routeStart: 'Start session',

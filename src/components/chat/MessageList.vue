@@ -101,6 +101,7 @@
             @general="emit('routingGeneral')"
             @gallery="emit('routingGallery')"
             @cancel="emit('routingCancel')"
+            @retry="emit('routingRetry')"
           />
         </div>
 
@@ -167,6 +168,7 @@ const emit = defineEmits<{
   routingGeneral: []
   routingGallery: []
   routingCancel: []
+  routingRetry: []
 }>()
 
 const props = defineProps<{

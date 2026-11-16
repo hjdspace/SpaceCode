@@ -278,6 +278,49 @@ describe('routeFirstMessage', () => {
     await expect(routeFirstMessage({ ...base, adapter })).resolves.toEqual({ kind: 'failed', reason: 'error' })
   })
 
+  it('auto-retries a 429 error and succeeds on the second attempt', async () => {
+    const decide = vi.fn()
+      .mockRejectedValueOnce(new Error('API Error: 429 Too Many Requests'))
+      .mockResolvedValueOnce(decision([{ name: 'ppt-creator', score: 0.9, reason: 'ok' }]))
+    const adapter: RouterAdapter = { decide }
+
+    vi.useFakeTimers()
+    try {
+      const pending = routeFirstMessage({ ...base, adapter })
+      // advance past the backoff delay
+      await vi.advanceTimersByTimeAsync(10_000)
+      await expect(pending).resolves.toMatchObject({ kind: 'auto', assistant: 'ppt-creator' })
+      expect(decide).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('auto-retries a 5xx error and ultimately fails after exhausting retries', async () => {
+    const decide = vi.fn().mockRejectedValue(new Error('API Error: 500 Internal Server Error'))
+    const adapter: RouterAdapter = { decide }
+
+    vi.useFakeTimers()
+    try {
+      const pending = routeFirstMessage({ ...base, adapter })
+      // advance past all backoff delays
+      await vi.advanceTimersByTimeAsync(120_000)
+      await expect(pending).resolves.toEqual({ kind: 'failed', reason: 'error' })
+      // 1 initial + 2 retries = 3 calls
+      expect(decide).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retry a non-retryable error (400 bad request)', async () => {
+    const decide = vi.fn().mockRejectedValue(new Error('API Error: 400 Bad Request'))
+    const adapter: RouterAdapter = { decide }
+
+    await expect(routeFirstMessage({ ...base, adapter })).resolves.toEqual({ kind: 'failed', reason: 'error' })
+    expect(decide).toHaveBeenCalledTimes(1)
+  })
+
   it('classifies an unavailable router model', async () => {
     const adapter = fakeAdapter(new RouterUnavailableError())
 

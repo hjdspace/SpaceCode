@@ -184,7 +184,8 @@ export function useWorkRouting() {
     })
   }
 
-  async function startFirstMessageRouting(input: StartWorkRoutingInput): Promise<void> {
+  /** 核心路由逻辑：beginWorkRouting → routeFirstMessage → 处置。由 startFirstMessageRouting 和 retryRouting 共用。 */
+  async function runRouting(input: StartWorkRoutingInput): Promise<void> {
     const { sessionId, isZh } = input
     const { signal, attempt } = sessionStore.beginWorkRouting({
       sessionId,
@@ -258,11 +259,48 @@ export function useWorkRouting() {
       ranked: outcome.kind === 'none' ? [] : [],
       durationMs, outcome: 'failed', model, failure,
     })
+    // 保留已有的 retryCount（手动重试时不丢计数）
+    const prev = sessionStore.getPendingWorkRouting(sessionId)
     sessionStore.setWorkRoutingCandidates(sessionId, {
       attempt,
       failure,
       suggestions: buildSuggestions(isZh),
     })
+    // setWorkRoutingCandidates 会清除 matching 状态并转 candidates；retryCount 需要手动恢复
+    if (prev?.retryCount) {
+      const updated = sessionStore.getPendingWorkRouting(sessionId)
+      if (updated) updated.retryCount = prev.retryCount
+    }
+  }
+
+  async function startFirstMessageRouting(input: StartWorkRoutingInput): Promise<void> {
+    await runRouting(input)
+  }
+
+  /**
+   * 手动重试路由决策：从失败形态的候选卡触发。
+   * 重用原始输入重新走一遍 beginWorkRouting → routeFirstMessage，
+   * 同时递增 retryCount 让 UI 知道这是重试。
+   */
+  async function retryRouting(sessionId: string, isZh: boolean): Promise<void> {
+    const pending = sessionStore.getPendingWorkRouting(sessionId)
+    if (!pending || pending.phase !== 'candidates') return
+    const retryCount = (pending.retryCount ?? 0) + 1
+    await runRouting({
+      sessionId,
+      content: pending.content,
+      messageContent: pending.messageContent,
+      userContent: pending.userContent,
+      attachments: {
+        files: pending.attachments.files.map(f => ({ ...f })),
+        images: pending.attachments.images.map(i => ({ ...i })),
+      },
+      isZh,
+      workspace: undefined,
+    })
+    // 重试后的 pending 可能在成功时已被清除（路由完成），只有仍在候选卡时才需要记 retryCount
+    const after = sessionStore.getPendingWorkRouting(sessionId)
+    if (after) after.retryCount = retryCount
   }
 
   /** 候选卡点选：就地绑定（switchWorkAssistant）后把扣住的消息原样发出。 */
@@ -399,6 +437,7 @@ export function useWorkRouting() {
 
   return {
     startFirstMessageRouting,
+    retryRouting,
     pickCandidate,
     chooseGeneral,
     cancelRouting,

@@ -2632,14 +2632,16 @@ export const useChatSessionStore = defineStore('chatSession', () => {
   }
 
   /**
-   * 拦截条件：work 模式 + 新入口创建的空通用会话 + 未绑定助手 + 未决策 + 开关开启。
+   * 拦截条件：work 模式 + 空通用会话 + 未绑定助手 + 未决策 + 开关开启。
    * 手动选过助手（画廊/快捷卡）或已有任意消息的会话天然不满足。
+   * 遗留空 work 会话（升级前创建、无 workRoutable 标记）同样参与路由——
+   * 空会话被路由不会对用户造成任何损害，反而正是用户期望的行为。
    */
   function shouldRouteWorkFirstMessage(sessionId?: string): boolean {
     const id = sessionId ?? currentSessionId.value
     const session = getSession(id)
     if (!session) return false
-    if (session.mode !== 'work' || session.workRoutable !== true) return false
+    if (session.mode !== 'work') return false
     if (session.assistantId || session.workRouting) return false
     if (session.ephemeral || session.observedSession) return false
     if (session.messages.length > 0) return false

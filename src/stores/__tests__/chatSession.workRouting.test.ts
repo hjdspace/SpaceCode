@@ -82,13 +82,14 @@ describe('work first-message routing gate', () => {
     expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(true)
   })
 
-  it('never routes legacy work sessions that lack the routable marker', async () => {
+  it('routes legacy work sessions that lack the routable marker', async () => {
     const { chat } = await freshStores()
     const session = chat.createSession('旧会话', 'D:/work')
-    // 升级前的会话没有这个字段：用户已有的空 work 会话不能被追溯拦截
+    // 升级前的会话没有 workRoutable 标记，但空 work 会话同样参与路由——
+    // 空会话被路由不会对用户造成任何损害，反而正是用户期望的行为。
     session.workRoutable = undefined
 
-    expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(false)
+    expect(chat.shouldRouteWorkFirstMessage(session.id)).toBe(true)
   })
 
   it('skips sessions that are already decided, bound, or non-empty', async () => {
@@ -457,6 +458,7 @@ describe('workRouting hydration', () => {
 
     expect(legacy).toBeTruthy()
     expect(legacy?.workRouting).toBeUndefined()
-    expect(chat.shouldRouteWorkFirstMessage('legacy-work')).toBe(false)
+    // 遗留空 work 会话同样参与路由（方案 A：移除 workRoutable 拦截条件）
+    expect(chat.shouldRouteWorkFirstMessage('legacy-work')).toBe(true)
   })
 })

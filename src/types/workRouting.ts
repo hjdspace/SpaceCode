@@ -41,6 +41,8 @@ export interface PendingWorkRouting {
   /** 本次路由尝试的序号：过期结果不得覆盖新一轮或已点选的状态。 */
   attempt: number
   at: number
+  /** 用户手动重试的累计次数（从 0 开始）。 */
+  retryCount?: number
 }
 
 export interface RouterConfig {
@@ -86,7 +88,7 @@ export interface RankedCandidate {
 /** 候选卡渲染所需的全部状态：扣住消息状态里驱动 UI 的那几项。 */
 export type WorkRoutingCardState = Pick<
   PendingWorkRouting,
-  'phase' | 'ranked' | 'failure' | 'suggestions'
+  'phase' | 'ranked' | 'failure' | 'suggestions' | 'retryCount'
 >
 
 export interface RoutingDecision {

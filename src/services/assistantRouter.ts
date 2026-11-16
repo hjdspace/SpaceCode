@@ -9,6 +9,7 @@
 import { initLLMService, sendMessage } from '@/services/llm'
 import { api } from '@/services/electronAPI'
 import { useSettingsStore } from '@/stores/settings'
+import { isRetryableAgentFailure, computeRetryDelayMs, extractRetryAfterMs } from '@/shared/agentRetry'
 import type {
   RankedCandidate,
   RouterConfig,
@@ -21,7 +22,10 @@ export const AUTO_BIND_MARGIN = 0.1
 export const ROUTING_TIMEOUT_MS = 8_000
 // 推理网关会先把预算花在 reasoning_content 上；预算太小正文恒为空（会话标题同款先例）。
 export const ROUTING_MAX_TOKENS = 1024
-export const ROUTING_MAX_RETRIES = 0
+/** 路由层自动重试上限：429/5xx/网络抖动等可恢复错误在 routeFirstMessage 内部退避重试。 */
+export const ROUTING_MAX_RETRIES = 2
+/** adapter 层不自行重试——重试统一由 routeFirstMessage 的外层循环管理。 */
+export const ADAPTER_MAX_RETRIES = 0
 export const ROUTING_MESSAGE_MAX_CHARS = 2000
 const MAX_RANKED_CANDIDATES = 3
 // 0.9 - 0.8 在 IEEE754 下是 0.09999999999999998：不吸收这个误差，
@@ -184,6 +188,10 @@ export function resolveRoutingOutcome(decision: RoutingDecision): RoutingOutcome
 /**
  * 编排一次决策：候选为空直接判不可用；外部取消与 8s 超时都会立即收口，
  * 不等待已失去意义的模型响应。
+ *
+ * 可恢复错误（429/5xx/网络/超时）在内部退避重试最多 ROUTING_MAX_RETRIES 次；
+ * 不可恢复错误（鉴权/配置/请求被拒）与 RouterUnavailableError 立即收口。
+ * 重试期间外部 abort 仍然有效。
  */
 export async function routeFirstMessage(input: {
   message: string
@@ -195,39 +203,65 @@ export async function routeFirstMessage(input: {
   if (input.candidates.length === 0) return { kind: 'failed', reason: 'unavailable' }
   if (input.signal?.aborted) return { kind: 'failed', reason: 'abort' }
 
-  const controller = new AbortController()
-  let timedOut = false
-  const onExternalAbort = () => controller.abort()
-  input.signal?.addEventListener('abort', onExternalAbort, { once: true })
-  const timer = setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, ROUTING_TIMEOUT_MS)
+  for (let attempt = 0; attempt <= ROUTING_MAX_RETRIES; attempt++) {
+    if (input.signal?.aborted) return { kind: 'failed', reason: 'abort' }
 
-  try {
-    const decision = await Promise.race([
-      input.adapter.decide({
-        message: input.message,
-        candidates: input.candidates,
-        isZh: input.isZh,
-        signal: controller.signal,
-      }),
-      new Promise<never>((_, reject) => {
-        controller.signal.addEventListener('abort', () => reject(new Error('routing aborted')), { once: true })
-      }),
-    ])
-    if (timedOut) return { kind: 'failed', reason: 'timeout' }
-    if (input.signal?.aborted) return { kind: 'failed', reason: 'abort' }
-    return resolveRoutingOutcome(decision)
-  } catch (err) {
-    if (timedOut) return { kind: 'failed', reason: 'timeout' }
-    if (input.signal?.aborted) return { kind: 'failed', reason: 'abort' }
-    if (err instanceof RouterUnavailableError) return { kind: 'failed', reason: 'unavailable' }
-    return { kind: 'failed', reason: 'error' }
-  } finally {
-    clearTimeout(timer)
-    input.signal?.removeEventListener('abort', onExternalAbort)
+    const controller = new AbortController()
+    let timedOut = false
+    const onExternalAbort = () => controller.abort()
+    input.signal?.addEventListener('abort', onExternalAbort, { once: true })
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, ROUTING_TIMEOUT_MS)
+
+    try {
+      const decision = await Promise.race([
+        input.adapter.decide({
+          message: input.message,
+          candidates: input.candidates,
+          isZh: input.isZh,
+          signal: controller.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener('abort', () => reject(new Error('routing aborted')), { once: true })
+        }),
+      ])
+      clearTimeout(timer)
+      input.signal?.removeEventListener('abort', onExternalAbort)
+      if (timedOut) return { kind: 'failed', reason: 'timeout' }
+      if (input.signal?.aborted) return { kind: 'failed', reason: 'abort' }
+      return resolveRoutingOutcome(decision)
+    } catch (err) {
+      clearTimeout(timer)
+      input.signal?.removeEventListener('abort', onExternalAbort)
+
+      // 超时和外部取消不重试
+      if (timedOut) return { kind: 'failed', reason: 'timeout' }
+      if (input.signal?.aborted) return { kind: 'failed', reason: 'abort' }
+      // 不可用（无 key）不重试
+      if (err instanceof RouterUnavailableError) return { kind: 'failed', reason: 'unavailable' }
+
+      // 最后一次尝试不再退避
+      if (attempt >= ROUTING_MAX_RETRIES) {
+        return { kind: 'failed', reason: 'error' }
+      }
+
+      // 判定是否可重试
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      if (!isRetryableAgentFailure(errorMsg)) {
+        return { kind: 'failed', reason: 'error' }
+      }
+
+      // 退避等待
+      const hintMs = extractRetryAfterMs(errorMsg, err)
+      const delayMs = computeRetryDelayMs(attempt, { hintMs })
+      await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+    }
   }
+
+  // 理论上不会走到这里
+  return { kind: 'failed', reason: 'error' }
 }
 
 export interface RouterModelBinding {
@@ -275,7 +309,7 @@ export function createLlmRouterAdapter(): RouterAdapter {
         model: binding.model,
         maxTokens: ROUTING_MAX_TOKENS,
         timeoutMs: ROUTING_TIMEOUT_MS,
-        maxRetries: ROUTING_MAX_RETRIES,
+        maxRetries: ADAPTER_MAX_RETRIES,
       })
       if (signal?.aborted) throw new Error('routing aborted')
       return parseRoutingDecision(raw, candidates)

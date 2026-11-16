@@ -104,6 +104,7 @@
                 @routing-general="handleRoutingGeneral"
                 @routing-gallery="handleRoutingGallery"
                 @routing-cancel="handleRoutingCancel"
+                @routing-retry="handleRoutingRetry"
               />
 
               <WelcomeHero
@@ -487,6 +488,11 @@ function handleRoutingGallery() {
 
 function handleRoutingCancel() {
   workRouting.cancelRouting(paneSessionId.value)
+}
+
+function handleRoutingRetry() {
+  const isZh = String(locale.value).toLowerCase().startsWith('zh')
+  void workRouting.retryRouting(paneSessionId.value, isZh)
 }
 
 /** 改选 = 带原首输入新建会话；防止下拉连点开出多个会话。 */
