@@ -121,6 +121,22 @@ describe('getStatus — repository gate', () => {
     expect(probe.calls).toHaveLength(1)
     expect(probe.calls[0].args).toEqual(['rev-parse', '--is-inside-work-tree'])
   })
+
+  it('warns once per non-repo cwd instead of on every refresh', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    seed(
+      { stdout: 'false', code: 0 },
+      { stdout: 'false', code: 0 },
+      { stdout: 'false', code: 0 },
+    )
+
+    await getStatus('/not-a-repo/refresh-spam')
+    await getStatus('/not-a-repo/refresh-spam')
+    await getStatus('/not-a-repo/refresh-spam')
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    warnSpy.mockRestore()
+  })
 })
 
 describe('getStatus — branch / upstream resolution', () => {

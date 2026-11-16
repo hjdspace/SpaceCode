@@ -175,6 +175,10 @@ async function isGitRepo(cwd: string): Promise<boolean> {
   return result.code === 0 && result.stdout.trim() === 'true'
 }
 
+// 非仓库目录是正常状态，而 SCM 面板与文件树会频繁重新询问（文件树每次刷新都会
+// 连带 refresh）。逐次打印会把终端刷满，因此每个 cwd 只提示一次。
+const warnedNonRepoCwds = new Set<string>()
+
 export async function getGitRoot(cwd: string): Promise<string | null> {
   const result = await gitExec(['rev-parse', '--show-toplevel'], cwd)
   return result.code === 0 ? result.stdout.trim() : null
@@ -208,7 +212,10 @@ async function getStatus(cwd: string): Promise<GitStatusResult> {
   }
 
   if (!(await isGitRepo(cwd))) {
-    console.warn('[GitService] isGitRepo returned false for cwd:', cwd)
+    if (!warnedNonRepoCwds.has(cwd)) {
+      warnedNonRepoCwds.add(cwd)
+      console.warn('[GitService] isGitRepo returned false for cwd:', cwd)
+    }
     return empty
   }
 
