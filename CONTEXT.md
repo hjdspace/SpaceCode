@@ -79,6 +79,18 @@
 | **Session Allowance (本会话放行)** | A user's decision to stop asking for the rest of one chat session. Scoped to that session; never global, never surviving an app restart. |
 | **Item Outcome (逐图结果)** | The per-image result of a call: `succeeded`, `failed`, or `cancelled`. Cancellation is never folded into failure. Any success makes the call a success with a per-item report. |
 
+## Work Assistant Routing (办公助手路由)
+
+| Term | Definition |
+| --- | --- |
+| **Work Assistant (办公助手)** | A **Chat Agent** with `mode='work'`, offered in work mode. Bundles a persona prompt with bound Skills. _Avoid_: work agent, office bot. |
+| **General Session (通用会话)** | A work-mode session not yet bound to a Work Assistant. Its first message is held until a Routing Decision or a manual choice determines what the session runs as. _Avoid_: empty session, shell session. |
+| **Assistant Router (助手路由)** | The decision layer that picks what a General Session runs as, from the user's first message and the available Work Assistants. Uses a user-configurable decision model, separate from the chat engine. _Avoid_: dispatcher, classifier. |
+| **Routing Decision (路由决策)** | One Assistant Router evaluation's outcome: ranked candidates with confidence. Either binds an assistant automatically or defers to the user. Happens once per session, before the engine starts. |
+| **Routing Candidate Card (路由候选卡)** | The inline timeline card offering top candidates when a Routing Decision is not confident enough, or routing is unavailable. Always includes a General Conversation escape. Anchored at the first message's position. |
+| **General Conversation (通用对话)** | Running a work session as no Work Assistant: no persona prompt, no bound Skills. An explicit user choice or fallback outcome, not an error state. |
+| **Routing Hints (路由提示)** | Optional per-assistant disambiguation text fed to the Assistant Router alongside the description. |
+
 ## Operations
 
 | Term | Definition |
