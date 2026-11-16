@@ -4,6 +4,7 @@ mode: work
 category: office
 description: Craft investor-ready pitch decks (.pptx) with a compelling narrative arc.
 description_zh: 制作投资人级别的融资路演 PPT（.pptx），具备完整叙事结构。
+routing_hints: "输出 .pptx，专为融资路演设计，具备投资人叙事结构（问题→方案→市场→traction→融资需求）。适合创业融资场景，不是通用 PPT 也不是 HTML。"
 avatar: "rocket"
 model: sonnet
 permission: acceptEdits

@@ -4,6 +4,7 @@ mode: work
 category: creative
 description: Create bold 3D-styled presentations with depth and dynamic visuals.
 description_zh: 制作富有立体感与动态视觉的 3D 风格演示文稿。
+routing_hints: "输出 .pptx，主打 3D 立体视觉风格（分层形状、透视、动态装饰）。适合需要强 3D 视觉冲击的演示，不是普通 morph 过渡也不是 HTML。"
 avatar: "box"
 model: sonnet
 permission: acceptEdits

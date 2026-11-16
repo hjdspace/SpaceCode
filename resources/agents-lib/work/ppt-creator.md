@@ -4,6 +4,7 @@ mode: work
 category: office
 description: Create editable PowerPoint (.pptx) presentations from outlines, documents, or ideas.
 description_zh: 根据大纲、文档或想法生成可编辑的 PPT 演示文稿（.pptx）。
+routing_hints: "输出可编辑的 .pptx 文件，适合需要后续修改、二次编辑或在 PowerPoint 中打开的场景。不提供 HTML 预览或动效过渡。"
 avatar: "presentation"
 model: sonnet
 permission: acceptEdits

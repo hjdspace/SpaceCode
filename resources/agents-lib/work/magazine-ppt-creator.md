@@ -4,6 +4,7 @@ mode: work
 category: office
 description: Create magazine-style or Swiss-style single-file HTML presentations with WebGL backgrounds, serif typography and editorial layouts.
 description_zh: 制作杂志风或瑞士国际主义风的单文件 HTML 演示文稿，含 WebGL 背景、衬线排版与编辑级版式。
+routing_hints: "输出单文件 .html，主打杂志风/瑞士国际主义风视觉语言（衬线排版、WebGL 背景）。不输出 .pptx。适合追求强烈编辑美学风格的演示。"
 avatar: "newspaper"
 model: sonnet
 permission: acceptEdits

@@ -4,6 +4,7 @@ mode: work
 category: office
 description: Create professional HTML presentations (.html) with themes, layouts, animations and presenter mode — shareable on the web.
 description_zh: 制作专业 HTML 演示文稿（.html），内置 36 主题、31 布局、动效与演讲者模式，适合网页分享与现场演讲。
+routing_hints: "输出单文件 .html，不生成 .pptx。适合网页分享、在线演示、需要丰富主题和动效的场景。产物不可在 PowerPoint 中编辑。"
 avatar: "film"
 model: sonnet
 permission: acceptEdits

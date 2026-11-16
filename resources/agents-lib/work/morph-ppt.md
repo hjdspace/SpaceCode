@@ -4,6 +4,7 @@ mode: work
 category: office
 description: Create visually rich presentations with smooth morph-style transitions.
 description_zh: 制作带平滑过渡动效的视觉化演示文稿。
+routing_hints: "输出 .pptx，强调幻灯片间平滑过渡（morph）动效和视觉冲击力。适合需要动效演示的场景，不是 HTML 也不是杂志风。"
 avatar: "sparkles"
 model: sonnet
 permission: acceptEdits

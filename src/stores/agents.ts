@@ -30,6 +30,8 @@ export interface AgentDef {
   skillRuntime?: 'officecli' | 'node' | 'none'
   /** 技能描述（用于 UI 展示，非技能名）。 */
   skillDescriptions?: string[]
+  /** 路由消歧提示（frontmatter 键 routing_hints），喂入路由 prompt。 */
+  routingHints?: string
 }
 
 export interface AgentCategory {

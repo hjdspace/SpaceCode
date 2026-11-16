@@ -109,6 +109,25 @@ describe('buildRouterPrompt', () => {
     expect(prompt.user).toContain('x'.repeat(ROUTING_MESSAGE_MAX_CHARS) + '…')
     expect(prompt.user).not.toContain('x'.repeat(ROUTING_MESSAGE_MAX_CHARS + 1))
   })
+
+  it('includes routing hints in the candidate list when present', () => {
+    const candidates: RoutingCandidate[] = [
+      { name: 'ppt-creator', description: 'PPTX', routingHints: '输出 .pptx，适合可编辑场景' },
+      { name: 'html-ppt-creator', description: 'HTML' },
+    ]
+    const prompt = buildRouterPrompt('做个 PPT', candidates, true)
+
+    expect(prompt.user).toContain('路由提示: 输出 .pptx，适合可编辑场景')
+    expect(prompt.user).not.toMatch(/路由提示.*HTML/)
+  })
+
+  it('labels routing hints in English for non-zh locale', () => {
+    const prompt = buildRouterPrompt('make a deck', [
+      { name: 'ppt-creator', description: 'PPTX', routingHints: 'Outputs .pptx for editing' },
+    ], false)
+
+    expect(prompt.user).toContain('Routing hints: Outputs .pptx for editing')
+  })
 })
 
 describe('parseRoutingDecision', () => {
@@ -328,6 +347,21 @@ describe('buildRoutingCandidates', () => {
 
     expect(candidate.description).toBe('制作可编辑的 PPTX 演示文稿')
     expect(candidate.skillDescriptions).toEqual(['PPTX 排版'])
+  })
+
+  it('carries routingHints onto the candidate when present', () => {
+    const [candidate] = buildRoutingCandidates({
+      library: [{
+        name: 'ppt-creator',
+        description: 'Editable PPTX decks',
+        routingHints: '输出 .pptx，适合可编辑场景',
+        mode: 'work',
+      }],
+      installed: [],
+      isZh: false,
+    })
+
+    expect(candidate.routingHints).toBe('输出 .pptx，适合可编辑场景')
   })
 })
 

@@ -4,6 +4,7 @@ mode: work
 category: office
 description: Full PPT creation pipeline — from topic to editable PPTX with preview, preset matching, and QA.
 description_zh: 全流程 PPT 创作助手 — 从主题到可编辑 PPT，含 HTML 预览、版式匹配和自动质检。
+routing_hints: "全流程：内容规划 → HTML 预览 → 版式匹配 → PPTX 转换 → QA。适合需要先预览再转 .pptx 的场景，比 ppt-creator 多了预览和质检环节。"
 avatar: "presentation"
 model: sonnet
 permission: acceptEdits

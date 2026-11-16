@@ -15,6 +15,7 @@ import {
   routeFirstMessage,
 } from '@/services/assistantRouter'
 import { buildOutgoingMessage } from '@/lib/composer-outgoing'
+import { api } from '@/services/electronAPI'
 import type { Attachment, ImageAttachment, Message } from '@/types'
 import type {
   PendingWorkRouting,
@@ -140,6 +141,49 @@ export function useWorkRouting() {
    * 首消息路由入口：先扣住消息（时间线内联显示 + composer 禁用），再异步决策。
    * 决策结果只有三种去向：自动绑定、候选卡、失败形态候选卡 —— 永远不静默丢消息。
    */
+  /** 记录路由决策 trace 事件（key 永不落日志）。 */
+  function logRoutingDecision(input: {
+    sessionId: string
+    candidateCount: number
+    ranked: Array<{ name: string; score: number }>
+    durationMs: number
+    outcome: string
+    model: string
+    failure?: string
+  }) {
+    api.trace.event({
+      source: 'renderer',
+      sessionId: input.sessionId,
+      actor: 'system',
+      type: 'work-routing-decision',
+      status: input.outcome === 'failed' ? 'failed' : 'completed',
+      metadata: {
+        candidateCount: input.candidateCount,
+        ranked: input.ranked.map(r => ({ name: r.name, score: r.score })),
+        durationMs: input.durationMs,
+        outcome: input.outcome,
+        model: input.model,
+        ...(input.failure ? { failure: input.failure } : {}),
+      },
+    })
+  }
+
+  /** 记录 override 信号 trace 事件（key 永不落日志）。 */
+  function logRoutingOverride(input: {
+    sessionId: string
+    source: 'candidate-card' | 'marker-reselect'
+    [key: string]: unknown
+  }) {
+    api.trace.event({
+      source: 'renderer',
+      sessionId: input.sessionId,
+      actor: 'user',
+      type: 'work-routing-override',
+      status: 'completed',
+      metadata: input,
+    })
+  }
+
   async function startFirstMessageRouting(input: StartWorkRoutingInput): Promise<void> {
     const { sessionId, isZh } = input
     const { signal, attempt } = sessionStore.beginWorkRouting({
@@ -162,6 +206,7 @@ export function useWorkRouting() {
       ? createJevRouterAdapter()
       : createLlmRouterAdapter()
 
+    const routingStart = Date.now()
     const outcome = await routeFirstMessage({
       message: input.content,
       candidates,
@@ -169,8 +214,21 @@ export function useWorkRouting() {
       adapter,
       signal,
     })
+    const durationMs = Date.now() - routingStart
+
+    // 解析所用模型名称（key 永不落日志）
+    const modelSource = settingsStore.routerConfig.modelSource
+    const model = modelSource === 'jev'
+      ? (settingsStore.routerConfig.jevModel || 'jev')
+      : modelSource === 'custom'
+        ? (settingsStore.routerConfig.model || 'custom')
+        : (settingsStore.getHaikuModel() || settingsStore.config.model || 'follow-fast')
 
     if (outcome.kind === 'auto') {
+      logRoutingDecision({
+        sessionId, candidateCount: candidates.length, ranked: outcome.ranked,
+        durationMs, outcome: 'auto', model,
+      })
       const assistant = findWorkAssistant(outcome.assistant)
       if (assistant) {
         await finishWithAssistant(sessionId, attempt, isZh, 'auto', toBinding(assistant), outcome.ranked)
@@ -186,11 +244,20 @@ export function useWorkRouting() {
     }
 
     if (outcome.kind === 'candidates') {
+      logRoutingDecision({
+        sessionId, candidateCount: candidates.length, ranked: outcome.ranked,
+        durationMs, outcome: 'candidates', model,
+      })
       sessionStore.setWorkRoutingCandidates(sessionId, { attempt, ranked: outcome.ranked })
       return
     }
 
     const failure: WorkRoutingFailure = outcome.kind === 'none' ? 'none' : outcome.reason
+    logRoutingDecision({
+      sessionId, candidateCount: candidates.length,
+      ranked: outcome.kind === 'none' ? [] : [],
+      durationMs, outcome: 'failed', model, failure,
+    })
     sessionStore.setWorkRoutingCandidates(sessionId, {
       attempt,
       failure,
@@ -206,6 +273,15 @@ export function useWorkRouting() {
     if (!assistant) {
       console.warn('[WorkRouting] Picked assistant is not in the candidate set:', name)
       return false
+    }
+    // override 信号：点选 ≠ top-1（ranked 有内容且第一名不是点选的助手）
+    if (pending.ranked.length > 0 && pending.ranked[0].name !== name) {
+      logRoutingOverride({
+        sessionId,
+        source: 'candidate-card',
+        top1: pending.ranked[0].name,
+        picked: name,
+      })
     }
     if (!sessionStore.tryLockWorkRoutingCompletion(sessionId)) return false
     try {
@@ -271,6 +347,14 @@ export function useWorkRouting() {
       console.warn('[WorkRouting] Reselected assistant is not in the work library:', name)
       return false
     }
+
+    // override 信号：标记改选
+    logRoutingOverride({
+      sessionId: sourceSessionId,
+      source: 'marker-reselect',
+      from: source.workRouting.assistant!,
+      to: name,
+    })
 
     const prepared = await sessionStore.reselectWorkAssistant(sourceSessionId, toBinding(assistant))
     if (!prepared) return false

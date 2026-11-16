@@ -146,6 +146,55 @@ describe('useWorkRouting first message', () => {
     expect(session.messages).toHaveLength(0)
   })
 
+  it('logs a routing decision trace event with candidates, outcome and model', async () => {
+    const { routing, session } = await freshSetup()
+    const { api } = await import('@/services/electronAPI')
+    mocks.sendMessage.mockResolvedValue(JSON.stringify({
+      none: false,
+      candidates: [{ name: 'ppt-creator', score: 0.92, reason: 'editable deck' }],
+    }))
+
+    await routing.startFirstMessageRouting(startInput(session.id))
+
+    const decisionEvents = vi.mocked(api.trace.event).mock.calls
+      .filter(([event]) => (event as unknown as { type?: string }).type === 'work-routing-decision')
+    expect(decisionEvents).toHaveLength(1)
+    const payload = decisionEvents[0][0] as unknown as Record<string, unknown>
+    expect(payload).toMatchObject({
+      type: 'work-routing-decision',
+      actor: 'system',
+      status: 'completed',
+      sessionId: session.id,
+    })
+    const metadata = payload.metadata as Record<string, unknown>
+    expect(metadata.outcome).toBe('auto')
+    expect(metadata.candidateCount).toBeGreaterThan(0)
+    expect(metadata.durationMs).toBeGreaterThanOrEqual(0)
+    expect(metadata.model).toBeTruthy()
+    // key 永不落日志
+    expect(JSON.stringify(payload)).not.toMatch(/sk-|apiKey|api_key/i)
+  })
+
+  it('logs a failed decision trace with the failure reason', async () => {
+    const { routing, session } = await freshSetup()
+    const { api } = await import('@/services/electronAPI')
+    // 不可用（无 key）触发 failure
+    const { useSettingsStore } = await import('@/stores/settings')
+    useSettingsStore().anthropicConfig.apiKey = ''
+
+    await routing.startFirstMessageRouting(startInput(session.id))
+
+    const decisionEvents = vi.mocked(api.trace.event).mock.calls
+      .filter(([event]) => (event as unknown as { type?: string }).type === 'work-routing-decision')
+    expect(decisionEvents).toHaveLength(1)
+    const payload = decisionEvents[0][0] as unknown as Record<string, unknown>
+    const metadata = payload.metadata as Record<string, unknown>
+    expect(metadata.outcome).toBe('failed')
+    expect(metadata.failure).toBe('unavailable')
+    // key 永不落日志
+    expect(JSON.stringify(payload)).not.toMatch(/sk-|apiKey|api_key/i)
+  })
+
   it('shows the candidate card for a low-confidence decision without sending', async () => {
     const { chat, routing, session, send } = await freshSetup()
     mocks.sendMessage.mockResolvedValue(JSON.stringify({
@@ -165,6 +214,51 @@ describe('useWorkRouting first message', () => {
     expect(session.assistantId).toBeUndefined()
     expect(session.workRouting).toBeUndefined()
     expect(send).not.toHaveBeenCalled()
+  })
+
+  it('logs an override trace event when the candidate card picks a non-top-1 assistant', async () => {
+    const { routing, session } = await freshSetup()
+    const { api } = await import('@/services/electronAPI')
+    mocks.sendMessage.mockResolvedValue(JSON.stringify({
+      none: false,
+      candidates: [
+        { name: 'ppt-creator', score: 0.5, reason: 'top1' },
+        { name: 'html-ppt-creator', score: 0.45, reason: 'top2' },
+      ],
+    }))
+
+    await routing.startFirstMessageRouting(startInput(session.id))
+    // 点选 top2（非 top1）→ override 信号
+    await routing.pickCandidate(session.id, 'html-ppt-creator')
+
+    const overrideEvents = vi.mocked(api.trace.event).mock.calls
+      .filter(([event]) => (event as unknown as { type?: string }).type === 'work-routing-override')
+    expect(overrideEvents).toHaveLength(1)
+    const payload = overrideEvents[0][0] as unknown as Record<string, unknown>
+    const metadata = payload.metadata as Record<string, unknown>
+    expect(metadata.top1).toBe('ppt-creator')
+    expect(metadata.picked).toBe('html-ppt-creator')
+    // key 永不落日志
+    expect(JSON.stringify(payload)).not.toMatch(/sk-|apiKey|api_key/i)
+  })
+
+  it('does not log an override event when the candidate card picks the top-1', async () => {
+    const { routing, session } = await freshSetup()
+    const { api } = await import('@/services/electronAPI')
+    mocks.sendMessage.mockResolvedValue(JSON.stringify({
+      none: false,
+      candidates: [
+        { name: 'ppt-creator', score: 0.5, reason: 'top1' },
+        { name: 'html-ppt-creator', score: 0.3, reason: 'top2' },
+      ],
+    }))
+
+    await routing.startFirstMessageRouting(startInput(session.id))
+    await routing.pickCandidate(session.id, 'ppt-creator')
+
+    const overrideEvents = vi.mocked(api.trace.event).mock.calls
+      .filter(([event]) => (event as unknown as { type?: string }).type === 'work-routing-override')
+    expect(overrideEvents).toHaveLength(0)
   })
 
   it('offers the general exit when the model says nothing matches', async () => {
@@ -353,6 +447,30 @@ describe('useWorkRouting first message', () => {
     expect(chat.sessions).toHaveLength(before)
     expect(chat.currentSessionId).toBe(session.id)
     expect(send).not.toHaveBeenCalled()
+  })
+
+  it('logs an override trace event when the marker re-selects a different assistant', async () => {
+    const { routing, session } = await freshSetup()
+    const { api } = await import('@/services/electronAPI')
+    session.assistantId = 'ppt-creator'
+    session.workRouting = { outcome: 'auto', assistant: 'ppt-creator', at: Date.now() }
+    session.messages.push(
+      { id: 'u1', role: 'user', content: '把大纲做成可编辑 PPT', timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: '做好了', timestamp: 2 },
+    )
+
+    await routing.reselectAssistant(session.id, 'docx-writer')
+
+    const overrideEvents = vi.mocked(api.trace.event).mock.calls
+      .filter(([event]) => (event as unknown as { type?: string }).type === 'work-routing-override')
+    expect(overrideEvents).toHaveLength(1)
+    const payload = overrideEvents[0][0] as unknown as Record<string, unknown>
+    const metadata = payload.metadata as Record<string, unknown>
+    expect(metadata.source).toBe('marker-reselect')
+    expect(metadata.from).toBe('ppt-creator')
+    expect(metadata.to).toBe('docx-writer')
+    // key 永不落日志
+    expect(JSON.stringify(payload)).not.toMatch(/sk-|apiKey|api_key/i)
   })
 
   it('binds in place when the assistant is picked from the gallery', async () => {

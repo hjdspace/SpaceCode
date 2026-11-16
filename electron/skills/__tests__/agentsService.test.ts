@@ -208,6 +208,39 @@ describe('agents:scanLibrary', () => {
     })
   })
 
+  it('parses routing_hints into routingHints for work assistants', async () => {
+    writeLibAgent(
+      'ppt-creator',
+      [
+        'name: ppt-creator',
+        'description: d',
+        'mode: work',
+        'routing_hints: 输出 .pptx，适合需要可编辑、可二次修改的演示文稿',
+      ].join('\n'),
+    )
+
+    const { agents } = await invoke<{ agents: AgentDef[] }>('agents:scanLibrary')
+    const a = agents[0]
+
+    expect(a.routingHints).toBe('输出 .pptx，适合需要可编辑、可二次修改的演示文稿')
+  })
+
+  it('omits routingHints when the front-matter key is absent', async () => {
+    writeLibAgent('plain', 'description: d\nmode: work')
+
+    const { agents } = await invoke<{ agents: AgentDef[] }>('agents:scanLibrary')
+
+    expect(agents[0].routingHints).toBeUndefined()
+  })
+
+  it('ignores a non-string routing_hints value', async () => {
+    writeLibAgent('bad-hints', 'description: d\nrouting_hints: [a, b]')
+
+    const { agents } = await invoke<{ agents: AgentDef[] }>('agents:scanLibrary')
+
+    expect(agents[0].routingHints).toBeUndefined()
+  })
+
   it('survives a malformed front-matter file and unknown mode values', async () => {
     const dir = join(resources, 'agents-lib')
     mkdirSync(dir, { recursive: true })
