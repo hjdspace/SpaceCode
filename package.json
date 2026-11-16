@@ -54,7 +54,8 @@
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "node-pty": "^1.1.0",
-    "sherpa-onnx-node": "2.0.0"
+    "sherpa-onnx-node": "2.0.0",
+    "undici": "^7.27.2"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
@@ -111,7 +112,6 @@
     "sharp": "^0.34.5",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
-    "undici": "^7.27.2",
     "vite": "^8.2.0",
     "vite-plugin-electron": "^1.1.2",
     "vitest": "^5.0.0",
@@ -141,6 +141,7 @@
       "node_modules/node-pty/**/*",
       "node_modules/sherpa-onnx-node/**/*",
       "node_modules/sherpa-onnx-*/**/*",
+      "node_modules/undici/**/*",
       "!**/node_modules/**/*.map",
       "!**/node_modules/better-sqlite3/deps/**/*",
       "!**/node_modules/better-sqlite3/prebuilds/win32-arm64*",

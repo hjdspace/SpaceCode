@@ -34,11 +34,14 @@ const PKG = path.join(ROOT, 'package.json')
  * - node-pty / better-sqlite3：原生模块，vite-plugin-electron external，运行时从 node_modules 加载
  * - sherpa-onnx-node：语音识别 worker external 依赖，平台包（sherpa-onnx-<platform>-<arch>）
  *   携带 .node 与 DLL，必须随包进 asar 并 unpack
+ * - undici：纯 JS 运行时依赖（imagegen 下载闸门的钉定连接器），main 构建 external，
+ *   打进 bundle 会让 dist-electron 涨 ~500KB（见 scripts/perf-budget.json 的体积门禁）
  */
 const EXPECTED_DEPS = new Set([
   'node-pty',
   'better-sqlite3',
   'sherpa-onnx-node',
+  'undici',
 ])
 
 /**
@@ -91,6 +94,7 @@ const REQUIRED_FILE_PATTERNS = [
   'node_modules/node-pty/**/*',
   'node_modules/sherpa-onnx-node/**/*',
   'node_modules/sherpa-onnx-*/**/*',
+  'node_modules/undici/**/*',
 ]
 
 /** build.asarUnpack 必须包含的规则（子进程要读真实文件，asar 路径读不到） */

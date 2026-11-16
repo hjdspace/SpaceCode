@@ -80,6 +80,9 @@ export default defineConfig({
                 'electron',
                 'node-pty',
                 'better-sqlite3',
+                // 纯 JS 运行时依赖（imagegen 下载闸门的钉定连接器），与 node-pty 同理
+                // 走 node_modules 而非打进 bundle —— 打包会让 dist-electron 涨 ~500KB。
+                'undici',
                 '@earendil-works/pi-coding-agent',
                 '@earendil-works/pi-coding-agent/dist/modes/rpc/rpc-client.js',
                 '@earendil-works/pi-agent',
