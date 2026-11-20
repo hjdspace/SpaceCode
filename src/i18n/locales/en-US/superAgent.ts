@@ -6,6 +6,15 @@ export default {
   attentionBadge: '{count} items need attention',
   composerPlaceholder: 'Describe a goal for Super Agent, or keep chatting with it…',
   commandNotAvailableHere: 'This command depends on the main chat view and is not available in Super Agent',
+  contextRow: {
+    noDir: 'No directory',
+    searchDirs: 'Search directories...',
+    noDirs: 'No directories found',
+    addDir: 'Add new directory',
+    searchBranches: 'Search branches...',
+    noBranches: 'No branches found',
+    rebuilding: 'Rebuilding session…',
+  },
   errors: {
     ticketNotFound: 'Ticket not found',
     assignmentNotFound: 'Assignment not found',
