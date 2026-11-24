@@ -11,7 +11,10 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { defineComponent, ref } from 'vue'
+import { Zap } from 'lucide-vue-next'
 import ChatInput from '@/components/chat/ChatInput.vue'
+import SlashCommandMenu from '@/components/chat/SlashCommandMenu.vue'
+import type { SlashCommand } from '@/composables/useSlashCommands'
 import { useAppStore } from '@/stores/app'
 import { useChatSessionStore } from '@/stores/chatSession'
 import { useTurnStore } from '@/stores/turn'
@@ -93,6 +96,32 @@ async function setChips(wrapper: Wrapper, chips: Array<{ command: string; kind: 
 
 function emitOf(wrapper: Wrapper, event: string): unknown[][] {
   return (wrapper.emitted() as Record<string, unknown[][]>)[event] ?? []
+}
+
+const skillCommand: SlashCommand = {
+  name: 'skill-creator',
+  description: 'Create and improve skills',
+  icon: Zap,
+  kind: 'agent_skill',
+  source: 'global',
+}
+
+function placeSlashQuery(wrapper: Wrapper, suffix: string) {
+  const editor = editorEl(wrapper)
+  const query = document.createTextNode('/ski')
+  const tail = document.createTextNode(suffix)
+  editor.replaceChildren(query, tail)
+  const range = document.createRange()
+  range.setStart(query, query.length)
+  range.collapse(true)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+async function selectSkill(wrapper: Wrapper) {
+  wrapper.findComponent(SlashCommandMenu).vm.$emit('select', skillCommand)
+  await flushPromises()
 }
 
 let turnStore: ReturnType<typeof useTurnStore>
@@ -371,6 +400,82 @@ describe('ChatInput · 斜杠命令派发', () => {
     expect(sends).toHaveLength(1)
     expect(sends[0][2]).toMatchObject({ displayLabel: '/cmd:"not-a-command":slash_command:builtin do it' })
     expect(editorEl(wrapper).textContent).toBe('')
+  })
+})
+
+describe('ChatInput · 技能 chip 插入', () => {
+  it.each([
+    ['紧贴后续文字', '优化该技能，请组织语言'],
+    ['后续文字前有空格', ' 优化该技能，请组织语言'],
+  ])('%s时只替换 /ski，保留正文并把光标留在 chip 后', async (_label, suffix) => {
+    const wrapper = mountInput()
+    await flushPromises()
+    placeSlashQuery(wrapper, suffix)
+
+    await selectSkill(wrapper)
+
+    const editor = editorEl(wrapper)
+    const chip = editor.querySelector('.command-chip')!
+    expect(chip.getAttribute('data-command')).toBe('/skill-creator')
+    expect(chip.getAttribute('data-kind')).toBe('agent_skill')
+    expect(editor.innerHTML).not.toMatch(/^\/ski/)
+    expect(editor.querySelector('br, div')).toBeNull()
+    expect(wrapper.vm.getContent().text).toBe(
+      `/cmd:"skill-creator":agent_skill:global \u00A0${suffix.trimStart()}`,
+    )
+
+    const selection = window.getSelection()!
+    expect(selection.isCollapsed).toBe(true)
+    expect(selection.getRangeAt(0).startContainer).toBe(chip.nextSibling)
+    expect(selection.getRangeAt(0).startOffset).toBe(1)
+  })
+
+  it('手动删除行首 /ski 时不让浏览器补出空行', async () => {
+    const wrapper = mountInput()
+    await flushPromises()
+    await setChips(wrapper, [{ command: '/skill-creator', kind: 'agent_skill', source: 'global' }], '')
+    const editor = editorEl(wrapper)
+    const query = document.createTextNode('/ski')
+    editor.insertBefore(query, editor.firstChild)
+    const range = document.createRange()
+    range.setStart(query, 0)
+    range.setEnd(query, query.length)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    const event = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
+    editor.dispatchEvent(event)
+    await flushPromises()
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(editor.textContent).not.toContain('/ski')
+    expect(editor.querySelector('br')).toBeNull()
+    expect(editor.querySelector('.command-chip')).not.toBeNull()
+  })
+
+  it('退格删掉行首斜杠时也不补空行', async () => {
+    const wrapper = mountInput()
+    await flushPromises()
+    await setChips(wrapper, [{ command: '/skill-creator', kind: 'agent_skill', source: 'global' }], '')
+    const editor = editorEl(wrapper)
+    const query = document.createTextNode('/')
+    editor.insertBefore(query, editor.firstChild)
+    const range = document.createRange()
+    range.setStart(query, 1)
+    range.collapse(true)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    const event = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
+    editor.dispatchEvent(event)
+    await flushPromises()
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(query.textContent).toBe('')
+    expect(editor.querySelector('br')).toBeNull()
+    expect(editor.querySelector('.command-chip')).not.toBeNull()
   })
 })
 

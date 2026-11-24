@@ -39,6 +39,36 @@
   }
 }
 
+@mixin skill-command-chip {
+  padding: 1px 7px 1px 4px;
+  gap: 5px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+  color: var(--text-primary);
+
+  .chip-source-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    color: var(--accent-primary);
+    font-size: var(--text-2xs);
+  }
+
+  .chip-source-icon svg {
+    display: block;
+    width: 11px;
+    height: 11px;
+  }
+
+  .chip-label {
+    font-family: var(--font-body);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+}
+
 @mixin composer-chips {
 // Shared delete button styles for chips.
 // chip 节点由 useContentEditor 动态创建, 无 scoped 属性, 必须 :deep 才能命中
@@ -189,5 +219,9 @@
   background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
   border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.35);
   color: var(--accent-primary);
+
+  &.kind-agent_skill {
+    @include skill-command-chip;
+  }
 }
 }

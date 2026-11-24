@@ -10,7 +10,7 @@
  * - Auto-resize
  */
 import { ref, nextTick } from 'vue'
-import { pathBasename, TODO_CHIP_ICON } from '@/utils/mention-chips'
+import { pathBasename, SKILL_CHIP_ICON, TODO_CHIP_ICON } from '@/utils/mention-chips'
 import { buildTodoMarker, decodeTodoTitle } from '@/shared/todoReference'
 import type { ImageAttachment, Attachment } from '@/composables/types'
 
@@ -327,14 +327,51 @@ export function useContentEditor(options?: {
   }
 
   /** Insert an inline command chip at current cursor position */
-  function insertCommandChip(cmd: { name: string; kind?: string; source?: string }) {
+  function insertCommandChip(
+    cmd: { name: string; kind?: string; source?: string },
+    options: { replaceBefore?: number } = {},
+  ) {
     const editor = editorRef.value
     if (!editor) return
 
     const sel = window.getSelection()
     if (!sel || !sel.rangeCount) return
 
-    const range = sel.getRangeAt(0)
+    let range = sel.getRangeAt(0)
+    if (options.replaceBefore) {
+      if (range.startContainer.nodeType !== Node.TEXT_NODE) return
+      const endNode = range.startContainer as Text
+      const endOffset = range.startOffset
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null)
+      const textNodes: Text[] = []
+      let node: Text | null
+      while ((node = walker.nextNode() as Text | null)) textNodes.push(node)
+
+      let index = textNodes.indexOf(endNode)
+      if (index < 0) return
+      let offset = range.startOffset
+      let remaining = options.replaceBefore
+      while (remaining > 0) {
+        const nodeLength = textNodes[index].textContent?.length || 0
+        if (offset > nodeLength) return
+        const removeLength = Math.min(offset, remaining)
+        offset -= removeLength
+        remaining -= removeLength
+        if (remaining === 0) break
+        index -= 1
+        if (index < 0) return
+        offset = textNodes[index].textContent?.length || 0
+      }
+
+      range = document.createRange()
+      range.setStart(textNodes[index], offset)
+      range.setEnd(endNode, endOffset)
+      range.deleteContents()
+      range.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+
     const kind = cmd.kind || 'slash_command'
     const source = cmd.source || 'builtin'
 
@@ -353,7 +390,8 @@ export function useContentEditor(options?: {
 
     const iconSpan = document.createElement('span')
     iconSpan.className = 'chip-source-icon'
-    iconSpan.textContent = commandIcon
+    if (kind === 'agent_skill') iconSpan.innerHTML = SKILL_CHIP_ICON
+    else iconSpan.textContent = commandIcon
     iconSpan.setAttribute('aria-hidden', 'true')
 
     const labelSpan = document.createElement('span')
@@ -366,6 +404,24 @@ export function useContentEditor(options?: {
     range.deleteContents()
     range.insertNode(chip)
 
+    let previousNode = chip.previousSibling
+    while (previousNode?.nodeType === Node.TEXT_NODE && !previousNode.textContent) {
+      const before = previousNode.previousSibling
+      previousNode.remove()
+      previousNode = before
+    }
+
+    let followingNode = chip.nextSibling
+    while (followingNode?.nodeType === Node.TEXT_NODE && !followingNode.textContent) {
+      const after = followingNode.nextSibling
+      followingNode.remove()
+      followingNode = after
+    }
+    if (followingNode?.nodeType === Node.TEXT_NODE && followingNode.textContent?.startsWith(' ')) {
+      followingNode.textContent = followingNode.textContent.slice(1)
+      if (!followingNode.textContent) followingNode.remove()
+    }
+
     const afterRange = document.createRange()
     afterRange.setStartAfter(chip)
     afterRange.collapse(true)
@@ -376,12 +432,18 @@ export function useContentEditor(options?: {
     afterRange.insertNode(spaceNode)
 
     const finalRange = document.createRange()
-    finalRange.setStartAfter(spaceNode)
+    const nodeAfterChip = chip.nextSibling
+    if (nodeAfterChip?.nodeType === Node.TEXT_NODE) {
+      finalRange.setStart(nodeAfterChip, 1)
+    } else {
+      finalRange.setStartAfter(chip)
+    }
     finalRange.collapse(true)
     sel.removeAllRanges()
     sel.addRange(finalRange)
 
     inputText.value = getEditorPlainText()
+    return chip
   }
 
   /** Insert image chip with thumbnail preview */
@@ -671,6 +733,64 @@ export function useContentEditor(options?: {
 
   // ── Backspace chip deletion ────────────────────────────────────
 
+  function handleSlashTriggerDeletion(event: KeyboardEvent): boolean {
+    if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+    const editor = editorRef.value
+    const sel = window.getSelection()
+    if (!editor || !sel || !sel.rangeCount) return false
+
+    const range = sel.getRangeAt(0)
+    if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return false
+
+    let targetRange: Range
+    if (!sel.isCollapsed) {
+      if (!/^\/[\w:-]*$/.test(range.toString())) return false
+      targetRange = range.cloneRange()
+    } else {
+      if (range.startContainer.nodeType !== Node.TEXT_NODE) return false
+      const text = range.startContainer as Text
+      const offset = range.startOffset
+      targetRange = document.createRange()
+      if (event.key === 'Backspace') {
+        if (offset === 0) return false
+        targetRange.setStart(text, offset - 1)
+        targetRange.setEnd(text, offset)
+      } else {
+        if (offset >= (text.textContent?.length || 0)) return false
+        targetRange.setStart(text, offset)
+        targetRange.setEnd(text, offset + 1)
+      }
+      if (targetRange.toString() !== '/') return false
+    }
+
+    const prefixRange = document.createRange()
+    prefixRange.selectNodeContents(editor)
+    prefixRange.setEnd(targetRange.startContainer, targetRange.startOffset)
+    const prefix = prefixRange.toString()
+    if (prefix && !prefix.endsWith('\n')) return false
+
+    event.preventDefault()
+    targetRange.deleteContents()
+
+    const caret = document.createRange()
+    const startNode = targetRange.startContainer
+    if (startNode.nodeType === Node.TEXT_NODE && !startNode.textContent) {
+      const textNode = startNode as Text
+      const parent = textNode.parentNode
+      if (!parent) return false
+      const index = Array.from(parent.childNodes).indexOf(textNode)
+      textNode.remove()
+      caret.setStart(parent, Math.min(index, parent.childNodes.length))
+    } else {
+      caret.setStart(startNode, targetRange.startOffset)
+    }
+    caret.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(caret)
+    inputText.value = getEditorPlainText()
+    return true
+  }
+
   /** Handle backspace key - delete whole chip if cursor is right after it.
    *  Returns info about what was deleted so the caller can update their state. */
   function handleBackspaceChip(event: KeyboardEvent): { deleted: true; type: 'mention' | 'command' | 'todo'; path?: string; imageId?: string } | { deleted: false } {
@@ -758,6 +878,7 @@ export function useContentEditor(options?: {
     hasContent,
 
     // Backspace chip deletion
+    handleSlashTriggerDeletion,
     handleBackspaceChip,
   }
 }
