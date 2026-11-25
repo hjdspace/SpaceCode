@@ -1,3 +1,33 @@
+## [0.9.2](https://github.com/hjdspace/SpaceCode/compare/v0.9.1...v0.9.2) (2026-11-25)
+
+### Features
+
+- **imagegen:** 生图配置链路 —— 设置分区、只写 key 与主进程可读
+- **imagegen:** 生图模型支持从上游获取模型列表
+- **imagegen:** 文生图端到端首弹与宿主授权闸门
+- **imagegen:** 生图工具卡片 —— 缩略图、灯箱与打开所在文件夹
+- **imagegen:** 改图链路 —— edit_image + OpenAI multipart
+- **imagegen:** 智谱方言与改图能力明确拒绝
+- **imagegen:** 批量、多变体与取消
+- **imagegen:** 生图工具包裹调用解包，修复卡片识别
+- **work:** 通用会话首消息路由与高置信自动绑定
+- **work:** 路由候选卡与扣住消息生命周期
+- **work:** 标记下拉改选助手并重发首输入
+- **work:** S5 routing quality —— routingHints + 决策日志 + 评估 fixtures
+- **work:** S6 Jev 决策模型 adapter
+- **work:** 工作路由手动重试与自动重试机制
+- **settings:** 助手路由设置区块与决策模型来源
+- **superAgent:** Agent 上下文行 —— 工作区/目录/分支 + cwd 切换语义
+- **chat:** 斜杠命令 chip 插入与删除处理
+
+### Bug Fixes
+
+- **git:** 非仓库目录仅提示一次避免终端刷屏
+
+### Refactor
+
+- **mcp:** 抽出通用回环 MCP 外壳，待办服务器改为薄封装
+
 ## [0.9.1](https://github.com/hjdspace/SpaceCode/compare/v0.9.0...v0.9.1) (2026-11-15)
 
 ### Features
