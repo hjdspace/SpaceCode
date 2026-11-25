@@ -132,7 +132,7 @@
 
 <script setup lang="ts">
 /**
- * Agent 上下文行（#110）。
+ * Agent 上下文行。
  *
  * 在复用的 SessionComposer（ChatInput）上方挂一条上下文行：
  * 工作区名 + 目录选择下拉（工作区目录间切换）+ git 分支（若目录是 git 仓库）。
@@ -420,8 +420,8 @@ watch(repoRoot, () => {
   border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
   border-radius: 10px;
   box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.08),
-    0 1px 4px rgba(0, 0, 0, 0.04);
+    var(--shadow-lg),
+    var(--shadow-sm);
   z-index: 200;
   padding: 5px;
   animation: ctx-in 0.12s cubic-bezier(0.16, 1, 0.3, 1);
@@ -488,7 +488,7 @@ watch(repoRoot, () => {
     flex-shrink: 0;
 
     &:hover {
-      background: rgba(0, 0, 0, 0.06);
+      background: var(--bg-hover);
       color: var(--text-primary, #333);
     }
   }

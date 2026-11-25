@@ -183,7 +183,7 @@
         :show-work-gallery-action="false"
         :excluded-commands="routerExcludedCommands"
       >
-        <!-- Agent 上下文行（#110）：工作区 / 目录 / 分支，挂在 composer 上方 -->
+        <!-- Agent 上下文行：工作区 / 目录 / 分支，挂在 composer 上方 -->
         <template #context-toolbar>
           <AgentContextRow />
         </template>
