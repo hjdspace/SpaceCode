@@ -902,6 +902,10 @@ function handleUserCopy(e: ClipboardEvent) {
     background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1);
     border-color: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.35);
     color: var(--accent-primary);
+
+    &.kind-agent_skill {
+      @include skill-command-chip;
+    }
   }
 }
 

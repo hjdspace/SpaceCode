@@ -70,6 +70,8 @@ function buildImageChipHtml(image: ImageAttachment): string {
 /** Lucide list-todo — shared by the composer chip and the sent-bubble chip so they look identical. */
 export const TODO_CHIP_ICON = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>`
 
+export const SKILL_CHIP_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1L12 3Z"/></svg>`
+
 /**
  * Build the HTML for a todo reference chip. The title travels inside the marker,
  * so a deleted todo still shows its name in history.
@@ -111,9 +113,10 @@ function buildCommandChipHtml(name: string, kind: string, source: string): strin
   const icon = isGoal ? '◎' : (kind === 'agent_skill' ? '✦' : (SOURCE_ICONS[source] || SOURCE_ICONS.builtin))
   const goalClass = isGoal ? ' is-goal' : ''
   const chipClass = `command-chip kind-${kind} source-${source}${goalClass}`
+  const iconHtml = kind === 'agent_skill' ? SKILL_CHIP_ICON : icon
   return (
     `<span class="${chipClass}" data-command="/${escapeHtml(name)}" data-kind="${escapeHtml(kind)}" data-source="${escapeHtml(source)}">` +
-    `<span class="chip-source-icon">${icon}</span>` +
+    `<span class="chip-source-icon" aria-hidden="true">${iconHtml}</span>` +
     `<span class="chip-label">/${escapeHtml(name)}</span>` +
     `</span>`
   )

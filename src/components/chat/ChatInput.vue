@@ -494,7 +494,7 @@ const {
   removeTriggerText, setEditorContent, clearEditor,
   collectAllAttachments, autoResize,
   insertPastedTextWithMarkers,
-  hasContent: editorHasContent, handleBackspaceChip,
+  hasContent: editorHasContent, handleSlashTriggerDeletion, handleBackspaceChip,
 } = editor
 
 // Prompt stash
@@ -1147,6 +1147,13 @@ function handleEditorKeydown(event: KeyboardEvent) {
     }
   }
 
+  if (handleSlashTriggerDeletion(event)) {
+    autoResize()
+    checkSlashTrigger()
+    checkContextTrigger()
+    return
+  }
+
   // Backspace: delete whole chip if cursor is right after it
   if (event.key === 'Backspace') {
     const result = handleBackspaceChip(event)
@@ -1227,27 +1234,33 @@ function selectSlashCommand(cmd: SlashCommand) {
     return
   }
 
-  commandPalette.closeMenu()
+  const textBeforeCursor = getTextBeforeCursor()
+  const slashMatch = textBeforeCursor.match(/(^|\s)\/([^\s]*)$/)
+  const replaceBefore = slashMatch ? slashMatch[0].length - (slashMatch[1] ? 1 : 0) : 0
 
-  const editorEl = editorRef.value
-  if (editorEl) {
-    const text = getEditorPlainText()
-    const slashMatch = text.match(/(^|\s)\/([^\s]*)$/)
-    if (slashMatch) {
-      const triggerOffset = slashMatch.index! + (slashMatch[1] ? 1 : 0)
-      removeTriggerText(triggerOffset, slashMatch[0].length - (slashMatch[1] ? 1 : 0))
-    }
-  }
-
-  insertCommandChip({
+  const chip = insertCommandChip({
     name: cmd.name,
     kind: cmd.kind || 'slash_command',
-    source: (cmd as any).source || 'builtin',
-  })
+    source: cmd.source || 'builtin',
+  }, { replaceBefore })
+  commandPalette.closeMenu()
 
   nextTick(() => {
-    editorRef.value?.focus()
-    setCursorToEnd()
+    const editor = editorRef.value
+    editor?.focus()
+    if (editor && chip) {
+      const range = document.createRange()
+      const nodeAfterChip = chip.nextSibling
+      if (nodeAfterChip?.nodeType === Node.TEXT_NODE) {
+        range.setStart(nodeAfterChip, 1)
+      } else {
+        range.setStartAfter(chip)
+      }
+      range.collapse(true)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      if (selection) selection.addRange(range)
+    }
     autoResize()
   })
 }

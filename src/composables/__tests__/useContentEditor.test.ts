@@ -351,6 +351,7 @@ describe('insertCommandChip', () => {
 
     const chip = h.editor.querySelector('.command-chip')!
     expect(chip.className).toBe('command-chip kind-agent_skill source-mcp')
+    expect(chip.querySelector('.chip-source-icon svg')).toBeTruthy()
     expect(h.inputText.value).toBe('/cmd:"run":agent_skill:mcp \u00A0')
   })
 
@@ -363,6 +364,29 @@ describe('insertCommandChip', () => {
     const chip = h.editor.querySelector('.command-chip')!
     expect(chip.classList.contains('is-goal')).toBe(true)
     expect(chip.querySelector('.chip-source-icon')?.textContent).toBe('◎')
+  })
+
+  it.each([
+    ['紧贴正文', '/ski优化技能'],
+    ['正文前有空格', '/ski 优化技能'],
+  ])('%s时原子替换 /ski 并保留正文', (_label, content) => {
+    const h = mountEditor()
+    h.editor.textContent = content
+    const sel = window.getSelection()!
+    const range = document.createRange()
+    range.setStart(h.editor.firstChild!, 4)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+
+    h.insertCommandChip({ name: 'skill-creator', kind: 'agent_skill', source: 'global' }, { replaceBefore: 4 })
+
+    const chip = h.editor.querySelector('.command-chip')!
+    expect(chip).toBeTruthy()
+    expect(h.editor.textContent).toBe('/skill-creator\u00A0优化技能')
+    expect(h.inputText.value).toBe('/cmd:"skill-creator":agent_skill:global \u00A0优化技能')
+    expect(sel.getRangeAt(0).startContainer).toBe(chip.nextSibling)
+    expect(sel.getRangeAt(0).startOffset).toBe(1)
   })
 
   it('未挂载编辑器时 no-op', () => {
