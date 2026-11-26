@@ -11,6 +11,8 @@ export default {
   supportsImages: 'Supports image input',
   contextWindow: 'Context Window',
   contextWindowPlaceholder: 'Enter token count',
+  maxOutputTokens: 'Max Output Tokens',
+  maxOutputTokensPlaceholder: 'Enter token count',
   enableImageSupport: 'Enable image input support',
   advancedHint: 'Manually configure when API or catalog does not provide metadata.',
 }

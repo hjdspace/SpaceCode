@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { type Locale, applyLocale, detectSystemLanguage, i18n } from '@/i18n'
 import { api } from '@/services/electronAPI'
 import { resolveContextWindowOverrides } from '@/utils/contextUsage'
-import type { ModelProfile, ModelCapabilityOverride, ProfilesFile, ProfileApplyFailure } from '@/types/profile'
+import type { ModelProfile, ModelCapabilityOverride, ModelDetectedCapabilities, ProfilesFile, ProfileApplyFailure } from '@/types/profile'
 import type { ImageGenConfig } from '@/shared/imageGenReference'
 import type { RouterConfig } from '@/types/workRouting'
 import { type EffortLevel, normalizeEffortLevel } from '@/shared/effort'
@@ -82,8 +82,10 @@ export interface AuthSettings {
   effortLevel?: EffortLevel
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
-  /** Per-model capability overrides (contextWindow / supportsImages). */
+  /** Per-model capability overrides (contextWindow / maxTokens / supportsImages). */
   modelCapabilities?: Record<string, ModelCapabilityOverride>
+  /** 上游端点/目录探测到的模型能力缓存（独立于 Profile，用户覆盖优先于它）。 */
+  modelDetectedCapabilities?: Record<string, ModelDetectedCapabilities>
   /** 是否启用 RTK (Rust Token Killer) token 优化 */
   rtkEnabled?: boolean
   /** 是否用 AI 总结首条消息生成会话标题；关闭时沿用截取命名 */
@@ -369,6 +371,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const lastViewedChangelogVersion = ref<string | null>(saved.lastViewedChangelogVersion || null)
   const modelContextWindows = ref<Record<string, number>>(saved.modelContextWindows || {})
   const modelCapabilities = ref<Record<string, ModelCapabilityOverride>>(saved.modelCapabilities || {})
+  const modelDetectedCapabilities = ref<Record<string, ModelDetectedCapabilities>>(saved.modelDetectedCapabilities || {})
   const rtkEnabled = ref<boolean>(saved.rtkEnabled ?? false)
   const aiSessionTitleEnabled = ref<boolean>(saved.aiSessionTitleEnabled ?? false)
   const showSkillsManagerEntry = ref<boolean>(saved.showSkillsManagerEntry ?? false)
@@ -496,6 +499,18 @@ export const useSettingsStore = defineStore('settings', () => {
     resolveContextWindowOverrides(modelCapabilities.value, modelContextWindows.value),
   )
 
+  /** 各模型的最大输出 token（模型 id → tokens）：用户覆盖优先于端点探测缓存。 */
+  const modelMaxOutputTokens = computed<Record<string, number>>(() => {
+    const out: Record<string, number> = {}
+    for (const [model, detected] of Object.entries(modelDetectedCapabilities.value)) {
+      if (detected?.maxTokens && detected.maxTokens > 0) out[model] = detected.maxTokens
+    }
+    for (const [model, capability] of Object.entries(modelCapabilities.value)) {
+      if (capability?.maxTokens && capability.maxTokens > 0) out[model] = capability.maxTokens
+    }
+    return out
+  })
+
   /**
    * 取用户为某模型配置的上下文窗口覆盖，未配置返回 undefined。
    * 入参可以是实际模型名，也可以是引擎别名 haiku/sonnet/opus（按当前槽位反查），
@@ -613,6 +628,7 @@ export const useSettingsStore = defineStore('settings', () => {
       lastViewedChangelogVersion: lastViewedChangelogVersion.value ?? undefined,
       modelContextWindows: { ...modelContextWindows.value },
       modelCapabilities: { ...modelCapabilities.value },
+      modelDetectedCapabilities: { ...modelDetectedCapabilities.value },
       rtkEnabled: rtkEnabled.value,
       aiSessionTitleEnabled: aiSessionTitleEnabled.value,
       showSkillsManagerEntry: showSkillsManagerEntry.value,
@@ -934,6 +950,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (settings.lastViewedChangelogVersion !== undefined) lastViewedChangelogVersion.value = settings.lastViewedChangelogVersion
     if (settings.modelContextWindows !== undefined) modelContextWindows.value = { ...settings.modelContextWindows }
     if (settings.modelCapabilities !== undefined) modelCapabilities.value = { ...settings.modelCapabilities }
+    if (settings.modelDetectedCapabilities !== undefined) modelDetectedCapabilities.value = { ...settings.modelDetectedCapabilities }
     if (settings.rtkEnabled !== undefined) rtkEnabled.value = settings.rtkEnabled
     if (settings.aiSessionTitleEnabled !== undefined) aiSessionTitleEnabled.value = settings.aiSessionTitleEnabled
     if (settings.showSkillsManagerEntry !== undefined) showSkillsManagerEntry.value = settings.showSkillsManagerEntry
@@ -1044,6 +1061,13 @@ export const useSettingsStore = defineStore('settings', () => {
     return saveSettings()
   }
 
+  /** 端点探测成功后并入模型能力缓存（只增不删；用户覆盖始终优先于这里的值）。 */
+  function mergeDetectedModelCapabilities(record: Record<string, ModelDetectedCapabilities>): void {
+    if (!Object.keys(record).length) return
+    modelDetectedCapabilities.value = { ...modelDetectedCapabilities.value, ...record }
+    saveSettings()
+  }
+
   /**
    * 一次性迁移: 默认字号 14 → 15。
    * 仅当当前值仍停留在旧默认 14 时提升, 显式选择过其他字号的用户不受影响;
@@ -1105,7 +1129,10 @@ export const useSettingsStore = defineStore('settings', () => {
     lastViewedChangelogVersion,
     modelContextWindows,
     modelCapabilities,
+    modelDetectedCapabilities,
     contextWindowOverrides,
+    modelMaxOutputTokens,
+    mergeDetectedModelCapabilities,
     getContextWindowOverride,
     getModelWith1mSuffix,
     rtkEnabled,

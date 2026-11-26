@@ -183,6 +183,7 @@
               <div class="ms-model-row-tail">
                 <span v-if="slotMeta(slot.model.value)" class="ms-model-meta">
                   <span v-if="slotMeta(slot.model.value)!.contextWindow" class="ms-meta-chip">{{ formatTokenCount(slotMeta(slot.model.value)!.contextWindow!) }}</span>
+                  <span v-if="slotMeta(slot.model.value)!.maxTokens" class="ms-meta-chip" :title="$t('model.maxOutputTokens')">{{ formatTokenCount(slotMeta(slot.model.value)!.maxTokens!) }}</span>
                   <span v-if="slotMeta(slot.model.value)!.supportsImages" class="ms-meta-chip ms-meta-image" :title="$t('model.supportsImages')"><ImageIcon :size="11" /></span>
                 </span>
                 <button
@@ -228,6 +229,21 @@
                     @change="(e) => {
                       const val = Number((e.target as HTMLInputElement).value)
                       updateModelCapability(slot.model.value, { contextWindow: val > 0 ? val : undefined })
+                    }"
+                  />
+                </div>
+                <div class="ms-adv-row">
+                  <label class="ms-adv-label">{{ $t('model.maxOutputTokens') }}</label>
+                  <input
+                    type="number"
+                    class="ms-adv-input"
+                    :value="modelCapabilities[slot.model.value]?.maxTokens ?? slotMeta(slot.model.value)?.maxTokens ?? ''"
+                    :placeholder="$t('model.maxOutputTokensPlaceholder')"
+                    min="1000"
+                    step="1000"
+                    @change="(e) => {
+                      const val = Number((e.target as HTMLInputElement).value)
+                      updateModelCapability(slot.model.value, { maxTokens: val > 0 ? val : undefined })
                     }"
                   />
                 </div>
@@ -302,6 +318,7 @@ import {
   FALLBACK_MODELS,
   applyCapabilityOverride,
   applyCapabilityOverrides,
+  collectDetectedCapabilities,
   enrichRawModels
 } from '@/lib/providerModels'
 import type { ModelCapabilityOverride } from '@/types/profile'
@@ -474,6 +491,7 @@ function updateModelCapability(modelId: string, patch: Partial<ModelCapabilityOv
   // 清理 undefined 值
   const clean: ModelCapabilityOverride = {}
   if (updated.contextWindow !== undefined) clean.contextWindow = updated.contextWindow
+  if (updated.maxTokens !== undefined) clean.maxTokens = updated.maxTokens
   if (updated.supportsImages !== undefined) clean.supportsImages = updated.supportsImages
   const next = { ...current }
   if (Object.keys(clean).length > 0) {
@@ -713,7 +731,10 @@ async function fetchModels() {
 
       if (rawModels.length > 0) {
         const catalog = await loadModelCatalog()
-        availableModels.value = applyCapabilityOverrides(enrichRawModels(rawModels, baseUrl, catalog), modelCapabilities.value)
+        const enriched = enrichRawModels(rawModels, baseUrl, catalog)
+        // 探测到的输出上限落盘成缓存，主进程启动后台会话（IM/cron）时用得到
+        settingsStore.mergeDetectedModelCapabilities(collectDetectedCapabilities(enriched))
+        availableModels.value = applyCapabilityOverrides(enriched, modelCapabilities.value)
         connectionStatus.value = { type: 'success', message: t('auth.fetchedModels', { count: rawModels.length }) }
       } else {
         connectionStatus.value = { type: 'warning', message: t('auth.noModelsFound') }

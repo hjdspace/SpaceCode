@@ -387,6 +387,26 @@ describe('chat session startup', () => {
     }))
   })
 
+  it('最大输出 token（覆盖与探测缓存合并后）同样按别名送达引擎', async () => {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = { baseUrl: 'https://api.example/v1', apiKey: 'test-key', haikuModel: 'kimi-k3-flash', sonnetModel: 'kimi-k3', opusModel: 'kimi-k3-pro' }
+    settings.modelDetectedCapabilities = { 'kimi-k3': { maxTokens: 65_536 } }
+    settings.modelCapabilities = { 'kimi-k3': { maxTokens: 131_072 } }
+    const { useChatSessionStore } = await import('../chatSession')
+    const store = useChatSessionStore()
+    const session = store.createSession('Test', 'D:/repo', 'max-output-tokens')
+    mocks.getSessionStatus.mockResolvedValue({ isRunning: false })
+
+    await store.initClaudeCodeSession(session.id)
+
+    expect(mocks.startSession).toHaveBeenCalledWith(session.id, expect.objectContaining({
+      model: 'sonnet',
+      modelMaxOutputTokens: { 'kimi-k3': 131_072, sonnet: 131_072 },
+    }))
+  })
+
   // ── 运行中会话的启动配置对账（issue #41 第 10 票）──
 
   it('切换设计系统/技能时对运行中的会话下发新 systemPrompt 与 agent', async () => {

@@ -22,6 +22,17 @@ export interface RawModel {
   max_completion_tokens?: unknown
   max_output_tokens?: unknown
   max_tokens?: unknown
+  /** 各家网关命名不一的输出上限候选（范围/默认值/别名，参考 soc-verify） */
+  max_completion_tokens_range?: unknown
+  max_output_tokens_range?: unknown
+  max_tokens_range?: unknown
+  default_max_completion_tokens?: unknown
+  default_max_output_tokens?: unknown
+  default_max_tokens?: unknown
+  output_token_limit?: unknown
+  max_output?: unknown
+  limit?: unknown
+  limits?: unknown
   modalities?: unknown
   input_modalities?: unknown
   input?: unknown
@@ -248,6 +259,39 @@ function parseEndpointImage(raw: RawModel): boolean | undefined {
   return undefined
 }
 
+/**
+ * 输出上限的值形状解析：正整数/数字字符串直取；数组取上界（如 [4K, 64K] 范围）；
+ * 对象按 max/maximum/upper/limit/default 顺序取（各家网关命名不一）。
+ */
+function parseMaxOutputTokens(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    const parsed = parseInt(value.trim(), 10)
+    return parsed > 0 ? parsed : undefined
+  }
+  if (Array.isArray(value)) {
+    const bounds = value.map(parseMaxOutputTokens).filter((b): b is number => b !== undefined)
+    return bounds.length ? Math.max(...bounds) : undefined
+  }
+  if (typeof value === 'object' && value !== null) {
+    const range = value as Record<string, unknown>
+    return parseMaxOutputTokens(range.max)
+      ?? parseMaxOutputTokens(range.maximum)
+      ?? parseMaxOutputTokens(range.upper)
+      ?? parseMaxOutputTokens(range.limit)
+      ?? parseMaxOutputTokens(range.default)
+  }
+  return undefined
+}
+
+function firstMaxOutputTokens(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const parsed = parseMaxOutputTokens(value)
+    if (parsed !== undefined) return parsed
+  }
+  return undefined
+}
+
 /** 从上游 /models 原始条目解析自述能力（主来源，零额外请求） */
 export function parseEndpointCapabilities(raw: RawModel): {
   contextWindow?: number
@@ -261,10 +305,32 @@ export function parseEndpointCapabilities(raw: RawModel): {
     raw.max_model_len,
     raw.max_context_tokens,
   )
-  const maxTokens = firstPositiveInteger(
+  const capabilities = typeof raw.capabilities === 'object' && raw.capabilities !== null
+    ? raw.capabilities as Record<string, unknown>
+    : undefined
+  const limit = typeof raw.limit === 'object' && raw.limit !== null
+    ? raw.limit as Record<string, unknown>
+    : undefined
+  const limits = typeof raw.limits === 'object' && raw.limits !== null
+    ? raw.limits as Record<string, unknown>
+    : undefined
+  const maxTokens = firstMaxOutputTokens(
     raw.max_completion_tokens,
     raw.max_output_tokens,
     raw.max_tokens,
+    raw.max_completion_tokens_range,
+    raw.max_output_tokens_range,
+    raw.max_tokens_range,
+    raw.default_max_completion_tokens,
+    raw.default_max_output_tokens,
+    raw.default_max_tokens,
+    raw.output_token_limit,
+    raw.max_output,
+    capabilities?.max_completion_tokens,
+    capabilities?.max_output_tokens,
+    capabilities?.max_tokens,
+    limit?.output,
+    limits?.output,
   )
   const supportsImages = parseEndpointImage(raw)
   return {

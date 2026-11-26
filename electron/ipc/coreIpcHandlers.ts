@@ -349,19 +349,23 @@ export function registerCoreIPCHandlers(terminalManager: TerminalManager): void 
     try {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), timeoutMs)
-
-      const response = await net.fetch(url, {
-        method: options?.method || 'GET',
-        headers: options?.headers || {},
-        body: options?.body || undefined,
-        signal: controller.signal,
-      })
-      clearTimeout(timeout)
-
-      const text = await response.text()
-      const elapsed = Date.now() - fetchStart
-      debug('IPC', `http:fetch response | status=${response.status} elapsed=${elapsed}ms bodyLen=${text.length}`)
-      return { ok: response.ok, status: response.status, data: text }
+      try {
+        const response = await net.fetch(url, {
+          method: options?.method || 'GET',
+          headers: options?.headers || {},
+          body: options?.body || undefined,
+          signal: controller.signal,
+        })
+        // 响应头到达后不能拆闹钟：body 读到一半被掐断时 text() 会永远挂起，
+        // 这次 IPC 就再也不 resolve（loadModelCatalog 的单例 loadPromise 会把
+        // 后续所有调用方一起拖死）。abort 必须覆盖到 body 读完为止。
+        const text = await response.text()
+        const elapsed = Date.now() - fetchStart
+        debug('IPC', `http:fetch response | status=${response.status} elapsed=${elapsed}ms bodyLen=${text.length}`)
+        return { ok: response.ok, status: response.status, data: text }
+      } finally {
+        clearTimeout(timeout)
+      }
     } catch (err: any) {
       const elapsed = Date.now() - fetchStart
       const errorMsg = err?.name === 'AbortError'

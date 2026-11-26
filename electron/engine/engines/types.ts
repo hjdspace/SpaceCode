@@ -49,6 +49,8 @@ export interface EngineSessionConfig {
   permissionMode?: PermissionMode
   /** Per-model context window overrides (modelId → token count). */
   modelContextWindows?: Record<string, number>
+  /** Per-model 最大输出 token（modelId → token count）：用户覆盖 > 端点探测缓存。 */
+  modelMaxOutputTokens?: Record<string, number>
   /**
    * 界面在这条会话上能给用户选的模型真实 id（当前 provider 的 haiku/sonnet/opus 槽位）。
    *

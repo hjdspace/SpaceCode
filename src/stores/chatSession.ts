@@ -918,6 +918,12 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         modelContextWindowsForEngine[effectiveModel] = modelContextWindowsForEngine[actualModel]
       }
 
+      // 最大输出 token 同理：以实际模型名为键，为引擎别名补一份同值键
+      const modelMaxOutputTokensForEngine: Record<string, number> = { ...settingsStore.modelMaxOutputTokens }
+      if (effectiveModel && actualModel && modelMaxOutputTokensForEngine[actualModel] !== undefined) {
+        modelMaxOutputTokensForEngine[effectiveModel] = modelMaxOutputTokensForEngine[actualModel]
+      }
+
       session.processStatus = 'starting'
       saveToStorage()
 
@@ -961,6 +967,7 @@ export const useChatSessionStore = defineStore('chatSession', () => {
         systemPrompt: overrides?.systemPrompt,
         // 展开为普通对象，避免 Vue 响应式 Proxy 无法通过 Electron IPC 结构化克隆
         modelContextWindows: modelContextWindowsForEngine,
+        modelMaxOutputTokens: modelMaxOutputTokensForEngine,
         // pi 的 compat provider 要靠这份清单把可切换的模型一次登记进 models.json
         selectableModels: selectableModelIdsForSession(session, effectiveModel),
         rtkEnabled: settingsStore.rtkEnabled,

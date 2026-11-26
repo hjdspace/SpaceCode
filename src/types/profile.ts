@@ -3,7 +3,13 @@ import type { AuthMethod, ProviderConfig } from '@/stores/settings'
 /** 用户自定义模型能力覆盖（按 modelId 索引） */
 export interface ModelCapabilityOverride {
   contextWindow?: number
+  maxTokens?: number
   supportsImages?: boolean
+}
+
+/** 上游端点/目录探测到的模型能力缓存（与 Profile 无关，全局一份；用户覆盖优先于它） */
+export interface ModelDetectedCapabilities {
+  maxTokens?: number
 }
 
 /**

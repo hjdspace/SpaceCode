@@ -18,6 +18,12 @@ interface PersistedProviderConfig {
 
 interface PersistedModelCapability {
   contextWindow?: number
+  maxTokens?: number
+}
+
+/** 端点/目录探测到的模型能力缓存（与 Profile 无关，随 gui-settings.json 落盘） */
+interface PersistedModelDetectedCapability {
+  maxTokens?: number
 }
 
 interface PersistedGuiSettings {
@@ -34,6 +40,8 @@ interface PersistedGuiSettings {
   modelContextWindows?: Record<string, number>
   /** 设置页当前写入的模型能力覆盖，contextWindow 以此为准 */
   modelCapabilities?: Record<string, PersistedModelCapability>
+  /** 端点探测成功后写下的能力缓存；用户覆盖优先于它 */
+  modelDetectedCapabilities?: Record<string, PersistedModelDetectedCapability>
   rtkEnabled?: boolean
 }
 
@@ -84,6 +92,25 @@ function activeProviderConfig(settings: PersistedGuiSettings): PersistedProvider
 }
 
 /**
+ * 各模型的最大输出 token：用户覆盖（modelCapabilities.maxTokens）优先，
+ * 其次端点探测缓存（modelDetectedCapabilities.maxTokens）；
+ * 都缺的模型不出现在记录里，由引擎按自己的保守默认值兜底。
+ */
+function resolveModelMaxOutputTokens(
+  detected?: Record<string, PersistedModelDetectedCapability>,
+  capabilities?: Record<string, PersistedModelCapability>,
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [model, value] of Object.entries(detected ?? {})) {
+    if (value?.maxTokens && value.maxTokens > 0) out[model] = value.maxTokens
+  }
+  for (const [model, value] of Object.entries(capabilities ?? {})) {
+    if (value?.maxTokens && value.maxTokens > 0) out[model] = value.maxTokens
+  }
+  return out
+}
+
+/**
  * 无渲染进程参与时（IM / cron 这类后台触发方）构建引擎会话配置。
  * 读不到设置文件只返回 { cwd }，让引擎按自身默认值启动。
  */
@@ -116,6 +143,11 @@ export function loadEngineSessionConfig(cwd: string): EngineSessionConfig {
     settings.modelContextWindows,
   )
   if (Object.keys(contextWindowOverrides).length > 0) config.modelContextWindows = contextWindowOverrides
+  const maxOutputTokens = resolveModelMaxOutputTokens(
+    settings.modelDetectedCapabilities,
+    settings.modelCapabilities,
+  )
+  if (Object.keys(maxOutputTokens).length > 0) config.modelMaxOutputTokens = maxOutputTokens
   if (typeof settings.rtkEnabled === 'boolean') config.rtkEnabled = settings.rtkEnabled
 
   return config

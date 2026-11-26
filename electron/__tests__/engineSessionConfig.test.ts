@@ -137,4 +137,28 @@ describe('loadEngineSessionConfig', () => {
 
     expect(loadEngineSessionConfig('/w').modelContextWindows).toEqual({ 'kimi-k3': 400_000 })
   })
+
+  it('最大输出 token：用户覆盖优先于端点探测缓存，都缺的模型不出现在配置里', () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { sonnetModel: 'kimi-k3' },
+      modelCapabilities: { 'kimi-k3': { maxTokens: 16_384 } },
+      modelDetectedCapabilities: { 'kimi-k3': { maxTokens: 65_536 }, 'glm-5.2': { maxTokens: 131_072 } },
+    })
+
+    expect(loadEngineSessionConfig('/w').modelMaxOutputTokens).toEqual({
+      'kimi-k3': 16_384,
+      'glm-5.2': 131_072,
+    })
+  })
+
+  it('只有端点探测缓存时也带上，非法值被忽略', () => {
+    writeSettings({
+      authMethod: 'openai_compatible',
+      openaiConfig: { sonnetModel: 'kimi-k3' },
+      modelDetectedCapabilities: { 'kimi-k3': { maxTokens: 65_536 }, 'glm-5.2': { maxTokens: 0 } },
+    })
+
+    expect(loadEngineSessionConfig('/w').modelMaxOutputTokens).toEqual({ 'kimi-k3': 65_536 })
+  })
 })

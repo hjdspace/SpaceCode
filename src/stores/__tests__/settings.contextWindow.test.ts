@@ -89,3 +89,59 @@ describe('settings store — 上下文窗口覆盖来源', () => {
     expect(settings.getModelWith1mSuffix('claude-opus-4-6')).toBe('claude-opus-4-6')
   })
 })
+
+describe('settings store — 最大输出 token 来源', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  async function setupStores() {
+    const { useSettingsStore } = await import('../settings')
+    const settings = useSettingsStore()
+    settings.authMethod = 'anthropic_compatible'
+    settings.anthropicConfig = {
+      baseUrl: 'https://api.example/v1',
+      apiKey: 'test-key',
+      haikuModel: 'claude-haiku-4-5',
+      sonnetModel: 'claude-sonnet-4-6',
+      opusModel: 'claude-opus-4-6',
+    }
+    return settings
+  }
+
+  it('用户覆盖优先于端点探测缓存', async () => {
+    const settings = await setupStores()
+    settings.modelDetectedCapabilities = { 'claude-opus-4-6': { maxTokens: 65_536 } }
+    settings.modelCapabilities = { 'claude-opus-4-6': { maxTokens: 16_384 } }
+
+    expect(settings.modelMaxOutputTokens).toEqual({ 'claude-opus-4-6': 16_384 })
+  })
+
+  it('只有探测缓存时也生效，非法值被忽略', async () => {
+    const settings = await setupStores()
+    settings.modelDetectedCapabilities = {
+      'claude-opus-4-6': { maxTokens: 65_536 },
+      'glm-5.2': { maxTokens: 0 },
+    }
+
+    expect(settings.modelMaxOutputTokens).toEqual({ 'claude-opus-4-6': 65_536 })
+  })
+
+  it('mergeDetectedModelCapabilities 并入缓存并触发落盘，空记录不写', async () => {
+    const settings = await setupStores()
+    settings.mergeDetectedModelCapabilities({})
+
+    settings.mergeDetectedModelCapabilities({ 'glm-5.2': { maxTokens: 131_072 } })
+    expect(settings.modelDetectedCapabilities).toEqual({ 'glm-5.2': { maxTokens: 131_072 } })
+    expect(settings.modelMaxOutputTokens).toEqual({ 'glm-5.2': 131_072 })
+
+    // 只增不删：第二次合并不能覆盖掉旧条目
+    settings.mergeDetectedModelCapabilities({ 'kimi-k3': { maxTokens: 32_768 } })
+    expect(settings.modelDetectedCapabilities).toEqual({
+      'glm-5.2': { maxTokens: 131_072 },
+      'kimi-k3': { maxTokens: 32_768 },
+    })
+  })
+})

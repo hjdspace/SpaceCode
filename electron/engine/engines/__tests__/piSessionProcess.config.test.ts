@@ -648,7 +648,7 @@ describe('writeModelsJsonOverride', () => {
           thinkingLevelMap: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
           input: ['text', 'image'],
           contextWindow: 128000,
-          maxTokens: 16384,
+          maxTokens: 32768,
         },
       ],
     })
@@ -694,9 +694,37 @@ describe('writeModelsJsonOverride', () => {
         thinkingLevelMap: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
         input: ['text', 'image'],
         contextWindow: 32000,
-        maxTokens: 16384,
+        maxTokens: 32768,
       },
     ])
+  })
+
+  it('registers the resolved max output tokens (配置命中) instead of the 32768 default', () => {
+    H.existing.add(PI_AGENT_DIR)
+    const proc = newProc({
+      provider: 'openai',
+      baseUrl: 'https://llm.internal.example/v1',
+      model: 'openai/qwen-audit',
+      modelMaxOutputTokens: { 'qwen-audit': 64000 },
+    })
+
+    privates(proc).writeModelsJsonOverride('openai', 'https://llm.internal.example/v1')
+
+    expect(writtenModels().providers['openai-compat'].models?.[0]?.maxTokens).toBe(64000)
+  })
+
+  it('非法输出上限值不参与注册，回退 32768 保守默认', () => {
+    H.existing.add(PI_AGENT_DIR)
+    const proc = newProc({
+      provider: 'openai',
+      baseUrl: 'https://llm.internal.example/v1',
+      model: 'qwen-audit',
+      modelMaxOutputTokens: { 'qwen-audit': 0 },
+    })
+
+    privates(proc).writeModelsJsonOverride('openai', 'https://llm.internal.example/v1')
+
+    expect(writtenModels().providers['openai-compat'].models?.[0]?.maxTokens).toBe(32768)
   })
 
   it('窗口按带 provider 前缀的原始模型名也能查到', () => {

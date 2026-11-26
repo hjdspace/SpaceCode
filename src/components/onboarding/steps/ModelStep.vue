@@ -175,6 +175,8 @@ async function refreshModels(silent: boolean) {
   try {
     const result = await loadProviderModels(target, settingsStore.modelCapabilities)
     availableModels.value = result.models
+    // 探测到的输出上限落盘成缓存，主进程启动后台会话（IM/cron）时用得到
+    settingsStore.mergeDetectedModelCapabilities(result.detected)
     if (!silent) {
       probe.value = result.fromEndpoint
         ? { count: result.models.length }

@@ -13,7 +13,7 @@ vi.mock('../modelCatalogStore', () => ({
 }))
 
 import { api } from '@/services/electronAPI'
-import { FALLBACK_MODELS, applyCapabilityOverride, applyCapabilityOverrides, enrichRawModels, loadProviderModels } from '../providerModels'
+import { FALLBACK_MODELS, applyCapabilityOverride, applyCapabilityOverrides, collectDetectedCapabilities, enrichRawModels, loadProviderModels } from '../providerModels'
 import type { EnrichedModel } from '../modelCatalog'
 import type { ProviderEndpoint } from '../providerConnection'
 
@@ -42,6 +42,21 @@ describe('enrichRawModels', () => {
     expect(models).toEqual([{ id: 'glm-4.6', name: 'GLM-4.6', contextWindow: 200_000, supportsImages: true }])
   })
 
+  it('端点自述的输出上限支持字符串、范围数组与嵌套对象形状', () => {
+    const models = enrichRawModels(
+      [
+        { id: 'a', max_output_tokens: '32768' },
+        { id: 'b', max_tokens_range: [4096, 64000] },
+        { id: 'c', limit: { output: 131072 } },
+        { id: 'd', capabilities: { max_completion_tokens: 8192 } }
+      ],
+      ENDPOINT.baseUrl,
+      {}
+    )
+
+    expect(models.map(m => m.maxTokens)).toEqual([32768, 64000, 131072, 8192])
+  })
+
   it('目录没命中时仍给出可用的 name', () => {
     const models = enrichRawModels([{ id: 'x1' }], ENDPOINT.baseUrl, {})
     expect(models[0]).toMatchObject({ id: 'x1', name: 'x1' })
@@ -52,8 +67,9 @@ describe('applyCapabilityOverride(s)', () => {
   const model: EnrichedModel = { id: 'm', name: 'M', contextWindow: 1000, supportsImages: false }
 
   it('用户覆盖的字段胜出，未覆盖的保持原样', () => {
-    const patched = applyCapabilityOverride(model, { m: { contextWindow: 8000 } })
+    const patched = applyCapabilityOverride(model, { m: { contextWindow: 8000, maxTokens: 32768 } })
     expect(patched.contextWindow).toBe(8000)
+    expect(patched.maxTokens).toBe(32768)
     expect(patched.supportsImages).toBe(false)
   })
 
@@ -71,6 +87,18 @@ describe('applyCapabilityOverride(s)', () => {
   })
 })
 
+describe('collectDetectedCapabilities', () => {
+  it('只收有输出上限的条目，非法值被跳过', () => {
+    const detected = collectDetectedCapabilities([
+      { id: 'a', name: 'A', maxTokens: 64000 },
+      { id: 'b', name: 'B' },
+      { id: 'c', name: 'C', maxTokens: 0 }
+    ])
+
+    expect(detected).toEqual({ a: { maxTokens: 64000 } })
+  })
+})
+
 describe('loadProviderModels', () => {
   it('端点返回时给出 fromEndpoint 与富化后的列表', async () => {
     okResponse({ data: [{ id: 'claude-x', context_length: 90_000 }] })
@@ -79,6 +107,15 @@ describe('loadProviderModels', () => {
 
     expect(result.fromEndpoint).toBe(true)
     expect(result.models).toEqual([{ id: 'claude-x', name: 'claude-x', contextWindow: 90_000 }])
+  })
+
+  it('detected 收集的是用户覆盖叠加前的探测值', async () => {
+    okResponse({ data: [{ id: 'claude-x', max_output_tokens: 32768 }] })
+
+    const result = await loadProviderModels(ENDPOINT, { 'claude-x': { maxTokens: 65536 } })
+
+    expect(result.models[0].maxTokens).toBe(65536)
+    expect(result.detected).toEqual({ 'claude-x': { maxTokens: 32768 } })
   })
 
   it('拉不通时退回该接入方式的兜底清单，并带上失败原因', async () => {

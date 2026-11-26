@@ -1,4 +1,4 @@
-import type { ModelCapabilityOverride } from '@/types/profile'
+import type { ModelCapabilityOverride, ModelDetectedCapabilities } from '@/types/profile'
 import type { Catalog, EnrichedModel, RawModel } from './modelCatalog'
 import { enrichModels } from './modelCatalog'
 import { loadModelCatalog } from './modelCatalogStore'
@@ -38,7 +38,7 @@ export function enrichRawModels(raw: RawModel[], baseUrl: string, catalog: Catal
   return enrichModels(raw, baseUrl, catalog, rawById)
 }
 
-/** 把用户对单个模型的能力覆盖（上下文窗口 / 识图）叠到富化结果上。 */
+/** 把用户对单个模型的能力覆盖（上下文窗口 / 最大输出 / 识图）叠到富化结果上。 */
 export function applyCapabilityOverride(
   model: EnrichedModel,
   overrides: Record<string, ModelCapabilityOverride>
@@ -48,6 +48,7 @@ export function applyCapabilityOverride(
   return {
     ...model,
     ...(override.contextWindow !== undefined ? { contextWindow: override.contextWindow } : {}),
+    ...(override.maxTokens !== undefined ? { maxTokens: override.maxTokens } : {}),
     ...(override.supportsImages !== undefined ? { supportsImages: override.supportsImages } : {}),
   }
 }
@@ -60,8 +61,27 @@ export function applyCapabilityOverrides(
   return models.map(m => applyCapabilityOverride(m, overrides))
 }
 
+/**
+ * 从端点富化结果里收集探测到的输出上限（只收有值的条目）。
+ * 探测发生在渲染进程，主进程只能从落盘设置读到它 —— 调用方（设置页/引导向导
+ * 的「获取模型」成功路径）把它并入 settingsStore.modelDetectedCapabilities。
+ */
+export function collectDetectedCapabilities(
+  models: EnrichedModel[]
+): Record<string, ModelDetectedCapabilities> {
+  const detected: Record<string, ModelDetectedCapabilities> = {}
+  for (const model of models) {
+    if (typeof model.maxTokens === 'number' && model.maxTokens > 0) {
+      detected[model.id] = { maxTokens: model.maxTokens }
+    }
+  }
+  return detected
+}
+
 export interface ProviderModelsResult {
   models: EnrichedModel[]
+  /** 用户覆盖叠加前收集的端点/目录探测能力，调用方并入设置缓存。 */
+  detected: Record<string, ModelDetectedCapabilities>
   /** false 表示这批候选来自兜底清单，不是端点真实返回的。 */
   fromEndpoint: boolean
   reason?: ProbeFailure
@@ -82,13 +102,16 @@ export async function loadProviderModels(
     const fallback = enrichModels([...FALLBACK_MODELS[endpoint.target]], endpoint.baseUrl, catalog)
     return {
       models: applyCapabilityOverrides(fallback, overrides),
+      detected: collectDetectedCapabilities(fallback),
       fromEndpoint: false,
       reason: outcome.reason
     }
   }
 
+  const enriched = enrichRawModels(outcome.models, endpoint.baseUrl, catalog)
   return {
-    models: applyCapabilityOverrides(enrichRawModels(outcome.models, endpoint.baseUrl, catalog), overrides),
+    models: applyCapabilityOverrides(enriched, overrides),
+    detected: collectDetectedCapabilities(enriched),
     fromEndpoint: true
   }
 }

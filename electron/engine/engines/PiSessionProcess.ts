@@ -1082,6 +1082,9 @@ export class PiSessionProcess extends EventEmitter {
   /** 用户没给某个模型配窗口时，沿用 pi 自己在 models.json 里用的默认值。 */
   private static readonly DEFAULT_CONTEXT_WINDOW = 128000
 
+  /** 端点与目录都拿不到输出上限、用户也没配时的保守默认值（对齐 soc-verify：32K）。 */
+  private static readonly DEFAULT_MAX_OUTPUT_TOKENS = 32768
+
   /**
    * 用户在模型设置里为该模型配的上下文窗口（token 数）。
    *
@@ -1097,6 +1100,22 @@ export class PiSessionProcess extends EventEmitter {
       if (typeof value === 'number' && value > 0) return value
     }
     return PiSessionProcess.DEFAULT_CONTEXT_WINDOW
+  }
+
+  /**
+   * 用户在模型设置里为该模型配的最大输出 token，或端点探测缓存里的值。
+   *
+   * 键的形态与 resolveContextWindow 一致（真名 + 别名双份）；两级来源的优先级已在
+   * 下发侧合并好（用户覆盖 > 端点探测），这里只管取值，缺省回退 32K 保守默认。
+   */
+  private resolveMaxOutputTokens(modelId: string): number {
+    const limits = this.config.modelMaxOutputTokens
+    if (!limits) return PiSessionProcess.DEFAULT_MAX_OUTPUT_TOKENS
+    for (const key of [modelId, this.config.model]) {
+      const value = key ? limits[key] : undefined
+      if (typeof value === 'number' && value > 0) return value
+    }
+    return PiSessionProcess.DEFAULT_MAX_OUTPUT_TOKENS
   }
 
   /** 去掉 `<provider>/` 前缀：models.json 里的条目 id 不带 provider，spawn 参数也不带。 */
@@ -1182,7 +1201,7 @@ export class PiSessionProcess extends EventEmitter {
             ...PI_COMPAT_REASONING_CAPABILITY,
             input: ['text', 'image'],
             contextWindow: this.resolveContextWindow(modelId),
-            maxTokens: 16384,
+            maxTokens: this.resolveMaxOutputTokens(modelId),
           })
         }
 
