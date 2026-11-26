@@ -124,12 +124,11 @@
             <div class="tool-group__expand-clip">
               <div class="tool-group__events">
                 <template v-for="event in item.events!" :key="event.id">
-                  <!-- 推理：扁平形态，不再套第二层折叠头 -->
+                  <!-- 推理：沿用原思考块 UI，放入组内 -->
                   <ReasoningCard
                     v-if="event.type === 'reasoning'"
                     :reasoning="reasoningForEvent(event)"
                     :is-thinking="event.status === 'running'"
-                    variant="inline"
                   />
 
                   <!-- 带专用组件的工具：卡片 UI 原样渲染 -->
