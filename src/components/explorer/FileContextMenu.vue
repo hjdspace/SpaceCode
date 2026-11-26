@@ -230,7 +230,22 @@ async function handleDelete() {
       console.log('[FileContextMenu] Deleted:', node.path)
       emit('delete', node)
     } else {
-      await showAlert(t('explorer.deleteFailed', { error: result.error }))
+      // Windows 上 shell 判定该项无法进回收站时（隐藏/系统属性、所在盘禁用回收站、
+      // 超出配额、网络盘等）Electron 的 trashItem 以 "Operation was aborted" 失败
+      // （IFileOperation 的 PreDeleteItem sink 对不可回收项直接 E_ABORT）。
+      // 此时经用户二次确认后走永久删除兜底，而不是只弹报错。
+      const permanent = await showConfirm(
+        t('explorer.confirmPermanentDelete', { name: node.name, error: result.error }),
+        { variant: 'danger' },
+      )
+      if (!permanent) return
+      const retry = await api.deleteFile(node.path, true)
+      if (retry.success) {
+        console.log('[FileContextMenu] Deleted permanently:', node.path)
+        emit('delete', node)
+      } else {
+        await showAlert(t('explorer.deleteFailed', { error: retry.error }))
+      }
     }
   } catch (err) {
     console.error('[FileContextMenu] Delete error:', err)

@@ -29,6 +29,7 @@ export default {
   openFailed: 'Open failed: {error}',
   openFailedPath: 'Open failed. Make sure the editor command is in PATH.',
   confirmDelete: 'Are you sure you want to delete "{name}"?\n\nThis will move the file to the recycle bin.',
+  confirmPermanentDelete: 'Could not move "{name}" to the recycle bin ({error}).\n\nDelete it permanently? This cannot be undone.',
   deleteFailed: 'Delete failed: {error}',
   thumbnailLoading: 'Loading...',
   thumbnailNoMessages: 'No conversation content',

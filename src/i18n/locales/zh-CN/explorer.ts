@@ -29,6 +29,7 @@ export default {
   openFailed: '打开失败：{error}',
   openFailedPath: '打开失败，请确认编辑器命令已加入 PATH。',
   confirmDelete: '确定要删除 "{name}" 吗？\n\n此操作将把文件移至回收站。',
+  confirmPermanentDelete: '无法将 "{name}" 移至回收站（{error}）。\n\n是否永久删除？此操作无法通过回收站恢复。',
   deleteFailed: '删除失败：{error}',
   thumbnailLoading: '加载中...',
   thumbnailNoMessages: '暂无对话内容',

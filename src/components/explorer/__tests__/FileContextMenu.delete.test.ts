@@ -93,15 +93,53 @@ describe('FileContextMenu delete', () => {
     expect(probe.showAlert).not.toHaveBeenCalled()
   })
 
-  it('主进程返回失败时把原因显示出来', async () => {
+  it('回收站删除失败时二次确认后走永久删除兜底', async () => {
     const { menu } = mountMenu()
-    probe.deleteFile.mockResolvedValue({ success: false, error: 'Operation not supported' })
+    probe.deleteFile
+      .mockResolvedValueOnce({ success: false, error: 'Operation was aborted' })
+      .mockResolvedValueOnce({ success: true })
+    await openConfirm(menu)
+
+    probe.resolveConfirm(true) // 第一次确认：删除
+    await flushPromises()
+    probe.resolveConfirm(true) // 第二次确认：永久删除
+    await flushPromises()
+
+    expect(probe.deleteFile).toHaveBeenNthCalledWith(1, TARGET.path)
+    expect(probe.deleteFile).toHaveBeenNthCalledWith(2, TARGET.path, true)
+    expect(menu.emitted('delete')).toEqual([[TARGET]])
+    expect(probe.showAlert).not.toHaveBeenCalled()
+  })
+
+  it('回收站失败且拒绝永久删除时不再删除', async () => {
+    const { menu } = mountMenu()
+    probe.deleteFile.mockResolvedValue({ success: false, error: 'Operation was aborted' })
+    await openConfirm(menu)
+
+    probe.resolveConfirm(true) // 第一次确认：删除
+    await flushPromises()
+    probe.resolveConfirm(false) // 拒绝永久删除
+    await flushPromises()
+
+    expect(probe.deleteFile).toHaveBeenCalledTimes(1)
+    expect(menu.emitted('delete')).toBeUndefined()
+    expect(probe.showAlert).not.toHaveBeenCalled()
+  })
+
+  it('永久删除也失败时把原因显示出来', async () => {
+    const { menu } = mountMenu()
+    probe.deleteFile
+      .mockResolvedValueOnce({ success: false, error: 'Operation was aborted' })
+      .mockResolvedValueOnce({ success: false, error: 'Access denied' })
     await openConfirm(menu)
 
     probe.resolveConfirm(true)
     await flushPromises()
+    probe.resolveConfirm(true)
+    await flushPromises()
 
-    expect(probe.showAlert).toHaveBeenCalledWith('explorer.deleteFailed|{"error":"Operation not supported"}')
+    expect(probe.showAlert).toHaveBeenCalledWith('explorer.deleteFailed|{"error":"Access denied"}')
+    expect(menu.emitted('delete')).toBeUndefined()
   })
 
   it('IPC 抛错时同样带上真实原因，不再只说请重试', async () => {
