@@ -75,6 +75,8 @@ export default {
     toolCalls: '{count} 个工具调用',
     more: '+{count} 更多',
     writingFile: '写入中',
+    stepSummary: '推理 {reasoning} 段 · {tools} 个工具调用',
+    toolNameCount: '{name} ×{count}',
   },
   input: '输入',
   output: '输出',

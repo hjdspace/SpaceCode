@@ -165,6 +165,22 @@ function showLinuxNotification(options: SystemNotificationOptions, iconPath?: st
 }
 
 /**
+ * 把主窗口带到前台。
+ * Windows 有前台锁：非前台进程调用 SetForegroundWindow 会被系统拒绝，只留任务栏闪烁。
+ * 点击 toast 的输入归属系统 shell 而非本进程，所以 focus() 在窗口已可见但被压在
+ * 后面时基本无效。先临时置顶再撤销，是绕过该限制的通行做法。
+ */
+function bringToFront(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  const isWindows = process.platform === 'win32'
+  if (isWindows) win.setAlwaysOnTop(true)
+  win.show()
+  win.focus()
+  if (isWindows) win.setAlwaysOnTop(false)
+}
+
+/**
  * 弹出系统通知。支持 Windows（右下角 toast）与 Linux（libnotify）。
  * @returns 是否成功弹出
  */
@@ -194,13 +210,15 @@ export function showSystemNotification(options: SystemNotificationOptions): bool
     const target = options.window && !options.window.isDestroyed() ? options.window : null
 
     notification.on('click', () => {
-      if (target) {
-        if (target.isMinimized()) target.restore()
-        target.show()
-        target.focus()
-        if (options.sessionId) {
-          target.webContents.send('app:notificationClicked', { sessionId: options.sessionId })
-        }
+      if (!target) {
+        warn('Notification', `Toast clicked but main window is gone | sessionId=${options.sessionId ?? 'none'}`)
+        return
+      }
+      // click 是否真的送达没有别的地方可查，这行是唯一证据。
+      info('Notification', `Toast clicked | sessionId=${options.sessionId ?? 'none'}`)
+      bringToFront(target)
+      if (options.sessionId) {
+        target.webContents.send('app:notificationClicked', { sessionId: options.sessionId })
       }
     })
 
@@ -331,9 +349,7 @@ export function showNotificationPopup(options: SystemNotificationOptions): void 
     popup.on('focus', () => {
       const win = options.window && !options.window.isDestroyed() ? options.window : null
       if (win) {
-        if (win.isMinimized()) win.restore()
-        win.show()
-        win.focus()
+        bringToFront(win)
         if (options.sessionId) {
           win.webContents.send('app:notificationClicked', { sessionId: options.sessionId })
         }

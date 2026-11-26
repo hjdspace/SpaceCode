@@ -297,7 +297,7 @@ describe('notificationService', () => {
     it('restores, shows and focuses the window on click', () => {
       const originalPlatform = process.platform
       Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-      const win = { isDestroyed: () => false, isFocused: () => false, isVisible: () => true, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn(), flashFrame: vi.fn() }
+      const win = { isDestroyed: () => false, isFocused: () => false, isVisible: () => true, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn(), setAlwaysOnTop: vi.fn(), flashFrame: vi.fn() }
 
       try {
         showSystemNotification({ title: 'T', message: 'M', window: win as any })
@@ -306,6 +306,8 @@ describe('notificationService', () => {
         expect(win.restore).toHaveBeenCalledTimes(1)
         expect(win.show).toHaveBeenCalledTimes(1)
         expect(win.focus).toHaveBeenCalledTimes(1)
+        // Windows 前台锁绕行：置顶 → 显示/聚焦 → 撤销置顶
+        expect(win.setAlwaysOnTop.mock.calls).toEqual([[true], [false]])
       } finally {
         Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
       }
@@ -421,7 +423,7 @@ describe('notificationService', () => {
     })
 
     it('focuses the main window and closes the popup when the popup is clicked', () => {
-      const win = { isDestroyed: () => false, isFocused: () => false, isVisible: () => true, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn(), flashFrame: vi.fn() }
+      const win = { isDestroyed: () => false, isFocused: () => false, isVisible: () => true, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn(), setAlwaysOnTop: vi.fn(), flashFrame: vi.fn() }
       registerNotificationIPCHandlers(() => win as any)
       const handler = vi.mocked(electronMock.ipcMain.on).mock.calls[0][1] as (e: unknown, o: unknown) => void
       ;(electronMock.Notification as any).isSupported.mockImplementation(() => false)

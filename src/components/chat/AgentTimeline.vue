@@ -52,7 +52,7 @@
                 class="tool-group__status tool-group__status--error"
               />
               <span class="tool-group__count">
-                {{ t('chat.toolChips.toolCalls', { count: item.events!.length }) }}
+                {{ groupSummaryLabel(item.events!) }}
               </span>
             </button>
             <!-- 紧凑 chips（带工具图标） -->
@@ -62,6 +62,7 @@
                 :key="ci"
                 class="tool-group__chip"
                 :class="{ 'tool-group__chip--mono': chip.mono }"
+                :title="chip.title"
               >
                 <component :is="chip.icon" :size="11" class="tool-group__chip-icon" />
                 <span class="tool-group__chip-text">{{ chip.text }}</span>
@@ -114,7 +115,7 @@
               class="tool-group__status tool-group__status--error"
             />
             <span class="tool-group__count">
-              {{ t('chat.toolChips.toolCalls', { count: item.events!.length }) }}
+              {{ groupSummaryLabel(item.events!) }}
             </span>
           </button>
 
@@ -123,9 +124,17 @@
             <div class="tool-group__expand-clip">
               <div class="tool-group__events">
                 <template v-for="event in item.events!" :key="event.id">
+                  <!-- 推理：扁平形态，不再套第二层折叠头 -->
+                  <ReasoningCard
+                    v-if="event.type === 'reasoning'"
+                    :reasoning="reasoningForEvent(event)"
+                    :is-thinking="event.status === 'running'"
+                    variant="inline"
+                  />
+
                   <!-- 带专用组件的工具：卡片 UI 原样渲染 -->
                   <div
-                    v-if="event.specialComponent"
+                    v-else-if="event.specialComponent"
                     :key="`card-${getSpecialComponentKey(event)}`"
                     class="tool-group__card"
                     :inert="props.readonly ? true : undefined"
@@ -651,7 +660,10 @@ const visibleTimelineEvents = computed<TimelineEvent[]>(() => {
   })
 })
 
-// ── 将连续的工具调用 run 合并为可折叠的 Tool Chips 组 ──
+// ── 将连续的「推理 + 工具调用」合成可折叠的步骤组 ──
+// 一段文本答复之间的所有推理与工具调用构成一次 agent 循环，折叠后只占一行摘要；
+// 展开才按时序看过程。推理不再当成分组边界 —— 否则「思考→调工具→思考」必然
+// 断成 N 个工具组 + N 个推理卡交替，把主聊天界面撑成两倍长。
 // 专用卡片工具（Bash/Read/Edit 等）同样参与折叠：卡片 UI 原样渲染在组内。
 // 排除两类必须始终可见的工具：交互式问答（自身即权限 UI）与挂起中的权限请求。
 interface DisplayItem {
@@ -661,11 +673,12 @@ interface DisplayItem {
   groupId?: string
 }
 
-// 折叠摘要行中目标 chips / diff chips 的展示上限
-const CHIP_CAP = 8
+// 折叠摘要行中聚合 chips / diff chips 的展示上限
+const CHIP_CAP = 5
 const DIFF_CAP = 4
 
-function isGroupableToolEvent(event: TimelineEvent): boolean {
+function isGroupableEvent(event: TimelineEvent): boolean {
+  if (event.type === 'reasoning') return true
   if (event.type !== 'tool_call') return false
   const tool = toolOf(event)
   if (!tool) return false
@@ -680,9 +693,12 @@ const displayItems = computed<DisplayItem[]>(() => {
 
   const flushRun = () => {
     if (run.length === 0) return
-    // ≥2 个连续工具、或带专用卡片的单个工具 → 折叠组；
+    // 只含推理的 run（思考后直接出文、或接着是交互卡片）不成组：
+    // ReasoningCard 本身就是一行，再包一层折叠是倒退。
+    const hasTool = run.some(e => e.type === 'tool_call')
+    // ≥2 个连续事件、或带专用卡片的单个工具 → 折叠组；
     // 单个 generic 工具保持独立行（行本身就是紧凑形态）
-    if (run.length >= 2 || run.some(e => !!e.specialComponent)) {
+    if (hasTool && (run.length >= 2 || run.some(e => !!e.specialComponent))) {
       items.push({ type: 'tool-group', events: run, groupId: `tool-group-${run[0].id}` })
     } else {
       for (const event of run) items.push({ type: 'single', event })
@@ -691,7 +707,7 @@ const displayItems = computed<DisplayItem[]>(() => {
   }
 
   for (const event of visibleTimelineEvents.value) {
-    if (isGroupableToolEvent(event)) {
+    if (isGroupableEvent(event)) {
       run.push(event)
     } else {
       flushRun()
@@ -704,17 +720,18 @@ const displayItems = computed<DisplayItem[]>(() => {
 })
 
 // ── 工具组折叠状态 ──
-// 手动操作优先。自动规则（sticky）：组内所有工具结束后折叠，且保持折叠 ——
-// 后续同组追加的新工具由折叠摘要行的 spinner / chips 持续展示进度，
-// 避免组在「工具结束 → 等待 LLM 下一轮 → 新工具开始」间反复展开/折叠闪烁。
-// 新建的组（从未自动折叠过）在有工具运行时保持展开，用户可实时观看进度。
+// 手动操作优先。自动规则：
+// - 回合进行中一律展开 —— 组里是整段循环，若按「本组暂时没有运行中的事件」收起，
+//   第一次工具返回的间隙就会把它压成一行，后续十几步动作全部消失。
+// - 回合结束后收起并保持（sticky）：历史轮次只留一行摘要，想看过程再点开。
 const manualToolGroupCollapse = reactive<Record<string, boolean>>({})
 const autoCollapsedGroups = reactive<Record<string, boolean>>({})
 // diff chips 超出 DIFF_CAP 后点击 "+N more" 展开剩余
 const revealedDiffGroups = reactive<Record<string, boolean>>({})
 
-watch(displayItems, (items) => {
-  for (const item of items) {
+watch([displayItems, () => props.loading], () => {
+  if (props.loading) return
+  for (const item of displayItems.value) {
     if (item.type !== 'tool-group') continue
     const hasActive = item.events!.some(e => e.status === 'running' || e.status === 'pending')
     if (!hasActive) autoCollapsedGroups[item.groupId!] = true
@@ -724,6 +741,7 @@ watch(displayItems, (items) => {
 function isToolGroupCollapsed(groupId: string): boolean {
   if (manualToolGroupCollapse[groupId] !== undefined) return manualToolGroupCollapse[groupId]
   if (autoCollapsedGroups[groupId]) return true
+  if (props.loading) return false
   const events = displayItems.value.find(item => item.groupId === groupId)?.events
   return !events?.some(e => e.status === 'running' || e.status === 'pending')
 }
@@ -756,11 +774,44 @@ function isMonoTool(toolName?: string): boolean {
   return ['Bash', 'Write', 'FileWrite', 'Edit', 'FileEdit', 'MultiEdit', 'Read', 'FileRead'].includes(toolName || '')
 }
 
-function getGroupChips(events: TimelineEvent[]): { text: string; mono: boolean; icon: Component }[] {
-  return events.map(e => {
+/**
+ * 折叠摘要行的计数文案：整段循环里既有推理又有工具，只报工具数会把思考藏掉，
+ * 只报推理数又看不出干了多少活，两个都给。
+ */
+function groupSummaryLabel(events: TimelineEvent[]): string {
+  const tools = events.filter(e => e.type === 'tool_call').length
+  const reasonings = events.filter(e => e.type === 'reasoning').length
+  if (reasonings === 0) return t('chat.toolChips.toolCalls', { count: tools })
+  return t('chat.toolChips.stepSummary', { reasoning: reasonings, tools })
+}
+
+/**
+ * 摘要行 chips：同一工具重复调用聚合成 `工具名 ×N`。
+ * 整段循环动辄十几步，逐个列目标会换行成两三行，反而比折叠前更吵；
+ * 只调一次的工具仍显示目标（文件名 / 命令），信息量不变。
+ */
+function getGroupChips(events: TimelineEvent[]): { text: string; mono: boolean; icon: Component; title: string }[] {
+  const chips: { text: string; mono: boolean; icon: Component; title: string; count: number; label: string }[] = []
+  for (const e of events) {
+    if (e.type !== 'tool_call') continue
     const target = toolTarget(e)
-    return { text: target, mono: isMonoTool(toolOf(e)?.name), icon: e.icon }
-  }).filter(c => c.text)
+    const existing = chips.find(c => c.label === e.label)
+    if (existing) {
+      existing.count += 1
+      existing.text = t('chat.toolChips.toolNameCount', { name: e.label, count: existing.count })
+      existing.mono = false
+      continue
+    }
+    chips.push({
+      text: target || e.label,
+      mono: isMonoTool(toolOf(e)?.name),
+      icon: e.icon,
+      title: target || e.label,
+      count: 1,
+      label: e.label,
+    })
+  }
+  return chips
 }
 
 interface DiffStat {
@@ -1720,6 +1771,14 @@ function formatOutput(output: string): string {
 .tool-group__expand-clip {
   min-height: 0;
   overflow: hidden;
+}
+
+/* 展开的是整段循环，几十个块直接铺开会把聊天界面顶飞：限高后内部滚动，
+   grid-rows 展开动画不动（高度仍由内容撑开，只是到头就停） */
+.tool-group__expand-panel--open > .tool-group__expand-clip {
+  max-height: min(60vh, 640px);
+  overflow-y: auto;
+  @include scrollbar-overlay;
 }
 
 .tool-group__events {

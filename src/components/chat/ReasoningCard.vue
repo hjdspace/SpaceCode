@@ -1,5 +1,18 @@
 <template>
-  <div class="reasoning-card" :class="{ 'is-thinking': isThinking }">
+  <!-- inline：折叠组内的推理不做第二层折叠，只留一行小标题 + 正文 -->
+  <div v-if="variant === 'inline'" class="reasoning-card reasoning-card--inline">
+    <div class="reasoning-inline-head">
+      <span class="reasoning-indicator" :class="{ active: isThinking }" aria-hidden="true">
+        <Brain v-if="!isThinking" :size="12" />
+        <span v-else class="thinking-orb"></span>
+      </span>
+      <span class="reasoning-inline-label">{{ t('chat.reasoning') }}</span>
+      <span v-if="durationText" class="reasoning-inline-duration">{{ durationText }}</span>
+    </div>
+    <div class="reasoning-text reasoning-text--inline">{{ displayContent }}</div>
+  </div>
+
+  <div v-else class="reasoning-card" :class="{ 'is-thinking': isThinking }">
     <button
       type="button"
       class="reasoning-header"
@@ -33,14 +46,25 @@ import { Brain, ChevronDown } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import type { ReasoningBlock } from '@/types'
 import { nextRevealedLength } from '@/utils/textReveal'
+import { formatDurationMs } from '@/utils/formatDuration'
 
 const props = defineProps<{
   reasoning: ReasoningBlock
   isThinking?: boolean
+  /**
+   * `card`（默认）= 带折叠头的独立思考块；
+   * `inline` = 工具折叠组内部的扁平形态，永远展开、无第二层折叠头。
+   */
+  variant?: 'card' | 'inline'
 }>()
 
 const { t } = useI18n()
 const isThinking = computed(() => props.isThinking ?? props.reasoning.endTime == null)
+const durationText = computed(() => {
+  const { startTime, endTime } = props.reasoning
+  if (!endTime || endTime <= startTime) return ''
+  return formatDurationMs(endTime - startTime)
+})
 const isExpanded = ref(isThinking.value)
 const userToggled = ref(false)
 const contentRef = ref<HTMLElement | null>(null)
@@ -250,6 +274,38 @@ function toggleExpand() {
   line-height: var(--leading-chat);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* 折叠组内的扁平推理块：没有折叠头，正文直接铺开 */
+.reasoning-card--inline {
+  margin: 2px 0;
+  padding: 6px 10px 7px;
+  border-radius: 7px;
+  background: var(--bg-secondary);
+}
+
+.reasoning-inline-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+}
+
+.reasoning-inline-label {
+  font-weight: var(--font-weight-medium);
+}
+
+.reasoning-inline-duration {
+  font-family: var(--font-mono);
+  opacity: 0.7;
+}
+
+.reasoning-text--inline {
+  max-height: 180px;
+  padding: 0;
+  background: transparent;
 }
 
 .reasoning-reveal-enter-active,

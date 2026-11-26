@@ -431,6 +431,7 @@ export function createTurnEndHandlers(ctx: EventHandlerContext) {
           api.showNotification({
             title: i18n.global.t('chat.taskCompleteNotificationTitle', { session: getSessionTitle(sessionId) }) as string,
             message: i18n.global.t('chat.taskCompleteNotificationBody') as string,
+            sessionId,
           })
         } catch (e) {
           logger.warn('ChatStore', `[${sessionId.slice(0, 8)}] failed to show task complete notification`, { error: String(e) })

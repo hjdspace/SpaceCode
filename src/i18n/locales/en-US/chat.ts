@@ -75,6 +75,8 @@ export default {
     toolCalls: '{count} tool calls',
     more: '+{count} more',
     writingFile: 'Writing',
+    stepSummary: '{reasoning} thinking blocks · {tools} tool calls',
+    toolNameCount: '{name} ×{count}',
   },
   input: 'Input',
   output: 'Output',
