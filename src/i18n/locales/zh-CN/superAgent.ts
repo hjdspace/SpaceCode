@@ -6,6 +6,15 @@ export default {
   attentionBadge: '有 {count} 项待处理',
   composerPlaceholder: '向 Super Agent 描述目标，或继续和它对话…',
   commandNotAvailableHere: '该命令依赖主聊天界面，在 Super Agent 中不可用',
+  contextRow: {
+    noDir: '未选择目录',
+    searchDirs: '搜索目录...',
+    noDirs: '未找到目录',
+    addDir: '添加新目录',
+    searchBranches: '搜索分支...',
+    noBranches: '未找到分支',
+    rebuilding: '正在重建会话…',
+  },
   errors: {
     ticketNotFound: '找不到该工单',
     assignmentNotFound: '找不到这次执行',

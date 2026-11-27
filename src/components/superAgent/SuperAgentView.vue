@@ -182,7 +182,12 @@
         :session-id="routerSessionId"
         :show-work-gallery-action="false"
         :excluded-commands="routerExcludedCommands"
-      />
+      >
+        <!-- Agent 上下文行：工作区 / 目录 / 分支，挂在 composer 上方 -->
+        <template #context-toolbar>
+          <AgentContextRow />
+        </template>
+      </ChatInput>
     </template>
 
     <!-- 未绑定（无项目根 / bind 未完成）：保留 T01 的空态 -->
@@ -215,6 +220,7 @@ import type {
 import type { SuperAgentReviewReminderItem } from '@/stores/superAgent'
 import MessageList from '../chat/MessageList.vue'
 import ChatInput, { type AllAttachments, type SendOptions } from '../chat/ChatInput.vue'
+import AgentContextRow from './AgentContextRow.vue'
 import SuperAgentHealth from './SuperAgentHealth.vue'
 import AuthorizationPolicyPanel from './AuthorizationPolicyPanel.vue'
 import AttentionBubble from './AttentionBubble.vue'
@@ -948,10 +954,5 @@ p {
 
 .super-agent-composer {
   flex-shrink: 0;
-
-  // 宿主裁剪：项目/分支切换工具条属于主聊天（Super Agent 绑定固定的 repoRoot）
-  :deep(.context-toolbar-row) {
-    display: none;
-  }
 }
 </style>
