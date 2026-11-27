@@ -715,7 +715,7 @@ describe('Turn sendMessage', () => {
     expect(turn.getIsLoading('sess-abort')).toBe(false)
   })
 
-  it('sendMessage 检测到同会话已有 turn 在飞行时直接返回，不创建新 turn 也不调用 IPC', async () => {
+  it('sendMessage 检测到同会话已有 turn 在飞行时拒绝派发，且不留下孤儿气泡', async () => {
     const fake = makeFakeApi()
     const { useTurnStore } = await import('../turn')
     const turn = useTurnStore(fake as any)
@@ -728,17 +728,139 @@ describe('Turn sendMessage', () => {
     try {
       const beforeMessages = sessionStore.sessions.find(s => s.id === 'sess-concurrent')!.messages.length
 
-      await turn.sendMessage('second message', undefined, undefined)
+      await expect(turn.sendMessage('second message', undefined, undefined))
+        .rejects.toMatchObject({ code: 'turn-in-flight' })
 
-      // user message 仍被追加，但不应调用 IPC sendMessage
+      // 气泡不再被贴上：这条正文到不了引擎，留着只会等不到回复
       const session = sessionStore.sessions.find(s => s.id === 'sess-concurrent')!
-      expect(session.messages.length).toBe(beforeMessages + 1)
-      expect(session.messages[session.messages.length - 1].role).toBe('user')
-      expect(session.messages[session.messages.length - 1].content).toBe('second message')
+      expect(session.messages.length).toBe(beforeMessages)
       expect(fake.claudeCode.sendMessage).not.toHaveBeenCalled()
     } finally {
       ;(turn as any).endTurn('sess-concurrent', existingTs)
     }
+  })
+})
+
+describe('Turn 立即发送（安全点插话）', () => {
+  beforeEach(() => { setActivePinia(createPinia()) })
+
+  /** 造一条待发送消息的字面量（与 ChatInput 入队形状一致） */
+  function pendingMsg(id: string, content: string): any {
+    return {
+      id,
+      content,
+      attachments: [],
+      images: [],
+      displayLabel: content,
+      priority: 'later',
+      createdAt: Date.now(),
+    }
+  }
+
+  function setupSession() {
+    const fake = makeFakeApi()
+    const sessionStore = useChatSessionStore()
+    const sid = 'sess-steer'
+    sessionStore.createSession('Test', undefined, sid)
+    sessionStore.selectSession(sid)
+    return { fake, sessionStore, sid }
+  }
+
+  it('没有在飞回合时返回 false，队列保持原样', async () => {
+    const { fake, sid } = setupSession()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const msg = pendingMsg('m1', '补充')
+    turn.addPendingMessage(sid, msg)
+
+    expect(turn.steerPendingMessage(sid, msg.id)).toBe(false)
+    expect(turn.getPendingMessages(sid)).toHaveLength(1)
+    expect(turn.getPendingMessages(sid)[0].priority).toBe('later')
+    expect(fake.claudeCode.abort).not.toHaveBeenCalled()
+  })
+
+  it('在飞且无工具在跑时：消息提到队首并立即中止本轮', async () => {
+    const { fake, sid } = setupSession()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    ;(turn as any).beginTurn(sid, { isAutonomous: false })
+    const later = pendingMsg('m-later', '先排着的')
+    const target = pendingMsg('m-target', '补充')
+    turn.addPendingMessage(sid, later)
+    turn.addPendingMessage(sid, target)
+
+    expect(turn.steerPendingMessage(sid, target.id)).toBe(true)
+    const pending = turn.getPendingMessages(sid)
+    expect(pending[0]).toMatchObject({ id: target.id, priority: 'now' })
+    expect(pending[1].id).toBe(later.id)
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(fake.claudeCode.abort).toHaveBeenCalledWith(sid)
+    expect(turn.getIsLoading(sid)).toBe(false)
+  })
+
+  it('工具有回包前不中止；工具收尾后自动在安全点中止', async () => {
+    const { fake, sessionStore, sid } = setupSession()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    const ts = (turn as any).beginTurn(sid, { isAutonomous: false })
+    const assistant = sessionStore.sessions
+      .find(s => s.id === sid)!
+      .messages.find(m => m.id === ts.assistantMessageId)!
+    assistant.toolCalls = [{ id: 'tool-1', name: 'Bash', input: {}, status: 'running', startTime: Date.now() }]
+
+    const target = pendingMsg('m-tool', '补充')
+    turn.addPendingMessage(sid, target)
+
+    expect(turn.steerPendingMessage(sid, target.id)).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // 工具还在跑：先等，别把命令砍在半路
+    expect(fake.claudeCode.abort).not.toHaveBeenCalled()
+    expect(turn.getIsLoading(sid)).toBe(true)
+
+    fake._handlers.onToolResult?.({ sessionId: sid, data: { tool_use_id: 'tool-1', content: 'done' } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(fake.claudeCode.abort).toHaveBeenCalledWith(sid)
+    expect(turn.getIsLoading(sid)).toBe(false)
+  })
+
+  it('工具迟迟不收尾时按超时兜底中止（async Agent 场景）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { fake, sessionStore, sid } = setupSession()
+      const { useTurnStore } = await import('../turn')
+      const turn = useTurnStore(fake as any)
+      const ts = (turn as any).beginTurn(sid, { isAutonomous: false })
+      const assistant = sessionStore.sessions
+        .find(s => s.id === sid)!
+        .messages.find(m => m.id === ts.assistantMessageId)!
+      assistant.toolCalls = [{ id: 'tool-async', name: 'Agent', input: {}, status: 'running', startTime: Date.now() }]
+
+      const target = pendingMsg('m-timeout', '补充')
+      turn.addPendingMessage(sid, target)
+      expect(turn.steerPendingMessage(sid, target.id)).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(15_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fake.claudeCode.abort).toHaveBeenCalledWith(sid)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('插话触发的收口会被宿主消费一次，用于延迟 flush', async () => {
+    const { fake, sid } = setupSession()
+    const { useTurnStore } = await import('../turn')
+    const turn = useTurnStore(fake as any)
+    ;(turn as any).beginTurn(sid, { isAutonomous: false })
+    const target = pendingMsg('m-flush', '补充')
+    turn.addPendingMessage(sid, target)
+
+    expect(turn.steerPendingMessage(sid, target.id)).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(turn.consumeSteerAbortFlush(sid)).toBe(true)
+    expect(turn.consumeSteerAbortFlush(sid)).toBe(false)
   })
 })
 

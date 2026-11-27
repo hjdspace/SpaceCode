@@ -214,7 +214,12 @@ export function useDesignSession() {
     const responseMessage = `[form answers — discovery] ${JSON.stringify(answers)}`
     designStore.clearPendingQuestionForm()
     chatSessionStore.currentSessionId = sid
-    await turnStore.sendMessage(responseMessage)
+    try {
+      await turnStore.sendMessage(responseMessage)
+    } catch (error) {
+      // 在飞检查会拒绝这次派发（消息没送到引擎），表单答案不能静默消失
+      console.error('[Design] submitQuestionForm sendMessage rejected:', error)
+    }
   }
 
   async function stopDesignGeneration() {

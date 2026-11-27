@@ -789,6 +789,14 @@ const { editorSessionId, saveDraftForSession, loadDraftForSession } = draftPersi
 
 // ── Local state (not extracted) ──────────────────────────────────
 const showSteerHint = ref(false)
+let steerHintTimer: ReturnType<typeof setTimeout> | undefined
+
+/** 插话已受理：提示消息会在当前步骤结束后插入 */
+function flashSteerHint() {
+  showSteerHint.value = true
+  if (steerHintTimer) clearTimeout(steerHintTimer)
+  steerHintTimer = setTimeout(() => { showSteerHint.value = false }, 2500)
+}
 const thinkingHint = ref<{ text: string; isError: boolean } | null>(null)
 const thinkingEnabled = ref(settingsStore.thinkingEnabled)
 const contextMenuRef = ref<InstanceType<typeof ContextMenu> | null>(null)
@@ -1440,16 +1448,28 @@ function handleSend(steerMode = false) {
     case 'queue': {
       const sid = editorSessionId.value
       if (!sid) return
+      const msgId = crypto.randomUUID()
       turnStore.addPendingMessage(sid, {
-        id: crypto.randomUUID(),
+        id: msgId,
         content: decision.content,
         attachments: decision.attachments.files.map(f => ({ ...f })),
         images: decision.attachments.images.map(img => ({ ...img })),
         displayLabel: decision.displayLabel,
         todoReferences: todoReferences.length > 0 ? todoReferences : undefined,
-        priority: 'later',
+        priority: decision.priority,
         createdAt: Date.now(),
       })
+      if (decision.priority === 'now') {
+        // 有在飞回合 → 提到队首并在安全点打断；没有（isSending 只是界面残留）→ 直接发
+        if (turnStore.steerPendingMessage(sid, msgId)) {
+          flashSteerHint()
+        } else {
+          turnStore.removePendingMessage(sid, msgId)
+          const options: SendOptions | undefined = todoReferences.length > 0 ? { todoReferences } : undefined
+          if (options) emit('send', decision.content, decision.attachments, options)
+          else emit('send', decision.content, decision.attachments)
+        }
+      }
       break
     }
   }

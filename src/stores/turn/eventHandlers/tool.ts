@@ -19,6 +19,7 @@ export function createToolHandlers(ctx: EventHandlerContext) {
     updateTaskStateFromToolResult,
     recordWriteToLedger,
     maybeAutoPreviewArtifact,
+    onToolSettled,
   } = ctx
   const { updateTimelineEvent, addToolTimelineEvent } = timeline
 
@@ -168,6 +169,9 @@ export function createToolHandlers(ctx: EventHandlerContext) {
         }
       }
     }
+
+    // 插话请求可能就等在这次工具收尾：交给 turn store 判断是否已到安全点
+    onToolSettled?.(sessionId, ts)
   }
 
   return { handleToolUse, handleToolResult }

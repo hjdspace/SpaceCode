@@ -1032,10 +1032,17 @@ watch(
 )
 
 // AI 回复完成后，自动发送 pending 队列中的消息
+/** 插话收口后稍等再发出：被中断回合迟到的 result 不该记到下面刚开的新回合头上 */
+const STEER_FLUSH_DELAY_MS = 600
+
 watch(() => paneIsLoading.value, async (loading, prevLoading) => {
   if (prevLoading && !loading) {
     const sid = paneSessionId.value
     if (!sid) return
+
+    if (turnStore.consumeSteerAbortFlush(sid)) {
+      await new Promise(resolve => setTimeout(resolve, STEER_FLUSH_DELAY_MS))
+    }
 
     // 将暂存的 prompt（Ctrl+S）转为 pending message，由下方逻辑自动发送
     if (sessionStore.hasStash(sid)) {

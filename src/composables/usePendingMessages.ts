@@ -64,6 +64,9 @@ export function usePendingMessages(options: UsePendingMessagesOptions) {
   function sendPendingNow(msgId: string) {
     const sid = sessionId.value
     if (!sid) return
+    // 有在飞回合：提到队首并在安全点打断，回合收口后由宿主的队列接棒自动发出。
+    // 直接 send 会撞上在飞检查（正文到不了引擎），所以这里必须先走插话通道。
+    if (turnStore.steerPendingMessage(sid, msgId)) return
     const recalled = turnStore.recallPendingMessage(sid, msgId)
     if (!recalled) return
     const allAttachments = collectAllAttachments(

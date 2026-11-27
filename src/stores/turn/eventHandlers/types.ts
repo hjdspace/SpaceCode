@@ -117,6 +117,11 @@ export interface EventReducerOptions {
    * 编排引擎订阅此信号作为节点完成信号源。
    */
   onTurnOutcome?: (sessionId: string, outcome: 'settled' | 'failed' | 'aborted') => void
+  /**
+   * 工具结果回包后回调：turn store 据此判断「插话」请求是否已到安全点
+   * （所有在跑工具收尾），到点则中止当前回合让排队消息接棒。
+   */
+  onToolSettled?: (sessionId: string, ts: TurnState) => void
 }
 
 export interface EventReducer {

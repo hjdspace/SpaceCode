@@ -29,6 +29,24 @@ export interface TurnState {
   currentStreamingToolId: string | null
   /** 累积每个工具的 input_json_delta 分片，content_block_stop 时整体解析 */
   streamingToolJson: Map<string, string>
+  /**
+   * 用户请求在当前回合的安全点（所有在跑工具收尾后）中止本轮，
+   * 好让待发送队列里的「立即发送」消息接棒成为新回合。
+   */
+  steerRequested?: boolean
+}
+
+/**
+ * sendMessage 遇到同会话已有在飞回合时抛出：这条正文不会被派发给引擎。
+ * 调用方应改用 steerPendingMessage（立即发送）或等回合收口后重发。
+ */
+export class TurnInFlightError extends Error {
+  readonly code = 'turn-in-flight'
+
+  constructor(sessionId: string) {
+    super(`a turn is already in flight for session ${sessionId}`)
+    this.name = 'TurnInFlightError'
+  }
 }
 
 export const MAX_INMEMORY_TOOL_OUTPUT = 30_000

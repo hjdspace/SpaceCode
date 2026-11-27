@@ -147,20 +147,23 @@ describe('command chip 分支', () => {
 })
 
 describe('AI 回复期间分支', () => {
-  it('默认排队：priority 由调用方补，这里给出去重后的正文与摘要', () => {
+  it('默认排队：priority=later，正文与摘要原样带出', () => {
     expect(resolveComposerSubmission(input({ isSending: true, content: 'queued' }))).toEqual({
       kind: 'queue',
       content: 'queued',
       attachments: noAttachments,
       displayLabel: 'queued',
+      priority: 'later',
     })
   })
 
-  it('steerMode → 立即 send，不带 options', () => {
+  it('steerMode → 标记插话 priority=now，仍走队列由宿主在安全点插入', () => {
     expect(resolveComposerSubmission(input({ isSending: true, steerMode: true }))).toEqual({
-      kind: 'send',
+      kind: 'queue',
       content: 'hello',
       attachments: noAttachments,
+      displayLabel: 'hello',
+      priority: 'now',
     })
   })
 
@@ -177,6 +180,7 @@ describe('AI 回复期间分支', () => {
       content: '',
       attachments: { files: [], images },
       displayLabel: '',
+      priority: 'later',
     })
   })
 
@@ -186,6 +190,6 @@ describe('AI 回复期间分支', () => {
   })
 
   it('回复期间不受 disabled 约束（仍可插话）', () => {
-    expect(resolveComposerSubmission(input({ isSending: true, disabled: true, steerMode: true })).kind).toBe('send')
+    expect(resolveComposerSubmission(input({ isSending: true, disabled: true, steerMode: true })).kind).toBe('queue')
   })
 })

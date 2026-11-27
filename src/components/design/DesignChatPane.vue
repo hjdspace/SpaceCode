@@ -138,10 +138,15 @@ async function onSend(content: string, attachments: AllAttachments) {
     messageContent += `\n\nImages: ${imageInfo}`
   }
 
-  await turnStore.sendMessage(messageContent, content, {
-    files: attachments.files,
-    images: attachments.images,
-  })
+  try {
+    await turnStore.sendMessage(messageContent, content, {
+      files: attachments.files,
+      images: attachments.images,
+    })
+  } catch (error) {
+    // 在飞检查会拒绝这次派发（消息没送到引擎）
+    console.error('[Design] sendMessage rejected:', error)
+  }
 }
 
 function onStop() {

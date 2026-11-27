@@ -239,7 +239,7 @@ describe('ChatInput · AI 回复期间（排队 vs steering）', () => {
     expect(editorEl(wrapper).textContent).toBe('')
   })
 
-  it('Ctrl+Enter 立即插话：发 send 且不入队', async () => {
+  it('Ctrl+Enter 立即插话：没有在飞回合时直接发送且不入队', async () => {
     const wrapper = mountInput({ isSending: true })
     await flushPromises()
 
@@ -248,6 +248,22 @@ describe('ChatInput · AI 回复期间（排队 vs steering）', () => {
 
     expect(emitOf(wrapper, 'send')).toEqual([['steer now', { files: [], images: [] }]])
     expect(turnStore.getPendingMessages(SESSION)).toHaveLength(0)
+  })
+
+  it('Ctrl+Enter 有在飞回合时进入插话队列（priority now），不直接 send', async () => {
+    useChatSessionStore().createSession('Test', undefined, SESSION)
+    const wrapper = mountInput({ isSending: true })
+    await flushPromises()
+    ;(turnStore as any).beginTurn(SESSION, { isAutonomous: false })
+
+    wrapper.vm.setContent('steer now')
+    await pressEnter(wrapper, { ctrl: true })
+
+    expect(emitOf(wrapper, 'send')).toHaveLength(0)
+    expect(turnStore.getPendingMessages(SESSION)).toMatchObject([
+      { content: 'steer now', priority: 'now' },
+    ])
+    expect(editorEl(wrapper).textContent).toBe('')
   })
 
   it('停止按钮在 isSending 时发 stop 而非 send', async () => {

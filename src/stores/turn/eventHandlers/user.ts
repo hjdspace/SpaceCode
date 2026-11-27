@@ -23,6 +23,7 @@ export function createUserHandlers(ctx: EventHandlerContext) {
     isObserved,
     recordWriteToLedger,
     maybeAutoPreviewArtifact,
+    onToolSettled,
   } = ctx
   const { updateTimelineEvent } = timeline
 
@@ -159,6 +160,9 @@ export function createUserHandlers(ctx: EventHandlerContext) {
         }
       }
     }
+
+    // claude-code 的 tool_result 走 user 帧：插话请求在这里同样要判断安全点
+    onToolSettled?.(sessionId, ts)
   }
 
   return { handleRemoteUserMessage, handleUser }

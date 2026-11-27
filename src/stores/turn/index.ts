@@ -21,7 +21,7 @@ import {
 } from '@/services/teamTranscriptService'
 import { useAutoRetry } from '@/composables/useAutoRetry'
 import type { GenuiSubmissionUserMessageMetadata } from '@/types/genui'
-import type { PendingMessage, TurnState } from './types'
+import { TurnInFlightError, type PendingMessage, type TurnState } from './types'
 import { createTimelineAssembler } from './timelineAssembler'
 import { createTurnStateMachine } from './turnStateMachine'
 import { createEventHandlers, isSyntheticApiErrorAssistant } from './eventHandlers'
@@ -32,7 +32,7 @@ import { createUuid } from '@/utils/uuid'
 
 // Re-export — 外部模块通过 @/stores/turn 导入这些符号
 export type { TurnState } from './types'
-export { MAX_INMEMORY_TOOL_OUTPUT } from './types'
+export { MAX_INMEMORY_TOOL_OUTPUT, TurnInFlightError } from './types'
 
 // ADR-0003: Turn store 必须在 WebSocket 连接前完成订阅注册。
 // 模块级 initialized 标记：store 工厂首次实例化时记录一次初始化日志，
@@ -103,6 +103,18 @@ export function useTurnStore(injectedApi?: any) {
     function addPendingMessage(sessionId: string, msg: PendingMessage) {
       const queue = pendingMessages.value.get(sessionId) || []
       queue.push(msg)
+      pendingMessages.value.set(sessionId, queue)
+    }
+
+    /**
+     * 插话消息要排在所有普通排队消息之前 —— 它被请求的是“现在就发”。
+     * 多次插话保持先后：排在上一条待插入之后，但仍在普通排队之前。
+     */
+    function addPendingMessageAtFront(sessionId: string, msg: PendingMessage) {
+      const queue = pendingMessages.value.get(sessionId) || []
+      let idx = 0
+      while (idx < queue.length && queue[idx].priority === 'now') idx++
+      queue.splice(idx, 0, msg)
       pendingMessages.value.set(sessionId, queue)
     }
 
@@ -410,6 +422,8 @@ export function useTurnStore(injectedApi?: any) {
           try { listener(sessionId, outcome) } catch { /* listener 错误不影响 turn 流程 */ }
         }
       },
+      // 工具状态变化后判断插话是否已到安全点（工具全部收尾）
+      onToolSettled: (sessionId: string) => maybeAbortForSteer(sessionId),
     })
 
     const {
@@ -418,6 +432,80 @@ export function useTurnStore(injectedApi?: any) {
       endTurn,
       ensureTurn,
     } = stateMachine
+
+    // ────────────────────────────────────────────────────────────────────
+    // 「立即发送 / 插话」：把队列消息提到队首，并在安全点（无在跑工具）结束
+    // 当前回合；回合收口后宿主侧的队列接棒逻辑把它作为新回合发出。
+    // ────────────────────────────────────────────────────────────────────
+
+    /** 等当前工具收尾的最长时限：async Agent 之类可能迟迟不出结果 */
+    const STEER_BOUNDARY_TIMEOUT_MS = 15_000
+    const steerTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    /** 插话触发的收口：宿主 flush 队列前多等一下，别让旧回合迟到的 result 记到新回合头上 */
+    const steerAbortFlushes = new Set<string>()
+
+    function clearSteerTimer(sessionId: string): void {
+      const timer = steerTimers.get(sessionId)
+      if (timer) {
+        clearTimeout(timer)
+        steerTimers.delete(sessionId)
+      }
+    }
+
+    /** 当前回合是否还有在跑 / 待授权的工具 */
+    function hasRunningTools(sessionId: string): boolean {
+      const ts = turnStates.get(sessionId)
+      if (!ts) return false
+      const msg = sink.get(sessionId)?.messages.find(m => m.id === ts.assistantMessageId)
+      return !!msg?.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
+    }
+
+    /** 工具回包后调用：插话请求已到安全点就中止本轮 */
+    function maybeAbortForSteer(sessionId: string): void {
+      const ts = turnStates.get(sessionId)
+      if (!ts || ts.settled || !ts.steerRequested) return
+      if (hasRunningTools(sessionId)) return
+      ts.steerRequested = false
+      clearSteerTimer(sessionId)
+      sessionStore.logger.info('ChatStore', `steer boundary reached, aborting current turn | sessionId=${sessionId.slice(0, 8)}`)
+      void abort(sessionId, { reason: 'steer' })
+    }
+
+    /**
+     * 「立即发送」：把消息提到队首并在安全点结束当前回合。
+     * 返回 false 表示当前没有在飞回合 —— 调用方应立即按普通发送处理。
+     */
+    function steerPendingMessage(sessionId: string, msgId: string): boolean {
+      const ts = turnStates.get(sessionId)
+      if (!ts || ts.settled) return false
+
+      const recalled = recallPendingMessage(sessionId, msgId)
+      if (!recalled) return false
+      addPendingMessageAtFront(sessionId, { ...recalled, priority: 'now' })
+
+      if (hasRunningTools(sessionId)) {
+        // 工具还在跑：等它收尾再打断，别把文件写入 / 命令砍在半路
+        ts.steerRequested = true
+        clearSteerTimer(sessionId)
+        steerTimers.set(sessionId, setTimeout(() => {
+          steerTimers.delete(sessionId)
+          if (turnStates.get(sessionId) !== ts || !ts.steerRequested) return
+          sessionStore.logger.warn('ChatStore', `steer boundary timeout, aborting current turn | sessionId=${sessionId.slice(0, 8)}`)
+          ts.steerRequested = false
+          void abort(sessionId, { reason: 'steer' })
+        }, STEER_BOUNDARY_TIMEOUT_MS))
+        sessionStore.logger.info('ChatStore', `steer queued until tool boundary | sessionId=${sessionId.slice(0, 8)}`)
+        return true
+      }
+
+      void abort(sessionId, { reason: 'steer' })
+      return true
+    }
+
+    /** 宿主 flush 队列前消费：true = 这次收口是插话触发的 */
+    function consumeSteerAbortFlush(sessionId: string): boolean {
+      return steerAbortFlushes.delete(sessionId)
+    }
 
     const {
       handleRemoteUserMessage,
@@ -464,11 +552,22 @@ export function useTurnStore(injectedApi?: any) {
       }
       // ★ 清除用户中止标记：用户主动发新消息时恢复正常运行
       userAbortedSessions.delete(targetSessionId)
+      steerAbortFlushes.delete(targetSessionId)
       autoRetry.removeRetryState(targetSessionId)
       const session = sink.get(targetSessionId)
       if (!session) {
         options?.onDispatched?.(new Error(`session ${targetSessionId} not found`))
         return
+      }
+
+      // 已有在飞回合：这条正文不会被派发。以前是先贴气泡再静默丢弃，屏幕上会留下
+      // 一条永远等不到回复的孤儿消息。这里提前拦下，转交“立即发送”或回合后重发。
+      const liveTurn = turnStates.get(targetSessionId)
+      if (liveTurn && !liveTurn.settled) {
+        sessionStore.logger.warn('ChatStore', `sendMessage: turn already in flight, rejecting | sessionId=${targetSessionId.slice(0, 8)}`)
+        const inFlightError = new TurnInFlightError(targetSessionId)
+        options?.onDispatched?.(inFlightError)
+        throw inFlightError
       }
 
       loadingSessions.value.set(targetSessionId, true)
@@ -556,8 +655,18 @@ export function useTurnStore(injectedApi?: any) {
         if (!inFlight.settled) {
           sessionStore.logger.warn('ChatStore', `sendMessage: a turn is already in flight for this session, skipping new turn setup | sessionId=${targetSessionId.slice(0, 8)}`)
           pendingSendMessages.delete(targetSessionId)
-          options?.onDispatched?.(new Error('a turn is already in flight for this session'))
-          return
+          // 撤回上面刚贴上的气泡：它到不了引擎，留着就是一条等不到回复的孤儿
+          if (!options?.hideUserMessage) {
+            const s = sink.get(targetSessionId)
+            const idx = s?.messages.findIndex(m => m.id === userMessage.id) ?? -1
+            if (s && idx >= 0) {
+              s.messages.splice(idx, 1)
+              sink.persist(targetSessionId)
+            }
+          }
+          const inFlightError = new TurnInFlightError(targetSessionId)
+          options?.onDispatched?.(inFlightError)
+          throw inFlightError
         }
         // settled 的是停在退避里的僵尸（见 releaseParkedTurn）。用户消息此刻已经
         // 贴上屏幕，在这里 return 就等于把它吞掉 —— 收口后照常开新回合。
@@ -698,15 +807,29 @@ export function useTurnStore(injectedApi?: any) {
       userAbortedSessions.delete(sessionId)
     }
 
-    /** 中止指定会话的当前 turn；缺省为目标为全局 currentSessionId。 */
-    async function abort(targetSessionId?: string): Promise<void> {
+    /**
+     * 中止指定会话的当前 turn；缺省为目标为全局 currentSessionId。
+     * reason='steer' 是“立即发送”在安全点触发的收尾：不动 goal 的暂停状态，
+     * 只把这一轮让给排队里的补充消息。
+     */
+    async function abort(
+      targetSessionId?: string,
+      options: { reason?: 'user' | 'steer' } = {},
+    ): Promise<void> {
       const sid = targetSessionId ?? sessionStore.currentSessionId
-      sessionStore.logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'}`)
+      const reason = options.reason ?? 'user'
+      sessionStore.logger.info('ChatStore', `abort | sessionId=${sid?.slice(0, 8) || '(none)'} | reason=${reason}`)
 
       if (sid) {
         // ★ 在 await 之前先标记用户主动中止，防止 await 期间引擎错误事件
         // 到达后通过 handleError → shouldAutoRetry 触发自动重试。
         userAbortedSessions.add(sid)
+        clearSteerTimer(sid)
+        const current = turnStates.get(sid)
+        if (current) current.steerRequested = false
+        // 即使回合已在 await 期间被引擎收口，也要让宿主那侧的 flush 等一下：
+        // 被中断回合迟到的 result 不能记到紧接着开的新回合头上
+        if (reason === 'steer') steerAbortFlushes.add(sid)
       }
 
       const claudeCode = resolvedApi.claudeCode
@@ -752,8 +875,9 @@ export function useTurnStore(injectedApi?: any) {
           }
         }
 
-        // ★ 用户主动中止 → 暂停该会话的 goal，防止结算钩子继续自动续跑
-        goalStore.pauseGoal(sid)
+        // ★ 用户主动中止 → 暂停该会话的 goal，防止结算钩子继续自动续跑。
+        // 插话不是放弃目标：它只换一句补充，暂停会让 /goal 的自动续跑断掉。
+        if (reason === 'user') goalStore.pauseGoal(sid)
       }
     }
 
@@ -1413,6 +1537,9 @@ export function useTurnStore(injectedApi?: any) {
       recallPendingMessage,
       getPendingMessages,
       clearPendingMessages,
+      // 立即发送：安全点中止当前回合，队列在收口后接棒
+      steerPendingMessage,
+      consumeSteerAbortFlush,
       // auto-retry 状态机（任务 9 迁移）
       retryStates: autoRetry.retryStates,
       cancelRetry,

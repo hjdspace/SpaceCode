@@ -8,7 +8,7 @@
     >
       <Clock :size="14" class="pending-icon" />
       <span class="pending-text">{{ msg.displayLabel || msg.content }}</span>
-      <span class="pending-priority-tag">{{ msg.priority === 'later' ? t('chatInput.priorityLater') : t('chatInput.priorityNow') }}</span>
+      <span class="pending-priority-tag">{{ msg.priority === 'later' ? t('chatInput.priorityLater') : t('chatInput.priorityNowPending') }}</span>
       <button class="pending-action-btn" @click="emit('send-now', msg.id)" :title="t('chatInput.sendPendingNow')">
         <ArrowUp :size="14" />
       </button>

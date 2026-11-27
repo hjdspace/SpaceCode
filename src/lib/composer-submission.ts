@@ -18,7 +18,7 @@ export interface ComposerSubmissionInput {
   /** 编辑器里的命令 chip，按 DOM 顺序 */
   chips: CommandChipData[]
   isSending: boolean
-  /** Ctrl/Cmd+Enter：回复期间立即插话而不是排队 */
+  /** Ctrl/Cmd+Enter：回复期间把消息标记为插话（安全点插入），而不是普通排队 */
   steerMode: boolean
   disabled: boolean
   /** 斜杠命令面板或 @ 上下文菜单正开着，Enter 属于菜单而不是发送 */
@@ -31,7 +31,8 @@ export type ComposerSubmission =
   | { kind: 'none' }
   | { kind: 'send'; content: string; attachments: AllAttachments; options?: SendOptions }
   | { kind: 'slash'; command: string; args: string; attachments: AllAttachments; displayLabel?: string }
-  | { kind: 'queue'; content: string; attachments: AllAttachments; displayLabel: string }
+  /** priority='now' = 插话（Ctrl+Enter）：由宿主在安全点插入；'later' = 等回合结束后自动发送 */
+  | { kind: 'queue'; content: string; attachments: AllAttachments; displayLabel: string; priority: 'now' | 'later' }
 
 /** 引用块作为正文前缀；两者都为空时返回空串 */
 export function composeSendContent(content: string, quoteBlock: string): string {
@@ -99,17 +100,17 @@ export function resolveComposerSubmission(input: ComposerSubmissionInput): Compo
   const sendContent = composeSendContent(content, quoteBlock)
 
   if (input.isSending) {
-    // 回复期间仍可编辑：有内容就排队，插话则立即发送；没有会话 id 时排队无处可去。
+    // 回复期间仍可编辑：有内容就排队。Ctrl+Enter 不再直接 send（那条路会被在飞检查
+    // 吞掉），而是标记 now，交给宿主在当前步骤的安全点插入。
     const hasAnything = !!sendContent || attachments.files.length > 0 || attachments.images.length > 0
     if (!hasAnything || !input.sessionId) return { kind: 'none' }
-    return input.steerMode
-      ? { kind: 'send', content: sendContent, attachments }
-      : {
-          kind: 'queue',
-          content: sendContent,
-          attachments,
-          displayLabel: sendContent.slice(0, 80),
-        }
+    return {
+      kind: 'queue',
+      content: sendContent,
+      attachments,
+      displayLabel: sendContent.slice(0, 80),
+      priority: input.steerMode ? 'now' : 'later',
+    }
   }
 
   if (input.disabled || input.menuOpen || !input.hasContent) return { kind: 'none' }
